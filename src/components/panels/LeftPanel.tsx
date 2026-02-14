@@ -2,7 +2,7 @@ import { memo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import TargetItemsGrid, { type ProductionTarget } from "./TargetItemsGrid";
 import ProductionStats from "../production/ProductionStats";
-import type { Facility, Item } from "@/types";
+import type { Facility, Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
 
 type LeftPanelProps = {
@@ -11,7 +11,7 @@ type LeftPanelProps = {
   facilities: Facility[];
   totalPowerConsumption: number;
   productionSteps: number;
-  rawMaterialCount: number;
+  rawMaterialRequirements: Map<ItemId, number>;
   facilityRequirements: Map<string, number>;
   error: string | null;
   onTargetChange: (index: number, rate: number) => void;
@@ -25,7 +25,7 @@ const LeftPanel = memo(function LeftPanel({
   facilities,
   totalPowerConsumption,
   productionSteps,
-  rawMaterialCount,
+  rawMaterialRequirements,
   facilityRequirements,
   error,
   onTargetChange,
@@ -58,9 +58,10 @@ const LeftPanel = memo(function LeftPanel({
       <ProductionStats
         totalPowerConsumption={totalPowerConsumption}
         productionSteps={productionSteps}
-        rawMaterialCount={rawMaterialCount}
+        rawMaterialRequirements={rawMaterialRequirements}
         facilityRequirements={facilityRequirements}
         facilities={facilities}
+        items={items}
         error={error}
       />
     </div>

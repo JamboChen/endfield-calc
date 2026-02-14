@@ -57,7 +57,7 @@ export default function App() {
               facilities={facilities}
               totalPowerConsumption={stats.totalPowerConsumption}
               productionSteps={stats.uniqueProductionSteps}
-              rawMaterialCount={stats.rawMaterialRequirements.size}
+              rawMaterialRequirements={stats.rawMaterialRequirements}
               facilityRequirements={stats.facilityRequirements}
               error={error}
               onTargetChange={handleTargetChange}

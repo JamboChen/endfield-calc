@@ -1,1 +1,8 @@
-{ "powerUnit": "kW", "productionSteps": "Pasos de Producción", "rawMaterials": "Materias Primas", "title": "Estadísticas de Producción", "totalPower": "Energía Total" }
+{
+  "powerUnit": "kW",
+  "productionSteps": "Pasos de Producción",
+  "rawMaterialUsage": "Uso de Materias Primas",
+  "rawMaterials": "Materias Primas",
+  "title": "Estadísticas de Producción",
+  "totalPower": "Energía Total"
+}

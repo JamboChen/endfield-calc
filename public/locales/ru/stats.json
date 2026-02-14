@@ -1,1 +1,8 @@
-{ "powerUnit": "кВт", "productionSteps": "Этапы производства", "rawMaterials": "Сырьё", "title": "Статистика производства", "totalPower": "Общая энергия" }
+{
+  "powerUnit": "кВт",
+  "productionSteps": "Этапы производства",
+  "rawMaterialUsage": "Расход сырья",
+  "rawMaterials": "Сырьё",
+  "title": "Статистика производства",
+  "totalPower": "Общая энергия"
+}

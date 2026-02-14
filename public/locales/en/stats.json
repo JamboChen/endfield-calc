@@ -1,6 +1,8 @@
 {
   "powerUnit": "kW",
   "productionSteps": "Production Steps",
+  
+  "rawMaterialUsage": "Raw Material Usage",
   "rawMaterials": "Raw Materials",
   "title": "Production Statistics",
   "totalPower": "Total Power"
