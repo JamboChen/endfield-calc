@@ -5,6 +5,7 @@
   "cancel": "취소",
   "clearQueue": "초기화",
   "defaultRate": "기본 비율",
+  "dialogDescription": "생산 목표로 추가할 아이템을 검색하고 선택하세요",
   "hint": "선택됨: {{selected}}",
   "maxReached": "최대 목표 수에 도달했습니다 ({{max}})",
   "noIcon": "없음",

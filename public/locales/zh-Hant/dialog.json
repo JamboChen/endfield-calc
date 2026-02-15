@@ -5,6 +5,7 @@
   "cancel": "取消",
   "clearQueue": "清空",
   "defaultRate": "默認產量",
+  "dialogDescription": "搜尋並選擇要添加為生產目標的物品",
   "hint": "已選擇: {{selected}}",
   "maxReached": "已達到最大目標數 ({{max}})",
   "noIcon": "無",

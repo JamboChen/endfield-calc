@@ -85,7 +85,6 @@ export default function App() {
             onOpenChange={setDialogOpen}
             items={items}
             existingTargetIds={targets.map((t) => t.itemId)}
-            existingTargetCount={targets.length}
             onBatchAddTargets={handleBatchAddTargets}
           />
 

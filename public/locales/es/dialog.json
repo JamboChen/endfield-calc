@@ -5,6 +5,7 @@
   "cancel": "Cancelar",
   "clearQueue": "Limpiar",
   "defaultRate": "Tasa predeterminada",
+  "dialogDescription": "Busca y selecciona objetos para agregar como objetivos de producción",
   "hint": "Seleccionado: {{selected}}",
   "maxReached": "Máximo de objetivos alcanzado ({{max}})",
   "noIcon": "Ninguno",

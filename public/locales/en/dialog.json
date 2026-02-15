@@ -5,6 +5,7 @@
   "cancel": "Cancel",
   "clearQueue": "Clear",
   "defaultRate": "Default Rate",
+  "dialogDescription": "Search and select items to add as production targets",
   "hint": "Selected: {{selected}}",
   "maxReached": "Maximum targets reached ({{max}})",
   "noIcon": "None",

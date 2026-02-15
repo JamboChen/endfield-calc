@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -25,7 +26,6 @@ export type AddTargetDialogGridProps = {
   onOpenChange: (open: boolean) => void;
   items: Item[];
   existingTargetIds: ItemId[];
-  existingTargetCount: number;
   onBatchAddTargets: (targets: QueuedItem[]) => void;
 };
 
@@ -36,7 +36,6 @@ export default function AddTargetDialogGrid({
   onOpenChange,
   items,
   existingTargetIds,
-  existingTargetCount,
   onBatchAddTargets,
 }: AddTargetDialogGridProps) {
   const { t } = useTranslation("dialog");
@@ -46,6 +45,8 @@ export default function AddTargetDialogGrid({
   const [activeTier, setActiveTier] = useState<number | null>(null);
   const [defaultRate, setDefaultRate] = useState(6);
   const [queue, setQueue] = useState<QueuedItem[]>([]);
+
+  const existingTargetCount = existingTargetIds.length;
 
   /* Reset state when dialog opens */
   useEffect(() => {
@@ -71,6 +72,12 @@ export default function AddTargetDialogGrid({
     );
   }, [items, existingTargetIds]);
 
+  /* Pre-computed lowercase names to avoid repeated i18n lookups while typing */
+  const searchIndex = useMemo(
+    () => new Map(availableItems.map((item) => [item.id, getItemName(item).toLowerCase()])),
+    [availableItems],
+  );
+
   const filteredItems = useMemo(() => {
     let result = availableItems;
     if (activeTier !== null) {
@@ -79,12 +86,12 @@ export default function AddTargetDialogGrid({
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter((item) => {
-        const name = getItemName(item).toLowerCase();
+        const name = searchIndex.get(item.id) ?? "";
         return name.includes(q) || item.id.toLowerCase().includes(q);
       });
     }
     return result;
-  }, [availableItems, activeTier, searchQuery]);
+  }, [availableItems, searchIndex, activeTier, searchQuery]);
 
   /* Tier counts for filter chips */
   const tierCounts = useMemo(() => {
@@ -150,6 +157,10 @@ export default function AddTargetDialogGrid({
     onOpenChange(false);
   }, [queue, onBatchAddTargets, onOpenChange]);
 
+  const handleClearQueue = useCallback(() => setQueue([]), []);
+
+  const handleCancel = useCallback(() => onOpenChange(false), [onOpenChange]);
+
   const handleDoubleClick = useCallback(
     (itemId: ItemId) => {
       const currentQueue = queueRef.current;
@@ -173,6 +184,9 @@ export default function AddTargetDialogGrid({
           <DialogTitle className="tracking-tight">
             {t("title")}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("dialogDescription")}
+          </DialogDescription>
         </DialogHeader>
 
         {/* ── Search + controls bar ── */}
@@ -241,8 +255,21 @@ export default function AddTargetDialogGrid({
               </Label>
               <Input
                 type="number"
-                value={defaultRate}
-                onChange={(e) => setDefaultRate(Number(e.target.value))}
+                value={defaultRate === 0 ? "" : defaultRate}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "") {
+                    setDefaultRate(0);
+                  } else {
+                    const num = Number(val);
+                    if (!isNaN(num)) setDefaultRate(num);
+                  }
+                }}
+                onBlur={(e) => {
+                  if (e.target.value === "" || Number(e.target.value) < 1) {
+                    setDefaultRate(1);
+                  }
+                }}
                 className="h-8 w-20 text-xs text-center font-mono"
                 min="1"
                 step="1"
@@ -298,9 +325,9 @@ export default function AddTargetDialogGrid({
           remainingSlots={remainingSlots}
           onUpdateRate={updateQueueRate}
           onRemove={removeFromQueue}
-          onClear={() => setQueue([])}
+          onClear={handleClearQueue}
           onConfirm={handleConfirm}
-          onCancel={() => onOpenChange(false)}
+          onCancel={handleCancel}
         />
       </DialogContent>
     </Dialog>
@@ -328,7 +355,7 @@ const ItemCell = memo(function ItemCell({
 
   return (
     <button
-      onClick={() => onToggle(item.id)}
+      onClick={(e) => { if (e.detail === 1) onToggle(item.id); }}
       onDoubleClick={() => onDoubleClick(item.id)}
       disabled={isDisabled}
       title={getItemName(item)}
@@ -394,7 +421,7 @@ type StagingBarProps = {
   onCancel: () => void;
 };
 
-function StagingBar({
+const StagingBar = memo(function StagingBar({
   queue,
   itemMap,
   remainingSlots,
@@ -532,4 +559,4 @@ function StagingBar({
       </div>
     </div>
   );
-}
+});
