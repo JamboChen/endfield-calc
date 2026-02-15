@@ -1,13 +1,19 @@
 {
-  "add": "추가",
-  "allItemsAdded": "모든 아이템이 추가되었습니다",
+  "addN": "{{count}}개 아이템 추가",
+  "addN_other": "{{count}}개 아이템 추가",
+  "allItemsAdded": "모든 아이템이 목표로 추가되었습니다",
   "cancel": "취소",
-  "clickToSelectDoubleClickToAdd": "",
+  "clearQueue": "초기화",
   "defaultRate": "기본 비율",
-  "hint": "💡 더블 클릭으로 빠르게 추가 | 선택됨: {{selected}}",
+  "hint": "선택됨: {{selected}}",
+  "maxReached": "최대 목표 수에 도달했습니다 ({{max}})",
   "noIcon": "없음",
   "noMatchingItems": "일치하는 아이템을 찾을 수 없습니다",
+  "queueEmpty": "위의 아이템을 클릭하여 대기열에 추가하세요",
+  "queueTitle": "대기열",
   "rateUnit": "분당",
   "searchPlaceholder": "아이템 검색...",
+  "tierAll": "전체",
+  "tierLabel": "Q{{tier}}",
   "title": "목표 아이템 선택"
 }

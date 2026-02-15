@@ -10,4 +10,6 @@ const forcedRawMaterials = new Set<ItemId>([
   "item_liquid_water",
 ]);
 
-export { items, facilities, recipes, forcedRawMaterials };
+const MAX_TARGETS = 12;
+
+export { items, facilities, recipes, forcedRawMaterials, MAX_TARGETS };

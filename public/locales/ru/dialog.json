@@ -1,13 +1,21 @@
 {
-  "add": "Добавить",
-  "allItemsAdded": "Все предметы добавлены",
+  "addN": "Добавить {{count}} предмет",
+  "addN_few": "Добавить {{count}} предмета",
+  "addN_many": "Добавить {{count}} предметов",
+  "addN_other": "Добавить {{count}} предметов",
+  "allItemsAdded": "Все предметы добавлены как цели",
   "cancel": "Отмена",
-  "clickToSelectDoubleClickToAdd": "",
+  "clearQueue": "Очистить",
   "defaultRate": "Скорость по умолчанию",
-  "hint": "💡 Двойной щелчок для быстрого добавления | Выбрано: {{selected}}",
+  "hint": "Выбрано: {{selected}}",
+  "maxReached": "Достигнут максимум целей ({{max}})",
   "noIcon": "Нет",
   "noMatchingItems": "Совпадений не найдено",
+  "queueEmpty": "Нажмите на предметы выше, чтобы добавить их в очередь",
+  "queueTitle": "Очередь",
   "rateUnit": "в мин",
   "searchPlaceholder": "Поиск предметов...",
-  "title": "Выбор целевого предмета"
+  "tierAll": "Все",
+  "tierLabel": "Q{{tier}}",
+  "title": "Выбор целевых предметов"
 }

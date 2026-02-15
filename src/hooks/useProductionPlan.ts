@@ -1,5 +1,5 @@
 import { calculateProductionPlan } from "@/lib/calculator";
-import { items, recipes, facilities } from "@/data";
+import { items, recipes, facilities, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback } from "react";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
 import type { ItemId, RecipeId, ProductionDependencyGraph, ProductionGraphNode } from "@/types";
@@ -79,9 +79,16 @@ export function useProductionPlan() {
     setTargets((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const handleAddTarget = useCallback((itemId: ItemId, rate: number) => {
-    setTargets((prev) => [...prev, { itemId, rate }]);
-  }, []);
+  const handleBatchAddTargets = useCallback(
+    (newTargets: { itemId: ItemId; rate: number }[]) => {
+      setTargets((prev) => {
+        const existingIds = new Set(prev.map((t) => t.itemId));
+        const unique = newTargets.filter((t) => !existingIds.has(t.itemId));
+        return [...prev, ...unique].slice(0, MAX_TARGETS);
+      });
+    },
+    [],
+  );
 
   const handleRecipeChange = useCallback(
     (itemId: ItemId, recipeId: RecipeId) => {
@@ -127,7 +134,7 @@ export function useProductionPlan() {
     setCeilMode,
     handleTargetChange,
     handleTargetRemove,
-    handleAddTarget,
+    handleBatchAddTargets,
     handleToggleRawMaterial,
     handleRecipeChange,
     handleAddClick,

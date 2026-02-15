@@ -25,7 +25,7 @@ export default function App() {
     error,
     handleTargetChange,
     handleTargetRemove,
-    handleAddTarget,
+    handleBatchAddTargets,
     handleToggleRawMaterial,
     handleRecipeChange,
     handleAddClick,
@@ -47,7 +47,7 @@ export default function App() {
   return (
     <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
       <TooltipProvider>
-        <div className="h-screen flex flex-col p-4 pb-0 gap-4">
+        <div className="h-screen flex flex-col p-4 pb-0 gap-4 overflow-x-hidden">
           <AppHeader onLanguageChange={handleLanguageChange} />
 
           <div className="flex-1 flex gap-4 min-h-0">
@@ -85,7 +85,8 @@ export default function App() {
             onOpenChange={setDialogOpen}
             items={items}
             existingTargetIds={targets.map((t) => t.itemId)}
-            onAddTarget={handleAddTarget}
+            existingTargetCount={targets.length}
+            onBatchAddTargets={handleBatchAddTargets}
           />
 
           <AppFooter />

@@ -1,13 +1,19 @@
 {
-  "add": "追加",
-  "allItemsAdded": "すべてのアイテムが追加されました",
+  "addN": "{{count}}個のアイテムを追加",
+  "addN_other": "{{count}}個のアイテムを追加",
+  "allItemsAdded": "すべてのアイテムが目標として追加されました",
   "cancel": "キャンセル",
-  "clickToSelectDoubleClickToAdd": "",
+  "clearQueue": "クリア",
   "defaultRate": "デフォルトレート",
-  "hint": "💡 ダブルクリックですばやく追加 | 選択中: {{selected}}",
+  "hint": "選択中: {{selected}}",
+  "maxReached": "最大目標数に達しました ({{max}})",
   "noIcon": "なし",
   "noMatchingItems": "一致するアイテムが見つかりません",
+  "queueEmpty": "上のアイテムをクリックしてキューに追加",
+  "queueTitle": "キュー",
   "rateUnit": "毎分",
   "searchPlaceholder": "アイテムを検索...",
+  "tierAll": "すべて",
+  "tierLabel": "Q{{tier}}",
   "title": "目標アイテムを選択"
 }

@@ -1,13 +1,19 @@
 {
-  "add": "添加",
-  "allItemsAdded": "所有物品都已添加",
+  "addN": "添加 {{count}} 個物品",
+  "addN_other": "添加 {{count}} 個物品",
+  "allItemsAdded": "所有物品都已添加為目標",
   "cancel": "取消",
-  "clickToSelectDoubleClickToAdd": "",
+  "clearQueue": "清空",
   "defaultRate": "默認產量",
-  "hint": "💡 雙擊物品可快速添加 | 已選擇: {{selected}}",
+  "hint": "已選擇: {{selected}}",
+  "maxReached": "已達到最大目標數 ({{max}})",
   "noIcon": "無",
   "noMatchingItems": "未找到匹配的物品",
+  "queueEmpty": "點擊上方物品將其加入佇列",
+  "queueTitle": "佇列",
   "rateUnit": "個/分",
   "searchPlaceholder": "搜尋物品...",
+  "tierAll": "全部",
+  "tierLabel": "Q{{tier}}",
   "title": "選擇目標物品"
 }

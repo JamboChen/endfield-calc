@@ -1,13 +1,19 @@
 {
-  "add": "Add",
-  "allItemsAdded": "All items have been added",
+  "addN": "Add {{count}} item",
+  "addN_other": "Add {{count}} items",
+  "allItemsAdded": "All items have been added as targets",
   "cancel": "Cancel",
-  "clickToSelectDoubleClickToAdd": "",
+  "clearQueue": "Clear",
   "defaultRate": "Default Rate",
-  "hint": "💡 Double-click to quickly add | Selected: {{selected}}",
+  "hint": "Selected: {{selected}}",
+  "maxReached": "Maximum targets reached ({{max}})",
   "noIcon": "None",
-  "noMatchingItems": "No matching items found",
+  "noMatchingItems": "No items match your search",
+  "queueEmpty": "Click items above to queue them for adding",
+  "queueTitle": "Queue",
   "rateUnit": "per min",
   "searchPlaceholder": "Search items...",
-  "title": "Select Target Item"
+  "tierAll": "All",
+  "tierLabel": "Q{{tier}}",
+  "title": "Select Target Items"
 }

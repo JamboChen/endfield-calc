@@ -6,6 +6,9 @@ import { X, Plus } from "lucide-react";
 import type { Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getItemName } from "@/lib/i18n-helpers";
+import { tierClasses } from "@/lib/tier-styles";
+import { cn } from "@/lib/utils";
+import { MAX_TARGETS } from "@/data";
 
 export type ProductionTarget = {
   itemId: ItemId;
@@ -27,66 +30,66 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
   onTargetChange,
   onTargetRemove,
   onAddClick,
-  maxTargets = 12,
+  maxTargets = MAX_TARGETS,
 }: TargetItemsGridProps) {
   const { t } = useTranslation("targets");
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
 
-  const getItemById = (itemId: string) => {
-    return items.find((i) => i.id === itemId);
-  };
-
   return (
     <div className="grid grid-cols-3 gap-2">
-      {/* 已有目标 */}
+      {/* Existing targets */}
       {targets.map((target, index) => {
-        const item = getItemById(target.itemId);
+        const item = items.find((i) => i.id === target.itemId);
         if (!item) return null;
 
         const isFocused = focusedIndex === index;
+        const tc = tierClasses(item.tier);
 
         return (
           <Card
-            key={`${target.itemId}-${index}`}
-            className={`relative group hover:shadow-md transition-all ${
-              isFocused ? "ring-2 ring-primary" : ""
-            }`}
+            key={target.itemId}
+            className={cn(
+              "target-card-enter relative group border-l-2 transition-all duration-150 hover:shadow-md hover:-translate-y-0.5",
+              tc.border,
+              isFocused && "ring-2 ring-primary/40",
+            )}
+            style={{ animationDelay: `${index * 30}ms` }}
           >
-            {/* 删除按钮 */}
+            {/* Remove button */}
             <Button
               variant="ghost"
               size="sm"
               onClick={() => onTargetRemove(index)}
-              className="absolute -top-1 -right-1 h-5 w-5 p-0 rounded-full bg-background shadow-sm [@media(hover:none)]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-destructive-foreground z-10"
+              className="absolute -top-1.5 -right-1.5 h-5 w-5 p-0 rounded-full bg-background border border-border shadow-sm [@media(hover:none)]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-all hover:bg-destructive hover:text-destructive-foreground hover:border-destructive z-10"
               aria-label={t("removeTarget")}
             >
               <X className="h-3 w-3" />
             </Button>
 
             <div className="px-2 space-y-2">
-              {/* 物品图标和名称 */}
-              <div className="flex flex-col items-center gap-2">
-                {item.iconUrl ? (
-                  <div className="h-12 w-12 flex items-center justify-center">
+              {/* Item icon, tier dot, and name */}
+              <div className="flex flex-col items-center gap-1.5">
+                <div className="h-12 w-12 flex items-center justify-center">
+                  {item.iconUrl ? (
                     <img
                       src={item.iconUrl}
                       alt={getItemName(item)}
                       className="h-full w-full object-contain"
                     />
-                  </div>
-                ) : (
-                  <div className="h-12 w-12 bg-muted rounded flex items-center justify-center">
-                    <span className="text-xs text-muted-foreground">
-                      {t("noIcon")}
-                    </span>
-                  </div>
-                )}
-                <div className="text-xs font-medium text-center line-clamp-2 w-full px-1 min-h-8">
+                  ) : (
+                    <div className="h-full w-full bg-muted rounded flex items-center justify-center">
+                      <span className="text-xs text-muted-foreground">
+                        {t("noIcon")}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="text-xs font-medium text-center line-clamp-2 w-full px-1 min-h-8 leading-tight">
                   {getItemName(item)}
                 </div>
               </div>
 
-              {/* 产量输入 */}
+              {/* Rate input */}
               <div className="space-y-1">
                 <Input
                   type="number"
@@ -126,14 +129,14 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
         );
       })}
 
-      {/* 添加按钮 */}
+      {/* Add button */}
       {targets.length < maxTargets && (
         <Card
-          className="border-2 border-dashed border-border hover:border-primary hover:bg-accent/30 cursor-pointer transition-all group"
+          className="border-2 border-dashed border-border hover:border-primary/50 hover:bg-accent/40 cursor-pointer transition-all duration-200 group active:scale-[0.97]"
           onClick={onAddClick}
         >
           <div className="h-full flex flex-col items-center justify-center p-2.5 min-h-[140px]">
-            <div className="h-10 w-10 border-2 border-dashed border-muted-foreground/40 group-hover:border-primary rounded-sm flex items-center justify-center mb-2 transition-colors">
+            <div className="h-10 w-10 border-2 border-dashed border-muted-foreground/30 group-hover:border-primary/50 rounded-lg flex items-center justify-center mb-2 transition-all duration-200 group-hover:scale-110">
               <Plus className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
             </div>
             <div className="text-xs text-muted-foreground group-hover:text-foreground transition-colors text-center font-medium">

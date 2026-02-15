@@ -119,6 +119,51 @@
   }
 }
 
+/* ── Tier accent palette (T0=Q1 … T5=Q6) ── */
+:root {
+  --tier-0: oklch(0.69 0.00 0);     /* gray       – Q1 base resources   (#9b9a9a) */
+  --tier-1: oklch(0.80 0.17 122);   /* lime-green – Q2 raw materials    (#abcd41) */
+  --tier-2: oklch(0.74 0.15 234);   /* sky blue   – Q3 basic processed  (#26bafb) */
+  --tier-3: oklch(0.60 0.24 297);   /* violet     – Q4 advanced         (#9451f8) */
+  --tier-4: oklch(0.83 0.17 81);    /* gold       – Q5 high-tier        (#ffba03) */
+  --tier-5: oklch(0.71 0.20 47);    /* orange     – Q6 top-tier         (#ff7000) */
+  --tier-0-muted: oklch(0.69 0.00 0 / 15%);
+  --tier-1-muted: oklch(0.80 0.17 122 / 15%);
+  --tier-2-muted: oklch(0.74 0.15 234 / 15%);
+  --tier-3-muted: oklch(0.60 0.24 297 / 15%);
+  --tier-4-muted: oklch(0.83 0.17 81 / 15%);
+  --tier-5-muted: oklch(0.71 0.20 47 / 15%);
+}
+.dark {
+  --tier-0: oklch(0.73 0.00 0);
+  --tier-1: oklch(0.83 0.16 122);
+  --tier-2: oklch(0.78 0.14 234);
+  --tier-3: oklch(0.64 0.22 297);
+  --tier-4: oklch(0.86 0.16 81);
+  --tier-5: oklch(0.75 0.19 47);
+  --tier-0-muted: oklch(0.73 0.00 0 / 12%);
+  --tier-1-muted: oklch(0.83 0.16 122 / 12%);
+  --tier-2-muted: oklch(0.78 0.14 234 / 12%);
+  --tier-3-muted: oklch(0.64 0.22 297 / 12%);
+  --tier-4-muted: oklch(0.86 0.16 81 / 12%);
+  --tier-5-muted: oklch(0.75 0.19 47 / 12%);
+}
+
+@theme inline {
+  --color-tier-0: var(--tier-0);
+  --color-tier-1: var(--tier-1);
+  --color-tier-2: var(--tier-2);
+  --color-tier-3: var(--tier-3);
+  --color-tier-4: var(--tier-4);
+  --color-tier-5: var(--tier-5);
+  --color-tier-0-muted: var(--tier-0-muted);
+  --color-tier-1-muted: var(--tier-1-muted);
+  --color-tier-2-muted: var(--tier-2-muted);
+  --color-tier-3-muted: var(--tier-3-muted);
+  --color-tier-4-muted: var(--tier-4-muted);
+  --color-tier-5-muted: var(--tier-5-muted);
+}
+
 @layer components {
   .flow-theme {
     --xy-controls-button-background-color: var(--card);
@@ -132,5 +177,26 @@
   .flow-controls .react-flow__controls-button:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: -2px;
+  }
+}
+
+/* ── Item picker animations ── */
+@layer components {
+  /* Queue pill pop-in */
+  .pill-enter {
+    animation: pillPop 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes pillPop {
+    from { opacity: 0; transform: scale(0.8); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+
+  /* Target card entrance */
+  .target-card-enter {
+    animation: cardSlideIn 0.25s ease-out both;
+  }
+  @keyframes cardSlideIn {
+    from { opacity: 0; transform: translateY(6px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
   }
 }

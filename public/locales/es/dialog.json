@@ -1,13 +1,19 @@
 {
-  "add": "Agregar",
-  "allItemsAdded": "Todos los objetos han sido agregados",
+  "addN": "Agregar {{count}} objeto",
+  "addN_other": "Agregar {{count}} objetos",
+  "allItemsAdded": "Todos los objetos han sido agregados como objetivos",
   "cancel": "Cancelar",
-  "clickToSelectDoubleClickToAdd": "",
+  "clearQueue": "Limpiar",
   "defaultRate": "Tasa predeterminada",
-  "hint": "💡 Doble clic para agregar rápidamente | Seleccionado: {{selected}}",
+  "hint": "Seleccionado: {{selected}}",
+  "maxReached": "Máximo de objetivos alcanzado ({{max}})",
   "noIcon": "Ninguno",
   "noMatchingItems": "No se encontraron objetos coincidentes",
+  "queueEmpty": "Haz clic en los objetos de arriba para agregarlos a la cola",
+  "queueTitle": "Cola",
   "rateUnit": "por min",
   "searchPlaceholder": "Buscar objetos...",
-  "title": "Seleccionar objeto objetivo"
+  "tierAll": "Todos",
+  "tierLabel": "Q{{tier}}",
+  "title": "Seleccionar objetos objetivo"
 }
