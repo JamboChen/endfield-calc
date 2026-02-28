@@ -26,6 +26,7 @@ import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
 import { mapPlanToFlowSeparated } from "../mappers/separated-mapper";
 import { applyEdgeStyling } from "./flow-utils";
 import CustomBackwardEdge from "../nodes/CustomBackwardEdge";
+import CustomBezierEdge from "../nodes/CustomBezierEdge";
 
 type ProductionDependencyTreeProps = {
   plan: ProductionDependencyGraph | null;
@@ -105,6 +106,7 @@ export default function ProductionDependencyTree({
 
   const edgeTypes = useMemo(
     () => ({
+      simplebezier: CustomBezierEdge,
       backwardEdge: CustomBackwardEdge,
     }),
     [],

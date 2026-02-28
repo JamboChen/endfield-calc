@@ -15,5 +15,8 @@ export const calcRate = (amount: number, craftingTime: number): number =>
 
 export const TRANSPORT_BELT_CAPACITY = 30;
 
+export const getBeltCount = (itemsPerMinute: number): number =>
+  itemsPerMinute / TRANSPORT_BELT_CAPACITY;
+
 export const getPickupPointCount = (demandRate: number): number =>
   demandRate > 0 ? Math.ceil(demandRate / TRANSPORT_BELT_CAPACITY) : 0;

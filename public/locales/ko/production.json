@@ -1,4 +1,8 @@
 {
+  "belt": {
+    "count": "{{count}} 벨트",
+    "tooltip": "필요한 운송 벨트 (분당 30개 용량)"
+  },
   "recipe": {
     "inputs": "입력",
     "outputs": "출력",
@@ -6,6 +10,7 @@
   },
   "table": {
     "headers": {
+      "belts": "벨트",
       "count": "수량",
       "facility": "시설",
       "icon": "아이콘",

@@ -1,4 +1,8 @@
 {
+  "belt": {
+    "count": "{{count}} ベルト",
+    "tooltip": "必要な搬送ベルト（30アイテム/分の容量）"
+  },
   "recipe": {
     "inputs": "入力",
     "outputs": "出力",
@@ -6,6 +10,7 @@
   },
   "table": {
     "headers": {
+      "belts": "ベルト",
       "count": "数量",
       "facility": "施設",
       "icon": "アイコン",

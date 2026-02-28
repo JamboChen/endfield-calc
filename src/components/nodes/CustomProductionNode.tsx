@@ -15,7 +15,7 @@ import type {
   FlowNodeDataSeparatedWithTarget,
   FlowNodeDataWithTarget,
 } from "@/types";
-import { getPickupPointCount } from "@/lib/utils";
+import { getBeltCount, getPickupPointCount } from "@/lib/utils";
 
 /**
  * Type alias for a React Flow node containing production data.
@@ -206,9 +206,14 @@ export default function CustomProductionNode({
               <span className="text-muted-foreground text-[10px]">
                 {node.isRawMaterial ? t("tree.required") : t("tree.produced")}
               </span>
-              <span className="font-mono font-semibold text-xs">
-                {formatNumber(node.targetRate)} /min
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="font-mono font-semibold text-xs">
+                  {formatNumber(node.targetRate)} /min
+                </span>
+                <span className="text-[10px] text-muted-foreground tabular-nums">
+                  {formatNumber(getBeltCount(node.targetRate), 1)} belts
+                </span>
+              </div>
             </div>
             {/* Facility details */}
             {!node.isRawMaterial && facility && (

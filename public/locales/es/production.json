@@ -1,4 +1,8 @@
 {
+  "belt": {
+    "count": "{{count}} cintas",
+    "tooltip": "Cintas transportadoras requeridas (capacidad de 30 artículos/min)"
+  },
   "recipe": {
     "inputs": "Entradas",
     "outputs": "Salidas",
@@ -6,6 +10,7 @@
   },
   "table": {
     "headers": {
+      "belts": "Cintas",
       "count": "Cantidad",
       "facility": "Instalación",
       "icon": "Icono",

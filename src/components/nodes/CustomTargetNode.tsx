@@ -11,6 +11,7 @@ import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
 import { getItemName, getFacilityName } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type { TargetSinkNodeData } from "@/types";
+import { getBeltCount } from "@/lib/utils";
 
 /**
  * Formats a number to a fixed number of decimal places.
@@ -79,9 +80,14 @@ export default function CustomTargetNode({
               <span className="text-muted-foreground text-[10px]">
                 {t("tree.targetRate")}
               </span>
-              <span className="font-mono font-semibold text-amber-700 dark:text-amber-400 text-xs">
-                {formatNumber(targetRate)} /min
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="font-mono font-semibold text-amber-700 dark:text-amber-400 text-xs">
+                  {formatNumber(targetRate)} /min
+                </span>
+                <span className="text-[10px] text-muted-foreground tabular-nums">
+                  {formatNumber(getBeltCount(targetRate), 1)} belts
+                </span>
+              </div>
             </div>
             {/* Production info for terminal targets */}
             {isTerminalTarget && facility && (

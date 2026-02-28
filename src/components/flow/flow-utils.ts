@@ -7,6 +7,11 @@ import type {
   FlowTargetNode,
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
+import { getBeltCount } from "@/lib/utils";
+
+const formatNumber = (num: number, decimals = 2): string => {
+  return num.toFixed(decimals);
+};
 
 /**
  * Aggregated production node data.
@@ -42,7 +47,7 @@ export function createEdge(
     source,
     target,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
-    label: `${flowRate.toFixed(2)} /min`,
+    label: `${flowRate.toFixed(2)} /min\n${formatNumber(getBeltCount(flowRate), 1)} belts`,
     data: {
       flowRate,
       direction,

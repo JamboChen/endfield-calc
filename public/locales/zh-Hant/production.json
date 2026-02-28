@@ -1,4 +1,8 @@
 {
+  "belt": {
+    "count": "{{count}} 條傳送帶",
+    "tooltip": "所需傳送帶（每分鐘30個物品容量）"
+  },
   "recipe": {
     "inputs": "輸入",
     "outputs": "產出",
@@ -6,6 +10,7 @@
   },
   "table": {
     "headers": {
+      "belts": "傳送帶",
       "count": "數量",
       "facility": "設施",
       "icon": "圖標",

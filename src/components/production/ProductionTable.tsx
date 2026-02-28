@@ -23,7 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import type { Item, Recipe, Facility, ItemId, RecipeId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getFacilityName, getItemName } from "@/lib/i18n-helpers";
-import { getPickupPointCount } from "@/lib/utils";
+import { getBeltCount, getPickupPointCount } from "@/lib/utils";
 
 export type ProductionLineData = {
   item: Item;
@@ -274,6 +274,9 @@ const ProductionTable = memo(function ProductionTable({
             <TableHead className="text-right h-8 w-[100px] bg-muted/30 font-semibold">
               {t("table.headers.outputRate")}
             </TableHead>
+            <TableHead className="text-right h-8 w-[100px] bg-muted/30 font-semibold">
+              {t("table.headers.belts")}
+            </TableHead>
             <TableHead className="h-8 w-14 text-center bg-muted/30 font-semibold">
               {t("table.headers.facility")}
             </TableHead>
@@ -295,7 +298,7 @@ const ProductionTable = memo(function ProductionTable({
           {data.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={8}
+                colSpan={9}
                 className="text-center text-muted-foreground h-32"
               >
                 {t("table.noData")}
@@ -396,6 +399,16 @@ const ProductionTable = memo(function ProductionTable({
                       <span>{formatNumber(line.outputRate)}</span>
                       <span className="text-[10px] text-muted-foreground">
                         /min
+                      </span>
+                    </div>
+                  </TableCell>
+
+                  {/* Belts */}
+                  <TableCell className="text-right font-mono text-sm tabular-nums p-2">
+                    <div className="flex flex-col items-end">
+                      <span>{formatNumber(getBeltCount(line.outputRate), 1)}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        belts
                       </span>
                     </div>
                   </TableCell>

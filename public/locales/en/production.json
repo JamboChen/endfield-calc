@@ -4,8 +4,13 @@
     "outputs": "Outputs",
     "time": "Time"
   },
+  "belt": {
+    "count": "{{count}} belts",
+    "tooltip": "Required transport belts (30 items/min capacity)"
+  },
   "table": {
     "headers": {
+      "belts": "Belts",
       "count": "Count",
       "facility": "Facility",
       "icon": "Icon",

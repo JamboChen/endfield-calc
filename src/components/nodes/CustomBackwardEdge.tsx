@@ -79,6 +79,8 @@ export default function CustomBackwardEdge({
                 opacity: labelBgStyle?.fillOpacity || 0.9,
                 padding: `${labelBgPadding?.[1] || 4}px ${labelBgPadding?.[0] || 8}px`,
                 borderRadius: labelBgBorderRadius || 4,
+                whiteSpace: "pre-line",
+                textAlign: "center",
                 ...labelBgStyle,
               }}
             >
