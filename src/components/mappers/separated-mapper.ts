@@ -29,6 +29,7 @@ export function mapPlanToFlowSeparated(
   plan: ProductionDependencyGraph,
   items: Item[],
   facilities: Facility[],
+  beltLabel: string,
   targetRates?: Map<ItemId, number>,
 ): { nodes: (FlowProductionNode | FlowTargetNode)[]; edges: Edge[] } {
   const poolManager = new CapacityPoolManager();
@@ -149,6 +150,7 @@ export function mapPlanToFlowSeparated(
           pp.nodeId,
           consumerFacilityId,
           allocated,
+          beltLabel,
         ),
       );
     }
@@ -219,6 +221,7 @@ export function mapPlanToFlowSeparated(
           allocation.sourceNodeId,
           consumerFacilityId,
           allocation.allocatedAmount,
+          beltLabel,
           edgeDirection,
         ),
       );
@@ -410,6 +413,7 @@ export function mapPlanToFlowSeparated(
             facilityInstance.facilityId,
             targetSinkId,
             facilityInstance.actualOutputRate,
+            beltLabel,
           ),
         );
 

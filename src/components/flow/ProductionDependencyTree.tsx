@@ -72,11 +72,14 @@ export default function ProductionDependencyTree({
         return;
       }
 
+      // Get translated belt label
+      const beltLabel = t("belt.belts");
+
       // Select mapper - now passes DAG structure instead of tree
       const flowData =
         visualizationMode === "separated"
-          ? mapPlanToFlowSeparated(plan, items, facilities, targetRates)
-          : mapPlanToFlowMerged(plan, items, facilities, targetRates);
+          ? mapPlanToFlowSeparated(plan, items, facilities, beltLabel, targetRates)
+          : mapPlanToFlowMerged(plan, items, facilities, beltLabel, targetRates);
 
       const { nodes: layoutedNodes, edges: layoutedEdges } =
         await getLayoutedElements(flowData.nodes, flowData.edges, "RIGHT");

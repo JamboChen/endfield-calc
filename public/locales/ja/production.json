@@ -1,7 +1,7 @@
 {
   "belt": {
-    "count": "{{count}} ベルト",
-    "tooltip": "必要な搬送ベルト（30アイテム/分の容量）"
+    "belts": "ベルト",
+    "tooltip": "必要な出力搬送ベルト（{{belt_rate}}アイテム/分の容量）"
   },
   "recipe": {
     "inputs": "入力",

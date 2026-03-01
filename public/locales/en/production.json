@@ -5,8 +5,8 @@
     "time": "Time"
   },
   "belt": {
-    "count": "{{count}} belts",
-    "tooltip": "Required transport belts (30 items/min capacity)"
+    "belts": "belts",
+    "tooltip": "Required output transport belts ({{belt_rate}} items/min capacity)"
   },
   "table": {
     "headers": {

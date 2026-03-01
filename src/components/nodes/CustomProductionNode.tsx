@@ -211,7 +211,7 @@ export default function CustomProductionNode({
                   {formatNumber(node.targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatNumber(getBeltCount(node.targetRate), 1)} belts
+                  {formatNumber(getBeltCount(node.targetRate), 1)} {t("belt.belts")}
                 </span>
               </div>
             </div>

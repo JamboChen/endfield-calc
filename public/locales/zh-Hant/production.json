@@ -1,7 +1,7 @@
 {
   "belt": {
-    "count": "{{count}} 條傳送帶",
-    "tooltip": "所需傳送帶（每分鐘30個物品容量）"
+    "belts": "條傳送帶",
+    "tooltip": "所需輸出傳送帶（每分鐘{{belt_rate}}個物品容量）"
   },
   "recipe": {
     "inputs": "輸入",

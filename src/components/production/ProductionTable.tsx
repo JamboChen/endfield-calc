@@ -22,8 +22,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { Item, Recipe, Facility, ItemId, RecipeId } from "@/types";
 import { useTranslation } from "react-i18next";
-import { getFacilityName, getItemName } from "@/lib/i18n-helpers";
-import { getBeltCount, getPickupPointCount } from "@/lib/utils";
+import { getBeltTooltip, getFacilityName, getItemName } from "@/lib/i18n-helpers";
+import { getBeltCount, getPickupPointCount, TRANSPORT_BELT_CAPACITY } from "@/lib/utils";
 
 export type ProductionLineData = {
   item: Item;
@@ -405,12 +405,21 @@ const ProductionTable = memo(function ProductionTable({
 
                   {/* Belts */}
                   <TableCell className="text-right font-mono text-sm tabular-nums p-2">
-                    <div className="flex flex-col items-end">
-                      <span>{formatNumber(getBeltCount(line.outputRate), 1)}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        belts
-                      </span>
-                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex flex-col items-end cursor-help">
+                          <span>{formatNumber(getBeltCount(line.outputRate), 1)}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("belt.belts")}
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">
+                          {getBeltTooltip(TRANSPORT_BELT_CAPACITY)}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
                   </TableCell>
 
                   {/* Facility icon */}

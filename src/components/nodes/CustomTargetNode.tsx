@@ -85,7 +85,7 @@ export default function CustomTargetNode({
                   {formatNumber(targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatNumber(getBeltCount(targetRate), 1)} belts
+                  {formatNumber(getBeltCount(targetRate), 1)} {t("belt.belts")}
                 </span>
               </div>
             </div>

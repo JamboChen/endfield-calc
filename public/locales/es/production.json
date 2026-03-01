@@ -1,7 +1,7 @@
 {
   "belt": {
-    "count": "{{count}} cintas",
-    "tooltip": "Cintas transportadoras requeridas (capacidad de 30 artículos/min)"
+    "belts": "cintas",
+    "tooltip": "Cintas transportadoras de salida requeridas (capacidad de {{belt_rate}} artículos/min)"
   },
   "recipe": {
     "inputs": "Entradas",

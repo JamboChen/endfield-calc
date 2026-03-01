@@ -24,6 +24,7 @@ export function mapPlanToFlowMerged(
   plan: ProductionDependencyGraph,
   items: Item[],
   facilities: Facility[],
+  beltLabel: string,
   targetRates?: Map<ItemId, number>,
 ): { nodes: (FlowProductionNode | FlowTargetNode)[]; edges: Edge[] } {
   const flowNodes: Node<FlowNodeData>[] = [];
@@ -134,6 +135,7 @@ export function mapPlanToFlowMerged(
             producerRecipeId,
             flowTargetId,
             flowRate,
+            beltLabel,
           ),
         );
       } else if (sourceNode.isRawMaterial) {
@@ -175,6 +177,7 @@ export function mapPlanToFlowMerged(
             rawMaterialNodeId,
             flowTargetId,
             flowRate,
+            beltLabel,
           ),
         );
       }
@@ -227,6 +230,7 @@ export function mapPlanToFlowMerged(
             producerRecipeId,
             targetNodeId,
             userTargetRate,
+            beltLabel,
           ),
         );
       }

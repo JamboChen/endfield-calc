@@ -33,6 +33,7 @@ export type AggregatedProductionNodeData = {
  * @param source Source node ID
  * @param target Target node ID
  * @param flowRate Flow rate in items per minute
+ * @param beltLabel Translated label for belts
  * @param direction Optional pre-computed direction (from markEdgeDirections)
  */
 export function createEdge(
@@ -40,6 +41,7 @@ export function createEdge(
   source: string,
   target: string,
   flowRate: number,
+  beltLabel: string,
   direction?: EdgeDirection,
 ): Edge {
   return {
@@ -47,7 +49,7 @@ export function createEdge(
     source,
     target,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
-    label: `${flowRate.toFixed(2)} /min\n${formatNumber(getBeltCount(flowRate), 1)} belts`,
+    label: `${flowRate.toFixed(2)} /min\n${formatNumber(getBeltCount(flowRate), 1)} ${beltLabel}`,
     data: {
       flowRate,
       direction,

@@ -1,7 +1,7 @@
 {
   "belt": {
-    "count": "{{count}} 벨트",
-    "tooltip": "필요한 운송 벨트 (분당 30개 용량)"
+    "belts": "벨트",
+    "tooltip": "필요한 출력 운송 벨트 (분당 {{belt_rate}}개 용량)"
   },
   "recipe": {
     "inputs": "입력",
