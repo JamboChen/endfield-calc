@@ -44,7 +44,7 @@ function parseHash(): ParsedHashState {
         if (colonIdx === -1) continue;
         const itemId = part.slice(0, colonIdx) as ItemId;
         const rate = parseFloat(part.slice(colonIdx + 1));
-        if (knownItemIds.has(itemId) && isFinite(rate) && rate > 0) {
+        if (knownItemIds.has(itemId) && isFinite(rate) && rate >= 0) {
           parsedTargets.push({ itemId, rate });
         }
       }
@@ -180,19 +180,30 @@ export function useProductionPlan() {
 
   // Derive ceiled plan when ceilMode is on
   const displayPlan = useMemo(() => {
-    if (!plan || !ceilMode) return plan;
-    const ceiledNodes = new Map<string, ProductionGraphNode>();
+    if (!plan) return plan;
+    // Filter 0-rate nodes
+    const activeNodes = new Map<string, ProductionGraphNode>();
     for (const [key, node] of plan.nodes) {
-      if (node.type === "recipe") {
-        ceiledNodes.set(key, {
-          ...node,
-          facilityCount: Math.ceil(node.facilityCount),
-        });
-      } else {
-        ceiledNodes.set(key, node);
+      if (node.type === "recipe" && node.facilityCount === 0) continue;
+      if (node.type === "item" && node.productionRate === 0) continue;
+      activeNodes.set(key, node);
+    }
+    // Filter edges that connect to removed nodes
+    const activeEdges = plan.edges.filter(
+      (edge) => activeNodes.has(edge.from) && activeNodes.has(edge.to)
+    );
+    // Apply ceil to the remaining nodes
+    if (ceilMode) {
+      for (const [key, node] of activeNodes) {
+        if (node.type === "recipe") {
+          activeNodes.set(key, {
+            ...node,
+            facilityCount: Math.ceil(node.facilityCount),
+          });
+        }
       }
     }
-    return { ...plan, nodes: ceiledNodes } as ProductionDependencyGraph;
+    return { ...plan, nodes: activeNodes, edges: activeEdges } as ProductionDependencyGraph;
   }, [plan, ceilMode]);
 
   // View-specific data: computed in view layer hooks

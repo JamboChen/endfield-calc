@@ -93,7 +93,7 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
               <div className="space-y-1">
                 <Input
                   type="number"
-                  value={target.rate === 0 ? "" : target.rate}
+                  value={target.rate}
                   onChange={(e) => {
                     const val = e.target.value;
                     if (val === "") {
@@ -110,13 +110,13 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
                     e.target.select();
                   }}
                   onBlur={(e) => {
-                    if (e.target.value === "" || Number(e.target.value) < 1) {
-                      onTargetChange(index, 1);
+                    if (e.target.value === "" || Number(e.target.value) < 0) {
+                      onTargetChange(index, 0);
                     }
                     setFocusedIndex(null);
                   }}
                   className="h-7 text-xs text-center font-mono"
-                  min="1"
+                  min="0"
                   step="1"
                   aria-label={t("rateInput")}
                 />
