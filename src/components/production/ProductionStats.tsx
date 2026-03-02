@@ -88,9 +88,6 @@ const ProductionStats = memo(function ProductionStats({
                 </div>
                 <div className="text-lg font-bold font-mono">
                   {totalPowerConsumption.toFixed(1)}
-                  <span className="text-xs font-normal text-muted-foreground ml-1">
-                    {t("powerUnit")}
-                  </span>
                 </div>
               </div>
               <div className="space-y-1">

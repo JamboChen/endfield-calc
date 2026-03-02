@@ -11,7 +11,7 @@
       "icon": "Icon",
       "item": "Item",
       "outputRate": "Output/min",
-      "power": "Power (kW)",
+      "power": "Power",
       "rawMaterial": "Raw Material",
       "recipe": "Recipe"
     },

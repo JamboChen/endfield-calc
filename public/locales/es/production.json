@@ -11,7 +11,7 @@
       "icon": "Icono",
       "item": "Artículo",
       "outputRate": "Producción/min",
-      "power": "Energía (kW)",
+      "power": "Energía",
       "rawMaterial": "Materia Prima",
       "recipe": "Receta"
     },

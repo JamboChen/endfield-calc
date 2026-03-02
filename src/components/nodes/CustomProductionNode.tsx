@@ -133,7 +133,7 @@ export default function CustomProductionNode({
                     {data.totalFacilities}
                   </div>
                   <div className="text-muted-foreground">
-                    {t("tree.power")}: {facility.powerConsumption} MW
+                    {t("tree.power")}: {facility.powerConsumption}
                   </div>
                   {data.isPartialLoad && (
                     <div className="text-yellow-600 dark:text-yellow-400 text-xs mt-1">
@@ -144,13 +144,12 @@ export default function CustomProductionNode({
               ) : (
                 // Merged mode: show total power
                 <div className="text-muted-foreground">
-                  {t("tree.power")}: {facility.powerConsumption} MW ×{" "}
+                  {t("tree.power")}: {facility.powerConsumption} ×{" "}
                   {formatNumber(node.facilityCount, 1)} ={" "}
                   {formatNumber(
                     facility.powerConsumption * node.facilityCount,
                     1,
-                  )}{" "}
-                  MW
+                  )}
                 </div>
               )}
             </div>

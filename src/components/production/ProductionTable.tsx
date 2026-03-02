@@ -509,12 +509,7 @@ const ProductionTable = memo(function ProductionTable({
                     {line.isRawMaterial || isManualRaw ? (
                       <span className="text-muted-foreground">-</span>
                     ) : (
-                      <div className="flex flex-col items-end">
-                        <span>{formatNumber(totalPower, 0)}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          MW
-                        </span>
-                      </div>
+                      <span>{formatNumber(totalPower, 0)}</span>
                     )}
                   </TableCell>
 

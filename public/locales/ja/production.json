@@ -11,7 +11,7 @@
       "icon": "アイコン",
       "item": "アイテム",
       "outputRate": "生産量/分",
-      "power": "電力 (kW)",
+      "power": "電力",
       "rawMaterial": "原材料",
       "recipe": "レシピ"
     },

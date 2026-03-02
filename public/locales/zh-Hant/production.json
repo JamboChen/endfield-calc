@@ -11,7 +11,7 @@
       "icon": "圖標",
       "item": "物品",
       "outputRate": "產能/分",
-      "power": "功耗 (kW)",
+      "power": "功耗",
       "rawMaterial": "原材料",
       "recipe": "配方"
     },

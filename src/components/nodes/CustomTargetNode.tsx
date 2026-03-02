@@ -140,8 +140,7 @@ export default function CustomTargetNode({
                   {formatNumber(
                     facility.powerConsumption * productionInfo.facilityCount,
                     1,
-                  )}{" "}
-                  MW
+                  )}
                 </div>
               </div>
             </>

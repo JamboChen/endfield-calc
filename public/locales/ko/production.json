@@ -11,7 +11,7 @@
       "icon": "아이콘",
       "item": "아이템",
       "outputRate": "생산량/분",
-      "power": "전력 (kW)",
+      "power": "전력",
       "rawMaterial": "원자재",
       "recipe": "레시피"
     },

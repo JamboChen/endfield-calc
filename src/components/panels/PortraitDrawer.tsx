@@ -68,7 +68,6 @@ export default function PortraitDrawer({
               <span className="font-medium text-foreground font-mono">
                 {totalPowerConsumption.toFixed(1)}
               </span>
-              <span>{tStats("powerUnit")}</span>
             </span>
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <Package className="h-3.5 w-3.5" />
