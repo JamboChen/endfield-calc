@@ -263,11 +263,11 @@ export default function AddTargetDialogGrid({
                 }}
                 onBlur={(e) => {
                   if (e.target.value === "" || Number(e.target.value) < 0) {
-                    setDefaultRate(1);
+                    setDefaultRate(0);
                   }
                 }}
                 className="h-8 w-20 text-xs text-center font-mono"
-                min="1"
+                min="0"
                 step="1"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -499,11 +499,11 @@ const StagingBar = memo(function StagingBar({
                   onFocus={(e) => e.target.select()}
                   onBlur={(e) => {
                     if (e.target.value === "" || Number(e.target.value) < 0) {
-                      onUpdateRate(q.itemId, 1);
+                      onUpdateRate(q.itemId, 0);
                     }
                   }}
                   className="h-6 w-14 text-[11px] text-center font-mono px-1 bg-background"
-                  min="1"
+                  min="0"
                   step="1"
                 />
 
