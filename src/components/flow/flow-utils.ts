@@ -43,13 +43,16 @@ export function createEdge(
   flowRate: number,
   beltLabel: string,
   direction?: EdgeDirection,
+  ceilMode = false,
 ): Edge {
+  const beltCount = getBeltCount(flowRate, ceilMode);
+  const beltStr = ceilMode ? beltCount.toFixed(0) : formatNumber(beltCount, 1);
   return {
     id,
     source,
     target,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
-    label: `${flowRate.toFixed(2)} /min\n${formatNumber(getBeltCount(flowRate), 1)} ${beltLabel}`,
+    label: `${flowRate.toFixed(2)} /min\n${beltStr} ${beltLabel}`,
     data: {
       flowRate,
       direction,
@@ -212,6 +215,7 @@ export function createProductionFlowNode(
     isPartialLoad?: boolean;
     isDirectTarget?: boolean;
     directTargetRate?: number;
+    ceilMode?: boolean;
   } = {},
 ): FlowProductionNode {
   return {
@@ -226,6 +230,7 @@ export function createProductionFlowNode(
       isPartialLoad: options.isPartialLoad,
       isDirectTarget: options.isDirectTarget,
       directTargetRate: options.directTargetRate,
+      ceilMode: options.ceilMode,
     },
     position: { x: 0, y: 0 },
     sourcePosition: Position.Right,
@@ -248,6 +253,7 @@ export function createTargetSinkNode(
     facilityCount: number;
     recipe?: ProductionNode["recipe"];
   },
+  ceilMode = false,
 ): FlowTargetNode {
   return {
     id: nodeId,
@@ -257,6 +263,7 @@ export function createTargetSinkNode(
       targetRate,
       items,
       facilities,
+      ceilMode,
       productionInfo: productionInfo
         ? {
             facility: productionInfo.facility ?? null,

@@ -30,7 +30,7 @@ export default function CustomTargetNode({
   data,
   targetPosition = Position.Left,
 }: NodeProps<Node<TargetSinkNodeData>>) {
-  const { item, targetRate, productionInfo } = data;
+  const { item, targetRate, productionInfo, ceilMode = false } = data;
   const { t } = useTranslation("production");
   const itemName = getItemName(item);
   const { items } = data;
@@ -85,7 +85,7 @@ export default function CustomTargetNode({
                   {formatNumber(targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatNumber(getBeltCount(targetRate), 1)} {t("belt.belts")}
+                  {formatNumber(getBeltCount(targetRate, ceilMode as boolean), ceilMode ? 0 : 1)} {t("belt.belts")}
                 </span>
               </div>
             </div>

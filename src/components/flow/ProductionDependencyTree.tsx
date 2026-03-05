@@ -34,6 +34,7 @@ type ProductionDependencyTreeProps = {
   facilities: Facility[];
   visualizationMode?: VisualizationMode;
   targetRates?: Map<ItemId, number>;
+  ceilMode?: boolean;
 };
 
 /**
@@ -55,6 +56,7 @@ export default function ProductionDependencyTree({
   facilities,
   visualizationMode = "separated",
   targetRates,
+  ceilMode = false,
 }: ProductionDependencyTreeProps) {
   const { t } = useTranslation("production");
 
@@ -78,8 +80,8 @@ export default function ProductionDependencyTree({
       // Select mapper - now passes DAG structure instead of tree
       const flowData =
         visualizationMode === "separated"
-          ? mapPlanToFlowSeparated(plan, items, facilities, beltLabel, targetRates)
-          : mapPlanToFlowMerged(plan, items, facilities, beltLabel, targetRates);
+          ? mapPlanToFlowSeparated(plan, items, facilities, beltLabel, targetRates, ceilMode)
+          : mapPlanToFlowMerged(plan, items, facilities, beltLabel, targetRates, ceilMode);
 
       const { nodes: layoutedNodes, edges: layoutedEdges } =
         await getLayoutedElements(flowData.nodes, flowData.edges, "RIGHT");
@@ -97,7 +99,7 @@ export default function ProductionDependencyTree({
     return () => {
       isMounted = false;
     };
-  }, [plan, items, facilities, visualizationMode, targetRates, setNodes, setEdges]);
+  }, [plan, items, facilities, visualizationMode, targetRates, ceilMode, setNodes, setEdges]);
 
   const nodeTypes: NodeTypes = useMemo(
     () => ({

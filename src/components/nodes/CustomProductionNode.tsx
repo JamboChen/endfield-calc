@@ -68,7 +68,7 @@ function hasTargetInfo(
 export default function CustomProductionNode({
   data,
 }: NodeProps<FlowProductionNode>) {
-  const { productionNode: node, items } = data;
+  const { productionNode: node, items, ceilMode = false } = data;
   const { t } = useTranslation("production");
 
   /**
@@ -210,7 +210,7 @@ export default function CustomProductionNode({
                   {formatNumber(node.targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatNumber(getBeltCount(node.targetRate), 1)} {t("belt.belts")}
+                  {formatNumber(getBeltCount(node.targetRate, ceilMode as boolean), ceilMode ? 0 : 1)} {t("belt.belts")}
                 </span>
               </div>
             </div>

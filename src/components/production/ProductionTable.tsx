@@ -44,6 +44,7 @@ type ProductionTableProps = {
   facilities: Facility[];
   onRecipeChange: (itemId: ItemId, recipeId: RecipeId) => void;
   onToggleRawMaterial: (itemId: ItemId) => void;
+  ceilMode?: boolean;
 };
 
 const formatNumber = (num: number, decimals = 2): string => {
@@ -235,6 +236,7 @@ const ProductionTable = memo(function ProductionTable({
   items,
   onRecipeChange,
   onToggleRawMaterial,
+  ceilMode = false,
 }: ProductionTableProps) {
   const { t } = useTranslation("production");
   const [hoveredItemId, setHoveredItemId] = useState<ItemId | null>(null);
@@ -408,7 +410,7 @@ const ProductionTable = memo(function ProductionTable({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="flex flex-col items-end cursor-help">
-                          <span>{formatNumber(getBeltCount(line.outputRate), 1)}</span>
+                          <span>{formatNumber(getBeltCount(line.outputRate, ceilMode), ceilMode ? 0 : 1)}</span>
                           <span className="text-[10px] text-muted-foreground">
                             {t("belt.belts")}
                           </span>
