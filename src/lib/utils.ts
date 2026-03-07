@@ -13,12 +13,22 @@ export function cn(...inputs: ClassValue[]) {
 export const calcRate = (amount: number, craftingTime: number): number =>
   (amount * 60) / craftingTime;
 
-export const TRANSPORT_BELT_CAPACITY = 30;
+import type { Item } from "@/types";
 
-export const getBeltCount = (itemsPerMinute: number, ceil = false): number => {
-  const count = itemsPerMinute / TRANSPORT_BELT_CAPACITY;
+export const TRANSPORT_BELT_CAPACITY = 30;
+export const TRANSPORT_PIPE_CAPACITY = 120;
+
+export const getTransportCapacity = (item?: Item): number =>
+  item?.isLiquid ? TRANSPORT_PIPE_CAPACITY : TRANSPORT_BELT_CAPACITY;
+
+export const getTransportCount = (
+  itemsPerMinute: number,
+  item?: Item,
+  ceil = false,
+): number => {
+  const count = itemsPerMinute / getTransportCapacity(item);
   return ceil ? Math.ceil(count) : count;
 };
 
-export const getPickupPointCount = (demandRate: number): number =>
-  demandRate > 0 ? Math.ceil(demandRate / TRANSPORT_BELT_CAPACITY) : 0;
+export const getPickupPointCount = (demandRate: number, item?: Item): number =>
+  demandRate > 0 ? Math.ceil(demandRate / getTransportCapacity(item)) : 0;

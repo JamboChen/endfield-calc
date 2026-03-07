@@ -8,6 +8,10 @@
     "belts": "belts",
     "tooltip": "Required output transport belts ({{belt_rate}} items/min capacity)"
   },
+  "pipe": {
+    "pipes": "pipes",
+    "tooltip": "Required output pipes ({{pipe_rate}} items/min capacity)"
+  },
   "table": {
     "headers": {
       "belts": "Belts",

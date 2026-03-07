@@ -18,7 +18,7 @@ import { createTargetSinkId, createPickupPointId } from "@/lib/node-keys";
 import {
   calcRate,
   getPickupPointCount,
-  TRANSPORT_BELT_CAPACITY,
+  getTransportCapacity,
 } from "@/lib/utils";
 
 /**
@@ -30,6 +30,7 @@ export function mapPlanToFlowSeparated(
   items: Item[],
   facilities: Facility[],
   beltLabel: string,
+  pipeLabel: string,
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
 ): { nodes: (FlowProductionNode | FlowTargetNode)[]; edges: Edge[] } {
@@ -86,16 +87,17 @@ export function mapPlanToFlowSeparated(
   ): void {
     if (rawMaterialPickupPoints.has(itemId)) return;
 
-    const count = getPickupPointCount(totalDemand);
+    const count = getPickupPointCount(totalDemand, item);
     const pickupPoints: { nodeId: string; remainingCapacity: number }[] = [];
+    const transportCapacity = getTransportCapacity(item);
 
     for (let i = 0; i < count; i++) {
       const nodeId = createPickupPointId(itemId, i);
       const capacity = Math.min(
-        TRANSPORT_BELT_CAPACITY,
-        totalDemand - i * TRANSPORT_BELT_CAPACITY,
+        transportCapacity,
+        totalDemand - i * transportCapacity,
       );
-      const isPartialLoad = capacity < TRANSPORT_BELT_CAPACITY * 0.999;
+      const isPartialLoad = capacity < transportCapacity * 0.999;
 
       pickupPoints.push({ nodeId, remainingCapacity: capacity });
 
@@ -130,6 +132,7 @@ export function mapPlanToFlowSeparated(
 
   function allocateFromPickupPoints(
     itemId: ItemId,
+    item: Item,
     demandRate: number,
     consumerFacilityId: string,
   ): void {
@@ -152,9 +155,10 @@ export function mapPlanToFlowSeparated(
           pp.nodeId,
           consumerFacilityId,
           allocated,
-          beltLabel,
+          item.isLiquid ? pipeLabel : beltLabel,
           undefined,
           ceilMode,
+          item,
         ),
       );
     }
@@ -178,7 +182,7 @@ export function mapPlanToFlowSeparated(
     if (!producerRecipeId) {
       // Raw material — create pickup point nodes and allocate
       ensurePickupPointNodes(itemId, itemNode.item, itemNode.productionRate);
-      allocateFromPickupPoints(itemId, demandRate, consumerFacilityId);
+      allocateFromPickupPoints(itemId, itemNode.item, demandRate, consumerFacilityId);
       return;
     }
 
@@ -225,9 +229,10 @@ export function mapPlanToFlowSeparated(
           allocation.sourceNodeId,
           consumerFacilityId,
           allocation.allocatedAmount,
-          beltLabel,
+          outputItemNode.item.isLiquid ? pipeLabel : beltLabel,
           edgeDirection,
           ceilMode,
+          outputItemNode.item,
         ),
       );
 
@@ -421,9 +426,10 @@ export function mapPlanToFlowSeparated(
             facilityInstance.facilityId,
             targetSinkId,
             facilityInstance.actualOutputRate,
-            beltLabel,
+            node.item.isLiquid ? pipeLabel : beltLabel,
             undefined,
             ceilMode,
+            node.item,
           ),
         );
 

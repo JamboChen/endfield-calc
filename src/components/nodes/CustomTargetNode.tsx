@@ -11,7 +11,7 @@ import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
 import { getItemName, getFacilityName } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type { TargetSinkNodeData } from "@/types";
-import { getBeltCount } from "@/lib/utils";
+import { getTransportCount } from "@/lib/utils";
 
 /**
  * Formats a number to a fixed number of decimal places.
@@ -85,7 +85,7 @@ export default function CustomTargetNode({
                   {formatNumber(targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatNumber(getBeltCount(targetRate, ceilMode as boolean), ceilMode ? 0 : 1)} {t("belt.belts")}
+                  {formatNumber(getTransportCount(targetRate, item, ceilMode as boolean), ceilMode ? 0 : 1)} {item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
                 </span>
               </div>
             </div>

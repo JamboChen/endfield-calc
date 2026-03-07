@@ -15,7 +15,7 @@ import type {
   FlowNodeDataSeparatedWithTarget,
   FlowNodeDataWithTarget,
 } from "@/types";
-import { getBeltCount, getPickupPointCount } from "@/lib/utils";
+import { getTransportCount, getPickupPointCount } from "@/lib/utils";
 
 /**
  * Type alias for a React Flow node containing production data.
@@ -114,7 +114,7 @@ export default function CustomProductionNode({
           <div className="mt-1 text-muted-foreground">
             {t("tree.pickupPoint")}: {isSeparated
               ? `${data.facilityIndex! + 1} / ${data.totalFacilities}`
-              : `×${getPickupPointCount(node.targetRate)}`}
+              : `×${getPickupPointCount(node.targetRate, node.item)}`}
           </div>
         </div>
       ) : node.recipe ? (
@@ -210,7 +210,7 @@ export default function CustomProductionNode({
                   {formatNumber(node.targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatNumber(getBeltCount(node.targetRate, ceilMode as boolean), ceilMode ? 0 : 1)} {t("belt.belts")}
+                  {formatNumber(getTransportCount(node.targetRate, node.item, ceilMode as boolean), ceilMode ? 0 : 1)} {node.item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
                 </span>
               </div>
             </div>
@@ -250,7 +250,7 @@ export default function CustomProductionNode({
                 <span className="font-mono font-semibold text-green-700 dark:text-green-300 text-xs">
                   {isSeparated
                     ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
-                    : `×${getPickupPointCount(node.targetRate)}`}
+                    : `×${getPickupPointCount(node.targetRate, node.item)}`}
                 </span>
               </div>
             )}

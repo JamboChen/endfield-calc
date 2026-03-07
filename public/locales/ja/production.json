@@ -3,6 +3,10 @@
     "belts": "ベルト",
     "tooltip": "必要な出力搬送ベルト（{{belt_rate}}アイテム/分の容量）"
   },
+  "pipe": {
+    "pipes": "パイプ",
+    "tooltip": "必要な出力パイプ（{{pipe_rate}}アイテム/分の容量）"
+  },
   "recipe": {
     "inputs": "入力",
     "outputs": "出力",

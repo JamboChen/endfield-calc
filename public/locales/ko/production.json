@@ -3,6 +3,10 @@
     "belts": "벨트",
     "tooltip": "필요한 출력 운송 벨트 (분당 {{belt_rate}}개 용량)"
   },
+  "pipe": {
+    "pipes": "파이프",
+    "tooltip": "필요한 출력 파이프 (분당 {{pipe_rate}}개 용량)"
+  },
   "recipe": {
     "inputs": "입력",
     "outputs": "출력",

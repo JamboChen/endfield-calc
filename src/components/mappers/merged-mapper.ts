@@ -25,6 +25,7 @@ export function mapPlanToFlowMerged(
   items: Item[],
   facilities: Facility[],
   beltLabel: string,
+  pipeLabel: string,
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
 ): { nodes: (FlowProductionNode | FlowTargetNode)[]; edges: Edge[] } {
@@ -137,9 +138,10 @@ export function mapPlanToFlowMerged(
             producerRecipeId,
             flowTargetId,
             flowRate,
-            beltLabel,
+            sourceNode.item.isLiquid ? pipeLabel : beltLabel,
             undefined,
             ceilMode,
+            sourceNode.item,
           ),
         );
       } else if (sourceNode.isRawMaterial) {
@@ -181,9 +183,10 @@ export function mapPlanToFlowMerged(
             rawMaterialNodeId,
             flowTargetId,
             flowRate,
-            beltLabel,
+            sourceNode.item.isLiquid ? pipeLabel : beltLabel,
             undefined,
             ceilMode,
+            sourceNode.item,
           ),
         );
       }
@@ -237,9 +240,10 @@ export function mapPlanToFlowMerged(
             producerRecipeId,
             targetNodeId,
             userTargetRate,
-            beltLabel,
+            node.item.isLiquid ? pipeLabel : beltLabel,
             undefined,
             ceilMode,
+            node.item,
           ),
         );
       }

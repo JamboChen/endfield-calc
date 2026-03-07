@@ -22,8 +22,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { Item, Recipe, Facility, ItemId, RecipeId } from "@/types";
 import { useTranslation } from "react-i18next";
-import { getBeltTooltip, getFacilityName, getItemName } from "@/lib/i18n-helpers";
-import { getBeltCount, getPickupPointCount, TRANSPORT_BELT_CAPACITY } from "@/lib/utils";
+import { getTransportTooltip, getFacilityName, getItemName } from "@/lib/i18n-helpers";
+import { getTransportCount, getPickupPointCount } from "@/lib/utils";
 
 export type ProductionLineData = {
   item: Item;
@@ -405,20 +405,20 @@ const ProductionTable = memo(function ProductionTable({
                     </div>
                   </TableCell>
 
-                  {/* Belts */}
+                  {/* Belts / Pipes */}
                   <TableCell className="text-right font-mono text-sm tabular-nums p-2">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="flex flex-col items-end cursor-help">
-                          <span>{formatNumber(getBeltCount(line.outputRate, ceilMode), ceilMode ? 0 : 1)}</span>
+                          <span>{formatNumber(getTransportCount(line.outputRate, line.item, ceilMode), ceilMode ? 0 : 1)}</span>
                           <span className="text-[10px] text-muted-foreground">
-                            {t("belt.belts")}
+                            {line.item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
                           </span>
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
                         <p className="text-xs">
-                          {getBeltTooltip(TRANSPORT_BELT_CAPACITY)}
+                          {getTransportTooltip(line.item)}
                         </p>
                       </TooltipContent>
                     </Tooltip>
@@ -438,7 +438,7 @@ const ProductionTable = memo(function ProductionTable({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className="text-green-600 dark:text-green-400 cursor-help">
-                            {getPickupPointCount(line.outputRate)}
+                            {getPickupPointCount(line.outputRate, line.item)}
                           </span>
                         </TooltipTrigger>
                         <TooltipContent>

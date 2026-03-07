@@ -5,6 +5,7 @@ type Item = {
   iconUrl?: string;
   tier: number;
   asTarget?: boolean;
+  isLiquid?: boolean;
 };
 
 type RecipeItem = {

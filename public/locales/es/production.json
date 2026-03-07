@@ -3,6 +3,10 @@
     "belts": "cintas",
     "tooltip": "Cintas transportadoras de salida requeridas (capacidad de {{belt_rate}} artículos/min)"
   },
+  "pipe": {
+    "pipes": "tuberías",
+    "tooltip": "Tuberías de salida requeridas (capacidad de {{pipe_rate}} artículos/min)"
+  },
   "recipe": {
     "inputs": "Entradas",
     "outputs": "Salidas",

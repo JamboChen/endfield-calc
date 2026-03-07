@@ -7,7 +7,7 @@ import type {
   FlowTargetNode,
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
-import { getBeltCount } from "@/lib/utils";
+import { getTransportCount } from "@/lib/utils";
 
 const formatNumber = (num: number, decimals = 2): string => {
   return num.toFixed(decimals);
@@ -33,26 +33,29 @@ export type AggregatedProductionNodeData = {
  * @param source Source node ID
  * @param target Target node ID
  * @param flowRate Flow rate in items per minute
- * @param beltLabel Translated label for belts
+ * @param transportLabel Translated label for transport (belts or pipes)
  * @param direction Optional pre-computed direction (from markEdgeDirections)
+ * @param ceilMode Whether to round up transport counts
+ * @param item The item being transported (used to determine belt vs pipe capacity)
  */
 export function createEdge(
   id: string,
   source: string,
   target: string,
   flowRate: number,
-  beltLabel: string,
+  transportLabel: string,
   direction?: EdgeDirection,
   ceilMode = false,
+  item?: Item,
 ): Edge {
-  const beltCount = getBeltCount(flowRate, ceilMode);
-  const beltStr = ceilMode ? beltCount.toFixed(0) : formatNumber(beltCount, 1);
+  const transportCount = getTransportCount(flowRate, item, ceilMode);
+  const transportStr = ceilMode ? transportCount.toFixed(0) : formatNumber(transportCount, 1);
   return {
     id,
     source,
     target,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
-    label: `${flowRate.toFixed(2)} /min\n${beltStr} ${beltLabel}`,
+    label: `${flowRate.toFixed(2)} /min\n${transportStr} ${transportLabel}`,
     data: {
       flowRate,
       direction,

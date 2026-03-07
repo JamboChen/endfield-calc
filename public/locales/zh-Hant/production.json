@@ -3,6 +3,10 @@
     "belts": "條傳送帶",
     "tooltip": "所需輸出傳送帶（每分鐘{{belt_rate}}個物品容量）"
   },
+  "pipe": {
+    "pipes": "條管道",
+    "tooltip": "所需輸出管道（每分鐘{{pipe_rate}}個物品容量）"
+  },
   "recipe": {
     "inputs": "輸入",
     "outputs": "產出",
