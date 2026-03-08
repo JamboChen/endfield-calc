@@ -15,7 +15,7 @@ import type {
   FlowNodeDataSeparatedWithTarget,
   FlowNodeDataWithTarget,
 } from "@/types";
-import { getTransportCount, getPickupPointCount } from "@/lib/utils";
+import { getTransportCount, getPickupPointCount, formatCount } from "@/lib/utils";
 
 /**
  * Type alias for a React Flow node containing production data.
@@ -145,10 +145,10 @@ export default function CustomProductionNode({
                 // Merged mode: show total power
                 <div className="text-muted-foreground">
                   {t("tree.power")}: {facility.powerConsumption} ×{" "}
-                  {formatNumber(node.facilityCount, 1)} ={" "}
-                  {formatNumber(
+                  {formatCount(node.facilityCount, ceilMode as boolean)} ={" "}
+                  {formatCount(
                     facility.powerConsumption * node.facilityCount,
-                    1,
+                    ceilMode as boolean,
                   )}
                 </div>
               )}
@@ -210,7 +210,7 @@ export default function CustomProductionNode({
                   {formatNumber(node.targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatNumber(getTransportCount(node.targetRate, node.item, ceilMode as boolean), ceilMode ? 0 : 1)} {node.item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
+                  {formatCount(getTransportCount(node.targetRate, node.item, ceilMode as boolean), ceilMode as boolean)} {node.item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
                 </span>
               </div>
             </div>
@@ -234,7 +234,7 @@ export default function CustomProductionNode({
                 <span className="font-mono font-semibold text-blue-700 dark:text-blue-300 text-xs">
                   {isSeparated
                     ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
-                    : `×${formatNumber(node.facilityCount, 1)}`}
+                    : `×${formatCount(node.facilityCount, ceilMode as boolean)}`}
                 </span>
               </div>
             )}

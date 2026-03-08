@@ -32,3 +32,10 @@ export const getTransportCount = (
 
 export const getPickupPointCount = (demandRate: number, item?: Item): number =>
   demandRate > 0 ? Math.ceil(demandRate / getTransportCapacity(item)) : 0;
+
+/**
+ * Formats a count value for display.
+ * When ceilMode is true, shows integers. Otherwise shows 1 decimal place.
+ */
+export const formatCount = (value: number, ceilMode = false): string =>
+  value.toFixed(ceilMode ? 0 : 1);

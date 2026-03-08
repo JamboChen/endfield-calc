@@ -11,7 +11,7 @@ import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
 import { getItemName, getFacilityName } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type { TargetSinkNodeData } from "@/types";
-import { getTransportCount } from "@/lib/utils";
+import { getTransportCount, formatCount } from "@/lib/utils";
 
 /**
  * Formats a number to a fixed number of decimal places.
@@ -85,7 +85,7 @@ export default function CustomTargetNode({
                   {formatNumber(targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatNumber(getTransportCount(targetRate, item, ceilMode as boolean), ceilMode ? 0 : 1)} {item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
+                  {formatCount(getTransportCount(targetRate, item, ceilMode as boolean), ceilMode as boolean)} {item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
                 </span>
               </div>
             </div>
@@ -107,7 +107,7 @@ export default function CustomTargetNode({
                   </span>
                 </div>
                 <span className="font-mono font-semibold text-blue-700 dark:text-blue-300 text-xs">
-                  ×{formatNumber(productionInfo.facilityCount, 1)}
+                  ×{formatCount(productionInfo.facilityCount, ceilMode as boolean)}
                 </span>
               </div>
             )}
@@ -139,13 +139,13 @@ export default function CustomTargetNode({
                 </div>
                 <div className="text-muted-foreground">
                   {t("tree.facilityCount")}:{" "}
-                  {formatNumber(productionInfo.facilityCount, 1)}
+                  {formatCount(productionInfo.facilityCount, ceilMode as boolean)}
                 </div>
                 <div className="text-muted-foreground">
                   {t("tree.power")}:{" "}
-                  {formatNumber(
+                  {formatCount(
                     facility.powerConsumption * productionInfo.facilityCount,
-                    1,
+                    ceilMode as boolean,
                   )}
                 </div>
               </div>
