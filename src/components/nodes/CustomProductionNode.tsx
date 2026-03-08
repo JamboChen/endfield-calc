@@ -7,7 +7,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
-import { getItemName, getFacilityName } from "@/lib/i18n-helpers";
+import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type {
   FlowNodeData,
@@ -210,7 +210,7 @@ export default function CustomProductionNode({
                   {formatNumber(node.targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatCount(getTransportCount(node.targetRate, node.item, ceilMode as boolean), ceilMode as boolean)} {node.item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
+                  {formatCount(getTransportCount(node.targetRate, node.item, ceilMode as boolean), ceilMode as boolean)} {getTransportLabel(node.item)}
                 </span>
               </div>
             </div>

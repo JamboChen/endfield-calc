@@ -29,8 +29,6 @@ export function mapPlanToFlowSeparated(
   plan: ProductionDependencyGraph,
   items: Item[],
   facilities: Facility[],
-  beltLabel: string,
-  pipeLabel: string,
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
 ): { nodes: (FlowProductionNode | FlowTargetNode)[]; edges: Edge[] } {
@@ -155,10 +153,9 @@ export function mapPlanToFlowSeparated(
           pp.nodeId,
           consumerFacilityId,
           allocated,
-          item.isLiquid ? pipeLabel : beltLabel,
+          item,
           undefined,
           ceilMode,
-          item,
         ),
       );
     }
@@ -229,10 +226,9 @@ export function mapPlanToFlowSeparated(
           allocation.sourceNodeId,
           consumerFacilityId,
           allocation.allocatedAmount,
-          outputItemNode.item.isLiquid ? pipeLabel : beltLabel,
+          outputItemNode.item,
           edgeDirection,
           ceilMode,
-          outputItemNode.item,
         ),
       );
 
@@ -426,10 +422,9 @@ export function mapPlanToFlowSeparated(
             facilityInstance.facilityId,
             targetSinkId,
             facilityInstance.actualOutputRate,
-            node.item.isLiquid ? pipeLabel : beltLabel,
+            node.item,
             undefined,
             ceilMode,
-            node.item,
           ),
         );
 

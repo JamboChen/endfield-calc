@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
-import { getItemName, getFacilityName } from "@/lib/i18n-helpers";
+import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type { TargetSinkNodeData } from "@/types";
 import { getTransportCount, formatCount } from "@/lib/utils";
@@ -85,7 +85,7 @@ export default function CustomTargetNode({
                   {formatNumber(targetRate)} /min
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatCount(getTransportCount(targetRate, item, ceilMode as boolean), ceilMode as boolean)} {item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
+                  {formatCount(getTransportCount(targetRate, item, ceilMode as boolean), ceilMode as boolean)} {getTransportLabel(item)}
                 </span>
               </div>
             </div>

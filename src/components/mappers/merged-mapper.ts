@@ -24,8 +24,6 @@ export function mapPlanToFlowMerged(
   plan: ProductionDependencyGraph,
   items: Item[],
   facilities: Facility[],
-  beltLabel: string,
-  pipeLabel: string,
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
 ): { nodes: (FlowProductionNode | FlowTargetNode)[]; edges: Edge[] } {
@@ -138,10 +136,9 @@ export function mapPlanToFlowMerged(
             producerRecipeId,
             flowTargetId,
             flowRate,
-            sourceNode.item.isLiquid ? pipeLabel : beltLabel,
+            sourceNode.item,
             undefined,
             ceilMode,
-            sourceNode.item,
           ),
         );
       } else if (sourceNode.isRawMaterial) {
@@ -183,10 +180,9 @@ export function mapPlanToFlowMerged(
             rawMaterialNodeId,
             flowTargetId,
             flowRate,
-            sourceNode.item.isLiquid ? pipeLabel : beltLabel,
+            sourceNode.item,
             undefined,
             ceilMode,
-            sourceNode.item,
           ),
         );
       }
@@ -240,10 +236,9 @@ export function mapPlanToFlowMerged(
             producerRecipeId,
             targetNodeId,
             userTargetRate,
-            node.item.isLiquid ? pipeLabel : beltLabel,
+            node.item,
             undefined,
             ceilMode,
-            node.item,
           ),
         );
       }

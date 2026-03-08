@@ -6,6 +6,12 @@ export const getItemName = (item: Item) => {
   return i18next.t(item.id, { ns: "item", defaultValue: item.id });
 };
 
+export const getTransportLabel = (item?: Item) => {
+  return item?.isLiquid
+    ? i18next.t("pipe.pipes", { ns: "production" })
+    : i18next.t("belt.belts", { ns: "production" });
+};
+
 export const getTransportTooltip = (item?: Item) => {
   const capacity = getTransportCapacity(item);
   return item?.isLiquid

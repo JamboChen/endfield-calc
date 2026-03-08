@@ -22,7 +22,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { Item, Recipe, Facility, ItemId, RecipeId } from "@/types";
 import { useTranslation } from "react-i18next";
-import { getTransportTooltip, getFacilityName, getItemName } from "@/lib/i18n-helpers";
+import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName } from "@/lib/i18n-helpers";
 import { getTransportCount, getPickupPointCount, formatCount } from "@/lib/utils";
 
 export type ProductionLineData = {
@@ -412,7 +412,7 @@ const ProductionTable = memo(function ProductionTable({
                         <div className="flex flex-col items-end cursor-help">
                           <span>{formatCount(getTransportCount(line.outputRate, line.item, ceilMode), ceilMode)}</span>
                           <span className="text-[10px] text-muted-foreground">
-                            {line.item.isLiquid ? t("pipe.pipes") : t("belt.belts")}
+                            {getTransportLabel(line.item)}
                           </span>
                         </div>
                       </TooltipTrigger>
