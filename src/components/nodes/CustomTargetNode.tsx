@@ -143,9 +143,9 @@ export default function CustomTargetNode({
                 </div>
                 <div className="text-muted-foreground">
                   {t("tree.power")}:{" "}
-                  {formatCount(
+                  {formatNumber(
                     facility.powerConsumption * productionInfo.facilityCount,
-                    ceilMode as boolean,
+                    1,
                   )}
                 </div>
               </div>
