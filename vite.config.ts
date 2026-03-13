@@ -14,7 +14,7 @@ export default defineConfig({
   },
   base: "/endfield-calc/",
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         manualChunks(id) {
           if (id.includes("node_modules")) {
