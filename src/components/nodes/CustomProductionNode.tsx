@@ -15,7 +15,7 @@ import type {
   FlowNodeDataSeparatedWithTarget,
   FlowNodeDataWithTarget,
 } from "@/types";
-import { getTransportCount, getPickupPointCount, formatCount } from "@/lib/utils";
+import { getTransportCount, getPickupPointCount, formatCount, calcRate } from "@/lib/utils";
 
 /**
  * Type alias for a React Flow node containing production data.
@@ -87,6 +87,22 @@ export default function CustomProductionNode({
   const isSeparated = isSeparatedMode(data);
   const isTarget = hasTargetInfo(data);
   const targetRate = isTarget ? data.directTargetRate : undefined;
+
+  // Compute byproduct outputs (secondary outputs of multi-output recipes)
+  const byproducts = node.recipe && node.recipe.outputs.length > 1
+    ? node.recipe.outputs
+        .filter((o) => o.itemId !== node.item.id)
+        .map((o) => {
+          const primaryOutput = node.recipe!.outputs.find(
+            (p) => p.itemId === node.item.id,
+          );
+          const rate = primaryOutput
+            ? (o.amount / primaryOutput.amount) * node.targetRate
+            : calcRate(o.amount, node.recipe!.craftingTime) * node.facilityCount;
+          return { item: getItemById(o.itemId), amount: o.amount, rate };
+        })
+        .filter((b) => b.item != null)
+    : [];
 
   // Adjust border colors based on node type for better visual distinction
   let borderClasses = "border-2";
@@ -214,6 +230,21 @@ export default function CustomProductionNode({
                 </span>
               </div>
             </div>
+            {/* Byproduct outputs */}
+            {byproducts.length > 0 && (
+              <div className="flex items-center gap-1.5 mb-2 px-1 py-0.5 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/40 rounded-sm">
+                <span className="text-[9px] text-amber-700 dark:text-amber-400 shrink-0">+</span>
+                {byproducts.map((bp) => (
+                  <div key={bp.item!.id} className="flex items-center gap-0.5 min-w-0">
+                    <ItemIcon item={bp.item!} size="sm" />
+                    <span className="text-[9px] text-amber-700 dark:text-amber-400 font-mono truncate">
+                      {formatNumber(bp.rate)}
+                    </span>
+                  </div>
+                ))}
+                <span className="text-[9px] text-amber-700/70 dark:text-amber-400/70">/min</span>
+              </div>
+            )}
             {/* Facility details */}
             {!node.isRawMaterial && facility && (
               <div className="flex items-center justify-between bg-blue-100/50 dark:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 rounded-sm px-2 py-1">

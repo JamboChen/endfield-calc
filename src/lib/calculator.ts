@@ -228,6 +228,20 @@ function buildBipartiteGraph(
     selectedRecipe.outputs.forEach((out) => {
       graph.recipeOutputs.get(selectedRecipe.id)!.add(out.itemId);
       graph.itemProducedBy.set(out.itemId, selectedRecipe.id);
+
+      // Ensure byproduct items exist in the graph as produced (non-raw) nodes
+      // and are marked as visited so they reuse this recipe instead of selecting a new one
+      if (!graph.itemNodes.has(out.itemId)) {
+        const outItem = maps.itemMap.get(out.itemId);
+        if (outItem) {
+          graph.itemNodes.set(out.itemId, {
+            itemId: out.itemId,
+            item: outItem,
+            isRawMaterial: false,
+          });
+          visitedItems.add(out.itemId);
+        }
+      }
     });
 
     graph.itemProducedBy.set(itemId, selectedRecipe.id);
@@ -705,7 +719,8 @@ function buildProductionGraph(
       const recipe = maps.recipeMap.get(producerRecipeId)!;
       const facilityCount =
         flowData.recipeFacilityCounts.get(producerRecipeId) || 0;
-      const output = recipe.outputs[0];
+      const output =
+        recipe.outputs.find((o) => o.itemId === itemId) || recipe.outputs[0];
       productionRate =
         calcRate(output.amount, recipe.craftingTime) * facilityCount;
     } else if (itemNode.isRawMaterial) {

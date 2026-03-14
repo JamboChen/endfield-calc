@@ -273,13 +273,14 @@ export function mapPlanToFlowSeparated(
           );
 
           recipeNode.recipe.inputs.forEach((input) => {
+            const outputAmount =
+              recipeNode.recipe.outputs.find(
+                (o) => o.itemId === outputItemNode.item.id,
+              )?.amount ?? recipeNode.recipe.outputs[0].amount;
             const inputDemandRate =
               calcRate(input.amount, recipeNode.recipe.craftingTime) *
               (facilityInstance.actualOutputRate /
-                calcRate(
-                  recipeNode.recipe.outputs[0].amount,
-                  recipeNode.recipe.craftingTime,
-                ));
+                calcRate(outputAmount, recipeNode.recipe.craftingTime));
 
             allocateUpstream(
               input.itemId,
@@ -342,10 +343,14 @@ export function mapPlanToFlowSeparated(
 
       // Allocate upstream for this facility's dependencies
       node.recipe.inputs.forEach((input) => {
+        const outputAmount =
+          node.recipe.outputs.find(
+            (o) => o.itemId === outputItemNode!.item.id,
+          )?.amount ?? node.recipe.outputs[0].amount;
         const inputDemandRate =
           calcRate(input.amount, node.recipe.craftingTime) *
           (facilityInstance.actualOutputRate /
-            calcRate(node.recipe.outputs[0].amount, node.recipe.craftingTime));
+            calcRate(outputAmount, node.recipe.craftingTime));
 
         allocateUpstream(
           input.itemId,
@@ -373,13 +378,75 @@ export function mapPlanToFlowSeparated(
       : undefined;
 
     const isTerminalTarget = !upstreamItemIds.has(nodeId);
-    const shouldSplit =
+
+    // Check if producer's facilities are already processed
+    // (byproduct scenario: recipe already has nodes for a primary output)
+    const producerAlreadyProcessed =
+      producerRecipeId &&
+      producerRecipe &&
+      poolManager.hasPool(producerRecipeId) &&
+      poolManager
+        .getFacilityInstances(producerRecipeId)
+        .some((f) => poolManager.isProcessed(f.facilityId));
+
+    if (isTerminalTarget && producerAlreadyProcessed && producerRecipeId && producerRecipe) {
+      // Byproduct terminal target: producer facilities already exist for the
+      // primary output. Create direct edges from those facilities to this
+      // target sink using the byproduct's proportional rate.
+      const userTargetRate =
+        targetRates?.get(node.itemId) ?? node.productionRate;
+      const facilityInstances =
+        poolManager.getFacilityInstances(producerRecipeId);
+      const byproductOutput = producerRecipe.recipe.outputs.find(
+        (o) => o.itemId === node.itemId,
+      );
+      const primaryOutput = producerRecipe.recipe.outputs[0];
+
+      if (byproductOutput && primaryOutput) {
+        facilityInstances.forEach((fi) => {
+          const byproductRate =
+            calcRate(
+              byproductOutput.amount,
+              producerRecipe.recipe.craftingTime,
+            ) *
+            (fi.actualOutputRate /
+              calcRate(
+                primaryOutput.amount,
+                producerRecipe.recipe.craftingTime,
+              ));
+
+          edges.push(
+            createEdge(
+              `e${edgeIdCounter++}`,
+              fi.facilityId,
+              targetSinkId,
+              byproductRate,
+              node.item,
+              undefined,
+              ceilMode,
+            ),
+          );
+        });
+      }
+
+      // Create target sink WITHOUT productionInfo (recipe shown on primary output nodes)
+      targetSinkNodes.push(
+        createTargetSinkNode(
+          targetSinkId,
+          node.item,
+          userTargetRate,
+          items,
+          facilities,
+          undefined,
+          ceilMode,
+        ),
+      );
+    } else if (
       isTerminalTarget &&
       producerRecipe &&
       producerRecipeId &&
-      producerRecipe.facilityCount > 1;
-
-    if (shouldSplit) {
+      producerRecipe.facilityCount > 1
+    ) {
       // Split into individual facility nodes
       const facilityInstances =
         poolManager.getFacilityInstances(producerRecipeId);
@@ -430,11 +497,15 @@ export function mapPlanToFlowSeparated(
 
         // Allocate upstream for this facility
         producerRecipe.recipe.inputs.forEach((input) => {
+          const outputAmount =
+            producerRecipe.recipe.outputs.find(
+              (o) => o.itemId === node.itemId,
+            )?.amount ?? producerRecipe.recipe.outputs[0].amount;
           const inputDemandRate =
             calcRate(input.amount, producerRecipe.recipe.craftingTime) *
             (facilityInstance.actualOutputRate /
               calcRate(
-                producerRecipe.recipe.outputs[0].amount,
+                outputAmount,
                 producerRecipe.recipe.craftingTime,
               ));
 
@@ -486,9 +557,12 @@ export function mapPlanToFlowSeparated(
         if (isTerminalTarget) {
           // Terminal target (single facility): connect recipe inputs directly
           producerRecipe.recipe.inputs.forEach((input) => {
+            const outputAmount =
+              producerRecipe.recipe.outputs.find(
+                (o) => o.itemId === node.itemId,
+              )?.amount ?? producerRecipe.recipe.outputs[0].amount;
             const inputDemandRate =
-              (input.amount / producerRecipe.recipe.outputs[0].amount) *
-              userTargetRate;
+              (input.amount / outputAmount) * userTargetRate;
 
             allocateUpstream(input.itemId, inputDemandRate, targetSinkId);
           });

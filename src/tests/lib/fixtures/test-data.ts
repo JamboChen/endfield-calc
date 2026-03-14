@@ -38,10 +38,16 @@ export const mockItems: Item[] = [
   { id: ItemId.ITEM_FBOTTLE_GLASSENR_GRASS_1, tier: 3 },
   { id: ItemId.ITEM_FBOTTLE_IRONENR_GRASS_1, tier: 3 },
 
+  // Copper chain
+  { id: ItemId.ITEM_COPPER_ORE, tier: 1 },
+  { id: ItemId.ITEM_COPPER_NUGGET, tier: 2 },
+  { id: ItemId.ITEM_COPPER_CMPT, tier: 3 },
+
   // Liquids
   { id: ItemId.ITEM_LIQUID_PLANT_GRASS_1, tier: 2 },
   { id: ItemId.ITEM_LIQUID_PLANT_GRASS_2, tier: 2 },
   { id: ItemId.ITEM_LIQUID_XIRANITE, tier: 2 },
+  { id: ItemId.ITEM_LIQUID_SEWAGE, tier: 2 },
 
   // Final products
   { id: ItemId.ITEM_PROC_BATTERY_1, tier: 4 },
@@ -185,6 +191,32 @@ export const cycleRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_1, amount: 1 }, // Liquid produced
     ],
     facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+];
+
+// Recipes with byproduct outputs (multi-output)
+export const byproductRecipes: Recipe[] = [
+  // Copper ore + Water -> Copper nugget + Liquid sewage (byproduct)
+  {
+    id: RecipeId.FURNANCE_COPPER_NUGGET_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ORE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    craftingTime: 2,
+  },
+  // Copper nugget -> Copper component
+  {
+    id: RecipeId.COMPONENT_COPPER_CMPT_1,
+    inputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_COPPER_CMPT, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
     craftingTime: 2,
   },
 ];

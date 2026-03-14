@@ -207,8 +207,17 @@ export function mapPlanToFlowMerged(
 
       const isTerminalTarget = !upstreamItemIds.has(nodeId);
 
+      // Check if the producer recipe already has a production flow node
+      // (e.g., the recipe also produces a primary non-byproduct output)
+      const producerHasFlowNode = producerRecipeId
+        ? flowNodes.some((n) => n.id === producerRecipeId)
+        : false;
+
       const userTargetRate =
         targetRates?.get(node.itemId) ?? node.productionRate;
+
+      // Only embed recipe info in the sink when no separate production node exists
+      const shouldEmbedRecipeInfo = producerRecipe && !producerHasFlowNode;
 
       targetSinkNodes.push(
         createTargetSinkNode(
@@ -217,7 +226,7 @@ export function mapPlanToFlowMerged(
           userTargetRate,
           items,
           facilities,
-          producerRecipe
+          shouldEmbedRecipeInfo
             ? {
               facility: producerRecipe.facility,
               facilityCount: producerRecipe.facilityCount,
@@ -228,8 +237,11 @@ export function mapPlanToFlowMerged(
         ),
       );
 
-      // Edge from producer recipe to target sink - only if NOT terminal
-      if (producerRecipeId && !isTerminalTarget) {
+      // Edge from producer recipe to target sink:
+      // - Always for non-terminal targets
+      // - Also for terminal targets when the recipe already has a production node
+      //   (byproduct scenario: recipe serves a primary output elsewhere)
+      if (producerRecipeId && (!isTerminalTarget || producerHasFlowNode)) {
         flowEdges.push(
           createEdge(
             `e${edgeIdCounter++}`,

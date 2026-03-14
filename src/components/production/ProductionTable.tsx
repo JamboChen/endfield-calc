@@ -51,21 +51,27 @@ const formatNumber = (num: number, decimals = 2): string => {
   return num.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
-const ItemIcon = memo(({ item }: { item: Item }) => {
+const sizeClasses = {
+  sm: { icon: "h-4 w-4 object-contain inline-block", fallback: "inline-block w-4 h-4 bg-muted rounded text-[5px] text-center leading-4" },
+  md: { icon: "h-8 w-8 object-contain inline-block", fallback: "inline-block w-8 h-8 bg-muted rounded text-[7px] text-center leading-3" },
+} as const;
+
+const ItemIcon = memo(({ item, size = "md" }: { item: Item; size?: "sm" | "md" }) => {
   const itemName = getItemName(item);
+  const classes = sizeClasses[size];
 
   if (item.iconUrl) {
     return (
       <img
         src={item.iconUrl}
         alt={itemName}
-        className="h-8 w-8 object-contain inline-block"
+        className={classes.icon}
       />
     );
   }
 
   return (
-    <span className="inline-block w-8 h-8 bg-muted rounded text-[7px] text-center leading-3">
+    <span className={classes.fallback}>
       ?
     </span>
   );
