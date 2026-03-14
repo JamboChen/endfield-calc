@@ -28,6 +28,11 @@ export const facilities: Facility[] = [
     tier: 1,
   },
   {
+    id: FacilityId.ITEM_PORT_LIQUID_CLEANER_1,
+    powerConsumption: 50,
+    tier: 3,
+  },
+  {
     id: FacilityId.ITEM_PORT_MIX_POOL_1,
     powerConsumption: 50,
     tier: 3,

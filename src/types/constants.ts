@@ -226,6 +226,12 @@ const RecipeId = {
   FILLING_BOTTLED_REC_HP_1_1: "filling_bottled_rec_hp_1_1",
   FILLING_BOTTLED_REC_HP_2_1: "filling_bottled_rec_hp_2_1",
   FILLING_BOTTLED_REC_HP_3_1: "filling_bottled_rec_hp_3_1",
+  FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE:
+    "fluid_consume_liquid_cleaner_1_item_liquid_sewage",
+  FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_XIRANITE_LOWPOLY:
+    "fluid_consume_liquid_cleaner_1_item_liquid_xiranite_lowpoly",
+  FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_XIRANITE_POLY:
+    "fluid_consume_liquid_cleaner_1_item_liquid_xiranite_poly",
   FURNANCE_CARBON_ENR_1: "furnance_carbon_enr_1",
   FURNANCE_CARBON_ENR_POWDER_1: "furnance_carbon_enr_powder_1",
   FURNANCE_CARBON_ENR_POWDER_2: "furnance_carbon_enr_powder_2",
@@ -323,6 +329,7 @@ const FacilityId = {
   ITEM_PORT_FILLING_PD_MC_1: "item_port_filling_pd_mc_1",
   ITEM_PORT_FURNANCE_1: "item_port_furnance_1",
   ITEM_PORT_GRINDER_1: "item_port_grinder_1",
+  ITEM_PORT_LIQUID_CLEANER_1: "item_port_liquid_cleaner_1",
   ITEM_PORT_MIX_POOL_1: "item_port_mix_pool_1",
   ITEM_PORT_PLANTER_1: "item_port_planter_1",
   ITEM_PORT_SEEDCOL_1: "item_port_seedcol_1",

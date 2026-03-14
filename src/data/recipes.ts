@@ -814,6 +814,27 @@ export const recipes: Recipe[] = [
     craftingTime: 10,
   },
   {
+    id: RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 }],
+    outputs: [],
+    facilityId: FacilityId.ITEM_PORT_LIQUID_CLEANER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_XIRANITE_LOWPOLY,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 1 }],
+    outputs: [],
+    facilityId: FacilityId.ITEM_PORT_LIQUID_CLEANER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_XIRANITE_POLY,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 }],
+    outputs: [],
+    facilityId: FacilityId.ITEM_PORT_LIQUID_CLEANER_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.FURNANCE_CARBON_ENR_1,
     inputs: [{ itemId: ItemId.ITEM_CARBON_ENR_POWDER, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_CARBON_ENR, amount: 1 }],
