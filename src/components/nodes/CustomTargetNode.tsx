@@ -60,53 +60,54 @@ export default function CustomTargetNode({
             isConnectable={false}
             className="bg-amber-500!"
           />
-          <CardContent className="p-2.5 text-xs">
-            {/* Target indicator and item info */}
-            <div className="flex items-center gap-2 mb-2">
-              <div className="h-5 w-5 rounded-sm bg-amber-500 dark:bg-amber-600 flex items-center justify-center">
-                <Target className="h-3 w-3 text-white" />
-              </div>
-              <ItemIcon item={item} />
-              <span className="font-bold truncate flex-1">{itemName}</span>
-            </div>
-            {/* Target label */}
-            <div className="text-center mb-2 px-2 py-0.5 bg-amber-100/70 dark:bg-amber-900/40 border border-amber-200/50 dark:border-amber-800/50 rounded-sm">
-              <span className="text-[10px] text-amber-700 dark:text-amber-300 font-semibold uppercase tracking-wide">
-                {t("tree.target")}
-              </span>
-            </div>
-            {/* Target rate */}
-            <div className="flex items-center justify-between bg-card border border-border/50 rounded-sm px-2 py-1 mb-2">
-              <span className="text-muted-foreground text-[10px]">
-                {t("tree.targetRate")}
-              </span>
-              <div className="flex flex-col items-end">
-                <span className="font-mono font-semibold text-amber-700 dark:text-amber-400 text-xs">
-                  {formatNumber(targetRate)} /min
-                </span>
-                <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {formatCount(getTransportCount(targetRate, item, ceilMode as boolean), ceilMode as boolean)} {getTransportLabel(item)}
-                </span>
+          <CardContent className="p-0 text-xs">
+            {/* === Zone 1: Amber header strip === */}
+            <div className="bg-amber-100/70 dark:bg-amber-900/40 rounded-t-sm px-2.5 py-2">
+              <div className="flex items-center gap-2">
+                <ItemIcon item={item} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold truncate leading-tight">{itemName}</div>
+                  <span className="text-[9px] text-amber-700 dark:text-amber-300 font-semibold uppercase tracking-wide">
+                    {t("tree.target")}
+                  </span>
+                </div>
+                <div className="h-6 w-6 rounded-sm bg-amber-500 dark:bg-amber-600 flex items-center justify-center shrink-0">
+                  <Target className="h-3.5 w-3.5 text-white" />
+                </div>
               </div>
             </div>
-            {/* Production info for terminal targets */}
+
+            {/* === Zone 2: Rate (centered) === */}
+            <div className="flex flex-col items-center py-2.5 px-2.5">
+              <div className="flex items-baseline gap-1">
+                <span className="font-mono font-semibold text-amber-700 dark:text-amber-400 text-sm">
+                  {formatNumber(targetRate)}
+                </span>
+                <span className="text-[11px] text-amber-700/70 dark:text-amber-400/70">/min</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {formatCount(getTransportCount(targetRate, item, ceilMode as boolean), ceilMode as boolean)} {getTransportLabel(item)}
+              </span>
+            </div>
+
+            {/* === Zone 3: Facility (terminal targets only) === */}
             {isTerminalTarget && facility && (
-              <div className="flex items-center justify-between bg-blue-100/50 dark:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 rounded-sm px-2 py-1">
-                <div className="flex items-center gap-1.5">
+              <div className="flex items-center justify-between mx-2.5 mb-2.5 bg-blue-100/50 dark:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 rounded-sm px-2 py-1">
+                <div className="flex items-center gap-1.5 min-w-0">
                   {facility.iconUrl ? (
                     <img
                       src={facility.iconUrl}
                       alt={facilityName}
-                      className="h-4 w-4 object-contain"
+                      className="h-4 w-4 object-contain shrink-0"
                     />
                   ) : (
-                    <Factory className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <Factory className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
                   )}
-                  <span className="text-[10px] text-muted-foreground truncate max-w-20">
+                  <span className="text-[10px] text-muted-foreground truncate">
                     {facilityName}
                   </span>
                 </div>
-                <span className="font-mono font-semibold text-blue-700 dark:text-blue-300 text-xs">
+                <span className="font-mono font-semibold text-blue-700 dark:text-blue-300 text-xs shrink-0 ml-2">
                   ×{formatCount(productionInfo.facilityCount, ceilMode as boolean)}
                 </span>
               </div>
