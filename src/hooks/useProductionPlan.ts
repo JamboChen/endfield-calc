@@ -190,11 +190,11 @@ export function useProductionPlan() {
   // Derive ceiled plan when ceilMode is on
   const displayPlan = useMemo(() => {
     if (!plan) return plan;
-    // Filter 0-rate nodes
+    // Filter 0-rate nodes, but never filter out target items
     const activeNodes = new Map<string, ProductionGraphNode>();
     for (const [key, node] of plan.nodes) {
       if (node.type === "recipe" && node.facilityCount === 0) continue;
-      if (node.type === "item" && node.productionRate === 0) continue;
+      if (node.type === "item" && node.productionRate === 0 && !plan.targets.has(node.itemId)) continue;
       activeNodes.set(key, node);
     }
     // Filter edges that connect to removed nodes

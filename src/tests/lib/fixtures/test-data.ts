@@ -43,6 +43,11 @@ export const mockItems: Item[] = [
   { id: ItemId.ITEM_COPPER_NUGGET, tier: 2 },
   { id: ItemId.ITEM_COPPER_CMPT, tier: 3 },
 
+  // Xiranite cycle chain
+  { id: ItemId.ITEM_LIQUID_XIRANITE_POLY, tier: 2 },
+  { id: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, tier: 2 },
+  { id: ItemId.ITEM_XIRANITE_POLY, tier: 3 },
+
   // Liquids
   { id: ItemId.ITEM_LIQUID_PLANT_GRASS_1, tier: 2 },
   { id: ItemId.ITEM_LIQUID_PLANT_GRASS_2, tier: 2 },
@@ -217,6 +222,99 @@ export const byproductRecipes: Recipe[] = [
     inputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_COPPER_CMPT, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    craftingTime: 2,
+  },
+];
+
+// Byproduct recipes with SCC cycle
+// Models the real-world pattern: Cuprium Component + SC Wuling Battery + Sewage
+//
+// Graph structure:
+//   Copper Ore + Water → [Furnace] → Copper Nugget + SEWAGE (byproduct)
+//   Copper Nugget → [Component MC] → Copper Component (target 1)
+//
+//   SEWAGE + CycleInput → [Pool A] → CycleIntermediate + CycleWaste
+//   CycleIntermediate × 2 + Iron Powder → [Pool B] → CycleProduct + SEWAGE
+//   CycleProduct → [Assembler] → FinalProduct (target 2)
+//
+//   SEWAGE is target 3 — produced by Furnace (non-zero) and by Pool B (in SCC, zero)
+//   The SCC (Pool A ↔ Pool B via SEWAGE/CycleIntermediate) is a NET CONSUMER of SEWAGE.
+//
+export const byproductSCCRecipes: Recipe[] = [
+  // Copper ore + Water -> Copper nugget + Liquid sewage (byproduct)
+  {
+    id: RecipeId.FURNANCE_COPPER_NUGGET_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ORE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    craftingTime: 2,
+  },
+  // Copper nugget -> Copper component
+  {
+    id: RecipeId.COMPONENT_COPPER_CMPT_1,
+    inputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_COPPER_CMPT, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    craftingTime: 2,
+  },
+  // Sewage + Liquid Xiranite -> Liquid Xiranite Poly + Liquid Xiranite Lowpoly
+  // (Pool A: consumes sewage, produces intermediate)
+  {
+    id: RecipeId.POOL_LIQUID_XIRANITE_POLY_1,
+    inputs: [
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    craftingTime: 2,
+  },
+  // Liquid Xiranite Poly × 2 + Iron Powder -> Xiranite Poly + Sewage
+  // (Pool B: produces sewage, consumes intermediate — closes the SCC)
+  {
+    id: RecipeId.POOL_XIRANITE_POLY_1,
+    inputs: [
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 2 },
+      { itemId: ItemId.ITEM_IRON_POWDER, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_XIRANITE_POLY, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    craftingTime: 2,
+  },
+  // Xiranite Poly -> Proc Battery (FinalProduct, target 2)
+  {
+    id: RecipeId.TOOLS_PROC_BATTERY_1_1,
+    inputs: [{ itemId: ItemId.ITEM_XIRANITE_POLY, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_PROC_BATTERY_1, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_TOOLS_ASM_MC_1,
+    craftingTime: 2,
+  },
+  // Iron ore -> Iron nugget (for iron powder chain)
+  {
+    id: RecipeId.FURNANCE_IRON_NUGGET_1,
+    inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    craftingTime: 2,
+  },
+  // Iron nugget -> Iron powder
+  {
+    id: RecipeId.GRINDER_IRON_POWDER_1,
+    inputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_IRON_POWDER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_GRINDER_1,
     craftingTime: 2,
   },
 ];

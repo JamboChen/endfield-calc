@@ -14,6 +14,7 @@ import {
   cycleRecipes,
   complexRecipes,
   byproductRecipes,
+  byproductSCCRecipes,
 } from "./fixtures/test-data";
 
 const getNode = (
@@ -484,6 +485,60 @@ describe("Byproduct Recipes", () => {
     if (cmptProducer?.node.type === "recipe") {
       expect(cmptProducer.node.facilityCount).toBeCloseTo(1, 5);
     }
+  });
+});
+
+describe("Byproduct with SCC Cycle", () => {
+  test("byproduct target survives when one producer is in a zero-output SCC", () => {
+    // Three targets: Copper Component + Proc Battery + Liquid Sewage
+    // Sewage is produced by the copper furnace (non-zero) AND by Pool B (in SCC, zero).
+    // The SCC (Pool A ↔ Pool B via Sewage/Intermediate) is a net consumer of Sewage.
+    const plan = calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 },
+        { itemId: ItemId.ITEM_PROC_BATTERY_1, rate: 30 },
+        { itemId: ItemId.ITEM_LIQUID_SEWAGE, rate: 30 },
+      ],
+      mockItems,
+      byproductSCCRecipes,
+      mockFacilities,
+    );
+
+    // Liquid Sewage must appear in the plan as a target
+    expect(plan.nodes.has(ItemId.ITEM_LIQUID_SEWAGE)).toBe(true);
+    const sewageNode = getItemNode(plan, ItemId.ITEM_LIQUID_SEWAGE);
+    expect(sewageNode.isTarget).toBe(true);
+
+    // Sewage should have non-zero production from the furnace
+    expect(sewageNode.productionRate).toBeGreaterThan(0);
+
+    // Copper Component and Battery should also be in the plan
+    expect(plan.nodes.has(ItemId.ITEM_COPPER_CMPT)).toBe(true);
+    expect(plan.nodes.has(ItemId.ITEM_PROC_BATTERY_1)).toBe(true);
+    expect(getItemNode(plan, ItemId.ITEM_COPPER_CMPT).isTarget).toBe(true);
+    expect(getItemNode(plan, ItemId.ITEM_PROC_BATTERY_1).isTarget).toBe(true);
+  });
+
+  test("byproduct produced by multiple recipes has summed rate", () => {
+    // When an item is produced by multiple recipes (furnace + SCC recipe),
+    // the production rate should sum contributions from all producers.
+    const plan = calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 },
+        { itemId: ItemId.ITEM_PROC_BATTERY_1, rate: 30 },
+      ],
+      mockItems,
+      byproductSCCRecipes,
+      mockFacilities,
+    );
+
+    // Sewage exists in the plan (as byproduct from furnace + SCC recipe)
+    expect(plan.nodes.has(ItemId.ITEM_LIQUID_SEWAGE)).toBe(true);
+    const sewageNode = getItemNode(plan, ItemId.ITEM_LIQUID_SEWAGE);
+
+    // Rate should be >= furnace contribution (at least 30/min from 1 furnace)
+    // The SCC may add additional production (or 0 if clamped)
+    expect(sewageNode.productionRate).toBeGreaterThanOrEqual(30);
   });
 });
 

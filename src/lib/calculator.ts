@@ -227,7 +227,10 @@ function buildBipartiteGraph(
 
     selectedRecipe.outputs.forEach((out) => {
       graph.recipeOutputs.get(selectedRecipe.id)!.add(out.itemId);
-      graph.itemProducedBy.set(out.itemId, selectedRecipe.id);
+
+      // Don't set itemProducedBy here — it's a traversal record, not a production
+      // claim. The primary item's producer is set at line 247 via traverse().
+      // Byproducts are tracked in recipeOutputs for edge creation and rate summing.
 
       // Ensure byproduct items exist in the graph as produced (non-raw) nodes
       // and are marked as visited so they reuse this recipe instead of selecting a new one
@@ -711,20 +714,26 @@ function buildProductionGraph(
 
   // Add item nodes
   graph.itemNodes.forEach((itemNode, itemId) => {
-    const producerRecipeId = graph.itemProducedBy.get(itemId);
     let productionRate = 0;
 
-    if (producerRecipeId) {
-      // Produced item: calculate from recipe
-      const recipe = maps.recipeMap.get(producerRecipeId)!;
-      const facilityCount =
-        flowData.recipeFacilityCounts.get(producerRecipeId) || 0;
-      const output =
-        recipe.outputs.find((o) => o.itemId === itemId) || recipe.outputs[0];
-      productionRate =
-        calcRate(output.amount, recipe.craftingTime) * facilityCount;
-    } else if (itemNode.isRawMaterial) {
+    if (itemNode.isRawMaterial) {
       productionRate = flowData.itemDemands.get(itemId) || 0;
+    } else {
+      // Sum production from ALL recipes that output this item.
+      // An item can be produced by multiple recipes (e.g., as a primary output
+      // of one recipe and a byproduct of another).
+      graph.recipeOutputs.forEach((outputItems, recipeId) => {
+        if (outputItems.has(itemId)) {
+          const recipe = maps.recipeMap.get(recipeId)!;
+          const facilityCount =
+            flowData.recipeFacilityCounts.get(recipeId) || 0;
+          const output = recipe.outputs.find((o) => o.itemId === itemId);
+          if (output) {
+            productionRate +=
+              calcRate(output.amount, recipe.craftingTime) * facilityCount;
+          }
+        }
+      });
     }
 
     nodes.set(itemId, {
