@@ -72,7 +72,6 @@ type BipartiteGraph = {
   recipeNodes: Map<RecipeId, RecipeNodeData>;
 
   itemConsumedBy: Map<ItemId, Set<RecipeId>>;
-  itemProducedBy: Map<ItemId, RecipeId>;
 
   recipeInputs: Map<RecipeId, Set<ItemId>>;
   recipeOutputs: Map<RecipeId, Set<ItemId>>;
@@ -131,7 +130,6 @@ function buildBipartiteGraph(
     itemNodes: new Map(),
     recipeNodes: new Map(),
     itemConsumedBy: new Map(),
-    itemProducedBy: new Map(),
     recipeInputs: new Map(),
     recipeOutputs: new Map(),
     targets: new Set(targets.map((t) => t.itemId)),
@@ -228,10 +226,6 @@ function buildBipartiteGraph(
     selectedRecipe.outputs.forEach((out) => {
       graph.recipeOutputs.get(selectedRecipe.id)!.add(out.itemId);
 
-      // Don't set itemProducedBy here — it's a traversal record, not a production
-      // claim. The primary item's producer is set at line 247 via traverse().
-      // Byproducts are tracked in recipeOutputs for edge creation and rate summing.
-
       // Ensure byproduct items exist in the graph as produced (non-raw) nodes
       // and are marked as visited so they reuse this recipe instead of selecting a new one
       if (!graph.itemNodes.has(out.itemId)) {
@@ -246,8 +240,6 @@ function buildBipartiteGraph(
         }
       }
     });
-
-    graph.itemProducedBy.set(itemId, selectedRecipe.id);
 
     const newVisitedPath = new Set(visitedPath);
     newVisitedPath.add(itemId);
