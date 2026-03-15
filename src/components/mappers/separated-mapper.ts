@@ -44,6 +44,11 @@ export function mapPlanToFlowSeparated(
   const edges: Edge[] = [];
   let edgeIdCounter = 0;
 
+  // Track byproduct capacity already allocated to targets per facility instance.
+  // Used to coordinate between target sink and disposal sink passes — disposal
+  // only handles the remaining byproduct after target allocation.
+  const byproductAllocatedToTarget = new Map<string, number>();
+
   // Pre-calculate which items are upstream (have consumers)
   const upstreamItemIds = new Set<string>();
   plan.edges.forEach((edge) => {
@@ -393,8 +398,8 @@ export function mapPlanToFlowSeparated(
 
     if (producerAlreadyProcessed && producerRecipeId && producerRecipe) {
       // Byproduct target (terminal or non-terminal): producer facilities
-      // already exist for the primary output. Create direct edges from those
-      // facilities to this target sink using the byproduct's proportional rate.
+      // already exist for the primary output. Allocate target demand across
+      // facilities greedily — only connect enough facilities to satisfy demand.
       // This bypasses pool allocation which only tracks primary output capacity.
       const userTargetRate =
         targetRates?.get(node.itemId) ?? node.productionRate;
@@ -406,6 +411,7 @@ export function mapPlanToFlowSeparated(
       const primaryOutput = producerRecipe.recipe.outputs[0];
 
       if (byproductOutput && primaryOutput) {
+        let remainingDemand = userTargetRate;
         facilityInstances.forEach((fi) => {
           const byproductRate =
             calcRate(
@@ -418,17 +424,26 @@ export function mapPlanToFlowSeparated(
                 producerRecipe.recipe.craftingTime,
               ));
 
-          edges.push(
-            createEdge(
-              `e${edgeIdCounter++}`,
-              fi.facilityId,
-              targetSinkId,
-              byproductRate,
-              node.item,
-              undefined,
-              ceilMode,
-            ),
-          );
+          // Allocate only what's needed from this facility
+          const allocated = Math.min(byproductRate, remainingDemand);
+          if (allocated > 0) {
+            edges.push(
+              createEdge(
+                `e${edgeIdCounter++}`,
+                fi.facilityId,
+                targetSinkId,
+                allocated,
+                node.item,
+                undefined,
+                ceilMode,
+                1,
+              ),
+            );
+          }
+          remainingDemand -= allocated;
+
+          // Track allocation so disposal pass knows what's left
+          byproductAllocatedToTarget.set(`${fi.facilityId}:${node.itemId}`, allocated);
         });
       }
 
@@ -624,20 +639,62 @@ export function mapPlanToFlowSeparated(
     if (producerRecipeId && poolManager.hasPool(producerRecipeId)) {
       const facilityInstances =
         poolManager.getFacilityInstances(producerRecipeId);
+
+      // Compute per-facility byproduct rate and subtract target allocation
+      const producerRecipeNode = plan.nodes.get(producerRecipeId);
+      const byproductOutput =
+        producerRecipeNode?.type === "recipe"
+          ? producerRecipeNode.recipe.outputs.find(
+              (o) => o.itemId === consumedItemNode.itemId,
+            )
+          : undefined;
+      const primaryOutput =
+        producerRecipeNode?.type === "recipe"
+          ? producerRecipeNode.recipe.outputs[0]
+          : undefined;
+
       facilityInstances.forEach((fi) => {
-        edges.push(
-          createEdge(
-            `e${edgeIdCounter++}`,
-            fi.facilityId,
-            disposalSinkId,
-            disposalRate / facilityInstances.length,
-            consumedItemNode.item,
-            undefined,
-            ceilMode,
-          ),
-        );
+        // Compute this facility's total byproduct output
+        let facilityByproductRate: number;
+        if (byproductOutput && primaryOutput && producerRecipeNode?.type === "recipe") {
+          facilityByproductRate =
+            calcRate(
+              byproductOutput.amount,
+              producerRecipeNode.recipe.craftingTime,
+            ) *
+            (fi.actualOutputRate /
+              calcRate(
+                primaryOutput.amount,
+                producerRecipeNode.recipe.craftingTime,
+              ));
+        } else {
+          facilityByproductRate = disposalRate / facilityInstances.length;
+        }
+
+        // Subtract what was already allocated to targets
+        const allocatedToTarget =
+          byproductAllocatedToTarget.get(`${fi.facilityId}:${consumedItemNode.itemId}`) ?? 0;
+        const remaining = facilityByproductRate - allocatedToTarget;
+
+        if (remaining > 0.01) {
+          edges.push(
+            createEdge(
+              `e${edgeIdCounter++}`,
+              fi.facilityId,
+              disposalSinkId,
+              remaining,
+              consumedItemNode.item,
+              undefined,
+              ceilMode,
+              1, // Each facility instance is one physical building
+            ),
+          );
+        }
       });
     } else if (producerRecipeId) {
+      const producerNode = plan.nodes.get(producerRecipeId);
+      const producerFacilityCount =
+        producerNode?.type === "recipe" ? producerNode.facilityCount : undefined;
       edges.push(
         createEdge(
           `e${edgeIdCounter++}`,
@@ -647,6 +704,7 @@ export function mapPlanToFlowSeparated(
           consumedItemNode.item,
           undefined,
           ceilMode,
+          producerFacilityCount,
         ),
       );
     }

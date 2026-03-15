@@ -11,7 +11,7 @@ import { ItemIcon } from "../production/ProductionTable";
 import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type { DisposalSinkNodeData } from "@/types";
-import { getTransportCount, formatCount } from "@/lib/utils";
+import { getTransportCountWithFacilities, formatCount } from "@/lib/utils";
 
 const formatNumber = (num: number, decimals = 2): string => {
   return num.toFixed(decimals);
@@ -73,7 +73,7 @@ export default function CustomDisposalNode({
                 <span className="text-[11px] text-rose-700/70 dark:text-rose-400/70">/min</span>
               </div>
               <span className="text-[10px] text-muted-foreground tabular-nums">
-                {formatCount(getTransportCount(disposalRate, item, ceilMode as boolean), ceilMode as boolean)} {getTransportLabel(item)}
+                {formatCount(getTransportCountWithFacilities(disposalRate, item, ceilMode as boolean, facilityCount), ceilMode as boolean)} {getTransportLabel(item)}
               </span>
             </div>
 

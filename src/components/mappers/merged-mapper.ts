@@ -247,6 +247,22 @@ export function mapPlanToFlowMerged(
       // - Also for terminal targets when the recipe already has a production node
       //   (byproduct scenario: recipe serves a primary output elsewhere)
       if (producerRecipeId && (!isTerminalTarget || producerHasFlowNode)) {
+        // Compute how many facilities actually contribute to this edge flow,
+        // not the total recipe facility count
+        const producerNode = plan.nodes.get(producerRecipeId);
+        let edgeFacilityCount: number | undefined;
+        if (producerNode?.type === "recipe") {
+          const outputEntry = producerNode.recipe.outputs.find(
+            (o) => o.itemId === node.itemId,
+          );
+          if (outputEntry) {
+            const ratePerFacility = calcRate(
+              outputEntry.amount,
+              producerNode.recipe.craftingTime,
+            );
+            edgeFacilityCount = Math.ceil(userTargetRate / ratePerFacility);
+          }
+        }
         flowEdges.push(
           createEdge(
             `e${edgeIdCounter++}`,
@@ -256,6 +272,7 @@ export function mapPlanToFlowMerged(
             node.item,
             undefined,
             ceilMode,
+            edgeFacilityCount,
           ),
         );
       }
@@ -305,6 +322,21 @@ export function mapPlanToFlowMerged(
     })?.from;
 
     if (producerRecipeId) {
+      // Compute how many facilities contribute to this disposal flow
+      const producerNode = plan.nodes.get(producerRecipeId);
+      let edgeFacilityCount: number | undefined;
+      if (producerNode?.type === "recipe") {
+        const outputEntry = producerNode.recipe.outputs.find(
+          (o) => o.itemId === consumedItemNode.itemId,
+        );
+        if (outputEntry) {
+          const ratePerFacility = calcRate(
+            outputEntry.amount,
+            producerNode.recipe.craftingTime,
+          );
+          edgeFacilityCount = Math.ceil(disposalRate / ratePerFacility);
+        }
+      }
       flowEdges.push(
         createEdge(
           `e${edgeIdCounter++}`,
@@ -314,6 +346,7 @@ export function mapPlanToFlowMerged(
           consumedItemNode.item,
           undefined,
           ceilMode,
+          edgeFacilityCount,
         ),
       );
     }

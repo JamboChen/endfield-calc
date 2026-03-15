@@ -30,6 +30,21 @@ export const getTransportCount = (
   return ceil ? Math.ceil(count) : count;
 };
 
+/**
+ * Facility-aware transport count: accounts for the fact that each building
+ * has its own output port and needs its own transport connection.
+ * Returns max(throughput-based count, facilityCount).
+ */
+export const getTransportCountWithFacilities = (
+  itemsPerMinute: number,
+  item: Item | undefined,
+  ceil: boolean,
+  facilityCount: number,
+): number => {
+  const throughput = getTransportCount(itemsPerMinute, item, ceil);
+  return ceil ? Math.max(throughput, Math.ceil(facilityCount)) : Math.max(throughput, facilityCount);
+};
+
 export const getPickupPointCount = (demandRate: number, item?: Item): number =>
   demandRate > 0 ? Math.ceil(demandRate / getTransportCapacity(item)) : 0;
 

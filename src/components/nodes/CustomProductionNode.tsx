@@ -15,7 +15,7 @@ import type {
   FlowNodeDataSeparatedWithTarget,
   FlowNodeDataWithTarget,
 } from "@/types";
-import { getTransportCount, getPickupPointCount, formatCount, calcRate } from "@/lib/utils";
+import { getTransportCountWithFacilities, getPickupPointCount, formatCount, calcRate } from "@/lib/utils";
 
 /**
  * Type alias for a React Flow node containing production data.
@@ -213,7 +213,7 @@ export default function CustomProductionNode({
                   <span className={`text-[10px] ${rateColorClasses} opacity-70`}>/min</span>
                   <span className="text-[10px] text-muted-foreground/50">·</span>
                   <span className="text-[10px] text-muted-foreground tabular-nums">
-                    {formatCount(getTransportCount(node.targetRate, node.item, ceilMode as boolean), ceilMode as boolean)} {getTransportLabel(node.item)}
+                    {formatCount(getTransportCountWithFacilities(node.targetRate, node.item, ceilMode as boolean, node.facilityCount), ceilMode as boolean)} {getTransportLabel(node.item)}
                   </span>
                 </div>
               </div>
@@ -249,7 +249,7 @@ export default function CustomProductionNode({
                     <span className="text-[9px] text-muted-foreground">/min</span>
                     <span className="text-[9px] text-muted-foreground/50">·</span>
                     <span className="text-[9px] text-muted-foreground tabular-nums">
-                      {formatCount(getTransportCount(bp.rate, bp.item!, ceilMode as boolean), ceilMode as boolean)} {getTransportLabel(bp.item!)}
+                      {formatCount(getTransportCountWithFacilities(bp.rate, bp.item!, ceilMode as boolean, node.facilityCount), ceilMode as boolean)} {getTransportLabel(bp.item!)}
                     </span>
                   </div>
                 </div>

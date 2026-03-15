@@ -8,7 +8,7 @@ import type {
   FlowDisposalNode,
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
-import { getTransportCount, formatCount } from "@/lib/utils";
+import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
 import { getTransportLabel } from "@/lib/i18n-helpers";
 
 /**
@@ -43,15 +43,34 @@ export function createEdge(
   item?: Item,
   direction?: EdgeDirection,
   ceilMode = false,
+  sourceFacilityCount?: number,
 ): Edge {
-  const transportCount = getTransportCount(flowRate, item, ceilMode);
-  const transportStr = formatCount(transportCount, ceilMode);
+  const throughputCount = getTransportCount(flowRate, item, ceilMode);
+  const throughputStr = formatCount(throughputCount, ceilMode);
+  const transportLabel = getTransportLabel(item);
+
+  // Show merged notation (e.g., "2→1 pipes") when source facilities need
+  // more connections than the throughput requires
+  let transportStr: string;
+  if (sourceFacilityCount !== undefined) {
+    const facilityCount = getTransportCountWithFacilities(
+      flowRate, item, ceilMode, sourceFacilityCount,
+    );
+    if (facilityCount > throughputCount && ceilMode) {
+      transportStr = `${formatCount(facilityCount, ceilMode)}→${throughputStr} ${transportLabel}`;
+    } else {
+      transportStr = `${throughputStr} ${transportLabel}`;
+    }
+  } else {
+    transportStr = `${throughputStr} ${transportLabel}`;
+  }
+
   return {
     id,
     source,
     target,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
-    label: `${flowRate.toFixed(2)} /min\n${transportStr} ${getTransportLabel(item)}`,
+    label: `${flowRate.toFixed(2)} /min\n${transportStr}`,
     data: {
       flowRate,
       direction,
