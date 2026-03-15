@@ -71,6 +71,7 @@ export const mockFacilities: Facility[] = [
   { id: FacilityId.ITEM_PORT_MIX_POOL_1, powerConsumption: 6, tier: 1 },
   { id: FacilityId.ITEM_PORT_SHAPER_1, powerConsumption: 10, tier: 1 },
   { id: FacilityId.ITEM_PORT_TOOLS_ASM_MC_1, powerConsumption: 15, tier: 1 },
+  { id: FacilityId.ITEM_PORT_LIQUID_CLEANER_1, powerConsumption: 50, tier: 3 },
 ];
 
 // Simple linear recipes (no cycles)
@@ -222,6 +223,14 @@ export const byproductRecipes: Recipe[] = [
     inputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_COPPER_CMPT, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    craftingTime: 2,
+  },
+  // Sewage disposal (Liquid Cleaner) — outputs nothing
+  {
+    id: RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 }],
+    outputs: [],
+    facilityId: FacilityId.ITEM_PORT_LIQUID_CLEANER_1,
     craftingTime: 2,
   },
 ];

@@ -36,6 +36,7 @@ const NODE_DIMENSIONS = {
   PRODUCTION_NODE: { width: 208, height: 125 },
   PRODUCTION_NODE_PARTIAL: { width: 208, height: 157 },
   TARGET_NODE: { width: 208, height: 160 },
+  DISPOSAL_NODE: { width: 208, height: 160 },
 } as const;
 
 /**
@@ -60,6 +61,10 @@ preloadLayoutEngine();
 function getNodeDimensions(node: Node): { width: number; height: number } {
   if (node.type === "targetSink") {
     return NODE_DIMENSIONS.TARGET_NODE;
+  }
+
+  if (node.type === "disposalSink") {
+    return NODE_DIMENSIONS.DISPOSAL_NODE;
   }
 
   if (node.type === "productionNode") {
@@ -247,7 +252,7 @@ export const getLayoutedElements = async (
               "org.eclipse.elk.layered.layeringConstraint": "FIRST_SEPARATE",
             };
           }
-        } else if (node.type === "targetSink") {
+        } else if (node.type === "targetSink" || node.type === "disposalSink") {
           elkNode.layoutOptions = {
             "org.eclipse.elk.layered.layeringConstraint": "LAST_SEPARATE",
           };

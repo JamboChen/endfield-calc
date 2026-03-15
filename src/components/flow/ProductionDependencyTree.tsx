@@ -25,6 +25,7 @@ import type {
 } from "@/types";
 import CustomProductionNode from "../nodes/CustomProductionNode";
 import CustomTargetNode from "../nodes/CustomTargetNode";
+import CustomDisposalNode from "../nodes/CustomDisposalNode";
 import { useTranslation } from "react-i18next";
 import { getLayoutedElements } from "@/lib/layout";
 import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
@@ -274,6 +275,7 @@ export default function ProductionDependencyTree({
     () => ({
       productionNode: CustomProductionNode,
       targetSink: CustomTargetNode,
+      disposalSink: CustomDisposalNode,
     }),
     [],
   );

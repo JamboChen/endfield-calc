@@ -542,6 +542,119 @@ describe("Byproduct with SCC Cycle", () => {
   });
 });
 
+describe("Disposal Recipes", () => {
+  test("injects disposal when byproduct has no consumers", () => {
+    // Target: Copper Component → produces Sewage as byproduct with no consumer
+    // Expected: Disposal recipe injected for the full 30/min surplus
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
+      mockItems,
+      byproductRecipes,
+      mockFacilities,
+    );
+
+    // Disposal recipe should be in the plan
+    const disposalRecipeId =
+      RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE;
+    expect(plan.nodes.has(disposalRecipeId)).toBe(true);
+
+    const disposalNode = plan.nodes.get(disposalRecipeId)!;
+    expect(disposalNode.type).toBe("recipe");
+    if (disposalNode.type === "recipe") {
+      expect(disposalNode.isDisposal).toBe(true);
+      expect(disposalNode.facilityCount).toBeCloseTo(1, 5); // 30/min surplus / 30/min per facility
+    }
+  });
+
+  test("does not inject disposal when byproduct is a target", () => {
+    // Target: Copper Component + Liquid Sewage (as target)
+    // Sewage target demand equals production → no surplus → no disposal
+    const plan = calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 },
+        { itemId: ItemId.ITEM_LIQUID_SEWAGE, rate: 30 },
+      ],
+      mockItems,
+      byproductRecipes,
+      mockFacilities,
+    );
+
+    const disposalRecipeId =
+      RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE;
+    expect(plan.nodes.has(disposalRecipeId)).toBe(false);
+  });
+
+  test("injects disposal only for surplus when byproduct is partially targeted", () => {
+    // Target: Copper Component (rate 60 → 2 furnaces → 60/min sewage)
+    //       + Liquid Sewage target at 30/min
+    // Surplus = 60 - 30 = 30/min → 1 disposal facility
+    const plan = calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_COPPER_CMPT, rate: 60 },
+        { itemId: ItemId.ITEM_LIQUID_SEWAGE, rate: 30 },
+      ],
+      mockItems,
+      byproductRecipes,
+      mockFacilities,
+    );
+
+    const disposalRecipeId =
+      RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE;
+    expect(plan.nodes.has(disposalRecipeId)).toBe(true);
+
+    const disposalNode = plan.nodes.get(disposalRecipeId)!;
+    if (disposalNode.type === "recipe") {
+      expect(disposalNode.facilityCount).toBeCloseTo(1, 5); // 30/min surplus / 30/min per facility
+    }
+  });
+
+  test("disposal facility count scales with surplus", () => {
+    // Target: Copper Component at rate 90 → 3 furnaces → 90/min sewage
+    // No consumer or target for sewage → full disposal
+    // Expected: 3 disposal facilities (90/30 = 3)
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 90 }],
+      mockItems,
+      byproductRecipes,
+      mockFacilities,
+    );
+
+    const disposalRecipeId =
+      RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE;
+    expect(plan.nodes.has(disposalRecipeId)).toBe(true);
+
+    const disposalNode = plan.nodes.get(disposalRecipeId)!;
+    if (disposalNode.type === "recipe") {
+      expect(disposalNode.facilityCount).toBeCloseTo(3, 5);
+    }
+  });
+
+  test("disposal has correct edges in production graph", () => {
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
+      mockItems,
+      byproductRecipes,
+      mockFacilities,
+    );
+
+    const disposalRecipeId =
+      RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE;
+
+    // Edge from sewage item to disposal recipe (consumption)
+    const consumptionEdge = plan.edges.find(
+      (e) =>
+        e.from === ItemId.ITEM_LIQUID_SEWAGE && e.to === disposalRecipeId,
+    );
+    expect(consumptionEdge).toBeDefined();
+
+    // No edge from disposal recipe to any item (it produces nothing)
+    const productionEdge = plan.edges.find(
+      (e) => e.from === disposalRecipeId,
+    );
+    expect(productionEdge).toBeUndefined();
+  });
+});
+
 describe("Stress Tests", () => {
   test("handles deeply nested dependency chain", () => {
     const items = Array.from({ length: 11 }, (_, i) => ({

@@ -46,6 +46,7 @@ export type ProductionGraphNode =
       recipe: Recipe;
       facility: Facility;
       facilityCount: number;
+      isDisposal?: boolean;
     };
 
 export type ProductionDependencyGraph = {

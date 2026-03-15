@@ -7,6 +7,7 @@ import type {
   Recipe,
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
+import { calcRate } from "@/lib/utils";
 
 type MergedItemNode = {
   itemId: ItemId;
@@ -161,7 +162,7 @@ export function useProductionTable(
     calculateLevels(mergedNodes);
     const sortedNodes = sortNodes(mergedNodes, plan);
 
-    return sortedNodes.map((node) => {
+    const itemRows: ProductionLineData[] = sortedNodes.map((node) => {
       const itemNode = plan.nodes.get(node.itemId) as Extract<
         ProductionGraphNode,
         { type: "item" }
@@ -197,5 +198,38 @@ export function useProductionTable(
         directDependencyItemIds: node.dependencies,
       };
     });
+
+    // Add disposal rows for disposal recipes
+    const disposalRows: ProductionLineData[] = [];
+    plan.nodes.forEach((node) => {
+      if (node.type !== "recipe" || !node.isDisposal) return;
+
+      // Find the consumed item
+      const consumedItemId = plan.edges.find(
+        (e) => e.to === node.recipeId,
+      )?.from;
+      if (!consumedItemId) return;
+
+      const consumedItemNode = plan.nodes.get(consumedItemId);
+      if (!consumedItemNode || consumedItemNode.type !== "item") return;
+
+      const disposalRate =
+        calcRate(node.recipe.inputs[0].amount, node.recipe.craftingTime) *
+        node.facilityCount;
+
+      disposalRows.push({
+        item: consumedItemNode.item,
+        outputRate: disposalRate,
+        availableRecipes: [node.recipe],
+        selectedRecipeId: node.recipeId,
+        facility: node.facility,
+        facilityCount: node.facilityCount,
+        isRawMaterial: false,
+        isTarget: false,
+        isDisposal: true,
+      });
+    });
+
+    return [...itemRows, ...disposalRows];
   }, [plan, recipes, recipeOverrides, manualRawMaterials]);
 }

@@ -8,11 +8,13 @@ import type {
   FlowNodeData,
   FlowProductionNode,
   FlowTargetNode,
+  FlowDisposalNode,
 } from "@/types";
 import {
   createEdge,
   createProductionFlowNode,
   createTargetSinkNode,
+  createDisposalSinkNode,
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate } from "@/lib/utils";
@@ -26,7 +28,7 @@ export function mapPlanToFlowMerged(
   facilities: Facility[],
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
-): { nodes: (FlowProductionNode | FlowTargetNode)[]; edges: Edge[] } {
+): { nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode)[]; edges: Edge[] } {
   const flowNodes: Node<FlowNodeData>[] = [];
   const flowEdges: Edge[] = [];
   const targetSinkNodes: FlowTargetNode[] = [];
@@ -101,6 +103,9 @@ export function mapPlanToFlowMerged(
 
     // Item → Recipe (consume)
     if (sourceNode.type === "item" && targetNode.type === "recipe") {
+      // Skip disposal recipe edges — disposal sinks create their own edges
+      if (targetNode.isDisposal) return;
+
       // Find the recipe that produces this item
       const producerRecipeId = Array.from(plan.edges).find(
         (e) => e.to === edge.from && plan.nodes.get(e.from)?.type === "recipe",
@@ -257,10 +262,68 @@ export function mapPlanToFlowMerged(
     }
   });
 
+  // Create disposal sink nodes for disposal recipes
+  const disposalSinkNodes: FlowDisposalNode[] = [];
+  plan.nodes.forEach((node, nodeId) => {
+    if (node.type !== "recipe" || !node.isDisposal) return;
+
+    const disposalSinkId = `disposal-${nodeId}`;
+
+    // Find the consumed item (edge: item -> disposal recipe)
+    const consumedItemId = plan.edges.find(
+      (e) => e.to === nodeId,
+    )?.from;
+    if (!consumedItemId) return;
+
+    const consumedItemNode = plan.nodes.get(consumedItemId);
+    if (!consumedItemNode || consumedItemNode.type !== "item") return;
+
+    const disposalRate =
+      calcRate(
+        node.recipe.inputs[0].amount,
+        node.recipe.craftingTime,
+      ) * node.facilityCount;
+
+    disposalSinkNodes.push(
+      createDisposalSinkNode(
+        disposalSinkId,
+        consumedItemNode.item,
+        disposalRate,
+        node.facility,
+        node.facilityCount,
+        items,
+        facilities,
+        ceilMode,
+      ),
+    );
+
+    // Find the producer recipe of the consumed item to create an edge
+    const producerRecipeId = plan.edges.find((e) => {
+      if (e.to !== consumedItemId) return false;
+      const n = plan.nodes.get(e.from);
+      return n?.type === "recipe" && !n.isDisposal;
+    })?.from;
+
+    if (producerRecipeId) {
+      flowEdges.push(
+        createEdge(
+          `e${edgeIdCounter++}`,
+          producerRecipeId,
+          disposalSinkId,
+          disposalRate,
+          consumedItemNode.item,
+          undefined,
+          ceilMode,
+        ),
+      );
+    }
+  });
+
   return {
-    nodes: [...flowNodes, ...targetSinkNodes] as (
+    nodes: [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes] as (
       | FlowProductionNode
       | FlowTargetNode
+      | FlowDisposalNode
     )[],
     edges: flowEdges,
   };

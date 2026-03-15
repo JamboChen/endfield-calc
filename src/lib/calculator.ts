@@ -11,7 +11,7 @@ import type {
   ProductionGraphNode,
 } from "@/types";
 import { solveLinearSystem } from "./linear-solver";
-import { forcedRawMaterials } from "@/data";
+import { forcedRawMaterials, forcedDisposalItems } from "@/data";
 import { calcRate } from "@/lib/utils";
 
 const selectRecipe = (recipes: Recipe[], visitedPath: Set<ItemId>): Recipe => {
@@ -227,7 +227,9 @@ function buildBipartiteGraph(
       graph.recipeOutputs.get(selectedRecipe.id)!.add(out.itemId);
 
       // Ensure byproduct items exist in the graph as produced (non-raw) nodes
-      // and are marked as visited so they reuse this recipe instead of selecting a new one
+      // and are marked as visited so they reuse this recipe instead of selecting a new one.
+      // Exception: target items are NOT marked as visited — they need their own
+      // recipe selection to ensure an external production path exists.
       if (!graph.itemNodes.has(out.itemId)) {
         const outItem = maps.itemMap.get(out.itemId);
         if (outItem) {
@@ -236,7 +238,9 @@ function buildBipartiteGraph(
             item: outItem,
             isRawMaterial: false,
           });
-          visitedItems.add(out.itemId);
+          if (!graph.targets.has(out.itemId)) {
+            visitedItems.add(out.itemId);
+          }
         }
       }
     });
@@ -695,6 +699,111 @@ function solveSCCFlow(
   return true; // Changed: return true on success
 }
 
+/**
+ * Injects disposal recipes for forced disposal items that have surplus production.
+ * A disposal recipe is injected when a byproduct in `forcedDisposalItems` is produced
+ * but not fully consumed by other recipes or target demands.
+ */
+function injectDisposalRecipes(
+  graph: BipartiteGraph,
+  flowData: FlowData,
+  maps: ProductionMaps,
+  targets: Array<{ itemId: ItemId; rate: number }>,
+): void {
+  for (const itemId of forcedDisposalItems) {
+    // Only inject for items that exist in this plan
+    if (!graph.itemNodes.has(itemId)) continue;
+    const itemNode = graph.itemNodes.get(itemId)!;
+    if (itemNode.isRawMaterial) continue;
+
+    // Compute total production of this item across all recipes
+    let totalProduction = 0;
+    graph.recipeOutputs.forEach((outputItems, recipeId) => {
+      if (outputItems.has(itemId)) {
+        const recipe = maps.recipeMap.get(recipeId)!;
+        const facilityCount =
+          flowData.recipeFacilityCounts.get(recipeId) || 0;
+        const output = recipe.outputs.find((o) => o.itemId === itemId);
+        if (output) {
+          totalProduction +=
+            calcRate(output.amount, recipe.craftingTime) * facilityCount;
+        }
+      }
+    });
+
+    // Compute total consumption by non-disposal recipes
+    let totalConsumption = 0;
+    const consumers = graph.itemConsumedBy.get(itemId);
+    if (consumers) {
+      for (const recipeId of consumers) {
+        const recipe = maps.recipeMap.get(recipeId)!;
+        // Skip disposal recipes to avoid double-counting
+        if (recipe.outputs.length === 0) continue;
+        const facilityCount =
+          flowData.recipeFacilityCounts.get(recipeId) || 0;
+        const input = recipe.inputs.find((i) => i.itemId === itemId);
+        if (input) {
+          totalConsumption +=
+            calcRate(input.amount, recipe.craftingTime) * facilityCount;
+        }
+      }
+    }
+
+    // Subtract target demand (user wants to collect this amount, not dispose)
+    const targetDemand =
+      targets.find((t) => t.itemId === itemId)?.rate || 0;
+
+    const surplus = totalProduction - totalConsumption - targetDemand;
+    if (surplus <= 0) continue;
+
+    // Find the matching disposal recipe
+    const disposalRecipe = Array.from(maps.recipeMap.values()).find(
+      (r) =>
+        r.outputs.length === 0 &&
+        r.inputs.some((i) => i.itemId === itemId),
+    );
+    if (!disposalRecipe) continue;
+
+    // Already injected
+    if (graph.recipeNodes.has(disposalRecipe.id)) continue;
+
+    // Compute disposal facility count
+    const disposalInput = disposalRecipe.inputs.find(
+      (i) => i.itemId === itemId,
+    )!;
+    const disposalRatePerFacility = calcRate(
+      disposalInput.amount,
+      disposalRecipe.craftingTime,
+    );
+    const disposalFacilityCount = surplus / disposalRatePerFacility;
+
+    // Resolve facility
+    const facility = maps.facilityMap.get(disposalRecipe.facilityId);
+    if (!facility) continue;
+
+    // Inject into graph structures
+    graph.recipeNodes.set(disposalRecipe.id, {
+      recipeId: disposalRecipe.id,
+      recipe: disposalRecipe,
+      facility,
+    });
+    graph.recipeInputs.set(disposalRecipe.id, new Set([itemId]));
+    graph.recipeOutputs.set(disposalRecipe.id, new Set());
+
+    // Add consumption edge
+    if (!graph.itemConsumedBy.has(itemId)) {
+      graph.itemConsumedBy.set(itemId, new Set());
+    }
+    graph.itemConsumedBy.get(itemId)!.add(disposalRecipe.id);
+
+    // Record facility count in flow data
+    flowData.recipeFacilityCounts.set(
+      disposalRecipe.id,
+      disposalFacilityCount,
+    );
+  }
+}
+
 function buildProductionGraph(
   graph: BipartiteGraph,
   flowData: FlowData,
@@ -745,6 +854,7 @@ function buildProductionGraph(
       recipe: recipeData.recipe,
       facility: recipeData.facility,
       facilityCount: flowData.recipeFacilityCounts.get(recipeId) || 0,
+      isDisposal: recipeData.recipe.outputs.length === 0,
     });
   });
 
@@ -922,6 +1032,7 @@ export function calculateProductionPlan(
       console.log(
         `[SUCCESS] Valid production plan found in ${iteration} iteration(s)`,
       );
+      injectDisposalRecipes(graph, flowData, maps, targets);
       return buildProductionGraph(graph, flowData, sccs, maps);
     }
 
@@ -942,6 +1053,7 @@ export function calculateProductionPlan(
         `[FAILED] Cannot find valid production plan after ${iteration} iterations. ` +
           `Returning best-effort result with ${invalidSCCs.length} invalid cycle(s).`,
       );
+      injectDisposalRecipes(graph, flowData, maps, targets);
       return buildProductionGraph(graph, flowData, sccs, maps);
     }
 

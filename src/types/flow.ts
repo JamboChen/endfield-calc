@@ -138,6 +138,31 @@ export interface TargetSinkNodeData {
 export type FlowTargetNode = Node<TargetSinkNodeData>;
 
 /**
+ * Data for a disposal sink node that consumes waste byproducts.
+ * These nodes represent Liquid Cleaner facilities that destroy surplus byproducts.
+ */
+export interface DisposalSinkNodeData {
+  /** The waste item being disposed */
+  item: Item;
+  /** Disposal rate in items/min (= surplus production) */
+  disposalRate: number;
+  /** The disposal facility (Liquid Cleaner) */
+  facility: Facility;
+  /** Number of disposal facilities needed */
+  facilityCount: number;
+  /** All available items (for icon rendering) */
+  items: Item[];
+  facilities: Facility[];
+  ceilMode?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Type alias for a disposal sink node in the React Flow graph.
+ */
+export type FlowDisposalNode = Node<DisposalSinkNodeData>;
+
+/**
  * Updated FlowProductionNode that can include target information.
  */
 export type FlowProductionNode =

@@ -5,6 +5,7 @@ import type {
   Facility,
   FlowProductionNode,
   FlowTargetNode,
+  FlowDisposalNode,
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, formatCount } from "@/lib/utils";
@@ -269,6 +270,36 @@ export function createTargetSinkNode(
             recipe: productionInfo.recipe ?? null,
           }
         : undefined,
+    },
+    position: { x: 0, y: 0 },
+    targetPosition: Position.Left,
+  };
+}
+
+/**
+ * Creates a disposal sink flow node for consuming waste byproducts.
+ */
+export function createDisposalSinkNode(
+  nodeId: string,
+  item: Item,
+  disposalRate: number,
+  facility: Facility,
+  facilityCount: number,
+  items: Item[],
+  facilities: Facility[],
+  ceilMode = false,
+): FlowDisposalNode {
+  return {
+    id: nodeId,
+    type: "disposalSink",
+    data: {
+      item,
+      disposalRate,
+      facility,
+      facilityCount,
+      items,
+      facilities,
+      ceilMode,
     },
     position: { x: 0, y: 0 },
     targetPosition: Position.Left,

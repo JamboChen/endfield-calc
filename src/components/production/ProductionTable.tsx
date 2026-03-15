@@ -35,6 +35,7 @@ export type ProductionLineData = {
   isRawMaterial?: boolean;
   isTarget?: boolean;
   isManualRawMaterial?: boolean;
+  isDisposal?: boolean;
   directDependencyItemIds?: Set<ItemId>;
 };
 
@@ -346,7 +347,7 @@ const ProductionTable = memo(function ProductionTable({
 
               return (
                 <TableRow
-                  key={line.item.id}
+                  key={line.isDisposal ? `disposal-${line.item.id}` : line.item.id}
                   className={[
                     rowClassName,
                     shouldDim && "opacity-30",
@@ -547,6 +548,7 @@ const ProductionTable = memo(function ProductionTable({
                   <TableCell className="p-2">
                     <div className="flex justify-center">
                       {!line.isTarget &&
+                        !line.isDisposal &&
                         !(line.isRawMaterial && !line.isManualRawMaterial) && (
                           <Tooltip>
                             <TooltipTrigger asChild>
