@@ -391,10 +391,11 @@ export function mapPlanToFlowSeparated(
         .getFacilityInstances(producerRecipeId)
         .some((f) => poolManager.isProcessed(f.facilityId));
 
-    if (isTerminalTarget && producerAlreadyProcessed && producerRecipeId && producerRecipe) {
-      // Byproduct terminal target: producer facilities already exist for the
-      // primary output. Create direct edges from those facilities to this
-      // target sink using the byproduct's proportional rate.
+    if (producerAlreadyProcessed && producerRecipeId && producerRecipe) {
+      // Byproduct target (terminal or non-terminal): producer facilities
+      // already exist for the primary output. Create direct edges from those
+      // facilities to this target sink using the byproduct's proportional rate.
+      // This bypasses pool allocation which only tracks primary output capacity.
       const userTargetRate =
         targetRates?.get(node.itemId) ?? node.productionRate;
       const facilityInstances =

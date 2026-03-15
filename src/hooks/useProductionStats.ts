@@ -17,6 +17,7 @@ export type ProductionStats = {
 function collectStats(
   plan: ProductionDependencyGraph,
   manualRawMaterials: Set<ItemId>,
+  ceilMode: boolean,
 ): ProductionStats {
   let totalPower = 0;
   const rawMaterials = new Map<ItemId, number>();
@@ -36,15 +37,21 @@ function collectStats(
         uniqueProductionSteps++;
       }
     } else if (node.type === "recipe") {
+      // Ceil facility count for power and facility stats — each physical
+      // building draws full power regardless of partial utilization
+      const facilityCount = ceilMode
+        ? Math.ceil(node.facilityCount)
+        : node.facilityCount;
+
       // Accumulate power consumption
-      totalPower += node.facility.powerConsumption * node.facilityCount;
+      totalPower += node.facility.powerConsumption * facilityCount;
 
       // Accumulate facility requirements
       if (node.facilityCount >= 0.01) {
         facilityRequirements.set(
           node.facility.id,
           (facilityRequirements.get(node.facility.id) || 0) +
-            node.facilityCount,
+            facilityCount,
         );
       }
     }
@@ -74,6 +81,7 @@ function collectStats(
 export function useProductionStats(
   plan: ProductionDependencyGraph | null,
   manualRawMaterials: Set<ItemId>,
+  ceilMode: boolean,
 ): ProductionStats {
   return useMemo(() => {
     if (!plan || plan.nodes.size === 0) {
@@ -87,6 +95,6 @@ export function useProductionStats(
       };
     }
 
-    return collectStats(plan, manualRawMaterials);
-  }, [plan, manualRawMaterials]);
+    return collectStats(plan, manualRawMaterials, ceilMode);
+  }, [plan, manualRawMaterials, ceilMode]);
 }
