@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ProductionDependencyGraph, ItemId, FacilityId } from "@/types";
+import type { ProductionDependencyGraph, ItemId, FacilityId, Item } from "@/types";
 import { getPickupPointCount } from "@/lib/utils";
 
 export type ProductionStats = {
@@ -18,6 +18,7 @@ function collectStats(
   plan: ProductionDependencyGraph,
   manualRawMaterials: Set<ItemId>,
   ceilMode: boolean,
+  items: Item[],
 ): ProductionStats {
   let totalPower = 0;
   const rawMaterials = new Map<ItemId, number>();
@@ -60,7 +61,8 @@ function collectStats(
   const rawMaterialPickupPoints = new Map<ItemId, number>();
   let totalPickupPoints = 0;
   rawMaterials.forEach((rate, itemId) => {
-    const count = getPickupPointCount(rate);
+    const item = items.find((i) => i.id === itemId);
+    const count = getPickupPointCount(rate, item);
     rawMaterialPickupPoints.set(itemId, count);
     totalPickupPoints += count;
   });
@@ -82,6 +84,7 @@ export function useProductionStats(
   plan: ProductionDependencyGraph | null,
   manualRawMaterials: Set<ItemId>,
   ceilMode: boolean,
+  items: Item[],
 ): ProductionStats {
   return useMemo(() => {
     if (!plan || plan.nodes.size === 0) {
@@ -95,6 +98,6 @@ export function useProductionStats(
       };
     }
 
-    return collectStats(plan, manualRawMaterials, ceilMode);
-  }, [plan, manualRawMaterials, ceilMode]);
+    return collectStats(plan, manualRawMaterials, ceilMode, items);
+  }, [plan, manualRawMaterials, ceilMode, items]);
 }

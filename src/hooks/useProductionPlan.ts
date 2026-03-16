@@ -205,7 +205,7 @@ export function useProductionPlan() {
   }, [plan]);
 
   // View-specific data: computed in view layer hooks
-  const stats = useProductionStats(displayPlan, manualRawMaterials, ceilMode);
+  const stats = useProductionStats(displayPlan, manualRawMaterials, ceilMode, items);
   const tableData = useProductionTable(
     displayPlan,
     recipes,
