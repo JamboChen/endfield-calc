@@ -15,24 +15,13 @@ import type {
   FlowNodeDataSeparatedWithTarget,
   FlowNodeDataWithTarget,
 } from "@/types";
-import { getTransportCountWithFacilities, getPickupPointCount, formatCount, calcRate } from "@/lib/utils";
+import { getTransportCountWithFacilities, getPickupPointCount, formatCount, calcRate, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
 
 /**
  * Type alias for a React Flow node containing production data.
  * Can be either base FlowNodeData (merged mode) or FlowNodeDataSeparated (separated mode).
  */
 export type FlowProductionNode = Node<FlowNodeData | FlowNodeDataSeparated>;
-
-/**
- * Formats a number to a fixed number of decimal places.
- *
- * @param num The number to format
- * @param decimals The number of decimal places. Defaults to 2
- * @returns The formatted number as a string
- */
-const formatNumber = (num: number, decimals = 2): string => {
-  return num.toFixed(decimals);
-};
 
 /**
  * Type guard to check if node data is from separated mode.
@@ -68,16 +57,8 @@ function hasTargetInfo(
 export default function CustomProductionNode({
   data,
 }: NodeProps<FlowProductionNode>) {
-  const { productionNode: node, items, ceilMode = false } = data;
+  const { productionNode: node, items, ceilMode } = data;
   const { t } = useTranslation("production");
-
-  /**
-   * Helper function to find an item by its ID from the provided items array.
-   *
-   * @param itemId The ID of the item to find
-   * @returns The Item object or undefined if not found
-   */
-  const getItemById = (itemId: string) => items.find((i) => i.id === itemId);
 
   const itemName = getItemName(node.item);
   const facility = node.facility;
@@ -99,7 +80,7 @@ export default function CustomProductionNode({
           const rate = primaryOutput
             ? (o.amount / primaryOutput.amount) * node.targetRate
             : calcRate(o.amount, node.recipe!.craftingTime) * node.facilityCount;
-          return { item: getItemById(o.itemId), amount: o.amount, rate };
+          return { item: getItemById(items, o.itemId), amount: o.amount, rate };
         })
         .filter((b) => b.item != null)
     : [];
@@ -138,7 +119,7 @@ export default function CustomProductionNode({
         </div>
       ) : node.recipe ? (
         <>
-          <RecipeIOFull recipe={node.recipe} getItemById={getItemById} />
+          <RecipeIOFull recipe={node.recipe} getItemById={(id) => getItemById(items, id)} />
           {facility && (
             <div className="mt-2 pt-2 border-t">
               <div className="text-muted-foreground">
@@ -164,9 +145,9 @@ export default function CustomProductionNode({
                 // Merged mode: show total power
                 <div className="text-muted-foreground">
                   {t("tree.power")}: {facility.powerConsumption} ×{" "}
-                  {formatCount(node.facilityCount, ceilMode as boolean)} ={" "}
+                  {formatCount(node.facilityCount, ceilMode)} ={" "}
                   {formatNumber(
-                    facility.powerConsumption * node.facilityCount,
+                    facility.powerConsumption * getEffectiveFacilityCount(node.facilityCount, ceilMode),
                     1,
                   )}
                 </div>
@@ -213,7 +194,7 @@ export default function CustomProductionNode({
                   <span className={`text-[10px] ${rateColorClasses} opacity-70`}>/min</span>
                   <span className="text-[10px] text-muted-foreground/50">·</span>
                   <span className="text-[10px] text-muted-foreground tabular-nums">
-                    {formatCount(getTransportCountWithFacilities(node.targetRate, node.item, ceilMode as boolean, node.facilityCount), ceilMode as boolean)} {getTransportLabel(node.item)}
+                    {formatCount(getTransportCountWithFacilities(node.targetRate, node.item, ceilMode, node.facilityCount), ceilMode)} {getTransportLabel(node.item)}
                   </span>
                 </div>
               </div>
@@ -249,7 +230,7 @@ export default function CustomProductionNode({
                     <span className="text-[9px] text-muted-foreground">/min</span>
                     <span className="text-[9px] text-muted-foreground/50">·</span>
                     <span className="text-[9px] text-muted-foreground tabular-nums">
-                      {formatCount(getTransportCountWithFacilities(bp.rate, bp.item!, ceilMode as boolean, node.facilityCount), ceilMode as boolean)} {getTransportLabel(bp.item!)}
+                      {formatCount(getTransportCountWithFacilities(bp.rate, bp.item!, ceilMode, node.facilityCount), ceilMode)} {getTransportLabel(bp.item!)}
                     </span>
                   </div>
                 </div>
@@ -278,7 +259,7 @@ export default function CustomProductionNode({
                 <span className="font-mono font-semibold text-xs shrink-0 ml-2">
                   {isSeparated
                     ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
-                    : `×${formatCount(node.facilityCount, ceilMode as boolean)}`}
+                    : `×${formatCount(node.facilityCount, ceilMode)}`}
                 </span>
               </div>
             )}

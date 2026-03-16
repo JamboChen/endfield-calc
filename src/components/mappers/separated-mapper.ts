@@ -17,8 +17,11 @@ import {
   createDisposalSinkNode,
 } from "../flow/flow-utils";
 import { createTargetSinkId, createPickupPointId } from "@/lib/node-keys";
+import { getRecipeOutputItemId, getRecipeInputItemId, getNonDisposalProducerRecipeId } from "@/lib/plan-helpers";
 import {
   calcRate,
+  getOutputAmount,
+  calcByproductRate,
   getPickupPointCount,
   getTransportCapacity,
 } from "@/lib/utils";
@@ -60,7 +63,7 @@ export function mapPlanToFlowSeparated(
   // Create pools for all recipe nodes
   plan.nodes.forEach((node, nodeId) => {
     if (node.type === "recipe") {
-      const outputItemId = plan.edges.find((e) => e.from === nodeId)?.to;
+      const outputItemId = getRecipeOutputItemId(plan, nodeId);
       const outputItemNode = outputItemId
         ? (plan.nodes.get(outputItemId) as
             | Extract<ProductionGraphNode, { type: "item" }>
@@ -121,12 +124,12 @@ export function mapPlanToFlowSeparated(
           },
           items,
           facilities,
+          ceilMode,
           {
             facilityIndex: i,
             totalFacilities: count,
             isPartialLoad,
             isDirectTarget: false,
-            ceilMode,
           },
         ),
       );
@@ -217,7 +220,7 @@ export function mapPlanToFlowSeparated(
       ProductionGraphNode,
       { type: "recipe" }
     >;
-    const outputItemId = plan.edges.find((e) => e.from === recipeId)?.to;
+    const outputItemId = getRecipeOutputItemId(plan, recipeId);
     const outputItemNode = outputItemId
       ? (plan.nodes.get(outputItemId) as
           | Extract<ProductionGraphNode, { type: "item" }>
@@ -269,21 +272,18 @@ export function mapPlanToFlowSeparated(
               },
               items,
               facilities,
+              ceilMode,
               {
                 facilityIndex: facilityInstance.facilityIndex,
                 totalFacilities: totalFacilities,
                 isPartialLoad: isPartialLoad,
                 isDirectTarget: false,
-                ceilMode,
               },
             ),
           );
 
           recipeNode.recipe.inputs.forEach((input) => {
-            const outputAmount =
-              recipeNode.recipe.outputs.find(
-                (o) => o.itemId === outputItemNode.item.id,
-              )?.amount ?? recipeNode.recipe.outputs[0].amount;
+            const outputAmount = getOutputAmount(recipeNode.recipe, outputItemNode.item.id);
             const inputDemandRate =
               calcRate(input.amount, recipeNode.recipe.craftingTime) *
               (facilityInstance.actualOutputRate /
@@ -303,7 +303,7 @@ export function mapPlanToFlowSeparated(
   plan.nodes.forEach((node, nodeId) => {
     if (node.type !== "recipe") return;
 
-    const outputItemId = plan.edges.find((e) => e.from === nodeId)?.to;
+    const outputItemId = getRecipeOutputItemId(plan, nodeId);
     const outputItemNode = outputItemId
       ? (plan.nodes.get(outputItemId) as
           | Extract<ProductionGraphNode, { type: "item" }>
@@ -338,22 +338,19 @@ export function mapPlanToFlowSeparated(
           },
           items,
           facilities,
+          ceilMode,
           {
             facilityIndex: facilityInstance.facilityIndex,
             totalFacilities: facilityInstances.length,
             isPartialLoad: isPartialLoad,
             isDirectTarget: false,
-            ceilMode,
           },
         ),
       );
 
       // Allocate upstream for this facility's dependencies
       node.recipe.inputs.forEach((input) => {
-        const outputAmount =
-          node.recipe.outputs.find(
-            (o) => o.itemId === outputItemNode!.item.id,
-          )?.amount ?? node.recipe.outputs[0].amount;
+        const outputAmount = getOutputAmount(node.recipe, outputItemNode!.item.id);
         const inputDemandRate =
           calcRate(input.amount, node.recipe.craftingTime) *
           (facilityInstance.actualOutputRate /
@@ -405,47 +402,31 @@ export function mapPlanToFlowSeparated(
         targetRates?.get(node.itemId) ?? node.productionRate;
       const facilityInstances =
         poolManager.getFacilityInstances(producerRecipeId);
-      const byproductOutput = producerRecipe.recipe.outputs.find(
-        (o) => o.itemId === node.itemId,
-      );
-      const primaryOutput = producerRecipe.recipe.outputs[0];
+      let remainingDemand = userTargetRate;
+      facilityInstances.forEach((fi) => {
+        const byproductRate = calcByproductRate(producerRecipe.recipe, node.itemId, fi.actualOutputRate);
 
-      if (byproductOutput && primaryOutput) {
-        let remainingDemand = userTargetRate;
-        facilityInstances.forEach((fi) => {
-          const byproductRate =
-            calcRate(
-              byproductOutput.amount,
-              producerRecipe.recipe.craftingTime,
-            ) *
-            (fi.actualOutputRate /
-              calcRate(
-                primaryOutput.amount,
-                producerRecipe.recipe.craftingTime,
-              ));
+        // Allocate only what's needed from this facility
+        const allocated = Math.min(byproductRate, remainingDemand);
+        if (allocated > 0) {
+          edges.push(
+            createEdge(
+              `e${edgeIdCounter++}`,
+              fi.facilityId,
+              targetSinkId,
+              allocated,
+              node.item,
+              undefined,
+              ceilMode,
+              1,
+            ),
+          );
+        }
+        remainingDemand -= allocated;
 
-          // Allocate only what's needed from this facility
-          const allocated = Math.min(byproductRate, remainingDemand);
-          if (allocated > 0) {
-            edges.push(
-              createEdge(
-                `e${edgeIdCounter++}`,
-                fi.facilityId,
-                targetSinkId,
-                allocated,
-                node.item,
-                undefined,
-                ceilMode,
-                1,
-              ),
-            );
-          }
-          remainingDemand -= allocated;
-
-          // Track allocation so disposal pass knows what's left
-          byproductAllocatedToTarget.set(`${fi.facilityId}:${node.itemId}`, allocated);
-        });
-      }
+        // Track allocation so disposal pass knows what's left
+        byproductAllocatedToTarget.set(`${fi.facilityId}:${node.itemId}`, allocated);
+      });
 
       // Create target sink WITHOUT productionInfo (recipe shown on primary output nodes)
       targetSinkNodes.push(
@@ -489,13 +470,13 @@ export function mapPlanToFlowSeparated(
             },
             items,
             facilities,
+            ceilMode,
             {
               facilityIndex: facilityInstance.facilityIndex,
               totalFacilities: facilityInstances.length,
               isPartialLoad,
               isDirectTarget: true,
               directTargetRate: facilityInstance.actualOutputRate,
-              ceilMode,
             },
           ),
         );
@@ -515,10 +496,7 @@ export function mapPlanToFlowSeparated(
 
         // Allocate upstream for this facility
         producerRecipe.recipe.inputs.forEach((input) => {
-          const outputAmount =
-            producerRecipe.recipe.outputs.find(
-              (o) => o.itemId === node.itemId,
-            )?.amount ?? producerRecipe.recipe.outputs[0].amount;
+          const outputAmount = getOutputAmount(producerRecipe.recipe, node.itemId);
           const inputDemandRate =
             calcRate(input.amount, producerRecipe.recipe.craftingTime) *
             (facilityInstance.actualOutputRate /
@@ -575,10 +553,7 @@ export function mapPlanToFlowSeparated(
         if (isTerminalTarget) {
           // Terminal target (single facility): connect recipe inputs directly
           producerRecipe.recipe.inputs.forEach((input) => {
-            const outputAmount =
-              producerRecipe.recipe.outputs.find(
-                (o) => o.itemId === node.itemId,
-              )?.amount ?? producerRecipe.recipe.outputs[0].amount;
+            const outputAmount = getOutputAmount(producerRecipe.recipe, node.itemId);
             const inputDemandRate =
               (input.amount / outputAmount) * userTargetRate;
 
@@ -601,9 +576,7 @@ export function mapPlanToFlowSeparated(
     const disposalSinkId = `disposal-${nodeId}`;
 
     // Find the consumed item (edge: item -> disposal recipe)
-    const consumedItemId = plan.edges.find(
-      (e) => e.to === nodeId,
-    )?.from;
+    const consumedItemId = getRecipeInputItemId(plan, nodeId);
     if (!consumedItemId) return;
 
     const consumedItemNode = plan.nodes.get(consumedItemId);
@@ -630,11 +603,7 @@ export function mapPlanToFlowSeparated(
 
     // Create edges from producing facilities to disposal sink
     // Find facility instances that produce the waste item
-    const producerRecipeId = plan.edges.find((e) => {
-      if (e.to !== consumedItemId) return false;
-      const n = plan.nodes.get(e.from);
-      return n?.type === "recipe" && !n.isDisposal;
-    })?.from;
+    const producerRecipeId = getNonDisposalProducerRecipeId(plan, consumedItemId);
 
     if (producerRecipeId && poolManager.hasPool(producerRecipeId)) {
       const facilityInstances =
@@ -642,31 +611,12 @@ export function mapPlanToFlowSeparated(
 
       // Compute per-facility byproduct rate and subtract target allocation
       const producerRecipeNode = plan.nodes.get(producerRecipeId);
-      const byproductOutput =
-        producerRecipeNode?.type === "recipe"
-          ? producerRecipeNode.recipe.outputs.find(
-              (o) => o.itemId === consumedItemNode.itemId,
-            )
-          : undefined;
-      const primaryOutput =
-        producerRecipeNode?.type === "recipe"
-          ? producerRecipeNode.recipe.outputs[0]
-          : undefined;
 
       facilityInstances.forEach((fi) => {
         // Compute this facility's total byproduct output
         let facilityByproductRate: number;
-        if (byproductOutput && primaryOutput && producerRecipeNode?.type === "recipe") {
-          facilityByproductRate =
-            calcRate(
-              byproductOutput.amount,
-              producerRecipeNode.recipe.craftingTime,
-            ) *
-            (fi.actualOutputRate /
-              calcRate(
-                primaryOutput.amount,
-                producerRecipeNode.recipe.craftingTime,
-              ));
+        if (producerRecipeNode?.type === "recipe") {
+          facilityByproductRate = calcByproductRate(producerRecipeNode.recipe, consumedItemNode.itemId, fi.actualOutputRate);
         } else {
           facilityByproductRate = disposalRate / facilityInstances.length;
         }

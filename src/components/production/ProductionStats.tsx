@@ -10,6 +10,7 @@ import { AlertCircle, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Facility, Item, ItemId } from "@/types";
 import { getFacilityName, getItemName } from "@/lib/i18n-helpers";
+import { getItemById } from "@/lib/utils";
 
 type ProductionStatsProps = {
   totalPowerConsumption: number;
@@ -64,7 +65,7 @@ const ProductionStats = memo(function ProductionStats({
 
   const rawMaterialList = Array.from(rawMaterialRequirements.entries())
     .map(([itemId, rate]) => {
-      const item = items.find((i) => i.id === itemId);
+      const item = getItemById(items, itemId);
       return item ? { item, rate } : null;
     })
     .filter(

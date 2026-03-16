@@ -227,13 +227,13 @@ export function createProductionFlowNode(
   node: ProductionNode,
   items: Item[],
   facilities: Facility[],
+  ceilMode: boolean,
   options: {
     facilityIndex?: number;
     totalFacilities?: number;
     isPartialLoad?: boolean;
     isDirectTarget?: boolean;
     directTargetRate?: number;
-    ceilMode?: boolean;
   } = {},
 ): FlowProductionNode {
   return {
@@ -248,7 +248,7 @@ export function createProductionFlowNode(
       isPartialLoad: options.isPartialLoad,
       isDirectTarget: options.isDirectTarget,
       directTargetRate: options.directTargetRate,
-      ceilMode: options.ceilMode,
+      ceilMode,
     },
     position: { x: 0, y: 0 },
     sourcePosition: Position.Right,

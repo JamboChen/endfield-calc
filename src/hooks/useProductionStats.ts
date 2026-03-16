@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { ProductionDependencyGraph, ItemId, FacilityId, Item } from "@/types";
-import { getPickupPointCount } from "@/lib/utils";
+import { getPickupPointCount, getEffectiveFacilityCount, getItemById } from "@/lib/utils";
 
 export type ProductionStats = {
   totalPowerConsumption: number;
@@ -38,11 +38,7 @@ function collectStats(
         uniqueProductionSteps++;
       }
     } else if (node.type === "recipe") {
-      // Ceil facility count for power and facility stats — each physical
-      // building draws full power regardless of partial utilization
-      const facilityCount = ceilMode
-        ? Math.ceil(node.facilityCount)
-        : node.facilityCount;
+      const facilityCount = getEffectiveFacilityCount(node.facilityCount, ceilMode);
 
       // Accumulate power consumption
       totalPower += node.facility.powerConsumption * facilityCount;
@@ -61,7 +57,7 @@ function collectStats(
   const rawMaterialPickupPoints = new Map<ItemId, number>();
   let totalPickupPoints = 0;
   rawMaterials.forEach((rate, itemId) => {
-    const item = items.find((i) => i.id === itemId);
+    const item = getItemById(items, itemId);
     const count = getPickupPointCount(rate, item);
     rawMaterialPickupPoints.set(itemId, count);
     totalPickupPoints += count;

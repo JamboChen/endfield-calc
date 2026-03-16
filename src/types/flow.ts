@@ -19,7 +19,7 @@ export interface FlowNodeData {
   productionNode: ProductionNode;
   items: Item[];
   facilities: Facility[];
-  ceilMode?: boolean;
+  ceilMode: boolean;
   [key: string]: unknown;
 }
 
@@ -128,7 +128,7 @@ export interface TargetSinkNodeData {
   items: Item[];
   facilities: Facility[];
   productionInfo?: TerminalTargetProductionInfo;
-  ceilMode?: boolean;
+  ceilMode: boolean;
   [key: string]: unknown;
 }
 
@@ -153,7 +153,7 @@ export interface DisposalSinkNodeData {
   /** All available items (for icon rendering) */
   items: Item[];
   facilities: Facility[];
-  ceilMode?: boolean;
+  ceilMode: boolean;
   [key: string]: unknown;
 }
 

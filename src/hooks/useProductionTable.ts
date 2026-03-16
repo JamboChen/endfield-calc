@@ -8,6 +8,7 @@ import type {
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
 import { calcRate } from "@/lib/utils";
+import { getRecipeInputItemId } from "@/lib/plan-helpers";
 
 type MergedItemNode = {
   itemId: ItemId;
@@ -205,9 +206,7 @@ export function useProductionTable(
       if (node.type !== "recipe" || !node.isDisposal) return;
 
       // Find the consumed item
-      const consumedItemId = plan.edges.find(
-        (e) => e.to === node.recipeId,
-      )?.from;
+      const consumedItemId = getRecipeInputItemId(plan, node.recipeId);
       if (!consumedItemId) return;
 
       const consumedItemNode = plan.nodes.get(consumedItemId);

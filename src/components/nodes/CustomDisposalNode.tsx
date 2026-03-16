@@ -11,11 +11,7 @@ import { ItemIcon } from "../production/ProductionTable";
 import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type { DisposalSinkNodeData } from "@/types";
-import { getTransportCountWithFacilities, formatCount } from "@/lib/utils";
-
-const formatNumber = (num: number, decimals = 2): string => {
-  return num.toFixed(decimals);
-};
+import { getTransportCountWithFacilities, formatCount, getEffectiveFacilityCount, formatNumber } from "@/lib/utils";
 
 /**
  * CustomDisposalNode renders a disposal sink node that consumes waste byproducts.
@@ -25,7 +21,7 @@ export default function CustomDisposalNode({
   data,
   targetPosition = Position.Left,
 }: NodeProps<Node<DisposalSinkNodeData>>) {
-  const { item, disposalRate, facility, facilityCount, ceilMode = false } = data;
+  const { item, disposalRate, facility, facilityCount, ceilMode } = data;
   const { t } = useTranslation("production");
   const itemName = getItemName(item);
   const facilityName = getFacilityName(facility);
@@ -73,7 +69,7 @@ export default function CustomDisposalNode({
                 <span className="text-[11px] text-rose-700/70 dark:text-rose-400/70">/min</span>
               </div>
               <span className="text-[10px] text-muted-foreground tabular-nums">
-                {formatCount(getTransportCountWithFacilities(disposalRate, item, ceilMode as boolean, facilityCount), ceilMode as boolean)} {getTransportLabel(item)}
+                {formatCount(getTransportCountWithFacilities(disposalRate, item, ceilMode, facilityCount), ceilMode)} {getTransportLabel(item)}
               </span>
             </div>
 
@@ -94,7 +90,7 @@ export default function CustomDisposalNode({
                 </span>
               </div>
               <span className="font-mono font-semibold text-xs shrink-0 ml-2">
-                ×{formatCount(facilityCount, ceilMode as boolean)}
+                ×{formatCount(facilityCount, ceilMode)}
               </span>
             </div>
           </CardContent>
@@ -117,11 +113,11 @@ export default function CustomDisposalNode({
             </div>
             <div className="text-muted-foreground">
               {t("tree.facilityCount")}:{" "}
-              {formatCount(facilityCount, ceilMode as boolean)}
+              {formatCount(facilityCount, ceilMode)}
             </div>
             <div className="text-muted-foreground">
               {t("tree.power")}:{" "}
-              {formatNumber(facility.powerConsumption * facilityCount, 1)}
+              {formatNumber(facility.powerConsumption * getEffectiveFacilityCount(facilityCount, ceilMode), 1)}
             </div>
           </div>
         </div>

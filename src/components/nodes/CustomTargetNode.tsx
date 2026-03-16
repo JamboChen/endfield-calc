@@ -11,14 +11,7 @@ import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
 import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type { TargetSinkNodeData } from "@/types";
-import { getTransportCount, formatCount } from "@/lib/utils";
-
-/**
- * Formats a number to a fixed number of decimal places.
- */
-const formatNumber = (num: number, decimals = 2): string => {
-  return num.toFixed(decimals);
-};
+import { getTransportCount, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
 
 /**
  * CustomTargetNode component renders a virtual sink node representing a user-defined production target.
@@ -30,12 +23,9 @@ export default function CustomTargetNode({
   data,
   targetPosition = Position.Left,
 }: NodeProps<Node<TargetSinkNodeData>>) {
-  const { item, targetRate, productionInfo, ceilMode = false } = data;
+  const { item, targetRate, productionInfo, ceilMode } = data;
   const { t } = useTranslation("production");
   const itemName = getItemName(item);
-  const { items } = data;
-
-  const getItemById = (itemId: string) => items.find((i) => i.id === itemId);
 
   // Check if this is a terminal target with production info
   const isTerminalTarget = productionInfo !== undefined;
@@ -86,7 +76,7 @@ export default function CustomTargetNode({
                 <span className="text-[11px] text-amber-700/70 dark:text-amber-400/70">/min</span>
               </div>
               <span className="text-[10px] text-muted-foreground tabular-nums">
-                {formatCount(getTransportCount(targetRate, item, ceilMode as boolean), ceilMode as boolean)} {getTransportLabel(item)}
+                {formatCount(getTransportCount(targetRate, item, ceilMode), ceilMode)} {getTransportLabel(item)}
               </span>
             </div>
 
@@ -108,7 +98,7 @@ export default function CustomTargetNode({
                   </span>
                 </div>
                 <span className="font-mono font-semibold text-blue-700 dark:text-blue-300 text-xs shrink-0 ml-2">
-                  ×{formatCount(productionInfo.facilityCount, ceilMode as boolean)}
+                  ×{formatCount(productionInfo.facilityCount, ceilMode)}
                 </span>
               </div>
             )}
@@ -132,7 +122,7 @@ export default function CustomTargetNode({
             <>
               <RecipeIOFull
                 recipe={productionInfo.recipe}
-                getItemById={getItemById}
+                getItemById={(id) => getItemById(data.items, id)}
               />
               <div className="mt-2 pt-2 border-t">
                 <div className="text-muted-foreground">
@@ -140,12 +130,12 @@ export default function CustomTargetNode({
                 </div>
                 <div className="text-muted-foreground">
                   {t("tree.facilityCount")}:{" "}
-                  {formatCount(productionInfo.facilityCount, ceilMode as boolean)}
+                  {formatCount(productionInfo.facilityCount, ceilMode)}
                 </div>
                 <div className="text-muted-foreground">
                   {t("tree.power")}:{" "}
                   {formatNumber(
-                    facility.powerConsumption * productionInfo.facilityCount,
+                    facility.powerConsumption * getEffectiveFacilityCount(productionInfo.facilityCount, ceilMode),
                     1,
                   )}
                 </div>

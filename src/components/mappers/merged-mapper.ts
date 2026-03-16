@@ -18,6 +18,7 @@ import {
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate } from "@/lib/utils";
+import { getRecipeOutputItemId, getRecipeInputItemId, getNonDisposalProducerRecipeId } from "@/lib/plan-helpers";
 
 /**
  * Maps a ProductionDependencyGraph to React Flow nodes and edges in merged mode.
@@ -46,7 +47,7 @@ export function mapPlanToFlowMerged(
   // Create production nodes (recipe nodes only)
   plan.nodes.forEach((node, nodeId) => {
     if (node.type === "recipe") {
-      const outputItemId = plan.edges.find((e) => e.from === nodeId)?.to;
+      const outputItemId = getRecipeOutputItemId(plan, nodeId);
       const outputItemNode = outputItemId
         ? (plan.nodes.get(outputItemId) as
           | Extract<ProductionGraphNode, { type: "item" }>
@@ -60,7 +61,7 @@ export function mapPlanToFlowMerged(
 
       if (outputItemNode && !isTerminalTarget) {
         flowNodes.push(
-          createProductionFlowNode(
+           createProductionFlowNode(
             nodeId,
             {
               item: outputItemNode.item,
@@ -74,13 +75,13 @@ export function mapPlanToFlowMerged(
             },
             items,
             facilities,
+            ceilMode,
             {
               isDirectTarget: outputItemNode.isTarget,
               directTargetRate: outputItemNode.isTarget
                 ? (targetRates?.get(outputItemNode.itemId) ??
                     outputItemNode.productionRate)
                 : undefined,
-              ceilMode,
             },
           ),
         );
@@ -112,7 +113,7 @@ export function mapPlanToFlowMerged(
       )?.from;
 
       // Determine where this flow should end
-      const outputItemId = plan.edges.find((e) => e.from === edge.to)?.to;
+      const outputItemId = getRecipeOutputItemId(plan, edge.to);
       const outputNode = outputItemId ? plan.nodes.get(outputItemId) : undefined;
       const isTerminalTargetRecipe =
         outputItemId &&
@@ -166,7 +167,8 @@ export function mapPlanToFlowMerged(
               },
               items,
               facilities,
-              { isDirectTarget: false, ceilMode },
+              ceilMode,
+              { isDirectTarget: false },
             ),
           );
         }
@@ -287,9 +289,7 @@ export function mapPlanToFlowMerged(
     const disposalSinkId = `disposal-${nodeId}`;
 
     // Find the consumed item (edge: item -> disposal recipe)
-    const consumedItemId = plan.edges.find(
-      (e) => e.to === nodeId,
-    )?.from;
+    const consumedItemId = getRecipeInputItemId(plan, nodeId);
     if (!consumedItemId) return;
 
     const consumedItemNode = plan.nodes.get(consumedItemId);
@@ -315,11 +315,7 @@ export function mapPlanToFlowMerged(
     );
 
     // Find the producer recipe of the consumed item to create an edge
-    const producerRecipeId = plan.edges.find((e) => {
-      if (e.to !== consumedItemId) return false;
-      const n = plan.nodes.get(e.from);
-      return n?.type === "recipe" && !n.isDisposal;
-    })?.from;
+    const producerRecipeId = getNonDisposalProducerRecipeId(plan, consumedItemId);
 
     if (producerRecipeId) {
       // Compute how many facilities contribute to this disposal flow

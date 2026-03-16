@@ -23,7 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import type { Item, Recipe, Facility, ItemId, RecipeId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName } from "@/lib/i18n-helpers";
-import { getTransportCountWithFacilities, getPickupPointCount, formatCount } from "@/lib/utils";
+import { getTransportCountWithFacilities, getPickupPointCount, formatCount, formatNumber } from "@/lib/utils";
 
 export type ProductionLineData = {
   item: Item;
@@ -46,10 +46,6 @@ type ProductionTableProps = {
   onRecipeChange: (itemId: ItemId, recipeId: RecipeId) => void;
   onToggleRawMaterial: (itemId: ItemId) => void;
   ceilMode?: boolean;
-};
-
-const formatNumber = (num: number, decimals = 2): string => {
-  return num.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
 const sizeClasses = {
