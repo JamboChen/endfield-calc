@@ -465,7 +465,7 @@ function calculateFlows(
   condensedOrder: CondensedNode[],
   targetRates: Map<ItemId, number>,
   maps: ProductionMaps,
-): { flowData: FlowData; invalidSCCs: InvalidSCCInfo[]; sccDeficits: Map<ItemId, number> } {
+): { flowData: FlowData; invalidSCCs: InvalidSCCInfo[] } {
   const itemDemands = new Map<ItemId, number>();
   const recipeFacilityCounts = new Map<RecipeId, number>();
   const sccDeficits = new Map<ItemId, number>();
@@ -544,7 +544,7 @@ function calculateFlows(
     }
   });
 
-  return { flowData: { itemDemands, recipeFacilityCounts }, invalidSCCs, sccDeficits };
+  return { flowData: { itemDemands, recipeFacilityCounts }, invalidSCCs };
 }
 
 function solveSCCFlow(

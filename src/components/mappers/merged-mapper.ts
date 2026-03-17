@@ -69,18 +69,9 @@ export function mapPlanToFlowMerged(
     return flowReachable.get(nodeId)!;
   };
   // Returns true if `target` is reachable from `source` in the current flow graph.
-  const isReachable = (source: string, target: string): boolean => {
-    const visited = new Set<string>();
-    const queue = [source];
-    while (queue.length > 0) {
-      const node = queue.pop()!;
-      if (node === target) return true;
-      if (visited.has(node)) continue;
-      visited.add(node);
-      getReachable(node).forEach((n) => queue.push(n));
-    }
-    return false;
-  };
+  // recordFlowEdge keeps flowReachable transitively closed, so a direct set lookup suffices.
+  const isReachable = (source: string, target: string): boolean =>
+    getReachable(source).has(target);
   const recordFlowEdge = (from: string, to: string) => {
     getReachable(from).add(to);
     // Propagate: anything that can reach `from` can now also reach `to`
@@ -153,7 +144,6 @@ export function mapPlanToFlowMerged(
     if (sourceNode.type === "item" && targetNode.type === "recipe") {
       // Skip disposal recipe edges — disposal sinks create their own edges
       if (targetNode.isDisposal) return;
-
 
       // Find the recipe that produces this item
       const producerRecipeId = Array.from(plan.edges).find(
