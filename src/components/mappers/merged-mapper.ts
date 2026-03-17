@@ -182,14 +182,32 @@ export function mapPlanToFlowMerged(
         // this edge closes a cycle — mark it as backward instead of skipping it.
         const isBackward = isReachable(flowTargetId, producerRecipeId);
 
-        // Calculate flow rate
-        const inputAmount =
-          targetNode.recipe.inputs.find(
-            (inp) => inp.itemId === sourceNode.itemId,
-          )?.amount || 0;
-        const flowRate =
-          calcRate(inputAmount, targetNode.recipe.craftingTime) *
-          targetNode.facilityCount;
+        // Calculate flow rate.
+        // For backward edges (SCC cycles), use the producer's output rate —
+        // the consumer's input rate may differ due to SCC internal imbalance.
+        let flowRate: number;
+        if (isBackward) {
+          const producerNode = plan.nodes.get(producerRecipeId);
+          const outputAmount =
+            producerNode?.type === "recipe"
+              ? (producerNode.recipe.outputs.find(
+                  (o) => o.itemId === sourceNode.itemId,
+                )?.amount ?? 0)
+              : 0;
+          flowRate =
+            producerNode?.type === "recipe"
+              ? calcRate(outputAmount, producerNode.recipe.craftingTime) *
+                producerNode.facilityCount
+              : 0;
+        } else {
+          const inputAmount =
+            targetNode.recipe.inputs.find(
+              (inp) => inp.itemId === sourceNode.itemId,
+            )?.amount || 0;
+          flowRate =
+            calcRate(inputAmount, targetNode.recipe.craftingTime) *
+            targetNode.facilityCount;
+        }
 
         if (!isBackward) recordFlowEdge(producerRecipeId, flowTargetId);
         flowEdges.push(
