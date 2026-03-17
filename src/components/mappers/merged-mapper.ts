@@ -61,6 +61,34 @@ export function mapPlanToFlowMerged(
     }
   });
 
+  // Build adjacency for cycle-back-edge detection:
+  // tracks which flow nodes are reachable from a given node (for back-edge skipping).
+  const flowReachable = new Map<string, Set<string>>();
+  const getReachable = (nodeId: string): Set<string> => {
+    if (!flowReachable.has(nodeId)) flowReachable.set(nodeId, new Set());
+    return flowReachable.get(nodeId)!;
+  };
+  // Returns true if `target` is reachable from `source` in the current flow graph.
+  const isReachable = (source: string, target: string): boolean => {
+    const visited = new Set<string>();
+    const queue = [source];
+    while (queue.length > 0) {
+      const node = queue.pop()!;
+      if (node === target) return true;
+      if (visited.has(node)) continue;
+      visited.add(node);
+      getReachable(node).forEach((n) => queue.push(n));
+    }
+    return false;
+  };
+  const recordFlowEdge = (from: string, to: string) => {
+    getReachable(from).add(to);
+    // Propagate: anything that can reach `from` can now also reach `to`
+    flowReachable.forEach((reachable) => {
+      if (reachable.has(from)) reachable.add(to);
+    });
+  };
+
   // Create production nodes (recipe nodes only)
   plan.nodes.forEach((node, nodeId) => {
     if (node.type === "recipe") {
@@ -126,6 +154,7 @@ export function mapPlanToFlowMerged(
       // Skip disposal recipe edges — disposal sinks create their own edges
       if (targetNode.isDisposal) return;
 
+
       // Find the recipe that produces this item
       const producerRecipeId = Array.from(plan.edges).find(
         (e) => e.to === edge.from && plan.nodes.get(e.from)?.type === "recipe",
@@ -140,7 +169,8 @@ export function mapPlanToFlowMerged(
         outputItemId &&
         outputNode?.type === "item" &&
         outputNode.isTarget &&
-        !upstreamItemIds.has(outputItemId);
+        !upstreamItemIds.has(outputItemId) &&
+        !recipesWithDownstreamByproduct.has(edge.to);
 
       const flowTargetId =
         isTerminalTargetRecipe && outputNode?.type === "item"
@@ -148,6 +178,9 @@ export function mapPlanToFlowMerged(
           : edge.to;
 
       if (producerRecipeId) {
+        // Skip this edge if it would create a cycle in the flow graph
+        if (isReachable(flowTargetId, producerRecipeId)) return;
+
         // Calculate flow rate
         const inputAmount =
           targetNode.recipe.inputs.find(
@@ -157,6 +190,7 @@ export function mapPlanToFlowMerged(
           calcRate(inputAmount, targetNode.recipe.craftingTime) *
           targetNode.facilityCount;
 
+        recordFlowEdge(producerRecipeId, flowTargetId);
         flowEdges.push(
           createEdge(
             `e${edgeIdCounter++}`,
