@@ -124,7 +124,7 @@ function buildBipartiteGraph(
   maps: ProductionMaps,
   recipeOverrides?: Map<ItemId, RecipeId>,
   manualRawMaterials?: Set<ItemId>,
-  recipeConstraints?: Map<ItemId, Set<RecipeId>>, // New parameter: excluded recipes per item
+  recipeConstraints?: Map<ItemId, Set<RecipeId>>,
 ): BuildGraphResult {
   const graph: BipartiteGraph = {
     itemNodes: new Map(),
@@ -465,9 +465,10 @@ function calculateFlows(
   condensedOrder: CondensedNode[],
   targetRates: Map<ItemId, number>,
   maps: ProductionMaps,
-): { flowData: FlowData; invalidSCCs: InvalidSCCInfo[] } {
+): { flowData: FlowData; invalidSCCs: InvalidSCCInfo[]; sccDeficits: Map<ItemId, number> } {
   const itemDemands = new Map<ItemId, number>();
   const recipeFacilityCounts = new Map<RecipeId, number>();
+  const sccDeficits = new Map<ItemId, number>();
   const invalidSCCs: InvalidSCCInfo[] = [];
 
   targetRates.forEach((rate, itemId) => {
@@ -489,6 +490,7 @@ function calculateFlows(
         itemDemands,
         recipeFacilityCounts,
         maps,
+        sccDeficits,
       );
 
       if (!solved) {
@@ -542,7 +544,7 @@ function calculateFlows(
     }
   });
 
-  return { flowData: { itemDemands, recipeFacilityCounts }, invalidSCCs };
+  return { flowData: { itemDemands, recipeFacilityCounts }, invalidSCCs, sccDeficits };
 }
 
 function solveSCCFlow(
@@ -551,6 +553,7 @@ function solveSCCFlow(
   itemDemands: Map<ItemId, number>,
   recipeFacilityCounts: Map<RecipeId, number>,
   maps: ProductionMaps,
+  sccDeficits: Map<ItemId, number>,
 ): boolean {
   console.log(`[SCC_SOLVE] Solving flow for SCC: ${scc.id}`);
 
@@ -787,6 +790,42 @@ function solveSCCFlow(
       );
       console.log(
         `  External input ${inputItemId} demand increased by: ${totalConsumption.toFixed(4)}/min`,
+      );
+    }
+  });
+
+  // Check for internal SCC items with a net deficit (produced less than consumed).
+  // This happens when the SCC is not self-sufficient for that item — the shortfall
+  // must be supplied from outside the SCC in the next iteration.
+  scc.items.forEach((itemId) => {
+    let netProduction = 0;
+    scc.recipes.forEach((recipeId) => {
+      const recipe = maps.recipeMap.get(recipeId)!;
+      const facilityCount = recipeFacilityCounts.get(recipeId) || 0;
+      const output = recipe.outputs.find((o) => o.itemId === itemId)?.amount ?? 0;
+      const input = recipe.inputs.find((i) => i.itemId === itemId)?.amount ?? 0;
+      netProduction +=
+        (calcRate(output, recipe.craftingTime) - calcRate(input, recipe.craftingTime)) *
+        facilityCount;
+    });
+
+    // Also subtract external consumption (e.g., target demand or external recipe usage)
+    const externalConsumption = externalDemands.get(itemId) ?? 0;
+    const deficit = externalConsumption - netProduction;
+
+    if (deficit > 1e-9) {
+      sccDeficits.set(itemId, (sccDeficits.get(itemId) ?? 0) + deficit);
+      // Treat the deficit as an external raw-material demand for this item.
+      // Mark it as a raw material in the graph so downstream processing creates
+      // a pickup-port node for the shortfall.
+      const itemNode = graph.itemNodes.get(itemId);
+      if (itemNode) {
+        itemNode.isRawMaterial = true;
+        graph.rawMaterials.add(itemId);
+      }
+      itemDemands.set(itemId, (itemDemands.get(itemId) ?? 0) + deficit);
+      console.log(
+        `  SCC item ${itemId} has deficit ${deficit.toFixed(4)}/min — marked as raw material`,
       );
     }
   });

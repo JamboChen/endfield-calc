@@ -221,7 +221,12 @@ export function mapPlanToFlowMerged(
             ceilMode,
           ),
         );
-      } else if (sourceNode.isRawMaterial) {
+      }
+
+      // Also create a raw-material node when the source item is marked as a raw
+      // material (e.g. an SCC-deficit item that needs partial external supply),
+      // even if a producer recipe already exists for its SCC-internal portion.
+      if (sourceNode.isRawMaterial) {
         // Raw material → Recipe: create node for raw material
         const rawMaterialNodeId = createRawMaterialId(sourceNode.itemId);
 
@@ -247,25 +252,23 @@ export function mapPlanToFlowMerged(
           );
         }
 
-        const inputAmount =
-          targetNode.recipe.inputs.find(
-            (inp) => inp.itemId === sourceNode.itemId,
-          )?.amount || 0;
-        const flowRate =
-          calcRate(inputAmount, targetNode.recipe.craftingTime) *
-          targetNode.facilityCount;
+        // For deficit raw materials, the rate is the deficit amount (productionRate),
+        // not the full consumer demand (which includes the SCC-internal portion).
+        const rawFlowRate = sourceNode.productionRate;
 
-        flowEdges.push(
-          createEdge(
-            `e${edgeIdCounter++}`,
-            rawMaterialNodeId,
-            flowTargetId,
-            flowRate,
-            sourceNode.item,
-            undefined,
-            ceilMode,
-          ),
-        );
+        if (rawFlowRate > 0) {
+          flowEdges.push(
+            createEdge(
+              `e${edgeIdCounter++}`,
+              rawMaterialNodeId,
+              flowTargetId,
+              rawFlowRate,
+              sourceNode.item,
+              undefined,
+              ceilMode,
+            ),
+          );
+        }
       }
     }
   });
