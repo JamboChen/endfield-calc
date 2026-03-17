@@ -18,7 +18,11 @@ import {
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate } from "@/lib/utils";
-import { getRecipeOutputItemId, getRecipeInputItemId, getNonDisposalProducerRecipeId } from "@/lib/plan-helpers";
+import {
+  getRecipeOutputItemId,
+  getRecipeInputItemId,
+  getNonDisposalProducerRecipeId,
+} from "@/lib/plan-helpers";
 
 /**
  * Maps a ProductionDependencyGraph to React Flow nodes and edges in merged mode.
@@ -29,7 +33,10 @@ export function mapPlanToFlowMerged(
   facilities: Facility[],
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
-): { nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode)[]; edges: Edge[] } {
+): {
+  nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode)[];
+  edges: Edge[];
+} {
   const flowNodes: Node<FlowNodeData>[] = [];
   const flowEdges: Edge[] = [];
   const targetSinkNodes: FlowTargetNode[] = [];
@@ -38,9 +45,19 @@ export function mapPlanToFlowMerged(
 
   // Pre-calculate which items are upstream (have consumers)
   const upstreamItemIds = new Set<string>();
+  // Pre-calculate which recipe nodes have at least one output flowing downstream
+  const recipesWithDownstreamByproduct = new Set<string>();
   plan.edges.forEach((edge) => {
     if (plan.nodes.get(edge.from)?.type === "item") {
       upstreamItemIds.add(edge.from);
+    }
+  });
+  plan.edges.forEach((edge) => {
+    if (
+      plan.nodes.get(edge.from)?.type === "recipe" &&
+      upstreamItemIds.has(edge.to)
+    ) {
+      recipesWithDownstreamByproduct.add(edge.from);
     }
   });
 
@@ -50,18 +67,20 @@ export function mapPlanToFlowMerged(
       const outputItemId = getRecipeOutputItemId(plan, nodeId);
       const outputItemNode = outputItemId
         ? (plan.nodes.get(outputItemId) as
-          | Extract<ProductionGraphNode, { type: "item" }>
-          | undefined)
+            | Extract<ProductionGraphNode, { type: "item" }>
+            | undefined)
         : undefined;
 
       // Skip recipe node if it's a terminal target (has no consumers)
-      // This is because we'll display it in the TargetSinkNode instead
+      // This is because we'll display it in the TargetSinkNode instead.
       const isTerminalTarget =
-        outputItemNode?.isTarget && !upstreamItemIds.has(outputItemId!);
+        outputItemNode?.isTarget &&
+        !upstreamItemIds.has(outputItemId!) &&
+        !recipesWithDownstreamByproduct.has(nodeId);
 
       if (outputItemNode && !isTerminalTarget) {
         flowNodes.push(
-           createProductionFlowNode(
+          createProductionFlowNode(
             nodeId,
             {
               item: outputItemNode.item,
@@ -80,7 +99,7 @@ export function mapPlanToFlowMerged(
               isDirectTarget: outputItemNode.isTarget,
               directTargetRate: outputItemNode.isTarget
                 ? (targetRates?.get(outputItemNode.itemId) ??
-                    outputItemNode.productionRate)
+                  outputItemNode.productionRate)
                 : undefined,
             },
           ),
@@ -114,7 +133,9 @@ export function mapPlanToFlowMerged(
 
       // Determine where this flow should end
       const outputItemId = getRecipeOutputItemId(plan, edge.to);
-      const outputNode = outputItemId ? plan.nodes.get(outputItemId) : undefined;
+      const outputNode = outputItemId
+        ? plan.nodes.get(outputItemId)
+        : undefined;
       const isTerminalTargetRecipe =
         outputItemId &&
         outputNode?.type === "item" &&
@@ -208,8 +229,8 @@ export function mapPlanToFlowMerged(
 
       const producerRecipe = producerRecipeId
         ? (plan.nodes.get(producerRecipeId) as
-          | Extract<ProductionGraphNode, { type: "recipe" }>
-          | undefined)
+            | Extract<ProductionGraphNode, { type: "recipe" }>
+            | undefined)
         : undefined;
 
       const isTerminalTarget = !upstreamItemIds.has(nodeId);
@@ -235,10 +256,10 @@ export function mapPlanToFlowMerged(
           facilities,
           shouldEmbedRecipeInfo
             ? {
-              facility: producerRecipe.facility,
-              facilityCount: producerRecipe.facilityCount,
-              recipe: producerRecipe.recipe,
-            }
+                facility: producerRecipe.facility,
+                facilityCount: producerRecipe.facilityCount,
+                recipe: producerRecipe.recipe,
+              }
             : undefined,
           ceilMode,
         ),
@@ -296,10 +317,8 @@ export function mapPlanToFlowMerged(
     if (!consumedItemNode || consumedItemNode.type !== "item") return;
 
     const disposalRate =
-      calcRate(
-        node.recipe.inputs[0].amount,
-        node.recipe.craftingTime,
-      ) * node.facilityCount;
+      calcRate(node.recipe.inputs[0].amount, node.recipe.craftingTime) *
+      node.facilityCount;
 
     disposalSinkNodes.push(
       createDisposalSinkNode(
@@ -315,7 +334,10 @@ export function mapPlanToFlowMerged(
     );
 
     // Find the producer recipe of the consumed item to create an edge
-    const producerRecipeId = getNonDisposalProducerRecipeId(plan, consumedItemId);
+    const producerRecipeId = getNonDisposalProducerRecipeId(
+      plan,
+      consumedItemId,
+    );
 
     if (producerRecipeId) {
       // Compute how many facilities contribute to this disposal flow
