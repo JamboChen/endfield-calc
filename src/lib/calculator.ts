@@ -594,13 +594,43 @@ function solveSCCFlow(
     }
   });
 
+  // Also compute externally-anchored facility counts: SCC recipes that produce
+  // items outside the SCC with a known demand can have their facility count
+  // directly determined: facilityCount = demand / outputRate.
+  // We use the maximum of all such constraints per recipe (in case one recipe
+  // outputs multiple external items with different demands).
+  const anchoredFacilityCounts = new Map<RecipeId, number>();
+
+  scc.recipes.forEach((recipeId) => {
+    const recipe = maps.recipeMap.get(recipeId)!;
+    recipe.outputs.forEach((out) => {
+      if (!scc.items.has(out.itemId)) {
+        const demand = itemDemands.get(out.itemId) || 0;
+        if (demand > 0) {
+          const outputRate = calcRate(out.amount, recipe.craftingTime);
+          if (outputRate > 0) {
+            const requiredCount = demand / outputRate;
+            const current = anchoredFacilityCounts.get(recipeId) || 0;
+            anchoredFacilityCounts.set(
+              recipeId,
+              Math.max(current, requiredCount),
+            );
+            console.log(
+              `    Recipe ${recipeId} anchored by external item ${out.itemId}: demand ${demand.toFixed(4)}/min → ${requiredCount.toFixed(4)} facilities`,
+            );
+          }
+        }
+      }
+    });
+  });
+
   console.log(`  External demands count: ${externalDemands.size}`);
   externalDemands.forEach((demand, itemId) => {
     console.log(`    ${itemId}: ${demand.toFixed(4)}/min`);
   });
 
-  // Early exit if no external demand
-  if (externalDemands.size === 0) {
+  // Early exit if no external demand AND no anchored facilities
+  if (externalDemands.size === 0 && anchoredFacilityCounts.size === 0) {
     console.log(`  [SCC_SOLVE] No external demand, this is an invalid cycle`);
     return false; // Changed: return false instead of return
   }
@@ -620,52 +650,117 @@ function solveSCCFlow(
     return false; // Changed: return false instead of return
   }
 
+  // Partition recipes into anchored (facility count fixed by external output
+  // demand) and unanchored (unknown, to be solved).
+  const unanchoredIndices: number[] = [];
+  for (let j = 0; j < m; j++) {
+    if (!anchoredFacilityCounts.has(recipesList[j].id)) {
+      unanchoredIndices.push(j);
+    }
+  }
+
+  const numUnanchored = unanchoredIndices.length;
+
+  // Build the full over-constrained flow-balance system (n equations, numUnanchored unknowns).
+  // For each SCC item, net production by unanchored recipes = external demand
+  //   minus the net contribution already provided by anchored recipes.
   const matrix: number[][] = [];
   const constants: number[] = [];
 
-  // Build linear equation system
   for (let i = 0; i < n; i++) {
     const itemId = itemsList[i];
-    const row = new Array(m).fill(0);
 
-    for (let j = 0; j < m; j++) {
-      const recipe = recipesList[j];
+    let anchoredContribution = 0;
+    for (const [recipeId, count] of anchoredFacilityCounts) {
+      const recipe = maps.recipeMap.get(recipeId)!;
       const output =
         recipe.outputs.find((o) => o.itemId === itemId)?.amount || 0;
       const input =
         recipe.inputs.find((inp) => inp.itemId === itemId)?.amount || 0;
-
-      const outRate = (output * 60) / recipe.craftingTime;
-      const inRate = (input * 60) / recipe.craftingTime;
-      row[j] = outRate - inRate;
+      anchoredContribution +=
+        (calcRate(output, recipe.craftingTime) -
+          calcRate(input, recipe.craftingTime)) *
+        count;
     }
 
+    const row = new Array(numUnanchored).fill(0);
+    for (let jj = 0; jj < numUnanchored; jj++) {
+      const recipe = recipesList[unanchoredIndices[jj]];
+      const output =
+        recipe.outputs.find((o) => o.itemId === itemId)?.amount || 0;
+      const input =
+        recipe.inputs.find((inp) => inp.itemId === itemId)?.amount || 0;
+      row[jj] =
+        calcRate(output, recipe.craftingTime) -
+        calcRate(input, recipe.craftingTime);
+    }
+
+    const rhs = (externalDemands.get(itemId) || 0) - anchoredContribution;
     matrix.push(row);
-    constants.push(externalDemands.get(itemId) || 0);
+    constants.push(rhs);
 
     console.log(
-      `    Equation ${i} (${itemId}):`,
-      row.map((v, j) => `${v.toFixed(2)}*r${j}`).join(" + "),
-      `= ${constants[i].toFixed(4)}`,
+      `    Equation ${i} (${itemId}): anchored_contribution=${anchoredContribution.toFixed(4)},`,
+      row
+        .map((v, jj) => `${v.toFixed(2)}*r${unanchoredIndices[jj]}`)
+        .join(" + "),
+      `= ${rhs.toFixed(4)}`,
     );
   }
 
-  // Solve the system
-  const solution = solveLinearSystem(matrix, constants);
+  // The system has n rows but only numUnanchored unknowns (over-constrained when n > numUnanchored).
+  // solveLinearSystem requires a square matrix, so we select numUnanchored linearly
+  // independent rows using column-pivoting: greedily pick the row with the largest
+  // absolute value in each successive column, skipping already-selected rows.
+  let unanchoredSolution: number[] | null = null;
 
-  if (!solution) {
+  if (numUnanchored === 0) {
+    unanchoredSolution = [];
+  } else {
+    const selectedRows: number[] = [];
+    const usedRows = new Set<number>();
+
+    for (let col = 0; col < numUnanchored; col++) {
+      let bestRow = -1;
+      let bestVal = 0;
+      for (let row = 0; row < n; row++) {
+        if (!usedRows.has(row) && Math.abs(matrix[row][col]) > bestVal) {
+          bestVal = Math.abs(matrix[row][col]);
+          bestRow = row;
+        }
+      }
+      if (bestRow === -1) break; // column is all-zero — system is rank-deficient
+      selectedRows.push(bestRow);
+      usedRows.add(bestRow);
+    }
+
+    if (selectedRows.length === numUnanchored) {
+      const squareMatrix = selectedRows.map((r) => matrix[r]);
+      const squareConstants = selectedRows.map((r) => constants[r]);
+      unanchoredSolution = solveLinearSystem(squareMatrix, squareConstants);
+    }
+  }
+
+  if (!unanchoredSolution) {
     console.warn(
       `  [SCC_SOLVE] Cannot solve SCC ${scc.id} - system has no solution`,
     );
-    return false; // Changed: return false
+    return false;
   }
 
-  console.log(`  Solution found:`);
-  for (let j = 0; j < m; j++) {
-    const facilityCount = Math.max(0, solution[j]);
-    recipeFacilityCounts.set(recipesList[j].id, facilityCount);
+  for (const [recipeId, count] of anchoredFacilityCounts) {
+    recipeFacilityCounts.set(recipeId, Math.max(0, count));
     console.log(
-      `    Recipe ${recipesList[j].id}: ${facilityCount.toFixed(4)} facilities`,
+      `  Solution (anchored) Recipe ${recipeId}: ${count.toFixed(4)} facilities`,
+    );
+  }
+
+  console.log(`  Solution found (unanchored):`);
+  for (let jj = 0; jj < numUnanchored; jj++) {
+    const facilityCount = Math.max(0, unanchoredSolution[jj]);
+    recipeFacilityCounts.set(recipesList[unanchoredIndices[jj]].id, facilityCount);
+    console.log(
+      `    Recipe ${recipesList[unanchoredIndices[jj]].id}: ${facilityCount.toFixed(4)} facilities`,
     );
   }
 
@@ -721,8 +816,7 @@ function injectDisposalRecipes(
     graph.recipeOutputs.forEach((outputItems, recipeId) => {
       if (outputItems.has(itemId)) {
         const recipe = maps.recipeMap.get(recipeId)!;
-        const facilityCount =
-          flowData.recipeFacilityCounts.get(recipeId) || 0;
+        const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
         const output = recipe.outputs.find((o) => o.itemId === itemId);
         if (output) {
           totalProduction +=
@@ -739,8 +833,7 @@ function injectDisposalRecipes(
         const recipe = maps.recipeMap.get(recipeId)!;
         // Skip disposal recipes to avoid double-counting
         if (recipe.outputs.length === 0) continue;
-        const facilityCount =
-          flowData.recipeFacilityCounts.get(recipeId) || 0;
+        const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
         const input = recipe.inputs.find((i) => i.itemId === itemId);
         if (input) {
           totalConsumption +=
@@ -750,8 +843,7 @@ function injectDisposalRecipes(
     }
 
     // Subtract target demand (user wants to collect this amount, not dispose)
-    const targetDemand =
-      targets.find((t) => t.itemId === itemId)?.rate || 0;
+    const targetDemand = targets.find((t) => t.itemId === itemId)?.rate || 0;
 
     const surplus = totalProduction - totalConsumption - targetDemand;
     if (surplus <= 0) continue;
@@ -759,8 +851,7 @@ function injectDisposalRecipes(
     // Find the matching disposal recipe
     const disposalRecipe = Array.from(maps.recipeMap.values()).find(
       (r) =>
-        r.outputs.length === 0 &&
-        r.inputs.some((i) => i.itemId === itemId),
+        r.outputs.length === 0 && r.inputs.some((i) => i.itemId === itemId),
     );
     if (!disposalRecipe) continue;
 
@@ -797,10 +888,7 @@ function injectDisposalRecipes(
     graph.itemConsumedBy.get(itemId)!.add(disposalRecipe.id);
 
     // Record facility count in flow data
-    flowData.recipeFacilityCounts.set(
-      disposalRecipe.id,
-      disposalFacilityCount,
-    );
+    flowData.recipeFacilityCounts.set(disposalRecipe.id, disposalFacilityCount);
   }
 }
 
