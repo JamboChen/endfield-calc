@@ -178,8 +178,9 @@ export function mapPlanToFlowMerged(
           : edge.to;
 
       if (producerRecipeId) {
-        // Skip this edge if it would create a cycle in the flow graph
-        if (isReachable(flowTargetId, producerRecipeId)) return;
+        // Detect back-edges (cycles): if flowTargetId can already reach producerRecipeId,
+        // this edge closes a cycle — mark it as backward instead of skipping it.
+        const isBackward = isReachable(flowTargetId, producerRecipeId);
 
         // Calculate flow rate
         const inputAmount =
@@ -190,7 +191,7 @@ export function mapPlanToFlowMerged(
           calcRate(inputAmount, targetNode.recipe.craftingTime) *
           targetNode.facilityCount;
 
-        recordFlowEdge(producerRecipeId, flowTargetId);
+        if (!isBackward) recordFlowEdge(producerRecipeId, flowTargetId);
         flowEdges.push(
           createEdge(
             `e${edgeIdCounter++}`,
@@ -198,7 +199,7 @@ export function mapPlanToFlowMerged(
             flowTargetId,
             flowRate,
             sourceNode.item,
-            undefined,
+            isBackward ? "backward" : undefined,
             ceilMode,
           ),
         );
