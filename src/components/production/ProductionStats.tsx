@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -37,20 +37,9 @@ const ProductionStats = memo(function ProductionStats({
 }: ProductionStatsProps) {
   const { t } = useTranslation("stats");
   const [rawMaterialsOpen, setRawMaterialsOpen] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   const handleRawMaterialsToggle = useCallback((open: boolean) => {
     setRawMaterialsOpen(open);
-    if (open) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          scrollRef.current?.scrollTo({
-            top: scrollRef.current.scrollHeight,
-            behavior: "smooth",
-          });
-        });
-      });
-    }
   }, []);
 
   const facilityList = Array.from(facilityRequirements.entries())
@@ -68,17 +57,15 @@ const ProductionStats = memo(function ProductionStats({
       const item = getItemById(items, itemId);
       return item ? { item, rate } : null;
     })
-    .filter(
-      (entry): entry is { item: Item; rate: number } => entry !== null,
-    )
+    .filter((entry): entry is { item: Item; rate: number } => entry !== null)
     .sort((a, b) => getItemName(a.item).localeCompare(getItemName(b.item)));
 
   return (
-    <Card className="min-h-0 flex flex-col border-border/50">
+    <Card className="flex flex-col border-border/50 shrink-0">
       <CardHeader className="shrink-0">
         <CardTitle className="text-base">{t("title")}</CardTitle>
       </CardHeader>
-      <CardContent ref={scrollRef} className="space-y-2.5 overflow-y-auto min-h-0">
+      <CardContent className="space-y-2.5">
         {error ? (
           <div className="flex items-center gap-2 text-destructive text-sm p-3 bg-destructive/10 rounded">
             <AlertCircle className="h-4 w-4 shrink-0" />
@@ -167,7 +154,7 @@ const ProductionStats = memo(function ProductionStats({
                   <CollapsibleContent>
                     <div className="grid grid-cols-2 gap-2 pt-2">
                       {rawMaterialList.map(({ item, rate }) => (
-                      <div
+                        <div
                           key={item.id}
                           className="space-y-0.5 p-2 border border-border/50 bg-card"
                         >

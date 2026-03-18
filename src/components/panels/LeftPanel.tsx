@@ -57,8 +57,8 @@ const LeftPanel = memo(function LeftPanel({
   }
 
   return (
-    <div className="w-[420px] flex flex-col gap-2.5 min-h-0 shrink-0">
-      <Card className="min-h-0 flex flex-col overflow-hidden">
+    <div className="w-[420px] flex flex-col gap-2.5 overflow-y-auto shrink-0 pb-2">
+      <Card className="flex flex-col shrink-0">
         <CardHeader className="shrink-0">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">{t("title")}</CardTitle>
@@ -78,7 +78,7 @@ const LeftPanel = memo(function LeftPanel({
             </div>
           </div>
         </CardHeader>
-        <CardContent className="overflow-y-auto min-h-0">
+        <CardContent>
           <TargetItemsGrid
             targets={targets}
             items={items}
