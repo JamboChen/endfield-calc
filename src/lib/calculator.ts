@@ -467,6 +467,7 @@ function calculateFlows(
   targetRates: Map<ItemId, number>,
   maps: ProductionMaps,
   recipeOverrides?: Map<ItemId, RecipeId>,
+  manualRawMaterials?: Set<ItemId>,
 ): { flowData: FlowData; invalidSCCs: InvalidSCCInfo[] } {
   const itemDemands = new Map<ItemId, number>();
   const recipeFacilityCounts = new Map<RecipeId, number>();
@@ -477,7 +478,7 @@ function calculateFlows(
     itemDemands.set(itemId, rate);
   });
 
-  const reversedOrder = condensedOrder.reverse();
+  const reversedOrder = [...condensedOrder].reverse();
 
   console.log(
     `[FLOW] Processing ${reversedOrder.length} condensed nodes in topological order`,
@@ -494,6 +495,7 @@ function calculateFlows(
         maps,
         recipeOverrides,
         resolvedSCCIds,
+        manualRawMaterials,
       );
 
       if (!solved) {
@@ -558,6 +560,7 @@ function solveSCCFlow(
   maps: ProductionMaps,
   recipeOverrides?: Map<ItemId, RecipeId>,
   resolvedSCCIds?: Set<string>,
+  manualRawMaterials?: Set<ItemId>,
 ): boolean {
   console.log(`[SCC_SOLVE] Solving flow for SCC: ${scc.id}`);
 
@@ -650,7 +653,7 @@ function solveSCCFlow(
     console.log(`  [SCC_SOLVE] No external demand, this is an invalid cycle`);
     // Try feeder extension before giving up
     return tryExtendSCCWithFeeders(
-      scc, graph, itemDemands, recipeFacilityCounts, maps, recipeOverrides, resolvedSCCIds,
+      scc, graph, itemDemands, recipeFacilityCounts, maps, recipeOverrides, resolvedSCCIds, manualRawMaterials,
     );
   }
 
@@ -764,7 +767,7 @@ function solveSCCFlow(
         `  [SCC_SOLVE] Cannot solve reduced SCC ${scc.id} - system has no solution`,
       );
       return tryExtendSCCWithFeeders(
-        scc, graph, itemDemands, recipeFacilityCounts, maps, recipeOverrides, resolvedSCCIds,
+        scc, graph, itemDemands, recipeFacilityCounts, maps, recipeOverrides, resolvedSCCIds, manualRawMaterials,
       );
     }
 
@@ -820,7 +823,7 @@ function solveSCCFlow(
         `  [SCC_SOLVE] Cannot solve SCC ${scc.id} - system has no solution`,
       );
       return tryExtendSCCWithFeeders(
-        scc, graph, itemDemands, recipeFacilityCounts, maps, recipeOverrides, resolvedSCCIds,
+        scc, graph, itemDemands, recipeFacilityCounts, maps, recipeOverrides, resolvedSCCIds, manualRawMaterials,
       );
     }
 
@@ -924,6 +927,7 @@ function tryExtendSCCWithFeeders(
   maps: ProductionMaps,
   recipeOverrides?: Map<ItemId, RecipeId>,
   resolvedSCCIds?: Set<string>,
+  manualRawMaterials?: Set<ItemId>,
 ): boolean {
   if (!recipeOverrides || recipeOverrides.size === 0) return false;
 
@@ -1076,7 +1080,8 @@ function tryExtendSCCWithFeeders(
         const inpItem = maps.itemMap.get(inp.itemId);
         if (inpItem) {
           const isRaw =
-            forcedRawMaterials.has(inp.itemId);
+            forcedRawMaterials.has(inp.itemId) ||
+            (manualRawMaterials?.has(inp.itemId) ?? false);
           graph.itemNodes.set(inp.itemId, {
             itemId: inp.itemId,
             item: inpItem,
@@ -1697,6 +1702,7 @@ export function calculateProductionPlan(
       targetRatesMap,
       maps,
       recipeOverrides,
+      manualRawMaterials,
     );
 
     if (invalidSCCs.length === 0) {

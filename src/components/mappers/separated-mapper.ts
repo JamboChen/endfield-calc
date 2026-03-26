@@ -101,10 +101,23 @@ export function mapPlanToFlowSeparated(
         : undefined;
 
       if (outputItemNode) {
+        // Use per-recipe output rate, not the total item production rate.
+        // For multi-producer items (e.g. liquid_sewage produced by both
+        // pool_xiranite_poly_1 and furnace), the total item productionRate
+        // includes contributions from all producers. Each pool should only
+        // represent THIS recipe's production — matching the merged mapper.
+        const recipeOutput = node.recipe.outputs.find(
+          (o) => o.itemId === outputItemId,
+        );
+        const perRecipeRate = recipeOutput
+          ? calcRate(recipeOutput.amount, node.recipe.craftingTime) *
+            node.facilityCount
+          : outputItemNode.productionRate;
+
         poolManager.createPool(
           {
             item: outputItemNode.item,
-            targetRate: outputItemNode.productionRate,
+            targetRate: perRecipeRate,
             recipe: node.recipe,
             facility: node.facility,
             facilityCount: node.facilityCount,
@@ -235,7 +248,7 @@ export function mapPlanToFlowSeparated(
       const isBackward = isInSameCycle(producer.recipeId, consumerFacilityId);
       const toAllocate = Math.min(remainingDemand, producer.rate);
 
-      allocateFromPool(
+      const actuallyAllocated = allocateFromPool(
         producer.recipeId,
         toAllocate,
         consumerFacilityId,
@@ -243,20 +256,28 @@ export function mapPlanToFlowSeparated(
         itemId,
       );
 
-      remainingDemand -= toAllocate;
+      // Use actual allocation, not the requested amount. When backward
+      // byproduct allocation returns less than requested (e.g., cycle
+      // producer's byproduct capacity exhausted), the remaining demand
+      // must flow to the next producer (the external source).
+      remainingDemand -= actuallyAllocated;
     }
   }
 
+  /**
+   * @returns The total amount actually allocated (in demanded-item units),
+   *   which may be less than demandRate if the pool is depleted.
+   */
   function allocateFromPool(
     recipeId: string,
     demandRate: number,
     consumerFacilityId: string,
     edgeDirection?: "backward",
     demandedItemId?: string,
-  ): void {
+  ): number {
     if (!poolManager.hasPool(recipeId)) {
       console.warn(`Pool not found for ${recipeId}`);
-      return;
+      return 0;
     }
 
     const recipeNode = plan.nodes.get(recipeId) as Extract<
@@ -270,7 +291,7 @@ export function mapPlanToFlowSeparated(
           | undefined)
       : undefined;
 
-    if (!recipeNode || !primaryOutputNode) return;
+    if (!recipeNode || !primaryOutputNode) return 0;
 
     // Determine the item actually being demanded (for edge display).
     // Falls back to primary output when demandedItemId is not specified
@@ -312,25 +333,40 @@ export function mapPlanToFlowSeparated(
     let allocations: { sourceNodeId: string; allocatedAmount: number; fromFacilityIndex: number }[];
 
     if (isByproductDemand && demandedItemId) {
-      allocations = poolManager.allocateByproduct(
-        recipeId,
-        poolDemandRate,
-        conversionRatio,
-        demandedItemId,
-      );
+      if (edgeDirection === "backward") {
+        // Backward cycle edges: allocate ONLY from byproduct (never consume
+        // primary capacity). Use forceRunning because the SCC solver has
+        // already determined these facilities will run — their byproduct is
+        // guaranteed even if the facility hasn't been visited yet in this
+        // mapper pass. This prevents the double-allocation bug where backward
+        // Sewage allocation consumed pool_xiranite's Xircon capacity.
+        allocations = poolManager.allocateByproduct(
+          recipeId,
+          poolDemandRate,
+          demandedItemId,
+          true,
+        );
+      } else {
+        // Forward byproduct demand (non-cycle): try free byproduct first,
+        // then fall through to regular allocate for any remainder.
+        allocations = poolManager.allocateByproduct(
+          recipeId,
+          poolDemandRate,
+          demandedItemId,
+        );
 
-      // Check if byproduct allocation fully satisfied the demand
-      const satisfiedPrimary = allocations.reduce(
-        (sum, a) => sum + a.allocatedAmount,
-        0,
-      );
-      const remainingPrimary = poolDemandRate - satisfiedPrimary;
+        const satisfiedPrimary = allocations.reduce(
+          (sum, a) => sum + a.allocatedAmount,
+          0,
+        );
+        const remainingPrimary = poolDemandRate - satisfiedPrimary;
 
-      if (remainingPrimary > 0.001) {
-        // Some facilities haven't been activated yet — allocate normally
-        // to trigger their first-visit processing
-        const additional = poolManager.allocate(recipeId, remainingPrimary);
-        allocations = allocations.concat(additional);
+        if (remainingPrimary > 0.001) {
+          // Some facilities haven't been activated yet — allocate normally
+          // to trigger their first-visit processing
+          const additional = poolManager.allocate(recipeId, remainingPrimary);
+          allocations = allocations.concat(additional);
+        }
       }
     } else {
       allocations = poolManager.allocate(recipeId, poolDemandRate);
@@ -413,6 +449,12 @@ export function mapPlanToFlowSeparated(
         }
       }
     });
+
+    // Return total actually allocated in demanded-item units
+    return allocations.reduce(
+      (sum, a) => sum + a.allocatedAmount * conversionRatio,
+      0,
+    );
   }
 
   plan.nodes.forEach((node, nodeId) => {

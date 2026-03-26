@@ -120,20 +120,28 @@ export class CapacityPoolManager {
    * the main loop or first-visit in allocateFromPool) or if its primary
    * capacity has been consumed by a prior allocate() call.
    *
-   * The conversionRatio (byproductAmount / primaryAmount) converts between
-   * primary output units and byproduct units. Allocation is tracked per
-   * facility to prevent over-allocation when multiple consumers demand the
-   * same byproduct.
+   * All tracking is in primary output units — one recipe execution produces
+   * both primary and byproduct outputs, so byproduct capacity is 1:1 with
+   * primary output rate. The caller is responsible for converting between
+   * byproduct units and primary units before calling and after receiving
+   * results. Allocation is tracked per facility to prevent over-allocation
+   * when multiple consumers demand the same byproduct.
    *
    * If demand exceeds the free byproduct from running facilities, the caller
    * should follow up with a regular allocate() call for the remainder to
    * activate new facility instances.
+   *
+   * @param forceRunning When true, treat ALL facilities as running regardless
+   *   of their processed/capacity state. Used for backward cycle edges where
+   *   the SCC solver has already determined these facilities will run — their
+   *   byproduct is guaranteed to be available even if the facility hasn't been
+   *   visited yet in the current mapper pass.
    */
   allocateByproduct(
     nodeKey: string,
     demandRate: number,
-    conversionRatio: number,
     demandedItemId: string,
+    forceRunning = false,
   ): AllocationResult[] {
     const pool = this.pools.get(nodeKey);
     if (!pool) return [];
@@ -145,22 +153,29 @@ export class CapacityPoolManager {
       if (remainingDemand <= 0.001) break;
 
       // A facility is "running" if it's been processed (main loop or
-      // first-visit) or if its capacity has been consumed by allocate()
-      const isRunning =
-        this.processedFacilities.has(facility.facilityId) ||
-        facility.remainingCapacity < facility.actualOutputRate - 0.001;
+      // first-visit) or if its capacity has been consumed by allocate().
+      // When forceRunning is set (backward cycle edges), skip this check
+      // entirely — the SCC solver guarantees these facilities will run.
+      if (!forceRunning) {
+        const isRunning =
+          this.processedFacilities.has(facility.facilityId) ||
+          facility.remainingCapacity < facility.actualOutputRate - 0.001;
 
-      if (!isRunning) continue;
+        if (!isRunning) continue;
+      }
 
-      // Total byproduct this facility produces when running
-      const totalByproduct = facility.actualOutputRate * conversionRatio;
+      // Byproduct capacity in primary output units. One recipe execution
+      // produces both primary and byproduct outputs, so byproduct capacity
+      // equals the primary output rate. The caller converts demand to primary
+      // units before calling and converts results back afterward.
+      const byproductCapacity = facility.actualOutputRate;
 
       // Subtract byproduct already allocated from this facility for this item.
       // Keyed by item ID (not recipe) so different byproducts from the same
       // recipe are tracked independently.
       const trackingKey = `${facility.facilityId}:${demandedItemId}`;
       const alreadyAllocated = this.byproductAllocated.get(trackingKey) || 0;
-      const available = totalByproduct - alreadyAllocated;
+      const available = byproductCapacity - alreadyAllocated;
 
       if (available <= 0.001) continue;
 
