@@ -11,13 +11,38 @@ import type {
   ProductionDependencyGraph,
   ProductionGraphNode,
 } from "@/types";
-import { solveLinearSystem } from "./linear-solver";
+import { solveOverdetermined } from "./linear-solver";
 import { forcedRawMaterials, forcedDisposalItems } from "@/data";
 import { calcRate } from "@/lib/utils";
 
+type SystemRow = { row: number[]; rhs: number; itemId: ItemId };
+
+// Drop rows for forced-disposal items whose LHS is all-zero with a non-zero RHS:
+// such equations are unsatisfiable in the linear system but the surplus they
+// represent is handled later by injectDisposalRecipes, so we must not let them
+// force the solver into "no solution".
+const filterImpossibleDisposalRows = (rows: SystemRow[]): SystemRow[] =>
+  rows.filter(
+    ({ row, rhs, itemId }) =>
+      !forcedDisposalItems.has(itemId) ||
+      row.some((v) => Math.abs(v) > 1e-9) ||
+      Math.abs(rhs) < 1e-9,
+  );
+
+// Dismantler recipes consume fbottle_* items (bottled products) as inputs.
+// They are reverse/recovery recipes and should be deprioritized during auto-selection
+// to avoid creating spurious bottle ↔ fbottle ↔ liquid cycles in the dependency graph.
+const isDismantleRecipe = (r: Recipe): boolean =>
+  r.inputs.some((i) => i.itemId.startsWith("item_fbottle_"));
+
 const selectRecipe = (recipes: Recipe[], visitedPath: Set<ItemId>): Recipe => {
+  // Prefer synthesis recipes over dismantle/recovery recipes.
+  // Fall back to full candidate list only if all recipes are dismantle type.
+  const nonDismantle = recipes.filter((r) => !isDismantleRecipe(r));
+  const pool = nonDismantle.length > 0 ? nonDismantle : recipes;
+
   // Priority 1: Recipes with single output (no byproducts)
-  const singleOutput = recipes.filter((r) => r.outputs.length === 1);
+  const singleOutput = pool.filter((r) => r.outputs.length === 1);
 
   if (singleOutput.length > 0) {
     // Priority 2: Among single-output recipes, prefer non-circular ones
@@ -37,7 +62,7 @@ const selectRecipe = (recipes: Recipe[], visitedPath: Set<ItemId>): Recipe => {
 
   // Priority 4: If no single-output recipes, prefer non-circular
   if (visitedPath.size > 0) {
-    const nonCircular = recipes.filter(
+    const nonCircular = pool.filter(
       (r) => !r.inputs.some((input) => visitedPath.has(input.itemId)),
     );
 
@@ -47,7 +72,7 @@ const selectRecipe = (recipes: Recipe[], visitedPath: Set<ItemId>): Recipe => {
   }
 
   // Priority 5: Default to first available recipe
-  return recipes[0];
+  return pool[0];
 };
 
 type ProductionMaps = {
@@ -549,7 +574,10 @@ function calculateFlows(
     }
   });
 
-  return { flowData: { itemDemands, recipeFacilityCounts, resolvedSCCIds }, invalidSCCs };
+  return {
+    flowData: { itemDemands, recipeFacilityCounts, resolvedSCCIds },
+    invalidSCCs,
+  };
 }
 
 function solveSCCFlow(
@@ -653,7 +681,14 @@ function solveSCCFlow(
     console.log(`  [SCC_SOLVE] No external demand, this is an invalid cycle`);
     // Try feeder extension before giving up
     return tryExtendSCCWithFeeders(
-      scc, graph, itemDemands, recipeFacilityCounts, maps, recipeOverrides, resolvedSCCIds, manualRawMaterials,
+      scc,
+      graph,
+      itemDemands,
+      recipeFacilityCounts,
+      maps,
+      recipeOverrides,
+      resolvedSCCIds,
+      manualRawMaterials,
     );
   }
 
@@ -685,18 +720,11 @@ function solveSCCFlow(
     );
     const freeM = freeIndices.length;
 
-    console.log(
-      `  Building reduced system: ${n} items × ${freeM} free recipes (${pinnedRecipes.size} pinned)`,
-    );
-
-    const matrix: number[][] = [];
-    const constants: number[] = [];
+    const rawRows: SystemRow[] = [];
 
     for (let i = 0; i < n; i++) {
       const itemId = itemsList[i];
       const row = new Array(freeM).fill(0);
-
-      // Start with external demand
       let rhs = externalDemands.get(itemId) || 0;
 
       for (let j = 0; j < m; j++) {
@@ -705,10 +733,11 @@ function solveSCCFlow(
           recipe.outputs.find((o) => o.itemId === itemId)?.amount || 0;
         const input =
           recipe.inputs.find((inp) => inp.itemId === itemId)?.amount || 0;
-        const coeff = calcRate(output, recipe.craftingTime) - calcRate(input, recipe.craftingTime);
+        const coeff =
+          calcRate(output, recipe.craftingTime) -
+          calcRate(input, recipe.craftingTime);
 
         if (pinnedRecipes.has(j)) {
-          // Move pinned contribution to RHS
           rhs -= coeff * pinnedRecipes.get(j)!;
         } else {
           const freeIdx = freeIndices.indexOf(j);
@@ -716,58 +745,40 @@ function solveSCCFlow(
         }
       }
 
-      matrix.push(row);
-      constants.push(rhs);
+      rawRows.push({ row, rhs, itemId });
+    }
 
+    const filteredRows = filterImpossibleDisposalRows(rawRows);
+    const matrix = filteredRows.map((e) => e.row);
+    const constants = filteredRows.map((e) => e.rhs);
+    const effectiveN = filteredRows.length;
+
+    console.log(
+      `  Building reduced system: ${effectiveN} items × ${freeM} free recipes (${pinnedRecipes.size} pinned, ${n - effectiveN} disposal rows filtered)`,
+    );
+    filteredRows.forEach(({ row, rhs, itemId }, i) => {
       console.log(
         `    Equation ${i} (${itemId}):`,
         row.map((v, fi) => `${v.toFixed(2)}*r${freeIndices[fi]}`).join(" + "),
         `= ${rhs.toFixed(4)}`,
       );
-    }
+    });
 
-    // Solve the reduced system
-    let freeSolution: number[] | null;
-    if (freeM === 0) {
-      // All recipes are pinned — no system to solve
-      freeSolution = [];
-    } else if (n > freeM) {
-      // Overdetermined system (more equations than free variables).
-      // The linear solver expects a square matrix, so we solve for the
-      // maximum required facility counts to satisfy the tightest constraints.
-      // Deficits in other equations are handled by Phase 4 (external supply).
-      if (freeM === 1) {
-        // Single free variable: take the max of b/a across all equations
-        let maxR = 0;
-        for (let i = 0; i < n; i++) {
-          const a = matrix[i][0];
-          const b = constants[i];
-          if (Math.abs(a) > 1e-9) {
-            const r = b / a;
-            if (r > maxR) maxR = r;
-          }
-        }
-        freeSolution = [maxR];
-        console.log(
-          `  Overdetermined 1-var system: solved r = ${maxR.toFixed(4)}`,
-        );
-      } else {
-        // Multi-variable overdetermined: use first freeM equations as primary
-        // and compute residuals for the rest.
-        const subMatrix = matrix.slice(0, freeM);
-        const subConstants = constants.slice(0, freeM);
-        freeSolution = solveLinearSystem(subMatrix, subConstants);
-      }
-    } else {
-      freeSolution = solveLinearSystem(matrix, constants);
-    }
+    const freeSolution = solveOverdetermined(matrix, constants, freeM);
 
     if (!freeSolution) {
       console.warn(
         `  [SCC_SOLVE] Cannot solve reduced SCC ${scc.id} - system has no solution`,
       );
       return tryExtendSCCWithFeeders(
-        scc, graph, itemDemands, recipeFacilityCounts, maps, recipeOverrides, resolvedSCCIds, manualRawMaterials,
+        scc,
+        graph,
+        itemDemands,
+        recipeFacilityCounts,
+        maps,
+        recipeOverrides,
+        resolvedSCCIds,
+        manualRawMaterials,
       );
     }
 
@@ -787,15 +798,13 @@ function solveSCCFlow(
       );
     }
   } else {
-    // No pinned recipes — standard linear system solve (original path)
-    console.log(`  Building linear system: ${n} items × ${m} recipes`);
-
-    const matrix: number[][] = [];
-    const constants: number[] = [];
+    // No pinned recipes — standard linear system solve.
+    const rawRows: SystemRow[] = [];
 
     for (let i = 0; i < n; i++) {
       const itemId = itemsList[i];
       const row = new Array(m).fill(0);
+      const rhs = externalDemands.get(itemId) || 0;
 
       for (let j = 0; j < m; j++) {
         const recipe = recipesList[j];
@@ -803,27 +812,48 @@ function solveSCCFlow(
           recipe.outputs.find((o) => o.itemId === itemId)?.amount || 0;
         const input =
           recipe.inputs.find((inp) => inp.itemId === itemId)?.amount || 0;
-        row[j] = calcRate(output, recipe.craftingTime) - calcRate(input, recipe.craftingTime);
+        row[j] =
+          calcRate(output, recipe.craftingTime) -
+          calcRate(input, recipe.craftingTime);
       }
 
-      matrix.push(row);
-      constants.push(externalDemands.get(itemId) || 0);
+      rawRows.push({ row, rhs, itemId });
+    }
 
+    const filteredRows = filterImpossibleDisposalRows(rawRows);
+    const matrix = filteredRows.map((e) => e.row);
+    const constants = filteredRows.map((e) => e.rhs);
+    const effectiveN = filteredRows.length;
+
+    console.log(
+      `  Building linear system: ${effectiveN} items × ${m} recipes (${n - effectiveN} disposal rows filtered)`,
+    );
+    filteredRows.forEach(({ row, rhs, itemId }, i) => {
       console.log(
         `    Equation ${i} (${itemId}):`,
         row.map((v, j) => `${v.toFixed(2)}*r${j}`).join(" + "),
-        `= ${constants[i].toFixed(4)}`,
+        `= ${rhs.toFixed(4)}`,
       );
-    }
+    });
 
-    const solution = solveLinearSystem(matrix, constants);
+    const solution =
+      effectiveN === 0
+        ? new Array(m).fill(0)
+        : solveOverdetermined(matrix, constants, m);
 
     if (!solution) {
       console.warn(
         `  [SCC_SOLVE] Cannot solve SCC ${scc.id} - system has no solution`,
       );
       return tryExtendSCCWithFeeders(
-        scc, graph, itemDemands, recipeFacilityCounts, maps, recipeOverrides, resolvedSCCIds, manualRawMaterials,
+        scc,
+        graph,
+        itemDemands,
+        recipeFacilityCounts,
+        maps,
+        recipeOverrides,
+        resolvedSCCIds,
+        manualRawMaterials,
       );
     }
 
@@ -854,7 +884,8 @@ function solveSCCFlow(
         recipe.inputs.find((inp) => inp.itemId === itemId)?.amount || 0;
 
       netProduction +=
-        (calcRate(output, recipe.craftingTime) - calcRate(input, recipe.craftingTime)) *
+        (calcRate(output, recipe.craftingTime) -
+          calcRate(input, recipe.craftingTime)) *
         facilityCount;
     }
 
@@ -867,10 +898,7 @@ function solveSCCFlow(
       // Use Math.max rather than addition: the deficit already accounts for
       // all external demand (including target rates from Phase 1), so adding
       // would double-count any pre-existing demand in itemDemands.
-      itemDemands.set(
-        itemId,
-        Math.max(itemDemands.get(itemId) || 0, deficit),
-      );
+      itemDemands.set(itemId, Math.max(itemDemands.get(itemId) || 0, deficit));
       console.log(
         `  Item ${itemId} has deficit of ${deficit.toFixed(4)}/min — propagated to external producers`,
       );
@@ -977,8 +1005,7 @@ function tryExtendSCCWithFeeders(
           const recipe = maps.recipeMap.get(rid)!;
           const input = recipe.inputs.find((i) => i.itemId === itemId);
           if (input) {
-            overrideDemand +=
-              calcRate(input.amount, recipe.craftingTime) * fc;
+            overrideDemand += calcRate(input.amount, recipe.craftingTime) * fc;
           }
         }
       });
@@ -1174,12 +1201,7 @@ function tryExtendSCCWithFeeders(
   );
   const freeM = freeIndices.length;
 
-  console.log(
-    `  [SCC_EXTEND] Solving extended system: ${n} items × ${freeM} free recipes (${pinnedRecipes.size} pinned, ${m} total)`,
-  );
-
-  const matrix: number[][] = [];
-  const constants: number[] = [];
+  const extRawRows: SystemRow[] = [];
 
   for (let i = 0; i < n; i++) {
     const itemId = extItemsList[i];
@@ -1204,35 +1226,19 @@ function tryExtendSCCWithFeeders(
       }
     }
 
-    matrix.push(row);
-    constants.push(rhs);
+    extRawRows.push({ row, rhs, itemId });
   }
 
-  // Solve the reduced system
-  let freeSolution: number[] | null;
-  if (freeM === 0) {
-    freeSolution = [];
-  } else if (n > freeM) {
-    // Overdetermined after pinning
-    if (freeM === 1) {
-      let maxR = 0;
-      for (let i = 0; i < n; i++) {
-        const a = matrix[i][0];
-        const b = constants[i];
-        if (Math.abs(a) > 1e-9) {
-          const r = b / a;
-          if (r > maxR) maxR = r;
-        }
-      }
-      freeSolution = [maxR];
-    } else {
-      const subMatrix = matrix.slice(0, freeM);
-      const subConstants = constants.slice(0, freeM);
-      freeSolution = solveLinearSystem(subMatrix, subConstants);
-    }
-  } else {
-    freeSolution = solveLinearSystem(matrix, constants);
-  }
+  const extFilteredRows = filterImpossibleDisposalRows(extRawRows);
+  const matrix = extFilteredRows.map((e) => e.row);
+  const constants = extFilteredRows.map((e) => e.rhs);
+  const extEffectiveN = extFilteredRows.length;
+
+  console.log(
+    `  [SCC_EXTEND] Solving extended system: ${extEffectiveN} items × ${freeM} free recipes (${pinnedRecipes.size} pinned, ${m} total)`,
+  );
+
+  const freeSolution = solveOverdetermined(matrix, constants, freeM);
 
   if (!freeSolution) {
     console.warn(
@@ -1280,10 +1286,7 @@ function tryExtendSCCWithFeeders(
     const deficit = externalDemand - netProduction;
 
     if (deficit > 1e-9) {
-      itemDemands.set(
-        itemId,
-        Math.max(itemDemands.get(itemId) || 0, deficit),
-      );
+      itemDemands.set(itemId, Math.max(itemDemands.get(itemId) || 0, deficit));
       console.log(
         `  [SCC_EXTEND] Item ${itemId} has deficit of ${deficit.toFixed(4)}/min — propagated`,
       );
@@ -1377,8 +1380,7 @@ function injectDisposalRecipes(
     graph.recipeOutputs.forEach((outputItems, recipeId) => {
       if (outputItems.has(itemId)) {
         const recipe = maps.recipeMap.get(recipeId)!;
-        const facilityCount =
-          flowData.recipeFacilityCounts.get(recipeId) || 0;
+        const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
         const output = recipe.outputs.find((o) => o.itemId === itemId);
         if (output) {
           totalProduction +=
@@ -1395,8 +1397,7 @@ function injectDisposalRecipes(
         const recipe = maps.recipeMap.get(recipeId)!;
         // Skip disposal recipes to avoid double-counting
         if (recipe.outputs.length === 0) continue;
-        const facilityCount =
-          flowData.recipeFacilityCounts.get(recipeId) || 0;
+        const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
         const input = recipe.inputs.find((i) => i.itemId === itemId);
         if (input) {
           totalConsumption +=
@@ -1406,8 +1407,7 @@ function injectDisposalRecipes(
     }
 
     // Subtract target demand (user wants to collect this amount, not dispose)
-    const targetDemand =
-      targets.find((t) => t.itemId === itemId)?.rate || 0;
+    const targetDemand = targets.find((t) => t.itemId === itemId)?.rate || 0;
 
     const surplus = totalProduction - totalConsumption - targetDemand;
     if (surplus <= 0) continue;
@@ -1415,8 +1415,7 @@ function injectDisposalRecipes(
     // Find the matching disposal recipe
     const disposalRecipe = Array.from(maps.recipeMap.values()).find(
       (r) =>
-        r.outputs.length === 0 &&
-        r.inputs.some((i) => i.itemId === itemId),
+        r.outputs.length === 0 && r.inputs.some((i) => i.itemId === itemId),
     );
     if (!disposalRecipe) continue;
 
@@ -1453,10 +1452,7 @@ function injectDisposalRecipes(
     graph.itemConsumedBy.get(itemId)!.add(disposalRecipe.id);
 
     // Record facility count in flow data
-    flowData.recipeFacilityCounts.set(
-      disposalRecipe.id,
-      disposalFacilityCount,
-    );
+    flowData.recipeFacilityCounts.set(disposalRecipe.id, disposalFacilityCount);
   }
 }
 
@@ -1532,9 +1528,7 @@ function buildProductionGraph(
 
   // Build cycle info — exclude SCCs that were resolved by feeder extension
   // since they are now linear chains, not true production cycles.
-  const activeSCCs = sccs.filter(
-    (scc) => !flowData.resolvedSCCIds.has(scc.id),
-  );
+  const activeSCCs = sccs.filter((scc) => !flowData.resolvedSCCIds.has(scc.id));
   const detectedCycles: DetectedCycle[] = activeSCCs.map((scc) => {
     const cycleNodes: ProductionNode[] = Array.from(scc.recipes).flatMap(
       (recipeId) => {

@@ -1,5 +1,8 @@
 import { describe, test, expect } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
+import { items } from "@/data/items";
+import { recipes } from "@/data/recipes";
+import { facilities } from "@/data/facilities";
 import type {
   ProductionDependencyGraph,
   ProductionGraphNode,
@@ -1037,5 +1040,36 @@ describe("Xircon Production Chain", () => {
     const sewageDisposalId =
       RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE;
     expect(plan.nodes.has(sewageDisposalId)).toBe(false);
+  });
+});
+
+describe("Real 1.2 data regression", () => {
+  test("xiranite_enr_powder produces complete chain with no invalid cycles", () => {
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, rate: 6 }],
+      items,
+      recipes,
+      facilities,
+    );
+    expect(plan.invalidCycles).toEqual([]);
+
+    const target = plan.nodes.get(ItemId.ITEM_XIRANITE_ENR_POWDER);
+    expect(target?.type).toBe("item");
+    if (target?.type === "item") {
+      expect(target.productionRate).toBeGreaterThanOrEqual(6);
+    }
+
+    const powderRecipe = plan.nodes.get(RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1);
+    expect(powderRecipe?.type).toBe("recipe");
+    if (powderRecipe?.type === "recipe") {
+      expect(powderRecipe.facilityCount).toBeGreaterThan(0);
+    }
+
+    const mossGrinder = plan.nodes.get(RecipeId.GRINDER_PLANT_MOSS_POWDER_1_1);
+    expect(mossGrinder).toBeDefined();
+    expect(mossGrinder?.type).toBe("recipe");
+    if (mossGrinder?.type === "recipe") {
+      expect(mossGrinder.facilityCount).toBeGreaterThan(0);
+    }
   });
 });

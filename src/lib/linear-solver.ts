@@ -65,3 +65,45 @@ export function solveLinearSystem(
 
   return x;
 }
+
+/**
+ * Solve an over/exactly-determined linear system.
+ * - `numVars === 0` → returns `[]` (no unknowns).
+ * - `rows.length > numVars` (overdetermined):
+ *   - `numVars === 1`: return `[max(b/a)]` across rows with non-zero coefficient,
+ *     matching the Phase 4 deficit-propagation semantics (satisfy tightest constraint).
+ *   - Otherwise pick the `numVars` rows with largest |RHS| and solve that square system.
+ * - `rows.length <= numVars`: solve directly via `solveLinearSystem`.
+ * Returns `null` on singular systems.
+ */
+export function solveOverdetermined(
+  matrix: number[][],
+  constants: number[],
+  numVars: number,
+): number[] | null {
+  if (numVars === 0) return [];
+  const rowCount = matrix.length;
+
+  if (rowCount > numVars) {
+    if (numVars === 1) {
+      let maxR = 0;
+      for (let i = 0; i < rowCount; i++) {
+        const a = matrix[i][0];
+        const b = constants[i];
+        if (Math.abs(a) > 1e-9) {
+          const r = b / a;
+          if (r > maxR) maxR = r;
+        }
+      }
+      return [maxR];
+    }
+    const indices = Array.from({ length: rowCount }, (_, i) => i);
+    indices.sort((a, b) => Math.abs(constants[b]) - Math.abs(constants[a]));
+    const topIndices = indices.slice(0, numVars);
+    const subMatrix = topIndices.map((i) => matrix[i]);
+    const subConstants = topIndices.map((i) => constants[i]);
+    return solveLinearSystem(subMatrix, subConstants);
+  }
+
+  return solveLinearSystem(matrix, constants);
+}
