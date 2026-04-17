@@ -8,6 +8,7 @@ const forcedRawMaterials = new Set<ItemId>([
   "item_quartz_sand",
   "item_iron_ore",
   "item_liquid_water",
+  "item_liquid_acid",
 ]);
 
 const MAX_TARGETS = 12;
@@ -20,4 +21,11 @@ const forcedDisposalItems = new Set<ItemId>([
   "item_liquid_xiranite_poly",
 ]);
 
-export { items, facilities, recipes, forcedRawMaterials, forcedDisposalItems, MAX_TARGETS };
+export {
+  items,
+  facilities,
+  recipes,
+  forcedRawMaterials,
+  forcedDisposalItems,
+  MAX_TARGETS,
+};
