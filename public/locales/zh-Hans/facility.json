@@ -4,13 +4,15 @@
   "item_port_filling_pd_mc_1": "灌装机",
   "item_port_furnance_1": "精炼炉",
   "item_port_grinder_1": "粉碎机",
+  "item_port_liquid_cleaner_1": "废水处理机",
+  "item_port_liquid_purifier_1": "提纯机",
   "item_port_mix_pool_1": "反应池",
+  "item_port_mix_pool_2": "扩容反应池",
   "item_port_planter_1": "种植机",
   "item_port_seedcol_1": "采种机",
   "item_port_shaper_1": "塑形机",
   "item_port_thickener_1": "研磨机",
   "item_port_tools_asm_mc_1": "封装机",
   "item_port_winder_1": "装备原件机",
-  "item_port_liquid_cleaner_1": "废水处理机",
   "item_port_xiranite_oven_1": "天有洪炉"
 }

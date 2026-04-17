@@ -10,7 +10,7 @@ export const facilities: Facility[] = [
   {
     id: FacilityId.ITEM_PORT_DISMANTLER_1,
     powerConsumption: 20,
-    tier: 4,
+    tier: 3,
   },
   {
     id: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
@@ -33,8 +33,18 @@ export const facilities: Facility[] = [
     tier: 3,
   },
   {
+    id: FacilityId.ITEM_PORT_LIQUID_PURIFIER_1,
+    powerConsumption: 50,
+    tier: 4,
+  },
+  {
     id: FacilityId.ITEM_PORT_MIX_POOL_1,
     powerConsumption: 50,
+    tier: 3,
+  },
+  {
+    id: FacilityId.ITEM_PORT_MIX_POOL_2,
+    powerConsumption: 100,
     tier: 3,
   },
   {
