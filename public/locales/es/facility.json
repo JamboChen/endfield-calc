@@ -4,13 +4,15 @@
   "item_port_filling_pd_mc_1": "Unidad de relleno",
   "item_port_furnance_1": "Unidad de refinado",
   "item_port_grinder_1": "Unidad de triturado",
+  "item_port_liquid_cleaner_1": "Unidad de tratamiento de agua",
+  "item_port_liquid_purifier_1": "Unidad de purificación",
   "item_port_mix_pool_1": "Crisol del reactor",
+  "item_port_mix_pool_2": "Crisol expandido",
   "item_port_planter_1": "Unidad de cultivo",
   "item_port_seedcol_1": "Unidad recogesemillas",
   "item_port_shaper_1": "Unidad de moldeado",
   "item_port_thickener_1": "Unidad pulverizadora",
   "item_port_tools_asm_mc_1": "Unidad de empaquetado",
   "item_port_winder_1": "Unidad de engranajes",
-  "item_port_liquid_cleaner_1": "Unidad de tratamiento de agua",
   "item_port_xiranite_oven_1": "Forja del cielo"
 }

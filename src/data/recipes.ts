@@ -3,11 +3,32 @@ import type { Recipe } from "@/types";
 
 export const recipes: Recipe[] = [
   {
+    id: RecipeId.COMPONENT_ACTIVITY_XIRANITE_CMPT_1,
+    inputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_CMPT, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.COMPONENT_ACTIVITY_XIRANITE_ENR_CMPT_1,
+    inputs: [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_CMPT, amount: 2 }],
+    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    craftingTime: 20,
+  },
+  {
     id: RecipeId.COMPONENT_COPPER_CMPT_1,
     inputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_COPPER_CMPT, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
     craftingTime: 2,
+  },
+  {
+    id: RecipeId.COMPONENT_COPPER_ENR_CMPT_1,
+    inputs: [{ itemId: ItemId.ITEM_COPPER_ENR, amount: 5 }],
+    outputs: [{ itemId: ItemId.ITEM_COPPER_ENR_CMPT, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    craftingTime: 10,
   },
   {
     id: RecipeId.COMPONENT_GLASS_CMPT_1,
@@ -35,6 +56,36 @@ export const recipes: Recipe[] = [
     inputs: [{ itemId: ItemId.ITEM_IRON_ENR, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_ENR_CMPT, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPER_ACID_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPER_ACID, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPER_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPER_COPPER, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPER_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPER_COPPER_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
     craftingTime: 2,
   },
   {
@@ -88,6 +139,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.DISMANTLER_COPPER_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPER_XIRANITE_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.DISMANTLER_COPPER_XIRANITE_LOWPOLY_1,
     inputs: [
       { itemId: ItemId.ITEM_FBOTTLE_COPPER_XIRANITE_LOWPOLY, amount: 1 },
@@ -105,6 +166,150 @@ export const recipes: Recipe[] = [
     outputs: [
       { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_ACID_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_ACID, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_COPPER, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_COPPER_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_GRASS_1_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_GRASS_1, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_1, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_GRASS_2_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_GRASS_2, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_2, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_SEWAGE_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_SEWAGE, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_WATER_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_WATER, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_XIRANITE_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_XIRANITE, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_XIRANITE_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_XIRANITE_LOWPOLY_1,
+    inputs: [
+      { itemId: ItemId.ITEM_FBOTTLE_COPPERENR_XIRANITE_LOWPOLY, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERENR_XIRANITE_POLY_1,
+    inputs: [
+      { itemId: ItemId.ITEM_FBOTTLE_COPPERENR_XIRANITE_POLY, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_GLASS_ACID_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_ACID, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_GLASS_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_COPPER, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_GLASS_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_COPPER_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
     ],
     facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
     craftingTime: 2,
@@ -160,6 +365,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.DISMANTLER_GLASS_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_XIRANITE_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.DISMANTLER_GLASS_XIRANITE_LOWPOLY_1,
     inputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_XIRANITE_LOWPOLY, amount: 1 }],
     outputs: [
@@ -175,6 +390,36 @@ export const recipes: Recipe[] = [
     outputs: [
       { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_GLASSENR_ACID_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASSENR_ACID, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_GLASSENR_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASSENR_COPPER, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_GLASSENR_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASSENR_COPPER_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
     ],
     facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
     craftingTime: 2,
@@ -230,6 +475,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.DISMANTLER_GLASSENR_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASSENR_XIRANITE_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.DISMANTLER_GLASSENR_XIRANITE_LOWPOLY_1,
     inputs: [
       { itemId: ItemId.ITEM_FBOTTLE_GLASSENR_XIRANITE_LOWPOLY, amount: 1 },
@@ -247,6 +502,36 @@ export const recipes: Recipe[] = [
     outputs: [
       { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_IRON_ACID_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_ACID, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_IRON_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_COPPER, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_IRON_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_COPPER_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
     ],
     facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
     craftingTime: 2,
@@ -302,6 +587,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.DISMANTLER_IRON_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_XIRANITE_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.DISMANTLER_IRON_XIRANITE_LOWPOLY_1,
     inputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_XIRANITE_LOWPOLY, amount: 1 }],
     outputs: [
@@ -317,6 +612,36 @@ export const recipes: Recipe[] = [
     outputs: [
       { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_IRONENR_ACID_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRONENR_ACID, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_IRON_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_IRONENR_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRONENR_COPPER, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_IRON_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_IRONENR_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRONENR_COPPER_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_IRON_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
     ],
     facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
     craftingTime: 2,
@@ -372,6 +697,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.DISMANTLER_IRONENR_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRONENR_XIRANITE_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_IRON_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.DISMANTLER_IRONENR_XIRANITE_LOWPOLY_1,
     inputs: [
       { itemId: ItemId.ITEM_FBOTTLE_IRONENR_XIRANITE_LOWPOLY, amount: 1 },
@@ -391,6 +726,46 @@ export const recipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
     ],
     facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_XIRANENR_GRASS_2_1,
+    inputs: [{ itemId: ItemId.ITEM_FBOTTLE_XIRANENR_GRASS_2, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_2, amount: 5 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPER_ACID,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPER_ACID, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPER_COPPER,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPER_COPPER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPER_COPPER_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPER_COPPER_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
     craftingTime: 2,
   },
   {
@@ -444,6 +819,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.FILLING_BOTTLED_COPPER_XIRANITE_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPER_XIRANITE_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.FILLING_BOTTLED_COPPER_XIRANITE_LOWPOLY,
     inputs: [
       { itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 },
@@ -462,6 +847,122 @@ export const recipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
     ],
     outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPER_XIRANITE_POLY, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_ACID,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_ACID, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_COPPER,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_COPPER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_COPPER_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_COPPER_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_GRASS_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_1, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_GRASS_1, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_GRASS_2,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_2, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_GRASS_2, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_SEWAGE,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_SEWAGE, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_WATER,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_WATER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_XIRANITE,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_COPPERENR_XIRANITE, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_XIRANITE_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_FBOTTLE_COPPERENR_XIRANITE_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_XIRANITE_LOWPOLY,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_FBOTTLE_COPPERENR_XIRANITE_LOWPOLY, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_COPPERENR_XIRANITE_POLY,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_FBOTTLE_COPPERENR_XIRANITE_POLY, amount: 1 },
+    ],
     facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
     craftingTime: 2,
   },
@@ -494,6 +995,36 @@ export const recipes: Recipe[] = [
     outputs: [{ itemId: ItemId.ITEM_BOTTLED_FOOD_3, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
     craftingTime: 10,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_GLASS_ACID,
+    inputs: [
+      { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_ACID, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_GLASS_COPPER,
+    inputs: [
+      { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_COPPER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_GLASS_COPPER_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_COPPER_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
   },
   {
     id: RecipeId.FILLING_BOTTLED_GLASS_GRASS_1,
@@ -546,6 +1077,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.FILLING_BOTTLED_GLASS_XIRANITE_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_XIRANITE_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.FILLING_BOTTLED_GLASS_XIRANITE_LOWPOLY,
     inputs: [
       { itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 },
@@ -564,6 +1105,36 @@ export const recipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
     ],
     outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_XIRANITE_POLY, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_GLASSENR_ACID,
+    inputs: [
+      { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASSENR_ACID, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_GLASSENR_COPPER,
+    inputs: [
+      { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASSENR_COPPER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_GLASSENR_COPPER_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASSENR_COPPER_ENR, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
     craftingTime: 2,
   },
@@ -618,6 +1189,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.FILLING_BOTTLED_GLASSENR_XIRANITE_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASSENR_XIRANITE_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.FILLING_BOTTLED_GLASSENR_XIRANITE_LOWPOLY,
     inputs: [
       { itemId: ItemId.ITEM_GLASS_ENR_BOTTLE, amount: 1 },
@@ -638,6 +1219,36 @@ export const recipes: Recipe[] = [
     outputs: [
       { itemId: ItemId.ITEM_FBOTTLE_GLASSENR_XIRANITE_POLY, amount: 1 },
     ],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_IRON_ACID,
+    inputs: [
+      { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_ACID, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_IRON_COPPER,
+    inputs: [
+      { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_COPPER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_IRON_COPPER_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_COPPER_ENR, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
     craftingTime: 2,
   },
@@ -692,6 +1303,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.FILLING_BOTTLED_IRON_XIRANITE_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_XIRANITE_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.FILLING_BOTTLED_IRON_XIRANITE_LOWPOLY,
     inputs: [
       { itemId: ItemId.ITEM_IRON_BOTTLE, amount: 1 },
@@ -708,6 +1329,36 @@ export const recipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
     ],
     outputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRON_XIRANITE_POLY, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_IRONENR_ACID,
+    inputs: [
+      { itemId: ItemId.ITEM_IRON_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRONENR_ACID, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_IRONENR_COPPER,
+    inputs: [
+      { itemId: ItemId.ITEM_IRON_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRONENR_COPPER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_IRONENR_COPPER_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_IRON_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRONENR_COPPER_ENR, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
     craftingTime: 2,
   },
@@ -762,6 +1413,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.FILLING_BOTTLED_IRONENR_XIRANITE_ENR,
+    inputs: [
+      { itemId: ItemId.ITEM_IRON_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_IRONENR_XIRANITE_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.FILLING_BOTTLED_IRONENR_XIRANITE_LOWPOLY,
     inputs: [
       { itemId: ItemId.ITEM_IRON_ENR_BOTTLE, amount: 1 },
@@ -810,6 +1471,16 @@ export const recipes: Recipe[] = [
       { itemId: ItemId.ITEM_PLANT_MOSS_ENR_POWDER_1, amount: 10 },
     ],
     outputs: [{ itemId: ItemId.ITEM_BOTTLED_REC_HP_3, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.FILLING_BOTTLED_XIRANENR_GRASS_2,
+    inputs: [
+      { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_BOTTLE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_2, amount: 5 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FBOTTLE_XIRANENR_GRASS_2, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
     craftingTime: 10,
   },
@@ -1107,6 +1778,26 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.LIQUID_PURIFIER_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_COPPER, amount: 4 }],
+    outputs: [
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_LIQUID_PURIFIER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_PURIFIER_XIRANITE_POLY_1,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 4 }],
+    outputs: [
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_LIQUID_PURIFIER_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.PLANTER_PLANT_BBFLOWER_1,
     inputs: [{ itemId: ItemId.ITEM_PLANT_BBFLOWER_SEED_1, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_PLANT_BBFLOWER_1, amount: 1 }],
@@ -1155,6 +1846,52 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.POOL_COPPER_ENR_1,
+    inputs: [
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 2 },
+      { itemId: ItemId.ITEM_IRON_POWDER, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.POOL_COPPER_ENR_2,
+    inputs: [
+      { itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 2 },
+      { itemId: ItemId.ITEM_IRON_POWDER, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.POOL_LIQUID_COPPER_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_POWDER, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.POOL_LIQUID_COPPER_2,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_POWDER, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_COPPER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_2,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1,
     inputs: [
       { itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 },
@@ -1162,6 +1899,16 @@ export const recipes: Recipe[] = [
     ],
     outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.POOL_LIQUID_LIQUID_XIRANITE_2,
+    inputs: [
+      { itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_2,
     craftingTime: 2,
   },
   {
@@ -1175,6 +1922,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.POOL_LIQUID_PLANT_GRASS_1_2,
+    inputs: [
+      { itemId: ItemId.ITEM_PLANT_GRASS_POWDER_1, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_1, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_2,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.POOL_LIQUID_PLANT_GRASS_2_1,
     inputs: [
       { itemId: ItemId.ITEM_PLANT_GRASS_POWDER_2, amount: 1 },
@@ -1182,6 +1939,36 @@ export const recipes: Recipe[] = [
     ],
     outputs: [{ itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_2, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.POOL_LIQUID_PLANT_GRASS_2_2,
+    inputs: [
+      { itemId: ItemId.ITEM_PLANT_GRASS_POWDER_2, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_2, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.POOL_LIQUID_XIRANITE_ENR_1,
+    inputs: [
+      { itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.POOL_LIQUID_XIRANITE_ENR_2,
+    inputs: [
+      { itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_2,
     craftingTime: 2,
   },
   {
@@ -1198,6 +1985,19 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.POOL_LIQUID_XIRANITE_POLY_2,
+    inputs: [
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_2,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.POOL_XIRANITE_POLY_1,
     inputs: [
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 2 },
@@ -1208,6 +2008,19 @@ export const recipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
     ],
     facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.POOL_XIRANITE_POLY_2,
+    inputs: [
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 2 },
+      { itemId: ItemId.ITEM_IRON_POWDER, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_XIRANITE_POLY, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
+    ],
+    facilityId: FacilityId.ITEM_PORT_MIX_POOL_2,
     craftingTime: 2,
   },
   {
@@ -1281,9 +2094,30 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.SHAPER_ACTIVITY_XIRANITE_BOTTLE_1,
+    inputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 2 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_BOTTLE, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_SHAPER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.SHAPER_ACTIVITY_XIRANITE_ENR_BOTTLE_1,
+    inputs: [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_BOTTLE, amount: 2 }],
+    facilityId: FacilityId.ITEM_PORT_SHAPER_1,
+    craftingTime: 20,
+  },
+  {
     id: RecipeId.SHAPER_COPPER_BOTTLE_1,
     inputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 2 }],
     outputs: [{ itemId: ItemId.ITEM_COPPER_BOTTLE, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_SHAPER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.SHAPER_COPPER_ENR_BOTTLE_1,
+    inputs: [{ itemId: ItemId.ITEM_COPPER_ENR, amount: 2 }],
+    outputs: [{ itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_SHAPER_1,
     craftingTime: 2,
   },
@@ -1384,6 +2218,36 @@ export const recipes: Recipe[] = [
     outputs: [{ itemId: ItemId.ITEM_QUARTZ_ENR_POWDER, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_THICKENER_1,
     craftingTime: 2,
+  },
+  {
+    id: RecipeId.TOOLS_PROC_ACTIVITY_XIRANITE_ENR_HULU_1,
+    inputs: [
+      { itemId: ItemId.ITEM_FBOTTLE_XIRANENR_GRASS_2, amount: 1 },
+      { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_TOOL, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_HULU, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_TOOLS_ASM_MC_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.TOOLS_PROC_ACTIVITY_XIRANITE_ENR_TOOL_1,
+    inputs: [
+      { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_CMPT, amount: 1 },
+      { itemId: ItemId.ITEM_COPPER_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_TOOL, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_TOOLS_ASM_MC_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.TOOLS_PROC_ACTIVITY_XIRANITE_HULU_1,
+    inputs: [
+      { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_BOTTLE, amount: 5 },
+      { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_CMPT, amount: 5 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_HULU, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_TOOLS_ASM_MC_1,
+    craftingTime: 10,
   },
   {
     id: RecipeId.TOOLS_PROC_BATTERY_1_1,
@@ -1536,6 +2400,16 @@ export const recipes: Recipe[] = [
     craftingTime: 10,
   },
   {
+    id: RecipeId.WINDER_EQUIP_SCRIPT_4_2,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR_CMPT, amount: 2 },
+      { itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 2 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_EQUIP_SCRIPT_4_2, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_WINDER_1,
+    craftingTime: 10,
+  },
+  {
     id: RecipeId.XIRANITE_OVEN_MUCK_XIRANITE_1,
     inputs: [
       { itemId: ItemId.ITEM_MUCK_FECES_1, amount: 1 },
@@ -1544,6 +2418,16 @@ export const recipes: Recipe[] = [
     outputs: [{ itemId: ItemId.ITEM_MUCK_XIRANITE_1, amount: 1 }],
     facilityId: FacilityId.ITEM_PORT_XIRANITE_OVEN_1,
     craftingTime: 2,
+  },
+  {
+    id: RecipeId.XIRANITE_OVEN_XIRANITE_ENR_POWDER_1,
+    inputs: [
+      { itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 10 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 5 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 1 }],
+    facilityId: FacilityId.ITEM_PORT_XIRANITE_OVEN_1,
+    craftingTime: 10,
   },
   {
     id: RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1,
