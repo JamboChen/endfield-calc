@@ -1072,4 +1072,30 @@ describe("Real 1.2 data regression", () => {
       expect(mossGrinder.facilityCount).toBeGreaterThan(0);
     }
   });
+
+  test("copper_enr + xiranite_poly multi-target does not inflate water consumption", () => {
+    const plan = calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_COPPER_ENR, rate: 5 },
+        { itemId: ItemId.ITEM_XIRANITE_POLY, rate: 5 },
+      ],
+      items,
+      recipes,
+      facilities,
+    );
+    expect(plan.invalidCycles).toEqual([]);
+
+    const water = plan.nodes.get(ItemId.ITEM_LIQUID_WATER);
+    expect(water?.type).toBe("item");
+    // Pre-fix multi-target blowup produced 60/min; combined demand with the
+    // byproduct-recovery recipe preserved must stay sub-additive vs the two
+    // single-target plans (A=40, B=17, sum=57).
+    if (water?.type === "item") {
+      expect(water.productionRate).toBeLessThanOrEqual(57);
+    }
+
+    expect(
+      plan.nodes.has(RecipeId.LIQUID_PURIFIER_XIRANITE_POLY_1),
+    ).toBe(true);
+  });
 });
