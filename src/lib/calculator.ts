@@ -17,17 +17,39 @@ import { calcRate } from "@/lib/utils";
 
 type SystemRow = { row: number[]; rhs: number; itemId: ItemId };
 
-// Drop rows for forced-disposal items whose LHS is all-zero with a non-zero RHS:
-// such equations are unsatisfiable in the linear system but the surplus they
-// represent is handled later by injectDisposalRecipes, so we must not let them
-// force the solver into "no solution".
-const filterImpossibleDisposalRows = (rows: SystemRow[]): SystemRow[] =>
-  rows.filter(
+const isAllZeroRow = (row: number[]): boolean =>
+  row.every((v) => Math.abs(v) < 1e-9);
+
+// Drops equations the SCC solver must not enforce:
+//   1. Unsatisfiable: forced-disposal item with zero LHS and non-zero RHS —
+//      surplus is handled later by injectDisposalRecipes.
+//   2. Slack: forced-disposal-surplus (rhs <= 0) or forced-raw-supply items,
+//      dropped greedily while keeping at least numVars rows so the system
+//      stays determined. Raw-material rows go first (deficit always absorbed
+//      by external supply); disposal rows may still carry balance info.
+const filterImpossibleDisposalRows = (
+  rows: SystemRow[],
+  numVars: number,
+  rawMaterials: Set<ItemId>,
+): SystemRow[] => {
+  const base = rows.filter(
     ({ row, rhs, itemId }) =>
       !forcedDisposalItems.has(itemId) ||
-      row.some((v) => Math.abs(v) > 1e-9) ||
+      !isAllZeroRow(row) ||
       Math.abs(rhs) < 1e-9,
   );
+  const isRawSlack = (r: SystemRow) => rawMaterials.has(r.itemId);
+  const isDisposalSlack = (r: SystemRow) =>
+    forcedDisposalItems.has(r.itemId) && r.rhs <= 1e-9;
+  const remaining = base.slice();
+  for (const isSlack of [isRawSlack, isDisposalSlack]) {
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      if (remaining.length <= numVars) break;
+      if (isSlack(remaining[i])) remaining.splice(i, 1);
+    }
+  }
+  return remaining;
+};
 
 // Dismantler recipes consume fbottle_* items (bottled products) as inputs.
 // They are reverse/recovery recipes and should be deprioritized during auto-selection
@@ -646,35 +668,40 @@ function solveSCCFlow(
 
   // --- Phase 2: Compute external output demands ---
   // Items OUTSIDE the SCC that are produced by SCC recipes and have demand.
-  // These constrain ("pin") the facility counts for the producing recipes.
-  const externalOutputDemands = new Map<
-    number,
-    { itemId: ItemId; demand: number; rate: number }[]
+  // Group by external item so multi-producer cases can share a single
+  // constraint (sum rate_j * r_j = demand) rather than pinning each recipe
+  // independently to demand/rate (which would overdetermine the system with
+  // total output = k × demand).
+  const externalOutputByItem = new Map<
+    ItemId,
+    { demand: number; producers: { recipeIdx: number; rate: number }[] }
   >();
-  let hasExternalOutputDemand = false;
 
   for (let j = 0; j < m; j++) {
     const recipe = recipesList[j];
-    const demands: { itemId: ItemId; demand: number; rate: number }[] = [];
 
     for (const out of recipe.outputs) {
       if (scc.items.has(out.itemId)) continue; // Skip SCC-internal items
 
       const demand = itemDemands.get(out.itemId) || 0;
-      if (demand > 0) {
-        const rate = calcRate(out.amount, recipe.craftingTime);
-        demands.push({ itemId: out.itemId, demand, rate });
-        console.log(
-          `    Recipe ${recipe.id} produces external item ${out.itemId} with demand: ${demand.toFixed(4)}/min (rate: ${rate.toFixed(4)}/facility)`,
-        );
-      }
-    }
+      if (demand <= 0) continue;
 
-    if (demands.length > 0) {
-      externalOutputDemands.set(j, demands);
-      hasExternalOutputDemand = true;
+      const rate = calcRate(out.amount, recipe.craftingTime);
+      if (rate <= 0) continue;
+
+      let entry = externalOutputByItem.get(out.itemId);
+      if (!entry) {
+        entry = { demand, producers: [] };
+        externalOutputByItem.set(out.itemId, entry);
+      }
+      entry.producers.push({ recipeIdx: j, rate });
+      console.log(
+        `    Recipe ${recipe.id} produces external item ${out.itemId} with demand: ${demand.toFixed(4)}/min (rate: ${rate.toFixed(4)}/facility)`,
+      );
     }
   }
+
+  const hasExternalOutputDemand = externalOutputByItem.size > 0;
 
   // Early exit if no demand at all (neither internal nor external output)
   if (externalDemands.size === 0 && !hasExternalOutputDemand) {
@@ -693,27 +720,35 @@ function solveSCCFlow(
   }
 
   console.log(
-    `  External demands (internal items): ${externalDemands.size}, External output demands: ${externalOutputDemands.size}`,
+    `  External demands (internal items): ${externalDemands.size}, External output items: ${externalOutputByItem.size}`,
   );
 
   // --- Phase 3: Solve with pinned facility counts ---
-  // Pin facility counts for recipes that produce external items with demand.
+  // Single-producer external items → pin that recipe to demand/rate.
+  // Multi-producer external items → leave recipes free, add a shared
+  // constraint row (sum rate_j * r_j = demand) so the solver distributes
+  // demand across producers.
   const pinnedRecipes = new Map<number, number>(); // recipe index → facility count
+  const sharedOutputConstraints: { itemId: ItemId; demand: number }[] = [];
 
-  externalOutputDemands.forEach((demands, j) => {
-    let pinnedCount = 0;
-    for (const { demand, rate } of demands) {
-      if (rate > 0) {
-        pinnedCount = Math.max(pinnedCount, demand / rate);
-      }
+  externalOutputByItem.forEach(({ demand, producers }, itemId) => {
+    if (producers.length === 1) {
+      const { recipeIdx, rate } = producers[0];
+      const pinnedCount = demand / rate;
+      const prev = pinnedRecipes.get(recipeIdx) ?? 0;
+      pinnedRecipes.set(recipeIdx, Math.max(prev, pinnedCount));
+      console.log(
+        `  Pinning recipe ${recipesList[recipeIdx].id} (index ${recipeIdx}) to ${pinnedCount.toFixed(4)} facilities (single producer of ${itemId})`,
+      );
+    } else {
+      sharedOutputConstraints.push({ itemId, demand });
+      console.log(
+        `  Shared constraint: ${producers.length} producers of external ${itemId} (total demand ${demand.toFixed(4)}/min)`,
+      );
     }
-    pinnedRecipes.set(j, pinnedCount);
-    console.log(
-      `  Pinning recipe ${recipesList[j].id} (index ${j}) to ${pinnedCount.toFixed(4)} facilities`,
-    );
   });
 
-  if (pinnedRecipes.size > 0) {
+  if (pinnedRecipes.size > 0 || sharedOutputConstraints.length > 0) {
     // Build reduced system: substitute pinned values, solve for remaining recipes
     const freeIndices = Array.from({ length: m }, (_, i) => i).filter(
       (i) => !pinnedRecipes.has(i),
@@ -725,7 +760,8 @@ function solveSCCFlow(
     for (let i = 0; i < n; i++) {
       const itemId = itemsList[i];
       const row = new Array(freeM).fill(0);
-      let rhs = externalDemands.get(itemId) || 0;
+      const externalDemand = externalDemands.get(itemId) || 0;
+      let rhs = externalDemand;
 
       for (let j = 0; j < m; j++) {
         const recipe = recipesList[j];
@@ -748,13 +784,29 @@ function solveSCCFlow(
       rawRows.push({ row, rhs, itemId });
     }
 
-    const filteredRows = filterImpossibleDisposalRows(rawRows);
+    // Shared constraint rows: sum(rate_j * r_j) = demand for each
+    // multi-producer external item.
+    for (const { itemId, demand } of sharedOutputConstraints) {
+      const row = new Array(freeM).fill(0);
+      const producers = externalOutputByItem.get(itemId)!.producers;
+      for (const { recipeIdx, rate } of producers) {
+        const freeIdx = freeIndices.indexOf(recipeIdx);
+        if (freeIdx >= 0) row[freeIdx] += rate;
+      }
+      rawRows.push({ row, rhs: demand, itemId });
+    }
+
+    const filteredRows = filterImpossibleDisposalRows(
+      rawRows,
+      freeM,
+      graph.rawMaterials,
+    );
     const matrix = filteredRows.map((e) => e.row);
     const constants = filteredRows.map((e) => e.rhs);
     const effectiveN = filteredRows.length;
 
     console.log(
-      `  Building reduced system: ${effectiveN} items × ${freeM} free recipes (${pinnedRecipes.size} pinned, ${n - effectiveN} disposal rows filtered)`,
+      `  Building reduced system: ${effectiveN} items × ${freeM} free recipes (${pinnedRecipes.size} pinned, ${sharedOutputConstraints.length} shared-output constraints, ${n + sharedOutputConstraints.length - effectiveN} disposal rows filtered)`,
     );
     filteredRows.forEach(({ row, rhs, itemId }, i) => {
       console.log(
@@ -820,7 +872,11 @@ function solveSCCFlow(
       rawRows.push({ row, rhs, itemId });
     }
 
-    const filteredRows = filterImpossibleDisposalRows(rawRows);
+    const filteredRows = filterImpossibleDisposalRows(
+      rawRows,
+      m,
+      graph.rawMaterials,
+    );
     const matrix = filteredRows.map((e) => e.row);
     const constants = filteredRows.map((e) => e.rhs);
     const effectiveN = filteredRows.length;
@@ -1206,7 +1262,8 @@ function tryExtendSCCWithFeeders(
   for (let i = 0; i < n; i++) {
     const itemId = extItemsList[i];
     const row = new Array(freeM).fill(0);
-    let rhs = externalDemands.get(itemId) || 0;
+    const externalDemand = externalDemands.get(itemId) || 0;
+    let rhs = externalDemand;
 
     for (let j = 0; j < m; j++) {
       const recipe = extRecipesList[j];
@@ -1229,7 +1286,11 @@ function tryExtendSCCWithFeeders(
     extRawRows.push({ row, rhs, itemId });
   }
 
-  const extFilteredRows = filterImpossibleDisposalRows(extRawRows);
+  const extFilteredRows = filterImpossibleDisposalRows(
+    extRawRows,
+    freeM,
+    graph.rawMaterials,
+  );
   const matrix = extFilteredRows.map((e) => e.row);
   const constants = extFilteredRows.map((e) => e.rhs);
   const extEffectiveN = extFilteredRows.length;
