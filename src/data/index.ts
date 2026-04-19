@@ -7,6 +7,7 @@ const forcedRawMaterials = new Set<ItemId>([
   "item_originium_ore",
   "item_quartz_sand",
   "item_iron_ore",
+  "item_copper_ore",
   "item_liquid_water",
   "item_liquid_acid",
 ]);
