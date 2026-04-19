@@ -69,6 +69,7 @@ export function createEdge(
     id,
     source,
     target,
+    sourceHandle: item?.id,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
     label: `${flowRate.toFixed(2)} /min\n${transportStr}`,
     data: {

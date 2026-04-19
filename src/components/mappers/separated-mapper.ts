@@ -18,6 +18,7 @@ import {
 } from "../flow/flow-utils";
 import { createTargetSinkId, createPickupPointId } from "@/lib/node-keys";
 import { getRecipeOutputItemId, getRecipeInputItemId, getItemProducers, isRecipeTerminal } from "@/lib/plan-helpers";
+import { assertFlowIntegrity } from "./flow-assertions";
 import {
   calcRate,
   getOutputAmount,
@@ -828,8 +829,7 @@ export function mapPlanToFlowSeparated(
     }
   });
 
-  return {
-    nodes: [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes],
-    edges: edges,
-  };
+  const allNodes = [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes];
+  assertFlowIntegrity("separated-mapper", allNodes, edges);
+  return { nodes: allNodes, edges };
 }
