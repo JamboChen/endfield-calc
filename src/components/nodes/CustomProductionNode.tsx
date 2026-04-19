@@ -85,6 +85,8 @@ export default function CustomProductionNode({
         .filter((b) => b.item != null)
     : [];
 
+  const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item!.id)];
+
   // Adjust border/rate colors based on node type for better visual distinction
   let borderClasses = "border-2";
   let bgClasses = "";
@@ -290,13 +292,17 @@ export default function CustomProductionNode({
               </div>
             )}
           </CardContent>
-          <Handle
-            type="source"
-            position={Position.Right}
-            id="right"
-            isConnectable={false}
-            className="w-3! h-3!"
-          />
+          {outputHandleIds.map((outId, i) => (
+            <Handle
+              key={outId}
+              type="source"
+              position={Position.Right}
+              id={outId}
+              isConnectable={false}
+              className="w-3! h-3!"
+              style={{ top: `${((i + 1) / (outputHandleIds.length + 1)) * 100}%` }}
+            />
+          ))}
         </Card>
       </TooltipTrigger>
       {/* Tooltip content with detailed information */}
