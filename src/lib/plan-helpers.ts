@@ -106,6 +106,9 @@ export function getItemProducers(
   plan: ProductionDependencyGraph,
   itemId: string,
 ): { recipeId: string; rate: number }[] {
+  const itemNode = plan.nodes.get(itemId);
+  if (itemNode?.type === "item" && itemNode.isRawMaterial) return [];
+
   return plan.edges
     .filter((e) => {
       if (e.to !== itemId) return false;
