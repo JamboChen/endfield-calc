@@ -19,6 +19,7 @@ import {
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate } from "@/lib/utils";
 import { getRecipeOutputItemId, getRecipeInputItemId, getItemProducers, isRecipeTerminal, computeGreedyAllocation } from "@/lib/plan-helpers";
+import { assertFlowIntegrity } from "./flow-assertions";
 
 /**
  * Maps a ProductionDependencyGraph to React Flow nodes and edges in merged mode.
@@ -472,12 +473,11 @@ export function mapPlanToFlowMerged(
     }
   });
 
-  return {
-    nodes: [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes] as (
-      | FlowProductionNode
-      | FlowTargetNode
-      | FlowDisposalNode
-    )[],
-    edges: flowEdges,
-  };
+  const allNodes = [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes] as (
+    | FlowProductionNode
+    | FlowTargetNode
+    | FlowDisposalNode
+  )[];
+  assertFlowIntegrity("merged-mapper", allNodes, flowEdges);
+  return { nodes: allNodes, edges: flowEdges };
 }

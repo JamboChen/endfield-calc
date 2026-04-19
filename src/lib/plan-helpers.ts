@@ -82,18 +82,19 @@ export function isRecipeTerminal(
   });
   if (primaryIsConsumed) return false;
 
-  // No secondary output should be consumed by a non-disposal recipe
+  // No secondary output should be consumed by any recipe (including disposal).
+  // Disposal-consumed secondaries must keep the recipe node visible so the
+  // disposal edge has a source — otherwise the disposal sink ends up orphaned.
   const allOutputIds = getRecipeOutputItemIds(plan, recipeId);
-  const hasActiveSecondaryOutput = allOutputIds.some((outId) => {
+  const hasSecondaryConsumer = allOutputIds.some((outId) => {
     if (outId === primaryOutputId) return false;
     return plan.edges.some((e) => {
       if (e.from !== outId) return false;
-      const consumer = plan.nodes.get(e.to);
-      return consumer?.type === "recipe" && !consumer.isDisposal;
+      return plan.nodes.get(e.to)?.type === "recipe";
     });
   });
 
-  return !hasActiveSecondaryOutput;
+  return !hasSecondaryConsumer;
 }
 
 /**
