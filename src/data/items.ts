@@ -7,7 +7,7 @@ export const items: Item[] = [
   { id: ItemId.ITEM_IRON_ORE, tier: 1 },
   { id: ItemId.ITEM_COPPER_ORE, tier: 1 },
   { id: ItemId.ITEM_LIQUID_WATER, tier: 1, isLiquid: true },
-  { id: ItemId.ITEM_LIQUID_ACID, tier: 1 },
+  { id: ItemId.ITEM_LIQUID_ACID, tier: 1, isLiquid: true },
   { id: ItemId.ITEM_PLANT_MOSS_1, tier: 1 },
   { id: ItemId.ITEM_PLANT_MOSS_SEED_1, tier: 1 },
   { id: ItemId.ITEM_PLANT_MOSS_2, tier: 1 },
