@@ -62,7 +62,7 @@ export const getEffectiveFacilityCount = (
  * When ceilMode is true, shows integers. Otherwise shows 1 decimal place.
  */
 export const formatCount = (value: number, ceilMode = false): string =>
-  value.toFixed(ceilMode ? 0 : 1);
+  (ceilMode ? Math.ceil(value) : value).toFixed(ceilMode ? 0 : 1);
 
 /**
  * Formats a number for display with a fixed number of decimal places.
