@@ -1,5 +1,6 @@
 import { describe, test, expect } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
+import { calcRate } from "@/lib/utils";
 import { items } from "@/data/items";
 import { recipes } from "@/data/recipes";
 import { facilities } from "@/data/facilities";
@@ -1097,5 +1098,58 @@ describe("Real 1.2 data regression", () => {
     expect(
       plan.nodes.has(RecipeId.LIQUID_PURIFIER_XIRANITE_POLY_1),
     ).toBe(true);
+  });
+});
+
+describe("Issue #68 — Xiranite over-production", () => {
+  test("Xiranite powder production matches summed consumer demand", () => {
+    const targets = [
+      { itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 11.5 },
+      { itemId: ItemId.ITEM_BOTTLED_REC_HP_5, rate: 1 },
+      { itemId: ItemId.ITEM_EQUIP_SCRIPT_4_2, rate: 1 },
+      { itemId: ItemId.ITEM_COPPER_ENR_CMPT, rate: 2 },
+      { itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, rate: 3 },
+      { itemId: ItemId.ITEM_EQUIP_SCRIPT_4, rate: 1 },
+      { itemId: ItemId.ITEM_EQUIP_SCRIPT_4_1, rate: 1.5 },
+      { itemId: ItemId.ITEM_COPPER_CMPT, rate: 2.5 },
+      { itemId: ItemId.ITEM_COPPER_BOTTLE, rate: 1.25 },
+      { itemId: ItemId.ITEM_XIRANITE_POWDER, rate: 8 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE, rate: 1 },
+      { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, rate: 1 },
+    ];
+
+    const plan = calculateProductionPlan(
+      targets,
+      items,
+      recipes,
+      facilities,
+    );
+
+    const powder = plan.nodes.get(ItemId.ITEM_XIRANITE_POWDER);
+    expect(powder?.type).toBe("item");
+    if (powder?.type !== "item") return;
+
+    const targetMap = new Map(targets.map((t) => [t.itemId, t.rate]));
+    const targetRate = targetMap.get(ItemId.ITEM_XIRANITE_POWDER) ?? 0;
+
+    // consumer demand = sum over each recipe consuming xiranite powder of
+    //                   calcRate(input.amount, t) * facilityCount
+    let consumerDemand = 0;
+    for (const edge of plan.edges) {
+      if (edge.from !== ItemId.ITEM_XIRANITE_POWDER) continue;
+      const consumer = plan.nodes.get(edge.to);
+      if (consumer?.type !== "recipe") continue;
+      const input = consumer.recipe.inputs.find(
+        (i) => i.itemId === ItemId.ITEM_XIRANITE_POWDER,
+      );
+      if (!input) continue;
+      consumerDemand +=
+        calcRate(input.amount, consumer.recipe.craftingTime) *
+        consumer.facilityCount;
+    }
+
+    const totalDemand = targetRate + consumerDemand;
+
+    expect(powder.productionRate).toBeCloseTo(totalDemand, 3);
   });
 });

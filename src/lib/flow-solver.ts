@@ -78,6 +78,7 @@ export function calculateFlows(
         graph,
         itemDemands,
         recipeFacilityCounts,
+        targetRates,
         maps,
         recipeOverrides,
         resolvedSCCIds,
@@ -145,6 +146,7 @@ function solveSCCFlow(
   graph: BipartiteGraph,
   itemDemands: Map<ItemId, number>,
   recipeFacilityCounts: Map<RecipeId, number>,
+  targetRates: Map<ItemId, number>,
   maps: ProductionMaps,
   recipeOverrides?: Map<ItemId, RecipeId>,
   resolvedSCCIds?: Set<string>,
@@ -190,7 +192,11 @@ function solveSCCFlow(
     }
 
     if (graph.targets.has(itemId)) {
-      const targetDemand = itemDemands.get(itemId) || 0;
+      // Use raw target rate, NOT itemDemands — itemDemands has already
+      // accumulated input demand from external consumer recipes processed
+      // earlier in reverse-topo order (those are added separately above
+      // via `consumers`), so reading from itemDemands double-counts.
+      const targetDemand = targetRates.get(itemId) || 0;
       demand += targetDemand;
       console.log(
         `    Item ${itemId} is target with demand: ${targetDemand.toFixed(4)}`,
@@ -241,6 +247,7 @@ function solveSCCFlow(
       graph,
       itemDemands,
       recipeFacilityCounts,
+      targetRates,
       maps,
       recipeOverrides,
       resolvedSCCIds,
@@ -349,6 +356,7 @@ function solveSCCFlow(
         graph,
         itemDemands,
         recipeFacilityCounts,
+        targetRates,
         maps,
         recipeOverrides,
         resolvedSCCIds,
@@ -426,6 +434,7 @@ function solveSCCFlow(
         graph,
         itemDemands,
         recipeFacilityCounts,
+        targetRates,
         maps,
         recipeOverrides,
         resolvedSCCIds,
@@ -508,6 +517,7 @@ function tryExtendSCCWithFeeders(
   graph: BipartiteGraph,
   itemDemands: Map<ItemId, number>,
   recipeFacilityCounts: Map<RecipeId, number>,
+  targetRates: Map<ItemId, number>,
   maps: ProductionMaps,
   recipeOverrides?: Map<ItemId, RecipeId>,
   resolvedSCCIds?: Set<string>,
@@ -541,7 +551,7 @@ function tryExtendSCCWithFeeders(
 
     let overrideDemand = 0;
     if (graph.targets.has(itemId)) {
-      overrideDemand += itemDemands.get(itemId) || 0;
+      overrideDemand += targetRates.get(itemId) || 0;
     }
     const consumers = graph.itemConsumedBy.get(itemId);
     if (consumers) {
@@ -687,7 +697,7 @@ function tryExtendSCCWithFeeders(
       });
     }
     if (graph.targets.has(itemId)) {
-      demand += itemDemands.get(itemId) || 0;
+      demand += targetRates.get(itemId) || 0;
     }
     if (demand > 0) externalDemands.set(itemId, demand);
   }
