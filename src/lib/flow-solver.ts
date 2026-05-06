@@ -19,10 +19,16 @@ const isAllZeroRow = (row: number[]): boolean =>
 // Drops equations the SCC solver must not enforce:
 //   1. Unsatisfiable: forced-disposal item with zero LHS and non-zero RHS —
 //      surplus is handled later by injectDisposalRecipes.
-//   2. Slack: forced-disposal-surplus (rhs <= 0) or forced-raw-supply items,
+//   2. Slack: forced-disposal-surplus (rhs < 0) or forced-raw-supply items,
 //      dropped greedily while keeping at least numVars rows so the system
-//      stays determined. Raw-material rows go first (deficit always absorbed
-//      by external supply); disposal rows may still carry balance info.
+//      stays determined. Disposal-surplus rows go first: their RHS encodes
+//      a real surplus from pinned recipes (production > consumption), and
+//      keeping them as equality forces free recipes to over-consume the
+//      byproduct (e.g. POOL_LIQUID_XIRANITE_POLY over-running to absorb
+//      Sewage from the Hetonite chain). Raw-material rows go next (their
+//      deficit is always absorbed by external supply). Disposal rows with
+//      rhs ≈ 0 stay if possible — they may encode a useful balance
+//      constraint (e.g. LOWPOLY tying Pool/Purifier ratio).
 const filterImpossibleDisposalRows = (
   rows: SystemRow[],
   numVars: number,
@@ -34,11 +40,13 @@ const filterImpossibleDisposalRows = (
       !isAllZeroRow(row) ||
       Math.abs(rhs) < 1e-9,
   );
+  const isDisposalSurplus = (r: SystemRow) =>
+    forcedDisposalItems.has(r.itemId) && r.rhs < -1e-9;
   const isRawSlack = (r: SystemRow) => rawMaterials.has(r.itemId);
-  const isDisposalSlack = (r: SystemRow) =>
-    forcedDisposalItems.has(r.itemId) && r.rhs <= 1e-9;
+  const isDisposalBalanced = (r: SystemRow) =>
+    forcedDisposalItems.has(r.itemId) && Math.abs(r.rhs) < 1e-9;
   const remaining = base.slice();
-  for (const isSlack of [isRawSlack, isDisposalSlack]) {
+  for (const isSlack of [isDisposalSurplus, isRawSlack, isDisposalBalanced]) {
     for (let i = remaining.length - 1; i >= 0; i--) {
       if (remaining.length <= numVars) break;
       if (isSlack(remaining[i])) remaining.splice(i, 1);
