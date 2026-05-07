@@ -114,14 +114,6 @@ export function calculateFlows(
   };
 }
 
-// ============================================================================
-// LP-based SCC solver. Each SCC sub-problem is encoded as a linear program
-// over recipe facility counts, with constraints for mass balance (strict for
-// non-disposal items, ≥ for forced-disposal/raw items, slack-augmented for
-// disposal items with external producers). The objective is lexicographic:
-// raw-material consumption first, then total power.
-// ============================================================================
-
 /**
  * Compute Phase 1 external demands and Phase 2 external output demands.
  */
@@ -245,27 +237,13 @@ function buildLPInputForSCC(
     if (graph.rawMaterials.has(itemId)) continue;
     const externalDemand = externalDemands.get(itemId) || 0;
     if (forcedDisposalItems.has(itemId)) {
-      // Disposal items split into two cases based on whether deficit is
-      // recoverable via upstream production:
-      //
-      //   - WITH external producer (e.g. Sewage produced by Furnace outside
-      //     the SCC): use disposal-slack. Slack absorbs deficit and gets
-      //     propagated to itemDemands so the upstream producer scales up.
-      //
-      //   - WITHOUT external producer (e.g. Liquid Xircon Effluent only
-      //     produced by the SCC's own POOL recipe): strict equality. The
-      //     LP must enforce internal balance — no upstream can fill a gap.
-      //     Surplus (production > consumption + externalDemand) is still
-      //     allowed because we use `min` not `equal` on items that are not
-      //     in scc.items; for items that ARE in scc.items but have no
-      //     external producer, surplus would mean no consumer either, and
-      //     mass balance must hold strictly.
-      //
-      // Note: forced-disposal items in scc.items can produce surplus when
-      // the SCC also has the disposal recipe in scope — but disposal
-      // recipes consume the item with `equal: 0` net contribution. Strict
-      // equality therefore lets the disposal recipe absorb surplus
-      // naturally, with no need for slack.
+      // Choose constraint type based on whether deficit is recoverable
+      // upstream. WITH external producer (e.g. Sewage from Furnace outside
+      // SCC) → `disposal-slack`: slack absorbs deficit, propagated to
+      // itemDemands so upstream scales up. WITHOUT external producer →
+      // `min`: surplus goes to post-solve disposal sink; deficit is
+      // impossible (no upstream to fill it). Strict equality would force
+      // absorber recipes to over-run upstream surplus — the PR #73 bug.
       const externalProducer = hasExternalProducer(itemId, scc, graph);
       if (externalProducer) {
         itemConstraints.set(itemId, {
@@ -273,11 +251,6 @@ function buildLPInputForSCC(
           rhs: externalDemand,
         });
       } else {
-        // No external producer: use `min` (allow surplus, disallow deficit
-        // since no upstream can fill it). Strict equality would force
-        // absorber recipes to over-run when upstream produces more than
-        // consumed (the original PR #73 bug); `min` lets surplus go to the
-        // post-solve disposal sink.
         itemConstraints.set(itemId, { type: "min", rhs: externalDemand });
       }
     } else {
@@ -287,15 +260,11 @@ function buildLPInputForSCC(
 
   for (const [itemId, demand] of externalOutputDemands.entries()) {
     if (graph.rawMaterials.has(itemId)) continue;
-    // Skip if already constrained as an SCC item (shouldn't happen — the
-    // upstream filter excludes scc.items from external outputs — but be
-    // defensive).
     if (itemConstraints.has(itemId)) continue;
-    // External output items: must produce ≥ demand. Surplus is disposed
-    // post-solve for forced-disposal items, otherwise just sits as elevated
-    // production rate (visible to user). Both cases use a `min` constraint
-    // since under-production isn't allowed (the demand reflects user
-    // targets or downstream consumer rates).
+    // External output items use `min` — under-production isn't allowed
+    // (demand reflects user targets or downstream consumer rates), but
+    // surplus is fine (disposed post-solve for forced-disposal items;
+    // otherwise visible as elevated production rate).
     itemConstraints.set(itemId, { type: "min", rhs: demand });
   }
 
@@ -315,23 +284,15 @@ function buildLPInputForSCC(
 /**
  * Propagate raw-material consumption inside an SCC to `itemDemands`.
  *
- * The LP solver excludes raw materials from balance constraints (treated as
- * infinite supply). But when Tarjan places a raw item in `scc.items` —
- * because some SCC recipe produces it as a byproduct and another consumes
- * it (e.g. LIQUID_PURIFIER_XIRANITE_POLY produces water as byproduct,
- * POOL_LIQUID_LIQUID_XIRANITE consumes water as input) — Phase 5
- * (`scc.externalInputs.forEach`) skips it because items in `scc.items` are
- * by definition NOT in `externalInputs`. Without this helper, the raw
- * material's net consumption never reaches `itemDemands` and the item
- * vanishes from the plan visualization.
+ * The LP excludes raw materials from balance constraints (infinite supply).
+ * When Tarjan places a raw in `scc.items` via a byproduct cycle (e.g.
+ * water through `LIQUID_PURIFIER_XIRANITE_POLY`), Phase 5 misses it
+ * because `scc.externalInputs` excludes `scc.items` by definition.
  *
  * Mirrors master heuristic's Phase 4 deficit logic, restricted to raw
- * items: for each `scc.items` raw, compute `netProduction = Σ (output −
- * input) × facilityCount` across SCC recipes; the deficit
- * `externalDemand − netProduction` is propagated via
+ * items. `deficit = externalDemand − netProduction`, propagated via
  * `Math.max(existing, deficit)`. Surplus byproduct (negative deficit) is
- * silently ignored, never crediting external demand — the conservative
- * choice that matches master's semantics.
+ * ignored — conservative; never under-counts raw demand.
  */
 function propagateRawMaterialDeficit(
   scc: SCCInfo,

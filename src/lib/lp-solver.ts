@@ -1,27 +1,14 @@
 /**
  * LP-based SCC flow solver.
  *
- * Uses `javascript-lp-solver` to formulate each SCC sub-problem as a linear
- * program with:
- *   - Variables: facility count per recipe (continuous, ≥ 0).
- *   - Constraints per item, with the operator selected by the caller via
- *     `LPItemConstraint.type`:
- *       - `equal` — strict mass balance (`prod - cons = rhs`).
- *       - `min` — lower bound (`prod - cons ≥ rhs`); allows surplus.
- *       - `disposal-slack` — `prod - cons + slack ≥ rhs` with slack ≥ 0
- *         and a high cost; allows surplus and lets `slack` absorb deficit
- *         that the caller will propagate to upstream producers.
- *   - Raw materials (items in `LPInput.rawMaterials`) are skipped from
- *     constraints — the LP doesn't enforce balance, only counts their
- *     consumption in the `rawCost` objective (infinite-supply assumption).
- *   - Lexicographic two-pass objective: minimize raw-material consumption
- *     first, then minimize total power among solutions tying for raw-min.
+ * Each SCC sub-problem is formulated as an LP with facility-count variables
+ * (≥ 0) and per-item constraints whose operator is selected by the caller
+ * via `LPItemConstraint.type` (see type docs below). Raw materials are
+ * excluded from balance constraints — they appear only in the `rawCost`
+ * objective (infinite-supply assumption). Solver: `javascript-lp-solver`.
  *
- * Per-recipe raw cost is computed from direct raw-material inputs only
- * (transitive raw-cost-through-intermediates is intentionally not modelled
- * here; per-SCC LPs minimize their local contribution and the global plan's
- * raw cost emerges from each SCC + linear-DAG layer choosing minimal
- * recipes).
+ * Lexicographic two-pass objective: minimize raw-material consumption
+ * first, then minimize total power among solutions tying for raw-min.
  */
 
 import solver from "javascript-lp-solver";
@@ -124,10 +111,7 @@ export type LPFailure = {
 
 export type LPResult = LPSolution | LPFailure;
 
-/**
- * Compute the per-facility-per-minute raw-material consumption rate for
- * a recipe. Counts only inputs in the supplied raw-materials set.
- */
+/** Per-facility-per-minute raw consumption rate; sums inputs in `rawMaterials`. */
 const rawCostPerFacility = (
   recipe: Recipe,
   rawMaterials: Set<ItemId>,
@@ -142,10 +126,8 @@ const rawCostPerFacility = (
 };
 
 /**
- * Build the variable-coefficient block for one recipe in the LP model.
- * Coefficients map each constraint name to the recipe's net rate for the
- * corresponding item. The objective coefficients (`raw`, `power`) are also
- * attached.
+ * Build the LP variable's coefficient block for one recipe: per-item net
+ * rate for each constraint, plus `rawCost` and `power` objective coefs.
  */
 const buildVariableCoefficients = (
   recipe: Recipe,
@@ -155,7 +137,6 @@ const buildVariableCoefficients = (
 ): Record<string, number> => {
   const coefs: Record<string, number> = {};
 
-  // Net rate per facility per minute for each item this recipe touches.
   for (const out of recipe.outputs) {
     const constraintName = itemConstraintNames.get(out.itemId);
     if (!constraintName) continue;
@@ -169,7 +150,6 @@ const buildVariableCoefficients = (
       calcRate(inp.amount, recipe.craftingTime);
   }
 
-  // Objective coefficients.
   coefs.rawCost = rawCostPerFacility(recipe, rawMaterials);
   const facility = facilityMap.get(recipe.facilityId);
   coefs.power = (facility?.powerConsumption ?? 0) + POWER_COST_FLOOR;
@@ -268,20 +248,13 @@ const buildModel = (
     }
   }
 
-  // For lex pass 2: bound raw cost at the pass-1 optimum (with a tiny
-  // floating-point tolerance) so power minimization respects it.
-  //
-  // Slack variables are EXCLUDED from this constraint. Slack vars carry
-  // SLACK_PENALTY (1e6) in their `rawCost` field, but `fixedRawCostUpperBound`
-  // (from pass 1's `extractSolution`) sums only `rawCostPerFacility × x[r]`
-  // over recipes — slack penalty isn't included in that total. If we let
-  // slack contribute to `lex_raw_cap`, the LHS would evaluate to
-  // `recipe_raw + SLACK_PENALTY × slack` while the RHS is `recipe_raw +
-  // tolerance`, making pass 2 infeasible whenever pass 1 had slack > 0.
-  // Pass 2 would then fall back to pass 1's result, skipping power
-  // minimization and violating the documented lex raw → power invariant.
-  // Slack is independently minimized via SLACK_PENALTY in pass 2's power
-  // objective, so it doesn't need an additional cap.
+  // For lex pass 2: bound raw cost at pass-1 optimum (with tiny tolerance)
+  // so power minimization respects it. Slack vars are EXCLUDED — they
+  // carry SLACK_PENALTY in `rawCost` but `fixedRawCostUpperBound` is
+  // recipe-only (slack penalty isn't summed into pass-1's reported total).
+  // Including slack would force the cap to ~tolerance, blocking feasibility
+  // whenever pass 1 had slack > 0. Slack is independently minimized via
+  // SLACK_PENALTY in pass-2's power objective.
   if (objective === "power" && fixedRawCostUpperBound !== undefined) {
     constraints.lex_raw_cap = {
       max: fixedRawCostUpperBound + LEX_RAW_TOLERANCE,
@@ -432,12 +405,10 @@ export const solveLP = (input: LPInput): LPResult => {
         `[LP_SOLVER] pass-2 ${powerResult.bounded === false ? "unbounded" : "infeasible"} after lex-cap; falling back to pass-1`,
       );
     }
-    // Numerical edge case: pass-1 was feasible but the lex-cap re-solve
-    // isn't. Fall back to pass-1 plan; it still satisfies all original
-    // constraints. The `bounded === false` arm is defensive: pass 2 is
-    // currently bounded by structure (POWER_COST_FLOOR floor + lex_raw_cap
-    // ceiling), but this protects against future changes that might
-    // break the bounding invariant.
+    // Numerical edge case: pass-1 was feasible but lex-cap re-solve isn't.
+    // Fall back to pass-1 (still satisfies all original constraints). The
+    // `bounded === false` branch is defensive — pass 2 is bounded by
+    // structure (POWER_COST_FLOOR + lex_raw_cap).
     return {
       feasible: true,
       facilityCounts: rawSolution.facilityCounts,

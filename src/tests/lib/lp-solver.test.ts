@@ -18,7 +18,6 @@ const facMap = new Map<FacilityId, Facility>([
   [FAC_HEAVY.id, FAC_HEAVY],
 ]);
 
-// Convenience: build a recipe with synthetic IDs.
 const makeRecipe = (
   id: string,
   inputs: { itemId: ItemId; amount: number }[],
@@ -86,22 +85,12 @@ describe("solveLP", () => {
   });
 
   test("cycle with disposal slack — LP minimizes power", () => {
-    // Pool: 1 raw_a + 1 raw_b → 1 product + 1 waste (per cycle, 2s)
-    // Purifier: 4 waste → 1 product (per cycle, 2s)
-    // Demand: product ≥ 5/min
-    // Pool & Purifier same power. LP should pick Pool=4/30, Purifier=1/30
-    // because that minimizes raw_a + raw_b consumption (Pool consumes 30/fac
-    // raw_a, Purifier consumes none). Wait — LP prefers MORE Purifier to
-    // minimize raw_a/raw_b consumption. Let me re-think:
-    //
-    //   Pool=P, Purifier=Q.
-    //   Product = 30P + 30Q ≥ 5  → P + Q ≥ 1/6
-    //   Waste = 30P - 120Q ≥ 0 → P ≥ 4Q
-    //
-    // raw_a consumed = 30P, raw_b consumed = 30P.
-    // To minimize raw consumption: minimize P. With P ≥ 4Q and P + Q ≥ 1/6:
-    //   substitute Q = P/4 (lower bound) → P + P/4 = 5P/4 ≥ 1/6 → P ≥ 4/30.
-    //   So min P = 4/30, Q = 1/30. Total raw consumed = 8/30/2 each...
+    // Pool: 1 raw_a + 1 raw_b → 1 product + 1 waste (2s/cycle)
+    // Purifier: 4 waste → 1 product (2s/cycle)
+    // Demand: product ≥ 5/min, both same power.
+    // Constraints: 30P + 30Q ≥ 5 (product) and 30P - 120Q ≥ 0 (waste).
+    // Raw-min: minimize 30P (raw_a + raw_b each = 30P). With Q = P/4
+    // (lower bound on waste), 5P/4 ≥ 1/6 → P = 4/30, Q = 1/30.
     const pool = makeRecipe(
       "pool",
       [
@@ -425,21 +414,13 @@ describe("solveLP", () => {
   });
 
   test("lex-cap excludes slack — power minimization works under forced slack", () => {
-    // Regression for a bug where `lex_raw_cap` included slack variables'
-    // SLACK_PENALTY rawCost coefficient. Pass-1 reports `totalRaw` summing
-    // only `rawCostPerFacility × x[r]` over recipes (slack penalty is
-    // excluded from the reported total). Pass-2's lex_raw_cap RHS uses
-    // that recipe-only total, but the LHS used to include slack vars
-    // (1e6 each), making pass-2 mathematically infeasible whenever pass-1
-    // had slack > 0. Pass-2 then fell back to pass-1, skipping power
-    // minimization and violating the documented lex raw → power invariant.
-    //
-    // Setup: two recipes producing the same output with identical raw
-    // cost but asymmetric facility power, plus a disposal-slack constraint
-    // on a third item that no recipe produces — forcing slack ≥ 1.
-    // Recipes are ordered [expensive, cheap] to expose the bug: without
-    // the fix, the pass-1 fallback picks the first feasible recipe in
-    // declaration order regardless of power.
+    // Regression for the lex_raw_cap slack-inclusion bug: before the fix,
+    // pass-2 was infeasible whenever slack > 0, falling back to pass-1
+    // and skipping power minimization. Among raw-degenerate recipes the
+    // solver then picked by declaration order. Setup: 2 power-asymmetric
+    // recipes with identical raw cost, plus a disposal-slack constraint
+    // forcing slack ≥ 1. Recipes ordered [expensive, cheap] to expose
+    // the bug.
     const rExpensive = makeRecipe(
       "rExpensive",
       [{ itemId: "raw" as ItemId, amount: 1 }],
