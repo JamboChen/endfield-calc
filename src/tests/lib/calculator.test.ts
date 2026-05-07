@@ -1099,6 +1099,57 @@ describe("Real 1.2 data regression", () => {
       plan.nodes.has(RecipeId.LIQUID_PURIFIER_XIRANITE_POLY_1),
     ).toBe(true);
   });
+
+  test("xiranite_jade_gourd disposes surplus sewage instead of over-running absorber", () => {
+    // Bug regression: previously, 1 Xiranite Jade Gourd at 1/min consumed
+    // 19 Xiranite/min because the Hetonite chain produces 9 Sewage/min as
+    // a byproduct, and the SCC solver routed it all into the Xircon Effluent
+    // pool — over-running the pool from the optimal 4 cycles to 9 cycles
+    // and pulling in 5 extra Liquid Xiranite (= 5 extra Xiranite).
+    //
+    // After the disposal-surplus row prioritization in
+    // `filterImpossibleDisposalRows`, the SCC solver lets the surplus
+    // Sewage be disposed (Sewage is in `forcedDisposalItems`) and balances
+    // Xircon Effluent supply between Pool and Liquid Purifier via the
+    // LOWPOLY constraint, settling at 14 Xiranite/min — the same cost as
+    // producing Heavy Xiranite as a standalone target.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_HULU, rate: 1 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    const xiranite = plan.nodes.get(ItemId.ITEM_XIRANITE_POWDER);
+    expect(xiranite?.type).toBe("item");
+    if (xiranite?.type === "item") {
+      expect(xiranite.productionRate).toBeCloseTo(14, 1);
+    }
+
+    // Sewage surplus should be disposed (5/min surplus / 30 per facility)
+    const sewageDisposal = plan.nodes.get(
+      RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
+    );
+    expect(sewageDisposal).toBeDefined();
+    if (sewageDisposal?.type === "recipe") {
+      expect(sewageDisposal.isDisposal).toBe(true);
+      expect(sewageDisposal.facilityCount).toBeCloseTo(5 / 30, 3);
+    }
+
+    // Liquid Purifier absorbs the LOWPOLY produced by Pool to recover
+    // 1 extra Xircon Effluent, allowing Pool to drop to 4 cycles/min.
+    const purifier = plan.nodes.get(RecipeId.LIQUID_PURIFIER_XIRANITE_POLY_1);
+    expect(purifier?.type).toBe("recipe");
+    if (purifier?.type === "recipe") {
+      expect(purifier.facilityCount).toBeCloseTo(1 / 30, 3);
+    }
+
+    const pool = plan.nodes.get(RecipeId.POOL_LIQUID_XIRANITE_POLY_1);
+    expect(pool?.type).toBe("recipe");
+    if (pool?.type === "recipe") {
+      expect(pool.facilityCount).toBeCloseTo(4 / 30, 3);
+    }
+  });
 });
 
 describe("Issue #68 — Xiranite over-production", () => {
