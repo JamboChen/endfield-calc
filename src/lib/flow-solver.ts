@@ -1,4 +1,4 @@
-import type { ItemId, RecipeId } from "@/types";
+import type { ItemId, RecipeId, Recipe } from "@/types";
 import { forcedRawMaterials, forcedDisposalItems } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { selectRecipe } from "./graph-builder";
@@ -312,6 +312,70 @@ function buildLPInputForSCC(
   };
 }
 
+/**
+ * Propagate raw-material consumption inside an SCC to `itemDemands`.
+ *
+ * The LP solver excludes raw materials from balance constraints (treated as
+ * infinite supply). But when Tarjan places a raw item in `scc.items` —
+ * because some SCC recipe produces it as a byproduct and another consumes
+ * it (e.g. LIQUID_PURIFIER_XIRANITE_POLY produces water as byproduct,
+ * POOL_LIQUID_LIQUID_XIRANITE consumes water as input) — Phase 5
+ * (`scc.externalInputs.forEach`) skips it because items in `scc.items` are
+ * by definition NOT in `externalInputs`. Without this helper, the raw
+ * material's net consumption never reaches `itemDemands` and the item
+ * vanishes from the plan visualization.
+ *
+ * Mirrors master heuristic's Phase 4 deficit logic, restricted to raw
+ * items: for each `scc.items` raw, compute `netProduction = Σ (output −
+ * input) × facilityCount` across SCC recipes; the deficit
+ * `externalDemand − netProduction` is propagated via
+ * `Math.max(existing, deficit)`. Surplus byproduct (negative deficit) is
+ * silently ignored, never crediting external demand — the conservative
+ * choice that matches master's semantics.
+ */
+function propagateRawMaterialDeficit(
+  scc: SCCInfo,
+  recipesList: Recipe[],
+  recipeFacilityCounts: Map<RecipeId, number>,
+  externalDemands: Map<ItemId, number>,
+  itemDemands: Map<ItemId, number>,
+  graph: BipartiteGraph,
+  contextLabel: string,
+): void {
+  for (const itemId of scc.items) {
+    if (!graph.rawMaterials.has(itemId)) continue;
+
+    let netProduction = 0;
+    for (const recipe of recipesList) {
+      const fc = recipeFacilityCounts.get(recipe.id) ?? 0;
+      if (fc === 0) continue;
+      const outAmt =
+        recipe.outputs.find((o) => o.itemId === itemId)?.amount ?? 0;
+      const inAmt =
+        recipe.inputs.find((i) => i.itemId === itemId)?.amount ?? 0;
+      netProduction +=
+        (calcRate(outAmt, recipe.craftingTime) -
+          calcRate(inAmt, recipe.craftingTime)) *
+        fc;
+    }
+
+    const externalDemand = externalDemands.get(itemId) ?? 0;
+    const deficit = externalDemand - netProduction;
+
+    if (deficit > 1e-9) {
+      itemDemands.set(
+        itemId,
+        Math.max(itemDemands.get(itemId) ?? 0, deficit),
+      );
+      if (import.meta.env?.DEV) {
+        console.log(
+          `  [${contextLabel}] Raw ${itemId} deficit ${deficit.toFixed(4)}/min — propagated`,
+        );
+      }
+    }
+  }
+}
+
 function solveSCCFlow(
   scc: SCCInfo,
   graph: BipartiteGraph,
@@ -421,6 +485,21 @@ function solveSCCFlow(
       `  [SCC_SOLVE] Item ${itemId} disposal deficit ${deficit.toFixed(4)}/min — propagated`,
     );
   }
+
+  // --- Phase 4.5: Propagate raw-material consumption inside SCC ---
+  // Raw materials in scc.items (placed there by Tarjan via byproduct
+  // cycles, e.g. water through LIQUID_PURIFIER_XIRANITE_POLY) are
+  // excluded from LP constraints and missed by Phase 5. Mirrors master's
+  // Phase 4 semantics for raw items only.
+  propagateRawMaterialDeficit(
+    scc,
+    recipesList,
+    recipeFacilityCounts,
+    externalDemands,
+    itemDemands,
+    graph,
+    "SCC_SOLVE",
+  );
 
   // --- Phase 5: Propagate external-input consumption ---
   scc.externalInputs.forEach((inputItemId) => {
@@ -724,6 +803,19 @@ function tryExtendSCCWithFeeders(
       return false;
     }
   }
+
+  // Phase 4.5: raw-material consumption inside the extended SCC.
+  // Same rationale as solveSCCFlow's call site — raw items in scc.items
+  // are skipped by Phase 5's externalInputs iteration.
+  propagateRawMaterialDeficit(
+    scc,
+    extRecipesList,
+    recipeFacilityCounts,
+    externalDemands,
+    itemDemands,
+    graph,
+    "SCC_EXTEND",
+  );
 
   // Phase 5: external input propagation.
   scc.externalInputs.forEach((inputItemId) => {

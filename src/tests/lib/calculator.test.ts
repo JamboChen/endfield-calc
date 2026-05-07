@@ -1150,6 +1150,49 @@ describe("Real 1.2 data regression", () => {
       expect(pool.facilityCount).toBeCloseTo(4 / 30, 3);
     }
   });
+
+  test("SC Wuling Battery requires Clean Water as raw material", () => {
+    // Bug regression: Tarjan places liquid_water in scc.items because the
+    // Xircon refinement loop has both a water consumer
+    // (POOL_LIQUID_LIQUID_XIRANITE) and a water byproduct producer
+    // (LIQUID_PURIFIER_XIRANITE_POLY). The LP excludes raw items from
+    // balance constraints, and Phase 5 only iterates scc.externalInputs —
+    // which by definition excludes scc.items. Without a Phase-4.5 raw
+    // deficit propagation, water vanishes from the plan output.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 1 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    const water = plan.nodes.get(ItemId.ITEM_LIQUID_WATER);
+    expect(water?.type).toBe("item");
+    if (water?.type === "item") {
+      expect(water.isRawMaterial).toBe(true);
+      expect(water.productionRate).toBeGreaterThan(0);
+    }
+  });
+
+  test("LIQUID_COPPER_ENR plan requires Liquid Acid as raw material", () => {
+    // Same pattern via LIQUID_PURIFIER_COPPER_ENR_1: produces liquid_acid
+    // as byproduct, while POOL_LIQUID_COPPER consumes it. Both are part
+    // of the copper-enrichment SCC, so liquid_acid (a forced raw) lands
+    // in scc.items and must be propagated by Phase 4.5.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_LIQUID_COPPER_ENR, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    const acid = plan.nodes.get(ItemId.ITEM_LIQUID_ACID);
+    expect(acid?.type).toBe("item");
+    if (acid?.type === "item") {
+      expect(acid.isRawMaterial).toBe(true);
+      expect(acid.productionRate).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("Jade Gourd disposal sink at non-integer rates", () => {
