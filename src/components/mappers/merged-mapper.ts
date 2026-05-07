@@ -411,6 +411,12 @@ export function mapPlanToFlowMerged(
         node.recipe.craftingTime,
       ) * node.facilityCount;
 
+    // Defensive: skip phantom sinks below display threshold. The calculator
+    // already filters via SURPLUS_EPSILON; this guards against any future
+    // path that injects a near-zero disposal recipe and prevents an isolated
+    // node from violating flow integrity.
+    if (disposalRate <= 0.001) return;
+
     disposalSinkNodes.push(
       createDisposalSinkNode(
         disposalSinkId,

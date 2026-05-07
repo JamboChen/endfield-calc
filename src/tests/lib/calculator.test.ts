@@ -1152,6 +1152,45 @@ describe("Real 1.2 data regression", () => {
   });
 });
 
+describe("Jade Gourd disposal sink at non-integer rates", () => {
+  // Floating-point regression: facility counts like 1/6 lack exact binary
+  // representations, so recombining `production - consumption - target` for
+  // forced-disposal items can leave residuals on the order of 1e-13. Without
+  // SURPLUS_EPSILON in `injectDisposalRecipes`, the residual is treated as a
+  // real surplus and a disposal recipe is injected with facilityCount ≈ 0,
+  // rendering as a disconnected "0/min" Xircon Effluent (Disposal) node.
+  // Rates 3 and 6/min produce exact-binary facility counts (0.5 and 1.0)
+  // and thus avoided the bug naturally; rates 1, 2, 4, 5/min triggered it.
+  test.each([1, 2, 3, 4, 5, 6])(
+    "rate %d/min has no phantom xircon-effluent disposal sink",
+    (rate) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_HULU, rate }],
+        items,
+        recipes,
+        facilities,
+      );
+
+      const xirconDisposal = Array.from(plan.nodes.values()).find(
+        (n) =>
+          n.type === "recipe" &&
+          n.isDisposal &&
+          n.recipe.inputs.some(
+            (i) => i.itemId === ItemId.ITEM_LIQUID_XIRANITE_POLY,
+          ),
+      );
+
+      // If a disposal recipe was injected for Xircon Effluent, its facility
+      // count must reflect a real surplus (≥ SURPLUS_EPSILON), not a
+      // floating-point residual. The test passes silently when no disposal
+      // recipe is injected (the correct behavior at all six rates).
+      if (xirconDisposal && xirconDisposal.type === "recipe") {
+        expect(xirconDisposal.facilityCount).toBeGreaterThan(1e-6);
+      }
+    },
+  );
+});
+
 describe("Issue #68 — Xiranite over-production", () => {
   test("Xiranite powder production matches summed consumer demand", () => {
     const targets = [

@@ -23,6 +23,15 @@ import type {
   InvalidSCCInfo,
 } from "./calculator-types";
 
+// Tolerance for floating-point residuals in surplus mass balance.
+// LP facility counts can be fractions like 1/6 that don't have exact binary
+// representations; recombining `production - consumption - target` can leave
+// residuals on the order of 1e-13. Without this tolerance, a disposal recipe
+// would be injected with facilityCount ≈ 0, rendering as a disconnected
+// "0/min" sink in the UI (e.g. Xircon Effluent on Jade Gourd at 1/min).
+// Matches `TARGET_VALIDATION_TOLERANCE` used by the LP solver.
+const SURPLUS_EPSILON = 1e-6;
+
 function injectDisposalRecipes(
   graph: BipartiteGraph,
   flowData: FlowData,
@@ -65,7 +74,7 @@ function injectDisposalRecipes(
     const targetDemand = targets.find((t) => t.itemId === itemId)?.rate || 0;
 
     const surplus = totalProduction - totalConsumption - targetDemand;
-    if (surplus <= 0) continue;
+    if (surplus <= SURPLUS_EPSILON) continue;
 
     const disposalRecipe = Array.from(maps.recipeMap.values()).find(
       (r) =>
