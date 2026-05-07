@@ -1,7 +1,5 @@
 import type { ItemId, RecipeId, FacilityId, Item, Recipe, Facility } from "@/types";
 
-export type SystemRow = { row: number[]; rhs: number; itemId: ItemId };
-
 export type ProductionMaps = {
   itemMap: Map<ItemId, Item>;
   recipeMap: Map<RecipeId, Recipe>;
