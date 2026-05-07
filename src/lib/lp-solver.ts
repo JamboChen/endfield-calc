@@ -270,11 +270,24 @@ const buildModel = (
 
   // For lex pass 2: bound raw cost at the pass-1 optimum (with a tiny
   // floating-point tolerance) so power minimization respects it.
+  //
+  // Slack variables are EXCLUDED from this constraint. Slack vars carry
+  // SLACK_PENALTY (1e6) in their `rawCost` field, but `fixedRawCostUpperBound`
+  // (from pass 1's `extractSolution`) sums only `rawCostPerFacility × x[r]`
+  // over recipes — slack penalty isn't included in that total. If we let
+  // slack contribute to `lex_raw_cap`, the LHS would evaluate to
+  // `recipe_raw + SLACK_PENALTY × slack` while the RHS is `recipe_raw +
+  // tolerance`, making pass 2 infeasible whenever pass 1 had slack > 0.
+  // Pass 2 would then fall back to pass 1's result, skipping power
+  // minimization and violating the documented lex raw → power invariant.
+  // Slack is independently minimized via SLACK_PENALTY in pass 2's power
+  // objective, so it doesn't need an additional cap.
   if (objective === "power" && fixedRawCostUpperBound !== undefined) {
     constraints.lex_raw_cap = {
       max: fixedRawCostUpperBound + LEX_RAW_TOLERANCE,
     };
-    for (const coefs of Object.values(variables)) {
+    for (const [varName, coefs] of Object.entries(variables)) {
+      if (disposalSlackVarMap.has(varName)) continue;
       coefs.lex_raw_cap = coefs.rawCost;
     }
   }
@@ -413,15 +426,18 @@ export const solveLP = (input: LPInput): LPResult => {
     };
   }
 
-  if (powerResult.feasible !== true) {
+  if (powerResult.feasible !== true || powerResult.bounded === false) {
     if (import.meta.env?.DEV) {
       console.warn(
-        "[LP_SOLVER] pass-2 infeasible after lex-cap; falling back to pass-1",
+        `[LP_SOLVER] pass-2 ${powerResult.bounded === false ? "unbounded" : "infeasible"} after lex-cap; falling back to pass-1`,
       );
     }
     // Numerical edge case: pass-1 was feasible but the lex-cap re-solve
     // isn't. Fall back to pass-1 plan; it still satisfies all original
-    // constraints.
+    // constraints. The `bounded === false` arm is defensive: pass 2 is
+    // currently bounded by structure (POWER_COST_FLOOR floor + lex_raw_cap
+    // ceiling), but this protects against future changes that might
+    // break the bounding invariant.
     return {
       feasible: true,
       facilityCounts: rawSolution.facilityCounts,

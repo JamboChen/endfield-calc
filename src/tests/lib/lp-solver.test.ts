@@ -423,4 +423,62 @@ describe("solveLP", () => {
     expect(result.facilityCounts.get("r_high_power" as RecipeId)).toBeCloseTo(1, 5);
     expect(result.facilityCounts.get("r_low_power" as RecipeId)).toBeCloseTo(0, 5);
   });
+
+  test("lex-cap excludes slack — power minimization works under forced slack", () => {
+    // Regression for a bug where `lex_raw_cap` included slack variables'
+    // SLACK_PENALTY rawCost coefficient. Pass-1 reports `totalRaw` summing
+    // only `rawCostPerFacility × x[r]` over recipes (slack penalty is
+    // excluded from the reported total). Pass-2's lex_raw_cap RHS uses
+    // that recipe-only total, but the LHS used to include slack vars
+    // (1e6 each), making pass-2 mathematically infeasible whenever pass-1
+    // had slack > 0. Pass-2 then fell back to pass-1, skipping power
+    // minimization and violating the documented lex raw → power invariant.
+    //
+    // Setup: two recipes producing the same output with identical raw
+    // cost but asymmetric facility power, plus a disposal-slack constraint
+    // on a third item that no recipe produces — forcing slack ≥ 1.
+    // Recipes are ordered [expensive, cheap] to expose the bug: without
+    // the fix, the pass-1 fallback picks the first feasible recipe in
+    // declaration order regardless of power.
+    const rExpensive = makeRecipe(
+      "rExpensive",
+      [{ itemId: "raw" as ItemId, amount: 1 }],
+      [{ itemId: "out" as ItemId, amount: 1 }],
+      2,
+      FAC_HEAVY.id, // power 50
+    );
+    const rCheap = makeRecipe(
+      "rCheap",
+      [{ itemId: "raw" as ItemId, amount: 1 }],
+      [{ itemId: "out" as ItemId, amount: 1 }],
+      2,
+      FAC.id, // power 10
+    );
+
+    const input: LPInput = {
+      recipes: [rExpensive, rCheap],
+      itemConstraints: new Map([
+        ["out" as ItemId, { type: "min", rhs: 30 }],
+        ["raw" as ItemId, { type: "min", rhs: 0 }],
+        [
+          "forced_disposal" as ItemId,
+          { type: "disposal-slack", rhs: 1 },
+        ],
+      ]),
+      rawMaterials: new Set(["raw" as ItemId]),
+      facilityMap: facMap,
+    };
+    const result = solveLP(input);
+    if (!result.feasible) throw new Error("expected feasible");
+
+    // Power-minimal pick: rCheap (FAC, 10W). Without the fix, the fallback
+    // would pick rExpensive (FAC_HEAVY, 50W) due to declaration order.
+    expect(result.facilityCounts.get("rCheap" as RecipeId)).toBeCloseTo(1, 5);
+    expect(result.facilityCounts.get("rExpensive" as RecipeId) ?? 0).toBeCloseTo(0, 5);
+    expect(result.totalPower).toBeCloseTo(10, 1);
+    // Slack should propagate as a disposal deficit equal to the rhs.
+    expect(
+      result.disposalDeficits.get("forced_disposal" as ItemId),
+    ).toBeCloseTo(1, 5);
+  });
 });
