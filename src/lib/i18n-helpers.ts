@@ -1,9 +1,13 @@
 import i18next from "@/i18n";
-import type { Item, Facility } from "@/types";
+import type { Item, Facility, Recipe } from "@/types";
 import { getTransportCapacity } from "./utils";
 
 export const getItemName = (item: Item) => {
   return i18next.t(item.id, { ns: "item", defaultValue: item.id });
+};
+
+export const getRecipeName = (recipe: Recipe) => {
+  return i18next.t(recipe.id, { ns: "recipe", defaultValue: recipe.id });
 };
 
 export const getTransportLabel = (item?: Item) => {
