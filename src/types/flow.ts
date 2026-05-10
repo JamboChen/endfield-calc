@@ -2,7 +2,16 @@ import type { Node } from "@xyflow/react";
 import type { Item, Facility, Recipe } from "@/types";
 import type { ProductionNode } from "@/types";
 
-export type EdgeDirection = "forward" | "backward" | "self";
+/**
+ * Edge direction in the production flow graph.
+ * - `forward`: standard producer → consumer flow (default).
+ * - `backward`: same-SCC reverse edge; consumer feeds producer of the cycle.
+ * - `self`: producer and consumer are the same node (self-loop).
+ * - `internal`: producer and consumer are co-located in the same physical
+ *   building (multi-formula bin). Internal flows never traverse pipes/belts;
+ *   they're rendered distinctly so the user understands transport is free.
+ */
+export type EdgeDirection = "forward" | "backward" | "self" | "internal";
 
 /**
  * Visualization mode for the production dependency tree.

@@ -29,7 +29,19 @@
     "noData": "データなし",
     "noRecipe": "レシピなし",
     "rawMaterial": "原材料",
-    "unmarkRawMaterial": "マークを解除"
+    "unmarkRawMaterial": "マークを解除",
+    "bin": {
+      "slots": "{{slots}} スロット",
+      "buildingsExplain": "{{n}} 棟が {{m}} 種のレシピを共有",
+      "grouped": "グループ化",
+      "powerSharedExplain": "電力はグループの主行のみで集計されます。"
+    },
+    "totals": {
+      "buildings": "建物総数",
+      "power": "総電力",
+      "viaGrouping": "グループ化による節約",
+      "savingsExplain": "複数レシピを同一の化学反応炉にパックすることで節約した建物数。"
+    }
   },
   "tree": {
     "alsoTarget": "ターゲットでもあります",
@@ -56,6 +68,10 @@
     "exportImage": "画像をエクスポート",
     "exportFormat": "形式",
     "exportScale": "スケール",
-    "exportConfirm": "エクスポート"
+    "exportConfirm": "エクスポート",
+    "crucibleGroup": "化学反応炉グループ",
+    "runningWith": "同時実行中",
+    "groupedBuilding": "共有施設",
+    "formulas": "種のレシピ"
   }
 }

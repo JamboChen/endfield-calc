@@ -277,3 +277,43 @@ describe("Separated mapper — Battery + SCC cycle", () => {
     expectAllFacilitiesConnected(result);
   });
 });
+
+// ── Phase 3 multi-formula bin annotation ─────────────────────────────────────
+
+describe("Separated mapper — Phase 3 bin annotations", () => {
+  test("xircon recipes carry binId on their facility nodes", async () => {
+    // Phase 3 packs LX/XE/X pool recipes into Expanded Crucible bins.
+    // Uses real data layer facilities (with capabilities) so MIX_POOL_*
+    // facilities are recognised as multi-formula. The separated mapper
+    // should propagate bin metadata (binId, sister recipe ids) onto each
+    // facility node so the UI can render the group badge and tooltip.
+    const { items: realItems } = await import("@/data/items");
+    const { recipes: realRecipes } = await import("@/data/recipes");
+    const { facilities: realFacilities } = await import("@/data/facilities");
+
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
+      realItems,
+      realRecipes,
+      realFacilities,
+    );
+    const result = mapPlanToFlowSeparated(plan, realItems, realFacilities);
+
+    const productionNodes = result.nodes.filter(
+      (n) => n.type === "productionNode",
+    );
+
+    // At least one facility node should be tagged with a binId pointing
+    // at a grouped bin.
+    const groupedNodes = productionNodes.filter((n) => {
+      const data = n.data as {
+        productionNode?: { binId?: string; binSisterRecipeIds?: string[] };
+      };
+      return (
+        (data.productionNode?.binSisterRecipeIds?.length ?? 0) > 0 &&
+        data.productionNode?.binId !== undefined
+      );
+    });
+    expect(groupedNodes.length).toBeGreaterThan(0);
+  });
+});

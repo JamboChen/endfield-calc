@@ -1234,6 +1234,156 @@ describe("Jade Gourd disposal sink at non-integer rates", () => {
   );
 });
 
+describe("Phase 3 multi-formula bin packing", () => {
+  test("Xircon plan packs LX/XE/X recipes into Expanded Crucible bins", () => {
+    // The Xircon production chain involves three pool recipes:
+    //   POOL_LIQUID_LIQUID_XIRANITE (LX)
+    //   POOL_LIQUID_XIRANITE_POLY (XE)
+    //   POOL_XIRANITE_POLY (X)
+    // Without Phase 3, each runs in its own Reactor Crucible building
+    // (50W per slot, 1 building per slot). Phase 3 packs the three into
+    // Expanded Crucible buildings (100W per building, up to 3 formulas
+    // each) sharing slot capacity, saving both buildings AND power.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    // Phase 3 must populate crucibleBins.
+    expect(plan.crucibleBins).toBeDefined();
+    expect(plan.crucibleBins.length).toBeGreaterThan(0);
+
+    // The three pool recipes should all be allocated.
+    const allocations = plan.recipeBinAllocations;
+    const lxAlloc =
+      allocations.get(RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1) ??
+      allocations.get(RecipeId.POOL_LIQUID_LIQUID_XIRANITE_2);
+    const xeAlloc =
+      allocations.get(RecipeId.POOL_LIQUID_XIRANITE_POLY_1) ??
+      allocations.get(RecipeId.POOL_LIQUID_XIRANITE_POLY_2);
+    const xAlloc =
+      allocations.get(RecipeId.POOL_XIRANITE_POLY_1) ??
+      allocations.get(RecipeId.POOL_XIRANITE_POLY_2);
+    expect(lxAlloc).toBeDefined();
+    expect(xeAlloc).toBeDefined();
+    expect(xAlloc).toBeDefined();
+
+    // At least one bin should be a grouped (multi-formula) bin packing
+    // pool recipes together.
+    const groupedBins = plan.crucibleBins.filter(
+      (b) =>
+        b.isGrouped &&
+        b.recipeIds.some(
+          (rid) =>
+            rid === RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1 ||
+            rid === RecipeId.POOL_LIQUID_LIQUID_XIRANITE_2 ||
+            rid === RecipeId.POOL_LIQUID_XIRANITE_POLY_1 ||
+            rid === RecipeId.POOL_LIQUID_XIRANITE_POLY_2 ||
+            rid === RecipeId.POOL_XIRANITE_POLY_1 ||
+            rid === RecipeId.POOL_XIRANITE_POLY_2,
+        ),
+    );
+    expect(groupedBins.length).toBeGreaterThan(0);
+
+    // Total pool-recipe building count should be ≤ Σ ceil(slot count) of
+    // ungrouped baseline. Specifically, the three pool recipes' slots
+    // should pack into fewer buildings than they would individually.
+    let totalPoolBuildings = 0;
+    for (const bin of plan.crucibleBins) {
+      const fac = facilities.find((f) => f.id === bin.facilityId);
+      if (!fac?.capabilities) continue;
+      // Only count Crucible bins (multi-formula-capable facilities).
+      totalPoolBuildings += bin.buildingCount;
+    }
+
+    let ungroupedSlots = 0;
+    for (const [recipeId, alloc] of allocations.entries()) {
+      const recipe = recipes.find((r) => r.id === recipeId);
+      if (!recipe) continue;
+      const fac = facilities.find((f) => f.id === recipe.facilityId);
+      if (!fac?.capabilities) continue;
+      ungroupedSlots += Math.ceil(alloc.totalSlots);
+    }
+
+    expect(totalPoolBuildings).toBeLessThanOrEqual(ungroupedSlots);
+  });
+
+  test("recipes outside multi-formula facilities get singleton bins", () => {
+    // A simple non-pool plan should produce singleton bins (one bin per
+    // recipe, isGrouped = false). Iron-powder grinding is on a Grinder
+    // facility without `capabilities`.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    expect(plan.crucibleBins).toBeDefined();
+    // All bins should be singletons (no grouping possible without
+    // multi-formula capability).
+    for (const bin of plan.crucibleBins) {
+      expect(bin.isGrouped).toBe(false);
+      expect(bin.recipeIds.length).toBe(1);
+    }
+  });
+
+  test("recipe-bin allocations cover every active recipe", () => {
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+    // Every recipe with non-zero facilityCount in the plan should have a
+    // RecipeBinAllocation. This guards against silent drops where a
+    // recipe's slot demand is unallocated.
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "recipe") continue;
+      if (node.isDisposal) continue; // disposal recipes are special-cased
+      if (node.facilityCount <= 1e-9) continue;
+      expect(plan.recipeBinAllocations.has(node.recipeId)).toBe(true);
+    }
+  });
+
+  test("plan-level pool building count <= ungrouped baseline", () => {
+    // Sanity: Phase 3 must never increase building count vs. the naive
+    // one-recipe-per-building baseline (where each recipe slot needs its
+    // own building). Stronger than the basic equivalence — it asserts
+    // the optimiser is doing actual work.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    // Sum slot demand across all pool recipes.
+    let totalPoolSlots = 0;
+    for (const [recipeId, alloc] of plan.recipeBinAllocations.entries()) {
+      const recipe = recipes.find((r) => r.id === recipeId);
+      if (!recipe) continue;
+      const fac = facilities.find((f) => f.id === recipe.facilityId);
+      if (!fac?.capabilities) continue;
+      totalPoolSlots += alloc.totalSlots;
+    }
+
+    // Sum bin building counts for multi-formula facilities.
+    let totalPoolBuildings = 0;
+    for (const bin of plan.crucibleBins) {
+      const fac = facilities.find((f) => f.id === bin.facilityId);
+      if (!fac?.capabilities) continue;
+      totalPoolBuildings += bin.buildingCount;
+    }
+
+    // Ungrouped baseline = ceil(slot count) per recipe; grouped should
+    // never exceed it. (Equality holds when no grouping was beneficial.)
+    expect(totalPoolBuildings).toBeLessThanOrEqual(Math.ceil(totalPoolSlots));
+  });
+});
+
 describe("Issue #68 — Xiranite over-production", () => {
   test("Xiranite powder production matches summed consumer demand", () => {
     const targets = [

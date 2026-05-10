@@ -41,11 +41,26 @@ export const facilities: Facility[] = [
     id: FacilityId.ITEM_PORT_MIX_POOL_1,
     powerConsumption: 50,
     tier: 3,
+    capabilities: {
+      innerSlots: 5,
+      liquidInPorts: 2,
+      liquidOutPorts: 2,
+      // beltInPorts undefined: belt input variety uncapped (slot count
+      // limited only by inner-slot budget); throughput is validated
+      // separately during post-pass.
+      beltOutPorts: 1,
+    },
   },
   {
     id: FacilityId.ITEM_PORT_MIX_POOL_2,
     powerConsumption: 100,
     tier: 3,
+    capabilities: {
+      innerSlots: 8,
+      liquidInPorts: 2,
+      liquidOutPorts: 2,
+      beltOutPorts: 1,
+    },
   },
   {
     id: FacilityId.ITEM_PORT_PLANTER_1,

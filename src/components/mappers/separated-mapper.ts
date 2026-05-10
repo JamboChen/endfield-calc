@@ -75,6 +75,20 @@ export function mapPlanToFlowSeparated(
     }
   });
 
+  // Pre-build co-located recipe pairs from grouped bins. Two recipes are
+  // "co-located" when the ILP packed them into the same multi-formula
+  // building. Edges between co-located producers and consumers traverse
+  // no transport (internal flow) and are tagged with `direction: "internal"`.
+  const coLocatedPairs = new Set<string>();
+  for (const bin of plan.crucibleBins) {
+    if (!bin.isGrouped) continue;
+    for (const a of bin.recipeIds) {
+      for (const b of bin.recipeIds) {
+        if (a !== b) coLocatedPairs.add(`${a}:${b}`);
+      }
+    }
+  }
+
   /** Extract recipe ID from a facility instance ID ("recipeId-f0" → "recipeId") */
   function getRecipeIdFromFacilityId(facilityId: string): string | null {
     const match = facilityId.match(/^(.+)-f\d+$/);
@@ -89,6 +103,20 @@ export function mapPlanToFlowSeparated(
     const consumerRecipeId = getRecipeIdFromFacilityId(consumerFacilityId);
     if (!consumerRecipeId) return false;
     return cyclePairs.has(`${producerRecipeId}:${consumerRecipeId}`);
+  }
+
+  /**
+   * Check if producer and consumer recipes are co-located in the same
+   * multi-formula building. When yes, the edge between them is internal
+   * (no transport cost / no pipe & belt rendering).
+   */
+  function isCoLocated(
+    producerRecipeId: string,
+    consumerFacilityId: string,
+  ): boolean {
+    const consumerRecipeId = getRecipeIdFromFacilityId(consumerFacilityId);
+    if (!consumerRecipeId) return false;
+    return coLocatedPairs.has(`${producerRecipeId}:${consumerRecipeId}`);
   }
 
   // Create pools for all recipe nodes
@@ -125,6 +153,8 @@ export function mapPlanToFlowSeparated(
             isRawMaterial: false,
             isTarget: outputItemNode.isTarget,
             dependencies: [],
+            binId: node.binId,
+            binSisterRecipeIds: node.binSisterRecipeIds,
           },
           nodeId,
         );
@@ -247,13 +277,21 @@ export function mapPlanToFlowSeparated(
       if (remainingDemand <= 0.001) break;
 
       const isBackward = isInSameCycle(producer.recipeId, consumerFacilityId);
+      const isInternal =
+        !isBackward && isCoLocated(producer.recipeId, consumerFacilityId);
       const toAllocate = Math.min(remainingDemand, producer.rate);
+
+      const direction: "backward" | "internal" | undefined = isBackward
+        ? "backward"
+        : isInternal
+          ? "internal"
+          : undefined;
 
       const actuallyAllocated = allocateFromPool(
         producer.recipeId,
         toAllocate,
         consumerFacilityId,
-        isBackward ? "backward" : undefined,
+        direction,
         itemId,
       );
 
@@ -273,7 +311,7 @@ export function mapPlanToFlowSeparated(
     recipeId: string,
     demandRate: number,
     consumerFacilityId: string,
-    edgeDirection?: "backward",
+    edgeDirection?: "backward" | "internal",
     demandedItemId?: string,
   ): number {
     if (!poolManager.hasPool(recipeId)) {
@@ -341,6 +379,17 @@ export function mapPlanToFlowSeparated(
         // guaranteed even if the facility hasn't been visited yet in this
         // mapper pass. This prevents the double-allocation bug where backward
         // Sewage allocation consumed pool_xiranite's Xircon capacity.
+        allocations = poolManager.allocateByproduct(
+          recipeId,
+          poolDemandRate,
+          demandedItemId,
+          true,
+        );
+      } else if (edgeDirection === "internal") {
+        // Internal-flow byproduct: producer and consumer are co-located in
+        // the same multi-formula bin. Treat like backward (forceRunning) —
+        // the bin guarantees both recipes execute simultaneously, so the
+        // byproduct is available regardless of activation order.
         allocations = poolManager.allocateByproduct(
           recipeId,
           poolDemandRate,
@@ -416,6 +465,8 @@ export function mapPlanToFlowSeparated(
                 isRawMaterial: false,
                 isTarget: primaryOutputNode.isTarget,
                 dependencies: [],
+                binId: recipeNode.binId,
+                binSisterRecipeIds: recipeNode.binSisterRecipeIds,
               },
               items,
               facilities,
@@ -496,6 +547,8 @@ export function mapPlanToFlowSeparated(
             isRawMaterial: false,
             isTarget: false,
             dependencies: [],
+            binId: node.binId,
+            binSisterRecipeIds: node.binSisterRecipeIds,
           },
           items,
           facilities,
@@ -628,6 +681,8 @@ export function mapPlanToFlowSeparated(
               isRawMaterial: false,
               isTarget: true,
               dependencies: [],
+              binId: producerRecipe.binId,
+              binSisterRecipeIds: producerRecipe.binSisterRecipeIds,
             },
             items,
             facilities,

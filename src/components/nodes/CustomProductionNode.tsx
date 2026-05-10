@@ -1,19 +1,20 @@
 import { Handle, type NodeProps, type Node, Position } from "@xyflow/react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Factory, Zap, Star, ArrowDownToLine } from "lucide-react";
+import { Factory, Zap, Star, ArrowDownToLine, Layers } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
-import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-helpers";
+import { getItemName, getFacilityName, getRecipeName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type {
   FlowNodeData,
   FlowNodeDataSeparated,
   FlowNodeDataSeparatedWithTarget,
   FlowNodeDataWithTarget,
+  RecipeId,
 } from "@/types";
 import { getTransportCountWithFacilities, getPickupPointCount, formatCount, calcRate, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
 
@@ -68,6 +69,14 @@ export default function CustomProductionNode({
   const isSeparated = isSeparatedMode(data);
   const isTarget = hasTargetInfo(data);
   const targetRate = isTarget ? data.directTargetRate : undefined;
+
+  // Bin grouping info: when this recipe is co-located with sisters in a
+  // multi-formula building, show a group badge plus sister names in the
+  // tooltip. Sister recipe names are looked up from data.facilities or
+  // surfaced via `getRecipeName`. We resolve sister recipes by ID via the
+  // global recipe data in `data.items`'s sibling recipe list when available.
+  const sisterRecipeIds = node.binSisterRecipeIds ?? [];
+  const isGroupedBuilding = sisterRecipeIds.length > 0;
 
   // Compute byproduct outputs (secondary outputs of multi-output recipes)
   const byproducts = node.recipe && node.recipe.outputs.length > 1
@@ -156,6 +165,21 @@ export default function CustomProductionNode({
               )}
             </div>
           )}
+          {isGroupedBuilding && (
+            <div className="mt-2 pt-2 border-t">
+              <div className="font-semibold text-purple-700 dark:text-purple-400">
+                {t("tree.crucibleGroup", { defaultValue: "Crucible Group" })}
+              </div>
+              <div className="text-muted-foreground mt-0.5">
+                {t("tree.runningWith", { defaultValue: "Running alongside" })}:
+              </div>
+              <ul className="ml-3 text-muted-foreground list-disc">
+                {sisterRecipeIds.map((rid: RecipeId) => (
+                  <li key={rid}>{getRecipeName(rid)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </>
       ) : null}
     </div>
@@ -211,6 +235,25 @@ export default function CustomProductionNode({
                   <TooltipContent side="top">
                     <p className="text-xs">
                       {t("tree.alsoTarget")}: {formatNumber(targetRate!)} /min
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {/* Group badge: building hosts >=2 formulas */}
+              {isGroupedBuilding && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="absolute -top-1 -left-1 bg-purple-500 dark:bg-purple-600 text-white rounded-sm w-5 h-5 flex items-center justify-center shadow-sm">
+                      <Layers className="h-3 w-3" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <p className="text-xs">
+                      {t("tree.groupedBuilding", {
+                        defaultValue: "Shared building",
+                      })}{" "}
+                      ({sisterRecipeIds.length + 1}{" "}
+                      {t("tree.formulas", { defaultValue: "formulas" })})
                     </p>
                   </TooltipContent>
                 </Tooltip>

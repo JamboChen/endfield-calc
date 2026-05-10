@@ -65,13 +65,18 @@ export function createEdge(
     transportStr = `${throughputStr} ${transportLabel}`;
   }
 
+  // Internal flows (co-located in same multi-formula building) skip the
+  // transport label entirely — there's no pipe/belt to count.
+  const labelTransport =
+    direction === "internal" ? "internal" : transportStr;
+
   return {
     id,
     source,
     target,
     sourceHandle: item?.id,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
-    label: `${flowRate.toFixed(2)} /min\n${transportStr}`,
+    label: `${flowRate.toFixed(2)} /min\n${labelTransport}`,
     data: {
       flowRate,
       direction,

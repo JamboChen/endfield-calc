@@ -1,4 +1,4 @@
-import type { Item, Recipe, Facility, ItemId, RecipeId } from "@/types";
+import type { Item, Recipe, Facility, ItemId, RecipeId, FacilityId } from "@/types";
 
 /**
  * Represents a single step in the production chain.
@@ -18,6 +18,20 @@ export type ProductionNode = {
   // Cycle support fields
   isCyclePlaceholder?: boolean;
   cycleItemId?: ItemId;
+
+  /**
+   * The bin in which this production node runs (Phase 3). Always set for
+   * recipe nodes; absent for raw-material and pure-item nodes. Mappers
+   * use this to annotate group membership and resolve the physical
+   * facility (which may differ from `recipe.facilityId` if Phase 3
+   * swapped to a twin variant).
+   */
+  binId?: string;
+  /**
+   * IDs of sister recipes co-located in the same bin (excluding self).
+   * Empty when the bin runs a single recipe.
+   */
+  binSisterRecipeIds?: RecipeId[];
 };
 
 /**
@@ -44,9 +58,23 @@ export type ProductionGraphNode =
       type: "recipe";
       recipeId: RecipeId;
       recipe: Recipe;
+      /**
+       * Physical facility hosting this recipe. May differ from
+       * `recipe.facilityId` when Phase 3 packed a recipe into a twin
+       * variant on a different facility (e.g. `_1` demand placed in a
+       * `_2` Expanded bin). Reflects the actually-built building.
+       */
       facility: Facility;
       facilityCount: number;
       isDisposal?: boolean;
+      /**
+       * Bin id this recipe is hosted in (Phase 3). Set for all recipes
+       * after Phase 3 runs; mappers use it to annotate group
+       * membership and to look up the bin's facility / sister recipes.
+       */
+      binId?: string;
+      /** IDs of sister recipes co-located in the same bin. */
+      binSisterRecipeIds?: RecipeId[];
     };
 
 /**
@@ -68,4 +96,76 @@ export type ProductionDependencyGraph = {
   targets: Set<ItemId>;
   detectedCycles: DetectedCycle[];
   invalidCycles: InvalidCycleInfo[];
+  /**
+   * Result of Phase 3 multi-formula bin packing. Empty when the plan
+   * contains no recipes from facilities with `capabilities` defined.
+   *
+   * Each bin represents one or more buildings of a multi-formula facility
+   * hosting a fixed set of recipes. `buildingCount` is the integer number
+   * of physical buildings of this bin's shape.
+   */
+  crucibleBins: CrucibleBin[];
+  /**
+   * Per-recipe distribution across bins. For a recipe `r` with slot demand
+   * `N_r`, the entry's `perBin` array sums to `N_r` and each row indicates
+   * how many slots of `r` are allocated to bin `binId`. Recipes from
+   * facilities without `capabilities` produce trivial allocations
+   * (`perBin = [{ binId: <singleton-bin>, slots: N_r }]`).
+   */
+  recipeBinAllocations: Map<RecipeId, RecipeBinAllocation>;
+};
+
+/**
+ * A multi-formula bin produced by Phase 3 packing. Represents one or more
+ * buildings of a particular facility, all configured with the same set of
+ * recipes (formulas). Each building provides 1 slot of each constituent
+ * recipe per cycle.
+ *
+ * Singleton bins (one recipe per building) are emitted for every recipe
+ * even when the facility lacks `capabilities` — they unify the data shape
+ * downstream consumers (mappers, table) work against.
+ */
+export type CrucibleBin = {
+  /** Stable bin identifier, e.g. "bin-mix_pool_2-pool_xirpoly_2-pool_xe_2-pool_lx_2-0". */
+  id: string;
+  facilityId: FacilityId;
+  /** The recipes hosted by every building of this bin shape. */
+  recipeIds: RecipeId[];
+  /** Integer number of buildings configured with this recipe set. */
+  buildingCount: number;
+  /**
+   * Net external inputs at the bin's slot allocation: items consumed
+   * inside the bin in excess of internal production. Rate is items/min
+   * across all buildings in this bin.
+   */
+  externalInputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }>;
+  /**
+   * Net external outputs at the bin's slot allocation: items produced
+   * inside the bin in excess of internal consumption. Rate is items/min
+   * across all buildings in this bin.
+   */
+  externalOutputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }>;
+  /** Items whose net flow is zero (fully internal); occupies an inner slot. */
+  internalItems: ItemId[];
+  /** Distinct item count actually used by this bin (≤ facility.capabilities.innerSlots). */
+  innerSlotsUsed: number;
+  /** True when this bin shape groups ≥ 2 distinct recipes per building. */
+  isGrouped: boolean;
+};
+
+/**
+ * Distribution of a single recipe's slot count across one or more bins.
+ *
+ * Invariant: `perBin.reduce((s, e) => s + e.slots, 0) ≈ totalSlots`.
+ */
+export type RecipeBinAllocation = {
+  recipeId: RecipeId;
+  /** Original slot demand from Phase 2 LP (may be fractional). */
+  totalSlots: number;
+  /**
+   * Per-bin allocation. The number of buildings of `binId` allocated to
+   * this recipe equals `slots`, since each building provides 1 slot of
+   * each constituent recipe.
+   */
+  perBin: Array<{ binId: string; slots: number }>;
 };

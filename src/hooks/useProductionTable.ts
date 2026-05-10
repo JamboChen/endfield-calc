@@ -179,6 +179,9 @@ export function useProductionTable(
     calculateLevels(mergedNodes);
     const sortedNodes = sortNodes(mergedNodes, plan);
 
+    // Per-bin lookup for bin-aware power amortisation.
+    const binById = new Map(plan.crucibleBins.map((b) => [b.id, b]));
+
     const itemRows: ProductionLineData[] = sortedNodes.map((node) => {
       const itemNode = plan.nodes.get(node.itemId) as Extract<
         ProductionGraphNode,
@@ -202,6 +205,30 @@ export function useProductionTable(
             | undefined)
         : undefined;
 
+      // Bin metadata: when the recipe lives in a multi-formula bin, surface
+      // the bin's building count (not raw slots) and mark the alphabetically
+      // first recipe of the bin as "primary" — that row displays the bin's
+      // full power total; other rows show "grouped" and zero power.
+      let binId: string | undefined;
+      let binSisterRecipeIds: RecipeId[] | undefined;
+      let binBuildingCount: number | undefined;
+      let isBinPrimary = true; // default for non-grouped: own row owns power
+      if (recipeNode?.binId) {
+        const bin = binById.get(recipeNode.binId);
+        if (bin) {
+          binId = bin.id;
+          binSisterRecipeIds = bin.recipeIds.filter(
+            (rid) => rid !== node.recipeId,
+          );
+          if (bin.isGrouped) {
+            binBuildingCount = bin.buildingCount;
+            // Alphabetically first recipe id in the bin owns power total.
+            const primaryRecipeId = [...bin.recipeIds].sort()[0];
+            isBinPrimary = node.recipeId === primaryRecipeId;
+          }
+        }
+      }
+
       return {
         item: itemNode.item,
         outputRate: node.totalProductionRate,
@@ -214,6 +241,10 @@ export function useProductionTable(
         isManualRawMaterial: manualRawMaterials.has(node.itemId),
         isInvalidCycle: invalidCycleItemIds.has(node.itemId),
         directDependencyItemIds: node.dependencies,
+        binId,
+        binSisterRecipeIds,
+        binBuildingCount,
+        isBinPrimary,
       };
     });
 

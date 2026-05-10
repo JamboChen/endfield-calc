@@ -9,11 +9,14 @@ import type {
   InvalidCycleInfo,
   ProductionDependencyGraph,
   ProductionGraphNode,
+  CrucibleBin,
+  RecipeBinAllocation,
 } from "@/types";
 import { forcedDisposalItems } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { buildBipartiteGraph, detectSCCs, buildCondensedDAGAndSort } from "./graph-builder";
 import { calculateFlows } from "./flow-solver";
+import { packCrucibleBins } from "./multi-formula-packing";
 import type {
   ProductionMaps,
   BipartiteGraph,
@@ -120,6 +123,8 @@ function buildProductionGraph(
   maps: ProductionMaps,
   invalidSCCs: InvalidSCCInfo[] = [],
   recipeOverrides?: Map<ItemId, RecipeId>,
+  crucibleBins: CrucibleBin[] = [],
+  recipeBinAllocations: Map<RecipeId, RecipeBinAllocation> = new Map(),
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
@@ -154,14 +159,42 @@ function buildProductionGraph(
     });
   });
 
+  // Build bin lookup keyed by allocation entry's binId.
+  const binById = new Map<string, CrucibleBin>();
+  for (const bin of crucibleBins) binById.set(bin.id, bin);
+
   graph.recipeNodes.forEach((recipeData, recipeId) => {
+    // Resolve the recipe's physical facility via its primary bin (if any).
+    // When Phase 3 swapped a `_1` demand into a `_2` bin (Expanded twin),
+    // the recipe object still references its nominal facility — the bin
+    // is the source of truth for the actually-built facility.
+    const allocation = recipeBinAllocations.get(recipeId);
+    let physicalFacility = recipeData.facility;
+    let binId: string | undefined;
+    let sisterRecipeIds: RecipeId[] = [];
+    if (allocation && allocation.perBin.length > 0) {
+      // Use the first bin entry as the primary association. Recipes split
+      // across multiple bin types share the same facility type because the
+      // ILP packing only mixes facilities at the equivalence-class level
+      // (Phase 3 picks one facility per equivalence class).
+      const primary = allocation.perBin[0];
+      const bin = binById.get(primary.binId);
+      if (bin) {
+        binId = bin.id;
+        const facLookup = maps.facilityMap.get(bin.facilityId);
+        if (facLookup) physicalFacility = facLookup;
+        sisterRecipeIds = bin.recipeIds.filter((rid) => rid !== recipeId);
+      }
+    }
     nodes.set(recipeId, {
       type: "recipe",
       recipeId,
       recipe: recipeData.recipe,
-      facility: recipeData.facility,
+      facility: physicalFacility,
       facilityCount: flowData.recipeFacilityCounts.get(recipeId) || 0,
       isDisposal: recipeData.recipe.outputs.length === 0,
+      binId,
+      binSisterRecipeIds: sisterRecipeIds,
     });
   });
 
@@ -227,6 +260,8 @@ function buildProductionGraph(
     targets: graph.targets,
     detectedCycles,
     invalidCycles,
+    crucibleBins,
+    recipeBinAllocations,
   };
 }
 
@@ -341,6 +376,13 @@ export function calculateProductionPlan(
         `[SUCCESS] Valid production plan found in ${iteration} iteration(s)`,
       );
       injectDisposalRecipes(graph, flowData, maps, targets);
+      const packing = packCrucibleBins({
+        recipeSlotDemands: flowData.recipeFacilityCounts,
+        recipeMap: maps.recipeMap,
+        itemMap: maps.itemMap,
+        facilityMap: maps.facilityMap,
+        recipeOverrides,
+      });
       return buildProductionGraph(
         graph,
         flowData,
@@ -348,6 +390,8 @@ export function calculateProductionPlan(
         maps,
         [],
         recipeOverrides,
+        packing.bins,
+        packing.allocations,
       );
     }
 
@@ -367,6 +411,13 @@ export function calculateProductionPlan(
           `Returning best-effort result with ${invalidSCCs.length} invalid cycle(s).`,
       );
       injectDisposalRecipes(graph, flowData, maps, targets);
+      const packing = packCrucibleBins({
+        recipeSlotDemands: flowData.recipeFacilityCounts,
+        recipeMap: maps.recipeMap,
+        itemMap: maps.itemMap,
+        facilityMap: maps.facilityMap,
+        recipeOverrides,
+      });
       return buildProductionGraph(
         graph,
         flowData,
@@ -374,6 +425,8 @@ export function calculateProductionPlan(
         maps,
         invalidSCCs,
         recipeOverrides,
+        packing.bins,
+        packing.allocations,
       );
     }
 

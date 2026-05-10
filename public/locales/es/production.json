@@ -29,7 +29,19 @@
     "noData": "Sin datos",
     "noRecipe": "Sin receta",
     "rawMaterial": "Materia Prima",
-    "unmarkRawMaterial": "Desmarcar"
+    "unmarkRawMaterial": "Desmarcar",
+    "bin": {
+      "slots": "{{slots}} ranuras",
+      "buildingsExplain": "{{n}} edificios comparten {{m}} fórmulas",
+      "grouped": "agrupado",
+      "powerSharedExplain": "La energía se cuenta sólo en la fila principal del grupo."
+    },
+    "totals": {
+      "buildings": "Edificios totales",
+      "power": "Energía total",
+      "viaGrouping": "ahorrados al agrupar",
+      "savingsExplain": "Edificios ahorrados al empacar recetas en crisoles multi-fórmula compartidos."
+    }
   },
   "tree": {
     "alsoTarget": "También es un objetivo",
@@ -56,6 +68,10 @@
     "exportImage": "Exportar imagen",
     "exportFormat": "Formato",
     "exportScale": "Escala",
-    "exportConfirm": "Exportar"
+    "exportConfirm": "Exportar",
+    "crucibleGroup": "Grupo de Crisoles",
+    "runningWith": "Funcionando junto a",
+    "groupedBuilding": "Edificio compartido",
+    "formulas": "fórmulas"
   }
 }

@@ -38,6 +38,27 @@ export type ProductionLineData = {
   isInvalidCycle?: boolean;
   isDisposal?: boolean;
   directDependencyItemIds?: Set<ItemId>;
+  /**
+   * Bin id when this recipe is hosted in a multi-formula bin (Phase 3).
+   * Always set for non-raw-material recipes after Phase 3 runs.
+   */
+  binId?: string;
+  /** Sister recipes in the same bin (excluding self). */
+  binSisterRecipeIds?: RecipeId[];
+  /**
+   * Number of physical buildings hosting this recipe's bin. Used for the
+   * Count column when the recipe is in a grouped bin (≥ 2 formulas), so
+   * the displayed value matches the actual building count rather than
+   * raw slot count.
+   */
+  binBuildingCount?: number;
+  /**
+   * True when this row owns the bin's power total. By convention the
+   * row whose recipe id is alphabetically first in the bin owns the
+   * total; other rows in the same bin display "(grouped)". Sums of
+   * displayed power across rows match the plan-level power exactly.
+   */
+  isBinPrimary?: boolean;
 };
 
 type ProductionTableProps = {
@@ -252,6 +273,46 @@ const ProductionTable = memo(function ProductionTable({
     [items],
   );
 
+  // Plan-level totals: total buildings (bin-aware: grouped recipes only
+  // count their bin's buildingCount once via the primary row), and total
+  // power (already amortized correctly per the per-row power logic below).
+  const totals = useMemo(() => {
+    let totalBuildings = 0;
+    let totalPower = 0;
+    const seenBins = new Set<string>();
+    let groupedSavings = 0; // buildings saved via grouping
+    for (const line of data) {
+      if (line.isRawMaterial || line.isManualRawMaterial) continue;
+      const isGrouped =
+        (line.binSisterRecipeIds?.length ?? 0) > 0 &&
+        line.binBuildingCount !== undefined;
+
+      if (isGrouped) {
+        // Grouped bin: count its buildings once across all sibling rows.
+        if (line.binId && !seenBins.has(line.binId)) {
+          seenBins.add(line.binId);
+          totalBuildings += Math.ceil(line.binBuildingCount!);
+          if (line.facility?.powerConsumption) {
+            totalPower += line.facility.powerConsumption * line.binBuildingCount!;
+          }
+          // Naive Reactor-singleton baseline for savings reporting:
+          // Σ ceil(slot count) across constituents - bin building count.
+          // Computed across all rows of this bin via the seenBins gate.
+          groupedSavings += -Math.ceil(line.binBuildingCount!);
+        }
+        // Add this row's slot share to the savings baseline.
+        groupedSavings += Math.ceil(line.facilityCount);
+      } else {
+        const buildings = Math.ceil(line.facilityCount);
+        totalBuildings += buildings;
+        if (line.facility?.powerConsumption) {
+          totalPower += line.facility.powerConsumption * line.facilityCount;
+        }
+      }
+    }
+    return { totalBuildings, totalPower, groupedSavings };
+  }, [data]);
+
   const highlightedItemIds = useMemo(() => {
     if (!hoveredItemId) return new Set<ItemId>();
 
@@ -315,9 +376,23 @@ const ProductionTable = memo(function ProductionTable({
               const selectedRecipe = line.availableRecipes.find(
                 (r) => r.id === line.selectedRecipeId,
               );
-              const totalPower = line.facility?.powerConsumption
-                ? line.facility.powerConsumption * line.facilityCount
-                : 0;
+              const isGrouped =
+                line.binSisterRecipeIds !== undefined &&
+                line.binSisterRecipeIds.length > 0;
+              // Power: for grouped bins, the bin's full power
+              // (powerConsumption × buildingCount) is attributed to the bin's
+              // primary row; other rows in the bin show 0 (visually "—").
+              // For non-grouped (singleton) recipes, power is the standard
+              // facility.powerConsumption × facilityCount.
+              const totalPower = (() => {
+                if (!line.facility?.powerConsumption) return 0;
+                if (isGrouped && line.binBuildingCount !== undefined) {
+                  return line.isBinPrimary
+                    ? line.facility.powerConsumption * line.binBuildingCount
+                    : 0;
+                }
+                return line.facility.powerConsumption * line.facilityCount;
+              })();
 
               const isManualRaw = line.isManualRawMaterial;
 
@@ -459,6 +534,42 @@ const ProductionTable = memo(function ProductionTable({
                       </Tooltip>
                     ) : isManualRaw ? (
                       <span className="text-muted-foreground">-</span>
+                    ) : isGrouped && line.binBuildingCount !== undefined ? (
+                      // Grouped bin: surface the bin's building count
+                      // alongside the recipe's slot count. Buildings are the
+                      // physical reality (1 Expanded ≠ 1 slot).
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex flex-col items-end cursor-help">
+                            <span className="text-purple-700 dark:text-purple-400 font-semibold">
+                              {formatCount(line.binBuildingCount, ceilMode)}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {t("table.bin.slots", {
+                                defaultValue: "{{slots}} slots",
+                                slots: formatCount(line.facilityCount, ceilMode),
+                              })}
+                            </span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="max-w-[280px]">
+                          <div className="text-xs space-y-1">
+                            <div className="font-semibold">
+                              {t("tree.crucibleGroup", {
+                                defaultValue: "Crucible Group",
+                              })}
+                            </div>
+                            <div className="text-muted-foreground">
+                              {t("table.bin.buildingsExplain", {
+                                defaultValue:
+                                  "{{n}} buildings shared across {{m}} formulas",
+                                n: formatCount(line.binBuildingCount, ceilMode),
+                                m: (line.binSisterRecipeIds?.length ?? 0) + 1,
+                              })}
+                            </div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
                     ) : (
                       formatCount(line.facilityCount, ceilMode)
                     )}
@@ -540,10 +651,30 @@ const ProductionTable = memo(function ProductionTable({
                     )}
                   </TableCell>
 
-                  {/* Total power */}
+                  {/* Total power — bin-aware: only the bin's primary row
+                   * shows power; other co-located rows show "(grouped)".
+                   * Sums across rows match plan-level total exactly. */}
                   <TableCell className="text-right font-mono text-sm tabular-nums p-2">
                     {line.isRawMaterial || isManualRaw ? (
                       <span className="text-muted-foreground">-</span>
+                    ) : isGrouped && !line.isBinPrimary ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-muted-foreground italic text-xs cursor-help">
+                            {t("table.bin.grouped", {
+                              defaultValue: "grouped",
+                            })}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                          <p className="text-xs">
+                            {t("table.bin.powerSharedExplain", {
+                              defaultValue:
+                                "Power counted on the bin's primary row.",
+                            })}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
                     ) : (
                       <span>{formatNumber(totalPower, 0)}</span>
                     )}
@@ -588,6 +719,47 @@ const ProductionTable = memo(function ProductionTable({
           )}
         </TableBody>
       </Table>
+      {data.length > 0 && (
+        <div className="border-t bg-muted/20 px-4 py-2 flex items-center justify-end gap-6 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">
+              {t("table.totals.buildings", { defaultValue: "Total buildings" })}:
+            </span>
+            <span className="font-mono font-semibold tabular-nums">
+              {totals.totalBuildings}
+            </span>
+            {totals.groupedSavings > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-purple-700 dark:text-purple-400 cursor-help text-[10px]">
+                    (−{totals.groupedSavings}{" "}
+                    {t("table.totals.viaGrouping", {
+                      defaultValue: "via grouping",
+                    })}
+                    )
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[280px]">
+                  <p className="text-xs">
+                    {t("table.totals.savingsExplain", {
+                      defaultValue:
+                        "Buildings saved by packing recipes into shared multi-formula crucibles.",
+                    })}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">
+              {t("table.totals.power", { defaultValue: "Total power" })}:
+            </span>
+            <span className="font-mono font-semibold tabular-nums">
+              {formatNumber(totals.totalPower, 0)}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

@@ -1,5 +1,5 @@
 import i18next from "@/i18n";
-import type { Item, Facility } from "@/types";
+import type { Item, Facility, Recipe, RecipeId } from "@/types";
 import { getTransportCapacity } from "./utils";
 
 export const getItemName = (item: Item) => {
@@ -24,4 +24,16 @@ export const getFacilityName = (facility: Facility) => {
     ns: "facility",
     defaultValue: facility.id,
   });
+};
+
+/**
+ * Resolves a recipe's display name. Falls back to the raw RecipeId when no
+ * translation exists (e.g. synthetic disposal recipes that have no game
+ * name). Accepts either a Recipe object or just a RecipeId so callers
+ * without the full recipe data (e.g. tooltip listing sister recipes by id)
+ * can still resolve names.
+ */
+export const getRecipeName = (recipeOrId: Recipe | RecipeId) => {
+  const id = typeof recipeOrId === "string" ? recipeOrId : recipeOrId.id;
+  return i18next.t(id, { ns: "recipe", defaultValue: id });
 };

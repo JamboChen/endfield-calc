@@ -83,6 +83,8 @@ export function mapPlanToFlowMerged(
               isRawMaterial: false,
               isTarget: outputItemNode.isTarget,
               dependencies: [],
+              binId: node.binId,
+              binSisterRecipeIds: node.binSisterRecipeIds,
             },
             items,
             facilities,

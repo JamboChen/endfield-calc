@@ -29,7 +29,19 @@
     "noData": "데이터 없음",
     "noRecipe": "레시피 없음",
     "rawMaterial": "원자재",
-    "unmarkRawMaterial": "표시 해제"
+    "unmarkRawMaterial": "표시 해제",
+    "bin": {
+      "slots": "{{slots}} 슬롯",
+      "buildingsExplain": "{{n}}동의 건물이 {{m}}개의 레시피를 공유",
+      "grouped": "묶음",
+      "powerSharedExplain": "전력은 묶음의 주 행에만 표시됩니다."
+    },
+    "totals": {
+      "buildings": "총 건물 수",
+      "power": "총 전력",
+      "viaGrouping": "묶음으로 절약",
+      "savingsExplain": "여러 레시피를 다중 레시피 반응기에 패킹하여 절약된 건물 수입니다."
+    }
   },
   "tree": {
     "alsoTarget": "목표이기도 함",
@@ -56,6 +68,10 @@
     "exportImage": "이미지 내보내기",
     "exportFormat": "형식",
     "exportScale": "배율",
-    "exportConfirm": "내보내기"
+    "exportConfirm": "내보내기",
+    "crucibleGroup": "반응기 묶음",
+    "runningWith": "동시 실행",
+    "groupedBuilding": "공유 건물",
+    "formulas": "개의 레시피"
   }
 }

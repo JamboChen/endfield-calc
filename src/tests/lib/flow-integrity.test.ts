@@ -59,3 +59,62 @@ describe("flow mapper integrity", () => {
     });
   }
 });
+
+describe("Phase 3 bin-aware integrity", () => {
+  test("xircon plan: every recipe node has a binId after Phase 3", () => {
+    // Phase 3 should annotate every active recipe in the plan with a
+    // binId (singleton or grouped). Recipes lacking a binId would render
+    // as if Phase 3 didn't run, which breaks downstream amortization
+    // logic in the production table and node tooltips.
+    const plan = calculateProductionPlan(
+      [{ itemId: "item_xiranite_poly" as ItemId, rate: 5 }],
+      items,
+      recipes,
+      facilities,
+    );
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "recipe") continue;
+      if (node.isDisposal) continue;
+      if (node.facilityCount <= 1e-9) continue;
+      expect(node.binId).toBeDefined();
+    }
+  });
+
+  test("internal-flow edges only between same-bin recipes", () => {
+    // Sanity invariant: an edge tagged direction='internal' must connect
+    // two facility instances whose recipes are in the same bin.
+    const plan = calculateProductionPlan(
+      [{ itemId: "item_xiranite_poly" as ItemId, rate: 5 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowSeparated(plan, items, facilities, new Map());
+
+    // Build a bin-membership lookup keyed by recipe id.
+    const recipeToBin = new Map<string, string | undefined>();
+    for (const node of plan.nodes.values()) {
+      if (node.type === "recipe") recipeToBin.set(node.recipeId, node.binId);
+    }
+
+    const recipeIdFromFacilityId = (fid: string): string | null => {
+      const m = fid.match(/^(.+)-f\d+$/);
+      return m ? m[1] : null;
+    };
+
+    for (const edge of flow.edges) {
+      const data = edge.data as { direction?: string } | undefined;
+      if (data?.direction !== "internal") continue;
+      const srcRecipe = recipeIdFromFacilityId(edge.source);
+      const tgtRecipe = recipeIdFromFacilityId(edge.target);
+      if (!srcRecipe || !tgtRecipe) continue;
+      const srcBin = recipeToBin.get(srcRecipe);
+      const tgtBin = recipeToBin.get(tgtRecipe);
+      // Internal edges should connect recipes in the same bin (and
+      // grouped, since singleton bins have no internal pairs).
+      expect(srcBin).toBeDefined();
+      expect(tgtBin).toBeDefined();
+      expect(srcBin).toBe(tgtBin);
+    }
+  });
+});

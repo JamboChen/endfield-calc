@@ -29,7 +29,19 @@
     "noData": "暂无数据",
     "noRecipe": "无配方",
     "rawMaterial": "原材料",
-    "unmarkRawMaterial": "取消标记"
+    "unmarkRawMaterial": "取消标记",
+    "bin": {
+      "slots": "{{slots}} 槽位",
+      "buildingsExplain": "{{n}} 座建筑共享 {{m}} 个配方",
+      "grouped": "已组合",
+      "powerSharedExplain": "功耗仅在主行显示。"
+    },
+    "totals": {
+      "buildings": "建筑总数",
+      "power": "总功耗",
+      "viaGrouping": "因组合节省",
+      "savingsExplain": "通过将配方打包到多配方反应池中节省的建筑数量。"
+    }
   },
   "tree": {
     "alsoTarget": "同时也是目标",
@@ -56,6 +68,10 @@
     "exportImage": "导出图片",
     "exportFormat": "格式",
     "exportScale": "缩放比例",
-    "exportConfirm": "导出"
+    "exportConfirm": "导出",
+    "crucibleGroup": "反应池组合",
+    "runningWith": "同时运行",
+    "groupedBuilding": "共享建筑",
+    "formulas": "个配方"
   }
 }

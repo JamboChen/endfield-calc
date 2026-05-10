@@ -42,4 +42,58 @@ export function assertFlowIntegrity(
       isolated.map((n) => n.id),
     );
   }
+
+  // Phase 3 bin invariants:
+  //   1. Every internal-direction edge must connect facilities of recipes
+  //      sharing the same binId. An internal edge between recipes in
+  //      different bins indicates the mapper produced a flow that should
+  //      have crossed a transport boundary instead.
+  //   2. Every facility node carrying a non-empty binSisterRecipeIds
+  //      should also carry a binId — both fields belong together.
+  const binMismatches: string[] = [];
+  const incompleteBinAnnotations: string[] = [];
+
+  // Build a recipe-id → binId lookup from production node data.
+  const recipeBinId = new Map<string, string>();
+  for (const node of nodes) {
+    const data = node.data as
+      | { productionNode?: { recipe?: { id: string }; binId?: string; binSisterRecipeIds?: string[] } }
+      | undefined;
+    const pn = data?.productionNode;
+    if (!pn?.recipe) continue;
+    if (pn.binId) recipeBinId.set(pn.recipe.id, pn.binId);
+    if ((pn.binSisterRecipeIds?.length ?? 0) > 0 && !pn.binId) {
+      incompleteBinAnnotations.push(node.id);
+    }
+  }
+
+  const recipeIdFromFacilityId = (fid: string): string | null => {
+    const m = fid.match(/^(.+)-f\d+$/);
+    return m ? m[1] : null;
+  };
+
+  for (const edge of edges) {
+    const data = edge.data as { direction?: string } | undefined;
+    if (data?.direction !== "internal") continue;
+    const srcRecipe = recipeIdFromFacilityId(edge.source) ?? edge.source;
+    const tgtRecipe = recipeIdFromFacilityId(edge.target) ?? edge.target;
+    const srcBin = recipeBinId.get(srcRecipe);
+    const tgtBin = recipeBinId.get(tgtRecipe);
+    if (!srcBin || !tgtBin || srcBin !== tgtBin) {
+      binMismatches.push(`${edge.id}: ${srcRecipe}@${srcBin ?? "?"} → ${tgtRecipe}@${tgtBin ?? "?"}`);
+    }
+  }
+
+  if (binMismatches.length > 0) {
+    console.warn(
+      `[${mapperName}] ${binMismatches.length} 'internal' edge(s) cross bin boundaries:`,
+      binMismatches,
+    );
+  }
+  if (incompleteBinAnnotations.length > 0) {
+    console.warn(
+      `[${mapperName}] ${incompleteBinAnnotations.length} node(s) with sister recipe IDs but no binId:`,
+      incompleteBinAnnotations,
+    );
+  }
 }

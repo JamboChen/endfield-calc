@@ -29,7 +29,19 @@
     "noData": "Нет данных",
     "noRecipe": "Нет рецепта",
     "rawMaterial": "Сырье",
-    "unmarkRawMaterial": "Снять отметку"
+    "unmarkRawMaterial": "Снять отметку",
+    "bin": {
+      "slots": "{{slots}} слотов",
+      "buildingsExplain": "{{n}} зданий объединяют {{m}} формул",
+      "grouped": "сгруппировано",
+      "powerSharedExplain": "Энергия учитывается только в основной строке группы."
+    },
+    "totals": {
+      "buildings": "Всего зданий",
+      "power": "Всего энергии",
+      "viaGrouping": "за счёт группировки",
+      "savingsExplain": "Здания, сэкономленные за счёт упаковки рецептов в общие многоформульные реакторы."
+    }
   },
   "tree": {
     "alsoTarget": "Также является целью",
@@ -56,6 +68,10 @@
     "exportImage": "Экспорт изображения",
     "exportFormat": "Формат",
     "exportScale": "Масштаб",
-    "exportConfirm": "Экспорт"
+    "exportConfirm": "Экспорт",
+    "crucibleGroup": "Группа реакторов",
+    "runningWith": "Работает совместно с",
+    "groupedBuilding": "Совместное здание",
+    "formulas": "формул"
   }
 }

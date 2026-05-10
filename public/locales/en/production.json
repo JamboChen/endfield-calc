@@ -29,7 +29,19 @@
     "noData": "No data",
     "noRecipe": "No recipe",
     "rawMaterial": "Raw Material",
-    "unmarkRawMaterial": "Unmark"
+    "unmarkRawMaterial": "Unmark",
+    "bin": {
+      "slots": "{{slots}} slots",
+      "buildingsExplain": "{{n}} buildings shared across {{m}} formulas",
+      "grouped": "grouped",
+      "powerSharedExplain": "Power counted on the bin's primary row."
+    },
+    "totals": {
+      "buildings": "Total buildings",
+      "power": "Total power",
+      "viaGrouping": "via grouping",
+      "savingsExplain": "Buildings saved by packing recipes into shared multi-formula crucibles."
+    }
   },
   "tree": {
     "alsoTarget": "Also a target",
@@ -56,6 +68,10 @@
     "exportImage": "Export Image",
     "exportFormat": "Format",
     "exportScale": "Scale",
-    "exportConfirm": "Export"
+    "exportConfirm": "Export",
+    "crucibleGroup": "Crucible Group",
+    "runningWith": "Running alongside",
+    "groupedBuilding": "Shared building",
+    "formulas": "formulas"
   }
 }
