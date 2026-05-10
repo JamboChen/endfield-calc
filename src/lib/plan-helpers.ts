@@ -1,5 +1,78 @@
-import type { ProductionDependencyGraph, ProductionGraphNode } from "@/types";
+import type {
+  ProductionDependencyGraph,
+  ProductionGraphNode,
+  CrucibleBin,
+  ItemId,
+  RecipeId,
+  Item,
+  Recipe,
+} from "@/types";
 import { calcRate } from "@/lib/utils";
+
+/**
+ * Pick the bin's "headline" external output — the one displayed as the
+ * card's primary item. Used by the bin-fusion view when a multi-formula
+ * building has several external outputs and one of them must be chosen
+ * for the prominent slot. Other external outputs become byproducts.
+ *
+ * Heuristic priority (deterministic):
+ *   1. Items the user explicitly targeted.
+ *   2. Highest item tier (more refined items take precedence).
+ *   3. Solid items over liquids (solids are usually the "products";
+ *      liquids tend to be intermediates or byproducts).
+ *   4. Alphabetical itemId (stable tiebreak).
+ *
+ * Returns the headline `itemId` plus the bin recipe whose primary
+ * output equals that item — or `null` if the bin has no external
+ * outputs (degenerate case; pure consumer bin).
+ */
+export function pickBinHeadlineOutput(
+  bin: CrucibleBin,
+  items: Item[],
+  recipes: Recipe[],
+  targetItemIds: Set<ItemId>,
+): { itemId: ItemId; recipeId: RecipeId } | null {
+  if (bin.externalOutputs.length === 0) return null;
+
+  const itemById = new Map(items.map((i) => [i.id, i] as const));
+  const recipeById = new Map(recipes.map((r) => [r.id, r] as const));
+
+  // Score each output: lower score = higher priority.
+  // Lex tuple: (isTarget desc, tier desc, isSolid desc, itemId asc).
+  const scored = bin.externalOutputs.map((out) => {
+    const item = itemById.get(out.itemId);
+    return {
+      itemId: out.itemId,
+      isTarget: targetItemIds.has(out.itemId) ? 0 : 1,
+      negTier: item ? -item.tier : 0,
+      isLiquid: item?.isLiquid ? 1 : 0,
+    };
+  });
+  scored.sort((a, b) => {
+    if (a.isTarget !== b.isTarget) return a.isTarget - b.isTarget;
+    if (a.negTier !== b.negTier) return a.negTier - b.negTier;
+    if (a.isLiquid !== b.isLiquid) return a.isLiquid - b.isLiquid;
+    return a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0;
+  });
+  const headlineItemId = scored[0].itemId;
+
+  // Find the bin recipe whose primary output is this item. Use
+  // `getRecipeOutputItemId` semantics (same heuristic the rest of the
+  // app uses for recipe primary-output selection) to handle multi-output
+  // recipes deterministically.
+  for (const rid of bin.recipeIds) {
+    const recipe = recipeById.get(rid);
+    if (!recipe) continue;
+    if (recipe.outputs.some((o) => o.itemId === headlineItemId)) {
+      return { itemId: headlineItemId, recipeId: rid };
+    }
+  }
+
+  // Fallback: no recipe in the bin produces the headline item (would
+  // indicate a data-layer bug — bin.externalOutputs is derived from the
+  // bin's recipes). Return the first recipe id so callers don't crash.
+  return { itemId: headlineItemId, recipeId: bin.recipeIds[0] };
+}
 
 /**
  * Returns ALL output item IDs for a recipe node in the production graph.

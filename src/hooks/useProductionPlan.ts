@@ -27,6 +27,7 @@ interface ParsedHashState {
   recipeOverrides: Map<ItemId, RecipeId>;
   manualRawMaterials: Set<ItemId>;
   ceilMode: boolean;
+  binFusion: boolean;
 }
 
 function parseHash(): ParsedHashState {
@@ -35,6 +36,9 @@ function parseHash(): ParsedHashState {
     recipeOverrides: new Map(),
     manualRawMaterials: new Set(),
     ceilMode: false,
+    // binFusion defaults to ON. The hash key `bf=0` opts out;
+    // omitting `bf` (or setting `bf=1`) keeps the default ON.
+    binFusion: true,
   };
 
   try {
@@ -91,11 +95,16 @@ function parseHash(): ParsedHashState {
     const ceilRaw = params.get("c");
     const parsedCeilMode = ceilRaw === "1";
 
+    // Parse binFusion: bf=0 disables (default on).
+    const binFusionRaw = params.get("bf");
+    const parsedBinFusion = binFusionRaw !== "0";
+
     return {
       targets: parsedTargets,
       recipeOverrides: parsedRecipeOverrides,
       manualRawMaterials: parsedManualRawMaterials,
       ceilMode: parsedCeilMode,
+      binFusion: parsedBinFusion,
     };
   } catch {
     return defaultState;
@@ -107,6 +116,7 @@ function serializeHash(
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
   ceilMode: boolean,
+  binFusion: boolean,
 ): string {
   const params = new URLSearchParams();
 
@@ -131,6 +141,12 @@ function serializeHash(
     params.set("c", "1");
   }
 
+  // Only emit `bf=0` when the user disabled bin-fusion. The default
+  // (on) keeps the hash short.
+  if (!binFusion) {
+    params.set("bf", "0");
+  }
+
   return params.toString();
 }
 
@@ -152,6 +168,7 @@ export function useProductionPlan() {
     initialState.manualRawMaterials,
   );
   const [ceilMode, setCeilMode] = useState(initialState.ceilMode);
+  const [binFusion, setBinFusion] = useState(initialState.binFusion);
 
   useEffect(() => {
     const hash = serializeHash(
@@ -159,12 +176,13 @@ export function useProductionPlan() {
       recipeOverrides,
       manualRawMaterials,
       ceilMode,
+      binFusion,
     );
     const newUrl = hash
       ? `${window.location.pathname}${window.location.search}#${hash}`
       : window.location.pathname + window.location.search;
     history.replaceState(null, "", newUrl);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion]);
 
   // Core calculation: only returns dependency tree and cycles
   const { plan, error } = useMemo(() => {
@@ -418,6 +436,8 @@ export function useProductionPlan() {
     warnings,
     ceilMode,
     setCeilMode,
+    binFusion,
+    setBinFusion,
     handleTargetChange,
     handleTargetRemove,
     handleBatchAddTargets,

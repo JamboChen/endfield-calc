@@ -1,6 +1,9 @@
 {
   "ceilMode": "设施数向上取整",
   "twoEndAlignment": "两端对齐",
+  "binFusionLabelOn": "建筑视图",
+  "binFusionLabelOff": "配方视图",
+  "binFusionTooltip": "每个共用建筑显示为一张卡片（默认），或每个配方一张卡片（便于调试链路）",
   "calculationError": "计算生产计划时发生错误。请检查您的目标产出和配方覆盖设置。",
   "cycleWarning": "{{overriddenItems}} 所选配方形成了无法维持所需产量的生产循环。受影响物品：{{affectedItems}}。",
   "cycleWarningNoAffected": "{{overriddenItems}} 所选配方形成了无法维持所需产量的生产循环。",

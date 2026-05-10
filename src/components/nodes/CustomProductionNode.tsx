@@ -78,21 +78,49 @@ export default function CustomProductionNode({
   const sisterRecipeIds = node.binSisterRecipeIds ?? [];
   const isGroupedBuilding = sisterRecipeIds.length > 0;
 
-  // Compute byproduct outputs (secondary outputs of multi-output recipes)
-  const byproducts = node.recipe && node.recipe.outputs.length > 1
-    ? node.recipe.outputs
-        .filter((o) => o.itemId !== node.item.id)
-        .map((o) => {
-          const primaryOutput = node.recipe!.outputs.find(
-            (p) => p.itemId === node.item.id,
-          );
-          const rate = primaryOutput
-            ? (o.amount / primaryOutput.amount) * node.targetRate
-            : calcRate(o.amount, node.recipe!.craftingTime) * node.facilityCount;
-          return { item: getItemById(items, o.itemId), amount: o.amount, rate };
-        })
-        .filter((b) => b.item != null)
-    : [];
+  // Compute byproduct outputs. Two paths:
+  //   1. Per-recipe (existing): the headline recipe's secondary outputs.
+  //   2. Bin-fused (new): when `node.binExtraOutputs` is set, the bin's
+  //      external outputs other than the headline. This covers items
+  //      from sister recipes in the bin (which wouldn't appear in the
+  //      headline recipe's `outputs` array on its own).
+  const recipeByproducts =
+    node.recipe && node.recipe.outputs.length > 1
+      ? node.recipe.outputs
+          .filter((o) => o.itemId !== node.item.id)
+          .map((o) => {
+            const primaryOutput = node.recipe!.outputs.find(
+              (p) => p.itemId === node.item.id,
+            );
+            const rate = primaryOutput
+              ? (o.amount / primaryOutput.amount) * node.targetRate
+              : calcRate(o.amount, node.recipe!.craftingTime) *
+                node.facilityCount;
+            return {
+              item: getItemById(items, o.itemId),
+              amount: o.amount,
+              rate,
+            };
+          })
+          .filter((b) => b.item != null)
+      : [];
+  const binExtraByproducts = (node.binExtraOutputs ?? [])
+    .map((io) => ({
+      item: getItemById(items, io.itemId),
+      amount: 0, // not meaningful at bin level; rate already scaled.
+      rate: io.rate,
+    }))
+    .filter((b) => b.item != null);
+  // Dedupe by item id (avoid double-listing if the headline recipe and
+  // bin-extra outputs both mention the same item).
+  const seenByproductIds = new Set<string>([node.item.id]);
+  const byproducts: Array<{ item: ReturnType<typeof getItemById>; amount: number; rate: number }> = [];
+  for (const bp of [...recipeByproducts, ...binExtraByproducts]) {
+    if (!bp.item) continue;
+    if (seenByproductIds.has(bp.item.id)) continue;
+    seenByproductIds.add(bp.item.id);
+    byproducts.push(bp);
+  }
 
   const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item!.id)];
 
@@ -170,14 +198,78 @@ export default function CustomProductionNode({
               <div className="font-semibold text-purple-700 dark:text-purple-400">
                 {t("tree.crucibleGroup", { defaultValue: "Crucible Group" })}
               </div>
-              <div className="text-muted-foreground mt-0.5">
-                {t("tree.runningWith", { defaultValue: "Running alongside" })}:
-              </div>
-              <ul className="ml-3 text-muted-foreground list-disc">
-                {sisterRecipeIds.map((rid: RecipeId) => (
-                  <li key={rid}>{getRecipeName(rid)}</li>
-                ))}
-              </ul>
+              {/* Per-formula breakdown: each constituent recipe with its
+                * I/O at slot rate. When `node.bin` is provided (bin-fused
+                * mapper path), iterate bin.recipeIds and look up the
+                * recipe via items metadata. Otherwise fall back to a
+                * name-only sister list (per-recipe / unfused path). */}
+              {node.bin ? (
+                <>
+                  <div className="text-muted-foreground mt-1 mb-0.5">
+                    {t("tree.formulasInBin", {
+                      defaultValue: "Formulas in this building",
+                    })}
+                    :
+                  </div>
+                  <ul className="ml-3 text-muted-foreground list-disc space-y-0.5">
+                    {node.bin.recipeIds.map((rid: RecipeId) => (
+                      <li key={rid}>{getRecipeName(rid)}</li>
+                    ))}
+                  </ul>
+                  {node.bin.internalItems.length > 0 && (
+                    <>
+                      <div className="text-muted-foreground mt-2 mb-0.5">
+                        {t("tree.internalItems", {
+                          defaultValue: "Internal items (circulating)",
+                        })}
+                        :
+                      </div>
+                      <ul className="ml-3 text-muted-foreground list-disc">
+                        {node.bin.internalItems.map((iid) => {
+                          const it = getItemById(items, iid);
+                          return (
+                            <li key={iid}>
+                              {it ? getItemName(it) : iid}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
+                  <div className="text-muted-foreground mt-2">
+                    {t("tree.innerSlotsUsed", {
+                      defaultValue: "Inner slots: {{used}}",
+                      used: node.bin.innerSlotsUsed,
+                    })}
+                  </div>
+                  {facility?.capabilities && (
+                    <div className="text-muted-foreground">
+                      {t("tree.portUtilization", {
+                        defaultValue:
+                          "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out",
+                        liqIn: node.bin.externalInputs.filter((io) => io.isLiquid).length,
+                        liqInCap: facility.capabilities.liquidInPorts,
+                        liqOut: node.bin.externalOutputs.filter((io) => io.isLiquid).length,
+                        liqOutCap: facility.capabilities.liquidOutPorts,
+                        beltOut: node.bin.externalOutputs.filter((io) => !io.isLiquid).length,
+                        beltOutCap: facility.capabilities.beltOutPorts,
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="text-muted-foreground mt-0.5">
+                    {t("tree.runningWith", { defaultValue: "Running alongside" })}
+                    :
+                  </div>
+                  <ul className="ml-3 text-muted-foreground list-disc">
+                    {sisterRecipeIds.map((rid: RecipeId) => (
+                      <li key={rid}>{getRecipeName(rid)}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </div>
           )}
         </>

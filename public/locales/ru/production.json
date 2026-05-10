@@ -78,6 +78,10 @@
     "crucibleGroup": "Группа реакторов",
     "runningWith": "Работает совместно с",
     "groupedBuilding": "Совместное здание",
-    "formulas": "формул"
+    "formulas": "формул",
+    "formulasInBin": "Формулы в этом здании",
+    "internalItems": "Внутренние предметы (циркулируют)",
+    "innerSlotsUsed": "Внутренние слоты: {{used}}",
+    "portUtilization": "Порты: {{liqIn}}/{{liqInCap}} жидк. вх · {{liqOut}}/{{liqOutCap}} жидк. вых · {{beltOut}}/{{beltOutCap}} лент. вых"
   }
 }

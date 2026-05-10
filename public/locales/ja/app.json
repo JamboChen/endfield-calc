@@ -1,6 +1,9 @@
 {
   "ceilMode": "施設数を切り上げ",
   "twoEndAlignment": "両端整列",
+  "binFusionLabelOn": "建物表示",
+  "binFusionLabelOff": "レシピ表示",
+  "binFusionTooltip": "共有建物ごとに1枚のカードを表示（既定）またはレシピごとに表示（チェーンのデバッグ用）",
   "calculationError": "生産計画の計算中にエラーが発生しました。目標とレシピの上書きを確認してください。",
   "cycleWarning": "{{overriddenItems}} で選択されたレシピは、必要な生産量を維持できない生産ループを形成しています。影響を受けるアイテム：{{affectedItems}}。",
   "cycleWarningNoAffected": "{{overriddenItems}} で選択されたレシピは、必要な生産量を維持できない生産ループを形成しています。",

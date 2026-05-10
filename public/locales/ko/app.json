@@ -1,6 +1,9 @@
 {
   "ceilMode": "시설 수 올림",
   "twoEndAlignment": "입출력 양끝 정렬",
+  "binFusionLabelOn": "건물 보기",
+  "binFusionLabelOff": "제조법 보기",
+  "binFusionTooltip": "공유 건물당 카드 하나(기본) 또는 제조법당 카드 하나(체인 디버깅용)",
   "calculationError": "생산 계획 계산 중 오류가 발생했습니다. 목표와 제조법 설정을 확인하세요.",
   "cycleWarning": "{{overriddenItems}}에 선택된 제조법이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다. 영향받는 아이템: {{affectedItems}}.",
   "cycleWarningNoAffected": "{{overriddenItems}}에 선택된 제조법이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다.",

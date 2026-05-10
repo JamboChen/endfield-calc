@@ -1,6 +1,9 @@
 {
   "ceilMode": "Round up facilities",
   "twoEndAlignment": "Align inputs/outputs",
+  "binFusionLabelOn": "Buildings",
+  "binFusionLabelOff": "Recipes",
+  "binFusionTooltip": "Show one card per shared building (default) or per recipe (for chain debugging)",
   "calculationError": "An error occurred during production plan calculation. Please check your targets and recipe overrides.",
   "cycleWarning": "The selected recipe for {{overriddenItems}} creates a production loop that cannot sustain the required output. Affected items: {{affectedItems}}.",
   "cycleWarningNoAffected": "The selected recipe for {{overriddenItems}} creates a production loop that cannot sustain the required output.",

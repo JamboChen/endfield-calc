@@ -78,6 +78,10 @@
     "crucibleGroup": "反应池组合",
     "runningWith": "同时运行",
     "groupedBuilding": "共享建筑",
-    "formulas": "个配方"
+    "formulas": "个配方",
+    "formulasInBin": "该建筑内的配方",
+    "internalItems": "内部物品（循环）",
+    "innerSlotsUsed": "内部槽位：{{used}}",
+    "portUtilization": "端口：{{liqIn}}/{{liqInCap}} 液入 · {{liqOut}}/{{liqOutCap}} 液出 · {{beltOut}}/{{beltOutCap}} 带出"
   }
 }

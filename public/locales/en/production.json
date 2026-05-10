@@ -78,6 +78,10 @@
     "crucibleGroup": "Crucible Group",
     "runningWith": "Running alongside",
     "groupedBuilding": "Shared building",
-    "formulas": "formulas"
+    "formulas": "formulas",
+    "formulasInBin": "Formulas in this building",
+    "internalItems": "Internal items (circulating)",
+    "innerSlotsUsed": "Inner slots: {{used}}",
+    "portUtilization": "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out"
   }
 }

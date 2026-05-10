@@ -6,8 +6,9 @@ export const getItemName = (item: Item) => {
   return i18next.t(item.id, { ns: "item", defaultValue: item.id });
 };
 
-export const getRecipeName = (recipe: Recipe) => {
-  return i18next.t(recipe.id, { ns: "recipe", defaultValue: recipe.id });
+export const getRecipeName = (recipeOrId: Recipe | RecipeId) => {
+  const id = typeof recipeOrId === "string" ? recipeOrId : recipeOrId.id;
+  return i18next.t(id, { ns: "recipe", defaultValue: id });
 };
 
 export const getTransportLabel = (item?: Item) => {
@@ -40,16 +41,4 @@ export const getFacilityName = (facility: Facility) => {
     ns: "facility",
     defaultValue: facility.id,
   });
-};
-
-/**
- * Resolves a recipe's display name. Falls back to the raw RecipeId when no
- * translation exists (e.g. synthetic disposal recipes that have no game
- * name). Accepts either a Recipe object or just a RecipeId so callers
- * without the full recipe data (e.g. tooltip listing sister recipes by id)
- * can still resolve names.
- */
-export const getRecipeName = (recipeOrId: Recipe | RecipeId) => {
-  const id = typeof recipeOrId === "string" ? recipeOrId : recipeOrId.id;
-  return i18next.t(id, { ns: "recipe", defaultValue: id });
 };

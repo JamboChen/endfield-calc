@@ -32,6 +32,31 @@ export type ProductionNode = {
    * Empty when the bin runs a single recipe.
    */
   binSisterRecipeIds?: RecipeId[];
+  /**
+   * For bin-fused production nodes: the bin's external outputs other
+   * than the headline (which is rendered as the primary item). When set,
+   * the card lists these as additional byproducts — covering outputs
+   * from sister recipes in the bin that wouldn't otherwise appear via
+   * the headline recipe's `outputs` array.
+   *
+   * Always omitted for non-fused (per-recipe) nodes; the regular
+   * `recipe.outputs` byproduct path handles those.
+   */
+  binExtraOutputs?: Array<{
+    itemId: ItemId;
+    rate: number;
+    isLiquid: boolean;
+  }>;
+  /**
+   * For bin-fused production nodes: full bin reference, used by the
+   * card's tooltip to render per-formula breakdown, internal items,
+   * port utilization, and power-breakdown sections. Always omitted
+   * for non-fused (per-recipe) nodes — the standard tooltip is enough.
+   *
+   * Carrying the full `CrucibleBin` object on the node keeps the
+   * tooltip self-contained without re-querying the plan.
+   */
+  bin?: CrucibleBin;
 };
 
 /**

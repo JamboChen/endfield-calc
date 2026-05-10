@@ -12,6 +12,7 @@ import type {
   ItemId,
   RecipeId,
   Item,
+  Recipe,
   Facility,
   ProductionDependencyGraph,
   VisualizationMode,
@@ -22,6 +23,7 @@ interface ProductionViewTabsProps {
   plan: ProductionDependencyGraph | null;
   tableData: ProductionTableData;
   items: Item[];
+  recipes: Recipe[];
   facilities: Facility[];
   activeTab: "table" | "tree";
   onTabChange: (tab: "table" | "tree") => void;
@@ -30,6 +32,9 @@ interface ProductionViewTabsProps {
   targetRates?: Map<ItemId, number>;
   ceilMode: boolean;
   onCeilModeChange: (value: boolean) => void;
+  /** Bin-fusion toggle for Recipe View. Persisted in URL hash via the parent. */
+  binFusion: boolean;
+  onBinFusionChange: (value: boolean) => void;
   warnings: string[];
 }
 
@@ -37,6 +42,7 @@ export default function ProductionViewTabs({
   plan,
   tableData,
   items,
+  recipes,
   facilities,
   activeTab,
   onTabChange,
@@ -45,6 +51,8 @@ export default function ProductionViewTabs({
   targetRates,
   ceilMode,
   onCeilModeChange,
+  binFusion,
+  onBinFusionChange,
   warnings,
 }: ProductionViewTabsProps) {
   const { t } = useTranslation("app");
@@ -100,6 +108,30 @@ export default function ProductionViewTabs({
                   className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
                 >
                   {t("twoEndAlignment")}
+                </Label>
+              </div>
+            )}
+
+            {/* Bin-fusion toggle: shows only in Recipe View (merged).
+                Facility View (separated) is always bin-fused. */}
+            {activeTab === "tree" && visualizationMode === "merged" && (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="bin-fusion"
+                  checked={binFusion}
+                  onCheckedChange={onBinFusionChange}
+                />
+                <Label
+                  htmlFor="bin-fusion"
+                  title={t("binFusionTooltip", {
+                    defaultValue:
+                      "Show one card per shared building (default) or per recipe (for chain debugging)",
+                  })}
+                  className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
+                >
+                  {binFusion
+                    ? t("binFusionLabelOn", { defaultValue: "Buildings" })
+                    : t("binFusionLabelOff", { defaultValue: "Recipes" })}
                 </Label>
               </div>
             )}
@@ -175,11 +207,13 @@ export default function ProductionViewTabs({
                   <ProductionDependencyTree
                     plan={plan}
                     items={items}
+                    recipes={recipes}
                     facilities={facilities}
                     visualizationMode={visualizationMode}
                     targetRates={targetRates}
                     twoEndAlignment={twoEndAlignment}
                     ceilMode={ceilMode}
+                    binFusion={binFusion}
                   />
                 </div>
               </div>

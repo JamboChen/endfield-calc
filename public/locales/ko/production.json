@@ -78,6 +78,10 @@
     "crucibleGroup": "반응기 묶음",
     "runningWith": "동시 실행",
     "groupedBuilding": "공유 건물",
-    "formulas": "개의 레시피"
+    "formulas": "개의 레시피",
+    "formulasInBin": "이 건물 내의 레시피",
+    "internalItems": "내부 아이템 (순환)",
+    "innerSlotsUsed": "내부 슬롯: {{used}}",
+    "portUtilization": "포트: 액입 {{liqIn}}/{{liqInCap}} · 액출 {{liqOut}}/{{liqOutCap}} · 벨트출 {{beltOut}}/{{beltOutCap}}"
   }
 }

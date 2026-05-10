@@ -78,6 +78,10 @@
     "crucibleGroup": "Grupo de Crisoles",
     "runningWith": "Funcionando junto a",
     "groupedBuilding": "Edificio compartido",
-    "formulas": "fórmulas"
+    "formulas": "fórmulas",
+    "formulasInBin": "Fórmulas en este edificio",
+    "internalItems": "Elementos internos (en circulación)",
+    "innerSlotsUsed": "Ranuras internas: {{used}}",
+    "portUtilization": "Puertos: {{liqIn}}/{{liqInCap}} líq ent · {{liqOut}}/{{liqOutCap}} líq sal · {{beltOut}}/{{beltOutCap}} cinta sal"
   }
 }
