@@ -22,7 +22,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { Item, Recipe, Facility, ItemId, RecipeId } from "@/types";
 import { useTranslation } from "react-i18next";
-import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName } from "@/lib/i18n-helpers";
+import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName, getRecipeName } from "@/lib/i18n-helpers";
 import { getTransportCountWithFacilities, getPickupPointCount, formatCount, formatNumber } from "@/lib/utils";
 
 export type ProductionLineData = {
@@ -662,7 +662,7 @@ const ProductionTable = memo(function ProductionTable({
                             >
                               <div className="flex flex-col gap-1 py-1">
                                 <span className="font-medium text-xs">
-                                  {recipe.id}
+                                  {getRecipeName(recipe)}
                                 </span>
                                 <RecipeIOFull
                                   recipe={recipe}
@@ -686,7 +686,7 @@ const ProductionTable = memo(function ProductionTable({
                         <TooltipContent side="left" className="max-w-[300px]">
                           <div className="text-xs">
                             <div className="font-medium mb-2">
-                              {selectedRecipe.id}
+                              {getRecipeName(selectedRecipe)}
                             </div>
                             <RecipeIOFull
                               recipe={selectedRecipe}

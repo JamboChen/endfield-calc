@@ -6,6 +6,10 @@ export const getItemName = (item: Item) => {
   return i18next.t(item.id, { ns: "item", defaultValue: item.id });
 };
 
+export const getRecipeName = (recipe: Recipe) => {
+  return i18next.t(recipe.id, { ns: "recipe", defaultValue: recipe.id });
+};
+
 export const getTransportLabel = (item?: Item) => {
   return item?.isLiquid
     ? i18next.t("pipe.pipes", { ns: "production" })
