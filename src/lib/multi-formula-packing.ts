@@ -666,7 +666,11 @@ const allocateSlotsToBins = (
       })),
       internalItems: shape.internalItems,
       innerSlotsUsed: shape.innerSlotsUsed,
-      isGrouped: shape.recipeIds.length >= 2,
+      // `isGrouped` reflects user-visible recipe count, not physical
+      // shape size. In the theoretical case where a multi-formula shape
+      // has only one demand class actually allocated, `isGrouped: false`
+      // matches the bin's `recipeIds.length === 1` semantics.
+      isGrouped: demandIds.length >= 2,
     });
   });
 

@@ -163,38 +163,52 @@ function buildProductionGraph(
   const binById = new Map<string, CrucibleBin>();
   for (const bin of crucibleBins) binById.set(bin.id, bin);
 
-  graph.recipeNodes.forEach((recipeData, recipeId) => {
-    // Resolve the recipe's physical facility via its primary bin (if any).
-    // When Phase 3 swapped a `_1` demand into a `_2` bin (Expanded twin),
-    // the recipe object still references its nominal facility — the bin
-    // is the source of truth for the actually-built facility.
+  /**
+   * Resolve the bin metadata for a given recipe. Returns the recipe's
+   * physical facility (the bin's facility, which may differ from the
+   * recipe's nominal `facilityId` when Phase 3 swapped variants), the
+   * primary bin id, and sister recipe ids (other recipes co-located in
+   * the same bin). When the recipe has no allocation (rare — only
+   * happens before Phase 3 runs successfully), falls back to the
+   * recipe's nominal facility.
+   */
+  const resolveBinInfo = (
+    recipeId: RecipeId,
+    fallbackFacility: Facility,
+  ): { facility: Facility; binId: string | undefined; sisters: RecipeId[] } => {
     const allocation = recipeBinAllocations.get(recipeId);
-    let physicalFacility = recipeData.facility;
-    let binId: string | undefined;
-    let sisterRecipeIds: RecipeId[] = [];
-    if (allocation && allocation.perBin.length > 0) {
-      // Use the first bin entry as the primary association. Recipes split
-      // across multiple bin types share the same facility type because the
-      // ILP packing only mixes facilities at the equivalence-class level
-      // (Phase 3 picks one facility per equivalence class).
-      const primary = allocation.perBin[0];
-      const bin = binById.get(primary.binId);
-      if (bin) {
-        binId = bin.id;
-        const facLookup = maps.facilityMap.get(bin.facilityId);
-        if (facLookup) physicalFacility = facLookup;
-        sisterRecipeIds = bin.recipeIds.filter((rid) => rid !== recipeId);
-      }
+    if (!allocation || allocation.perBin.length === 0) {
+      return { facility: fallbackFacility, binId: undefined, sisters: [] };
     }
+    // Use the first bin entry as the primary association. Recipes split
+    // across multiple bin types share the same facility type because
+    // Phase 3 picks one facility per equivalence class.
+    const bin = binById.get(allocation.perBin[0].binId);
+    if (!bin) {
+      return { facility: fallbackFacility, binId: undefined, sisters: [] };
+    }
+    const fac = maps.facilityMap.get(bin.facilityId);
+    return {
+      facility: fac ?? fallbackFacility,
+      binId: bin.id,
+      sisters: bin.recipeIds.filter((rid) => rid !== recipeId),
+    };
+  };
+
+  graph.recipeNodes.forEach((recipeData, recipeId) => {
+    const { facility, binId, sisters } = resolveBinInfo(
+      recipeId,
+      recipeData.facility,
+    );
     nodes.set(recipeId, {
       type: "recipe",
       recipeId,
       recipe: recipeData.recipe,
-      facility: physicalFacility,
+      facility,
       facilityCount: flowData.recipeFacilityCounts.get(recipeId) || 0,
       isDisposal: recipeData.recipe.outputs.length === 0,
       binId,
-      binSisterRecipeIds: sisterRecipeIds,
+      binSisterRecipeIds: sisters,
     });
   });
 
@@ -217,24 +231,10 @@ function buildProductionGraph(
         const recipeData = graph.recipeNodes.get(recipeId)!;
         const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
         const outputs = recipeData.recipe.outputs;
-
-        // Resolve physical facility via the recipe's bin (consistent
-        // with the production-graph node above). Without this, a cycle
-        // node would show Phase 2's facility (e.g. Reactor) while the
-        // rest of the plan shows Phase 3's pick (e.g. Expanded).
-        const cycleAlloc = recipeBinAllocations.get(recipeId);
-        let cycleFacility = recipeData.facility;
-        let cycleBinId: string | undefined;
-        let cycleSisters: RecipeId[] = [];
-        if (cycleAlloc && cycleAlloc.perBin.length > 0) {
-          const bin = binById.get(cycleAlloc.perBin[0].binId);
-          if (bin) {
-            cycleBinId = bin.id;
-            const fac = maps.facilityMap.get(bin.facilityId);
-            if (fac) cycleFacility = fac;
-            cycleSisters = bin.recipeIds.filter((rid) => rid !== recipeId);
-          }
-        }
+        const { facility, binId, sisters } = resolveBinInfo(
+          recipeId,
+          recipeData.facility,
+        );
 
         return outputs.map((out) => ({
           item: graph.itemNodes.get(out.itemId)!.item,
@@ -242,13 +242,13 @@ function buildProductionGraph(
             calcRate(out.amount, recipeData.recipe.craftingTime) *
             facilityCount,
           recipe: recipeData.recipe,
-          facility: cycleFacility,
+          facility,
           facilityCount,
           isRawMaterial: false,
           isTarget: false,
           dependencies: [],
-          binId: cycleBinId,
-          binSisterRecipeIds: cycleSisters,
+          binId,
+          binSisterRecipeIds: sisters,
         }));
       },
     );

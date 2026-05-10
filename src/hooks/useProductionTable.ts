@@ -5,6 +5,7 @@ import type {
   ItemId,
   RecipeId,
   Recipe,
+  Facility,
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
 import { calcRate } from "@/lib/utils";
@@ -193,7 +194,7 @@ export function useProductionTable(
   recipes: Recipe[],
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
-  facilities: { id: string; powerConsumption: number; capabilities?: unknown }[] = [],
+  facilities: Facility[] = [],
   invalidCycleItemIds: Set<ItemId> = new Set(),
 ): ProductionTableData {
   return useMemo(() => {
@@ -338,16 +339,16 @@ export function useProductionTable(
     // is the single source of truth for total buildings and power, since
     // bin entries are emitted per-physical-shape with deterministic
     // building counts. Deriving from rows would undercount split
-    // allocations.
+    // allocations. Disposal recipes go through emitSingletonBins, so
+    // they're already counted via `plan.crucibleBins`.
     const facilityById = new Map(facilities.map((f) => [f.id, f]));
     let totalBuildings = 0;
     let totalPower = 0;
-    let groupedSavings = 0;
 
-    // Recipes from non-disposal, non-raw-material item rows participate
-    // in the savings baseline (the "what if every recipe ran in its own
-    // building" comparison).
-    const totalSlotsByCapability = new Map<boolean, number>();
+    // Multi-formula baseline = "what if every multi-formula recipe ran
+    // in its own building". Compared against actual multi-formula bin
+    // counts to derive `groupedSavings`.
+    let multiFormulaBaseline = 0;
     for (const node of sortedNodes) {
       if (node.isRawMaterial) continue;
       if (manualRawMaterials.has(node.itemId)) continue;
@@ -356,39 +357,21 @@ export function useProductionTable(
         : undefined;
       if (recipeNode?.type !== "recipe") continue;
       const fac = facilityById.get(recipeNode.facility.id);
-      const isMultiFormula = fac?.capabilities !== undefined;
-      const cur = totalSlotsByCapability.get(isMultiFormula) ?? 0;
-      totalSlotsByCapability.set(
-        isMultiFormula,
-        cur + Math.ceil(node.totalFacilityCount),
-      );
+      if (fac?.capabilities) {
+        multiFormulaBaseline += Math.ceil(node.totalFacilityCount);
+      }
     }
 
+    let multiFormulaActual = 0;
     for (const bin of plan.crucibleBins) {
       const fac = facilityById.get(bin.facilityId);
       if (!fac) continue;
       const buildings = Math.ceil(bin.buildingCount);
       totalBuildings += buildings;
       totalPower += fac.powerConsumption * bin.buildingCount;
+      if (fac.capabilities) multiFormulaActual += buildings;
     }
-    // Savings = ungrouped baseline (slots) − actual buildings, but only
-    // for the multi-formula portion.
-    const multiFormulaBaseline = totalSlotsByCapability.get(true) ?? 0;
-    let multiFormulaActual = 0;
-    for (const bin of plan.crucibleBins) {
-      const fac = facilityById.get(bin.facilityId);
-      if (!fac?.capabilities) continue;
-      multiFormulaActual += Math.ceil(bin.buildingCount);
-    }
-    groupedSavings = Math.max(0, multiFormulaBaseline - multiFormulaActual);
-
-    // Add disposal-row power and buildings (not in `plan.crucibleBins`
-    // unless emitted as singletons; both paths yield the same totals).
-    for (const drow of disposalRows) {
-      if (!drow.facility?.powerConsumption) continue;
-      // Disposal recipes go through emitSingletonBins so are already
-      // counted via `plan.crucibleBins`. Skip to avoid double-count.
-    }
+    const groupedSavings = Math.max(0, multiFormulaBaseline - multiFormulaActual);
 
     return {
       rows: [...itemRows, ...disposalRows],
