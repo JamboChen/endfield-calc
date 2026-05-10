@@ -7,6 +7,9 @@
     "pipes": "труб",
     "tooltip": "Необходимые выходные трубы (вместимость {{pipe_rate}} предметов/мин)"
   },
+  "transport": {
+    "internal": "внутренний"
+  },
   "recipe": {
     "inputs": "Входы",
     "outputs": "Выходы",
@@ -32,9 +35,12 @@
     "unmarkRawMaterial": "Снять отметку",
     "bin": {
       "slots": "{{slots}} слотов",
+      "slotsRaw": "слотов",
+      "buildings": "зданий",
       "buildingsExplain": "{{n}} зданий объединяют {{m}} формул",
       "grouped": "сгруппировано",
-      "powerSharedExplain": "Энергия учитывается только в основной строке группы."
+      "powerSharedExplain": "Энергия учитывается только в основной строке группы.",
+      "spanning": "Рецепт распределён по {{count}} вариантам групп:"
     },
     "totals": {
       "buildings": "Всего зданий",

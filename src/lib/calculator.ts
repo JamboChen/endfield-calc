@@ -218,17 +218,37 @@ function buildProductionGraph(
         const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
         const outputs = recipeData.recipe.outputs;
 
+        // Resolve physical facility via the recipe's bin (consistent
+        // with the production-graph node above). Without this, a cycle
+        // node would show Phase 2's facility (e.g. Reactor) while the
+        // rest of the plan shows Phase 3's pick (e.g. Expanded).
+        const cycleAlloc = recipeBinAllocations.get(recipeId);
+        let cycleFacility = recipeData.facility;
+        let cycleBinId: string | undefined;
+        let cycleSisters: RecipeId[] = [];
+        if (cycleAlloc && cycleAlloc.perBin.length > 0) {
+          const bin = binById.get(cycleAlloc.perBin[0].binId);
+          if (bin) {
+            cycleBinId = bin.id;
+            const fac = maps.facilityMap.get(bin.facilityId);
+            if (fac) cycleFacility = fac;
+            cycleSisters = bin.recipeIds.filter((rid) => rid !== recipeId);
+          }
+        }
+
         return outputs.map((out) => ({
           item: graph.itemNodes.get(out.itemId)!.item,
           targetRate:
             calcRate(out.amount, recipeData.recipe.craftingTime) *
             facilityCount,
           recipe: recipeData.recipe,
-          facility: recipeData.facility,
+          facility: cycleFacility,
           facilityCount,
           isRawMaterial: false,
           isTarget: false,
           dependencies: [],
+          binId: cycleBinId,
+          binSisterRecipeIds: cycleSisters,
         }));
       },
     );

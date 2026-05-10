@@ -281,12 +281,19 @@ describe("Separated mapper — Battery + SCC cycle", () => {
 // ── Phase 3 multi-formula bin annotation ─────────────────────────────────────
 
 describe("Separated mapper — Phase 3 bin annotations", () => {
-  test("xircon recipes carry binId on their facility nodes", async () => {
+  test("xircon recipes carry binId and correctly sized sister list on facility nodes", async () => {
     // Phase 3 packs LX/XE/X pool recipes into Expanded Crucible bins.
     // Uses real data layer facilities (with capabilities) so MIX_POOL_*
     // facilities are recognised as multi-formula. The separated mapper
     // should propagate bin metadata (binId, sister recipe ids) onto each
     // facility node so the UI can render the group badge and tooltip.
+    //
+    // Regression coverage: with the demand-id semantics on bins, the
+    // sister filter `bin.recipeIds.filter(rid => rid !== self)`
+    // correctly drops the recipe's own demand id. Before the fix, a
+    // node for `lx_1` would receive sisters `[lx_2, xe_2, x_2]`
+    // (length 3, including its own twin) and the badge would say
+    // "4 formulas" for a 3-formula bin (off-by-one).
     const { items: realItems } = await import("@/data/items");
     const { recipes: realRecipes } = await import("@/data/recipes");
     const { facilities: realFacilities } = await import("@/data/facilities");
@@ -315,5 +322,27 @@ describe("Separated mapper — Phase 3 bin annotations", () => {
       );
     });
     expect(groupedNodes.length).toBeGreaterThan(0);
+
+    // Sister-count regression: for every grouped node, the badge count
+    // (sisters + self = formulas in bin) must match the bin's actual
+    // recipe count. Catches the off-by-one if the sister filter ever
+    // fails to drop the row's own recipe id.
+    for (const n of groupedNodes) {
+      const data = n.data as {
+        productionNode?: {
+          binId?: string;
+          binSisterRecipeIds?: string[];
+          recipe?: { id: string };
+        };
+      };
+      const pn = data.productionNode!;
+      const binMatch = plan.crucibleBins.find((b) => b.id === pn.binId);
+      expect(binMatch).toBeDefined();
+      // sister count + 1 (self) must equal bin's recipe count.
+      const formulaCountFromUI = (pn.binSisterRecipeIds?.length ?? 0) + 1;
+      expect(formulaCountFromUI).toBe(binMatch!.recipeIds.length);
+      // Self's recipe id must NOT be in the sister list.
+      expect(pn.binSisterRecipeIds).not.toContain(pn.recipe!.id);
+    }
   });
 });

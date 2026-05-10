@@ -12,6 +12,9 @@
     "pipes": "pipes",
     "tooltip": "Required output pipes ({{pipe_rate}} items/min capacity)"
   },
+  "transport": {
+    "internal": "internal"
+  },
   "table": {
     "headers": {
       "belts": "Belts",
@@ -32,9 +35,12 @@
     "unmarkRawMaterial": "Unmark",
     "bin": {
       "slots": "{{slots}} slots",
+      "slotsRaw": "slots",
+      "buildings": "buildings",
       "buildingsExplain": "{{n}} buildings shared across {{m}} formulas",
       "grouped": "grouped",
-      "powerSharedExplain": "Power counted on the bin's primary row."
+      "powerSharedExplain": "Power counted on the bin's primary row.",
+      "spanning": "Recipe split across {{count}} bin shapes:"
     },
     "totals": {
       "buildings": "Total buildings",

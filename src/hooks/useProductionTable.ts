@@ -161,6 +161,31 @@ function sortNodes(
 }
 
 /**
+ * Plan-level totals for the production-table footer. Computed from
+ * `plan.crucibleBins` directly so split allocations (one recipe spanning
+ * multiple bin shapes) are counted correctly. Deriving totals from the
+ * row list would undercount whenever the ILP splits a recipe across
+ * bins, since each row only carries its first-bin association.
+ */
+export type PlanTotals = {
+  /** Sum of integer building counts across every active bin. */
+  totalBuildings: number;
+  /** Sum of facility power × buildingCount across every active bin. */
+  totalPower: number;
+  /**
+   * Buildings saved relative to a Reactor-singleton baseline (no
+   * grouping). Computed as Σ ceil(slot demand) − Σ bin building count
+   * for multi-formula-capable bins. Zero when no grouping happens.
+   */
+  groupedSavings: number;
+};
+
+export type ProductionTableData = {
+  rows: ProductionLineData[];
+  totals: PlanTotals;
+};
+
+/**
  * Hook to generate table data from the production plan.
  */
 export function useProductionTable(
@@ -168,11 +193,15 @@ export function useProductionTable(
   recipes: Recipe[],
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
+  facilities: { id: string; powerConsumption: number; capabilities?: unknown }[] = [],
   invalidCycleItemIds: Set<ItemId> = new Set(),
-): ProductionLineData[] {
+): ProductionTableData {
   return useMemo(() => {
     if (!plan || plan.nodes.size === 0) {
-      return [];
+      return {
+        rows: [],
+        totals: { totalBuildings: 0, totalPower: 0, groupedSavings: 0 },
+      };
     }
 
     const mergedNodes = mergeItemNodes(plan, recipeOverrides);
@@ -209,10 +238,16 @@ export function useProductionTable(
       // the bin's building count (not raw slots) and mark the alphabetically
       // first recipe of the bin as "primary" — that row displays the bin's
       // full power total; other rows show "grouped" and zero power.
+      // `bin.recipeIds` are demand recipe ids (Phase 2's pick), so plain
+      // equality with `node.recipeId` resolves correctly even when Phase 3
+      // swapped the physical variant.
       let binId: string | undefined;
       let binSisterRecipeIds: RecipeId[] | undefined;
       let binBuildingCount: number | undefined;
       let isBinPrimary = true; // default for non-grouped: own row owns power
+      let binSpanningInfo:
+        | Array<{ binId: string; buildingCount: number; slots: number }>
+        | undefined;
       if (recipeNode?.binId) {
         const bin = binById.get(recipeNode.binId);
         if (bin) {
@@ -222,9 +257,30 @@ export function useProductionTable(
           );
           if (bin.isGrouped) {
             binBuildingCount = bin.buildingCount;
-            // Alphabetically first recipe id in the bin owns power total.
-            const primaryRecipeId = [...bin.recipeIds].sort()[0];
+            // bin.recipeIds is already sorted ascending (per packer contract).
+            const primaryRecipeId = bin.recipeIds[0];
             isBinPrimary = node.recipeId === primaryRecipeId;
+          }
+          // Build spanning info from the recipe's allocation across bins.
+          // For most plans this is a single-entry array; populated for all
+          // grouped recipes so the tooltip can list every bin the recipe
+          // is hosted in (handles split allocations).
+          if (node.recipeId) {
+            const alloc = plan.recipeBinAllocations.get(node.recipeId);
+            if (alloc) {
+              binSpanningInfo = alloc.perBin
+                .map((entry) => {
+                  const b = binById.get(entry.binId);
+                  return b
+                    ? {
+                        binId: entry.binId,
+                        buildingCount: b.buildingCount,
+                        slots: entry.slots,
+                      }
+                    : null;
+                })
+                .filter((x): x is NonNullable<typeof x> => x !== null);
+            }
           }
         }
       }
@@ -245,6 +301,7 @@ export function useProductionTable(
         binSisterRecipeIds,
         binBuildingCount,
         isBinPrimary,
+        binSpanningInfo,
       };
     });
 
@@ -277,6 +334,65 @@ export function useProductionTable(
       });
     });
 
-    return [...itemRows, ...disposalRows];
-  }, [plan, recipes, recipeOverrides, manualRawMaterials, invalidCycleItemIds]);
+    // Plan-level totals computed from `plan.crucibleBins` directly. This
+    // is the single source of truth for total buildings and power, since
+    // bin entries are emitted per-physical-shape with deterministic
+    // building counts. Deriving from rows would undercount split
+    // allocations.
+    const facilityById = new Map(facilities.map((f) => [f.id, f]));
+    let totalBuildings = 0;
+    let totalPower = 0;
+    let groupedSavings = 0;
+
+    // Recipes from non-disposal, non-raw-material item rows participate
+    // in the savings baseline (the "what if every recipe ran in its own
+    // building" comparison).
+    const totalSlotsByCapability = new Map<boolean, number>();
+    for (const node of sortedNodes) {
+      if (node.isRawMaterial) continue;
+      if (manualRawMaterials.has(node.itemId)) continue;
+      const recipeNode = node.recipeId
+        ? plan.nodes.get(node.recipeId)
+        : undefined;
+      if (recipeNode?.type !== "recipe") continue;
+      const fac = facilityById.get(recipeNode.facility.id);
+      const isMultiFormula = fac?.capabilities !== undefined;
+      const cur = totalSlotsByCapability.get(isMultiFormula) ?? 0;
+      totalSlotsByCapability.set(
+        isMultiFormula,
+        cur + Math.ceil(node.totalFacilityCount),
+      );
+    }
+
+    for (const bin of plan.crucibleBins) {
+      const fac = facilityById.get(bin.facilityId);
+      if (!fac) continue;
+      const buildings = Math.ceil(bin.buildingCount);
+      totalBuildings += buildings;
+      totalPower += fac.powerConsumption * bin.buildingCount;
+    }
+    // Savings = ungrouped baseline (slots) − actual buildings, but only
+    // for the multi-formula portion.
+    const multiFormulaBaseline = totalSlotsByCapability.get(true) ?? 0;
+    let multiFormulaActual = 0;
+    for (const bin of plan.crucibleBins) {
+      const fac = facilityById.get(bin.facilityId);
+      if (!fac?.capabilities) continue;
+      multiFormulaActual += Math.ceil(bin.buildingCount);
+    }
+    groupedSavings = Math.max(0, multiFormulaBaseline - multiFormulaActual);
+
+    // Add disposal-row power and buildings (not in `plan.crucibleBins`
+    // unless emitted as singletons; both paths yield the same totals).
+    for (const drow of disposalRows) {
+      if (!drow.facility?.powerConsumption) continue;
+      // Disposal recipes go through emitSingletonBins so are already
+      // counted via `plan.crucibleBins`. Skip to avoid double-count.
+    }
+
+    return {
+      rows: [...itemRows, ...disposalRows],
+      totals: { totalBuildings, totalPower, groupedSavings },
+    };
+  }, [plan, recipes, recipeOverrides, manualRawMaterials, facilities, invalidCycleItemIds]);
 }

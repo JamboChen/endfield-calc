@@ -12,6 +12,18 @@ export const getTransportLabel = (item?: Item) => {
     : i18next.t("belt.belts", { ns: "production" });
 };
 
+/**
+ * Label for an "internal" flow edge (producer and consumer co-located
+ * in the same multi-formula building). Replaces the belt/pipe count
+ * since no transport is needed.
+ */
+export const getInternalFlowLabel = () => {
+  return i18next.t("transport.internal", {
+    ns: "production",
+    defaultValue: "internal",
+  });
+};
+
 export const getTransportTooltip = (item?: Item) => {
   const capacity = getTransportCapacity(item);
   return item?.isLiquid

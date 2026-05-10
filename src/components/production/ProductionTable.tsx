@@ -59,10 +59,29 @@ export type ProductionLineData = {
    * displayed power across rows match the plan-level power exactly.
    */
   isBinPrimary?: boolean;
+  /**
+   * All bins this recipe is allocated to, with per-bin building count.
+   * Usually one entry; populated from `RecipeBinAllocation.perBin` so
+   * split allocations (one recipe spanning multiple bin shapes) can be
+   * surfaced in the UI tooltip.
+   */
+  binSpanningInfo?: Array<{ binId: string; buildingCount: number; slots: number }>;
+};
+
+/**
+ * Plan-level totals shown in the production-table footer. Computed
+ * upstream from `plan.crucibleBins` so split allocations are counted
+ * correctly. Caller-provided to keep this component a pure renderer.
+ */
+export type ProductionTableTotals = {
+  totalBuildings: number;
+  totalPower: number;
+  groupedSavings: number;
 };
 
 type ProductionTableProps = {
   data: ProductionLineData[];
+  totals?: ProductionTableTotals;
   items: Item[];
   facilities: Facility[];
   onRecipeChange: (itemId: ItemId, recipeId: RecipeId) => void;
@@ -258,6 +277,7 @@ FacilityIcon.displayName = "FacilityIcon";
 
 const ProductionTable = memo(function ProductionTable({
   data,
+  totals,
   items,
   onRecipeChange,
   onToggleRawMaterial,
@@ -273,14 +293,18 @@ const ProductionTable = memo(function ProductionTable({
     [items],
   );
 
-  // Plan-level totals: total buildings (bin-aware: grouped recipes only
-  // count their bin's buildingCount once via the primary row), and total
-  // power (already amortized correctly per the per-row power logic below).
-  const totals = useMemo(() => {
+  // Plan-level totals come from the upstream hook (computed from
+  // `plan.crucibleBins` directly, which is split-allocation-safe). When
+  // the caller doesn't supply totals (e.g. ad-hoc consumers), fall back
+  // to a row-derived approximation. This fallback is accurate when no
+  // recipe is split across multiple bins, which holds for any plan
+  // where the ILP doesn't split — i.e. nearly all plans in practice.
+  const effectiveTotals = useMemo(() => {
+    if (totals) return totals;
     let totalBuildings = 0;
     let totalPower = 0;
+    let groupedSavings = 0;
     const seenBins = new Set<string>();
-    let groupedSavings = 0; // buildings saved via grouping
     for (const line of data) {
       if (line.isRawMaterial || line.isManualRawMaterial) continue;
       const isGrouped =
@@ -288,30 +312,28 @@ const ProductionTable = memo(function ProductionTable({
         line.binBuildingCount !== undefined;
 
       if (isGrouped) {
-        // Grouped bin: count its buildings once across all sibling rows.
         if (line.binId && !seenBins.has(line.binId)) {
           seenBins.add(line.binId);
           totalBuildings += Math.ceil(line.binBuildingCount!);
           if (line.facility?.powerConsumption) {
             totalPower += line.facility.powerConsumption * line.binBuildingCount!;
           }
-          // Naive Reactor-singleton baseline for savings reporting:
-          // Σ ceil(slot count) across constituents - bin building count.
-          // Computed across all rows of this bin via the seenBins gate.
           groupedSavings += -Math.ceil(line.binBuildingCount!);
         }
-        // Add this row's slot share to the savings baseline.
         groupedSavings += Math.ceil(line.facilityCount);
       } else {
-        const buildings = Math.ceil(line.facilityCount);
-        totalBuildings += buildings;
+        totalBuildings += Math.ceil(line.facilityCount);
         if (line.facility?.powerConsumption) {
           totalPower += line.facility.powerConsumption * line.facilityCount;
         }
       }
     }
-    return { totalBuildings, totalPower, groupedSavings };
-  }, [data]);
+    return {
+      totalBuildings,
+      totalPower,
+      groupedSavings: Math.max(0, groupedSavings),
+    };
+  }, [totals, data]);
 
   const highlightedItemIds = useMemo(() => {
     if (!hoveredItemId) return new Set<ItemId>();
@@ -537,7 +559,9 @@ const ProductionTable = memo(function ProductionTable({
                     ) : isGrouped && line.binBuildingCount !== undefined ? (
                       // Grouped bin: surface the bin's building count
                       // alongside the recipe's slot count. Buildings are the
-                      // physical reality (1 Expanded ≠ 1 slot).
+                      // physical reality (1 Expanded ≠ 1 slot). When the
+                      // recipe is split across multiple bin shapes, the
+                      // tooltip lists every bin the recipe spans.
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <div className="flex flex-col items-end cursor-help">
@@ -567,6 +591,33 @@ const ProductionTable = memo(function ProductionTable({
                                 m: (line.binSisterRecipeIds?.length ?? 0) + 1,
                               })}
                             </div>
+                            {line.binSpanningInfo &&
+                              line.binSpanningInfo.length > 1 && (
+                                <div className="mt-1 pt-1 border-t border-border/50">
+                                  <div className="text-muted-foreground mb-0.5">
+                                    {t("table.bin.spanning", {
+                                      defaultValue:
+                                        "Recipe split across {{count}} bin shapes:",
+                                      count: line.binSpanningInfo.length,
+                                    })}
+                                  </div>
+                                  <ul className="ml-3 text-muted-foreground list-disc">
+                                    {line.binSpanningInfo.map((entry) => (
+                                      <li key={entry.binId}>
+                                        {formatCount(entry.slots, ceilMode)}{" "}
+                                        {t("table.bin.slotsRaw", {
+                                          defaultValue: "slots",
+                                        })}{" "}
+                                        ({formatCount(entry.buildingCount, ceilMode)}{" "}
+                                        {t("table.bin.buildings", {
+                                          defaultValue: "buildings",
+                                        })}
+                                        )
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
                           </div>
                         </TooltipContent>
                       </Tooltip>
@@ -726,13 +777,13 @@ const ProductionTable = memo(function ProductionTable({
               {t("table.totals.buildings", { defaultValue: "Total buildings" })}:
             </span>
             <span className="font-mono font-semibold tabular-nums">
-              {totals.totalBuildings}
+              {effectiveTotals.totalBuildings}
             </span>
-            {totals.groupedSavings > 0 && (
+            {effectiveTotals.groupedSavings > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="text-purple-700 dark:text-purple-400 cursor-help text-[10px]">
-                    (−{totals.groupedSavings}{" "}
+                    (−{effectiveTotals.groupedSavings}{" "}
                     {t("table.totals.viaGrouping", {
                       defaultValue: "via grouping",
                     })}
@@ -755,7 +806,7 @@ const ProductionTable = memo(function ProductionTable({
               {t("table.totals.power", { defaultValue: "Total power" })}:
             </span>
             <span className="font-mono font-semibold tabular-nums">
-              {formatNumber(totals.totalPower, 0)}
+              {formatNumber(effectiveTotals.totalPower, 0)}
             </span>
           </div>
         </div>

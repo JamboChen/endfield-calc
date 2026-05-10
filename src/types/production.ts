@@ -121,15 +121,28 @@ export type ProductionDependencyGraph = {
  * recipes (formulas). Each building provides 1 slot of each constituent
  * recipe per cycle.
  *
- * Singleton bins (one recipe per building) are emitted for every recipe
- * even when the facility lacks `capabilities` — they unify the data shape
- * downstream consumers (mappers, table) work against.
+ * Singleton bins (one recipe per building) are emitted for every active
+ * recipe even when the facility lacks `capabilities` — they unify the
+ * data shape downstream consumers (mappers, table) work against.
+ *
+ * **`recipeIds` semantics**: the recipe ids stored here are **demand
+ * recipe ids** (Phase 2's pick), not the physical twin variant the ILP
+ * may have packed. This lets downstream consumers compare against
+ * production-graph recipe ids with plain equality. The bin's
+ * `facilityId` separately records the physical facility (e.g. Reactor
+ * vs Expanded Crucible) so power and building-count cost are always
+ * accurate.
  */
 export type CrucibleBin = {
-  /** Stable bin identifier, e.g. "bin-mix_pool_2-pool_xirpoly_2-pool_xe_2-pool_lx_2-0". */
+  /** Stable bin identifier, e.g. "bin-mix_pool_2-pool_xirpoly_1-pool_xe_1-pool_lx_1-0". */
   id: string;
+  /** Physical facility hosting every building of this bin. */
   facilityId: FacilityId;
-  /** The recipes hosted by every building of this bin shape. */
+  /**
+   * Demand recipe ids (Phase 2's pick) hosted by every building of this
+   * bin. Sorted ascending. Plain id-equality with `ProductionGraphNode`
+   * recipe ids is the supported comparison pattern.
+   */
   recipeIds: RecipeId[];
   /** Integer number of buildings configured with this recipe set. */
   buildingCount: number;

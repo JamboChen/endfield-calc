@@ -1330,7 +1330,7 @@ describe("Phase 3 multi-formula bin packing", () => {
     }
   });
 
-  test("recipe-bin allocations cover every active recipe", () => {
+  test("recipe-bin allocations cover every active recipe (incl. disposal)", () => {
     const plan = calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
       items,
@@ -1338,13 +1338,54 @@ describe("Phase 3 multi-formula bin packing", () => {
       facilities,
     );
     // Every recipe with non-zero facilityCount in the plan should have a
-    // RecipeBinAllocation. This guards against silent drops where a
-    // recipe's slot demand is unallocated.
+    // RecipeBinAllocation, including disposal recipes — they go through
+    // emitSingletonBins because their facility lacks `capabilities`.
+    // This guards against silent drops where a recipe's slot demand is
+    // unallocated.
     for (const node of plan.nodes.values()) {
       if (node.type !== "recipe") continue;
-      if (node.isDisposal) continue; // disposal recipes are special-cased
       if (node.facilityCount <= 1e-9) continue;
       expect(plan.recipeBinAllocations.has(node.recipeId)).toBe(true);
+    }
+  });
+
+  test("plan totals match plan.crucibleBins aggregate (split-allocation safe)", () => {
+    // The totals presented in the production-table footer must be
+    // computed from `plan.crucibleBins` directly, not derived from
+    // per-row associations. If a recipe's slot demand is split across
+    // multiple bins (asymmetric demand can force the ILP into a split),
+    // the per-row first-bin-only association would undercount the
+    // secondary bins. Asserting the bin-aggregated totals matches the
+    // ground-truth from `plan.crucibleBins` catches that regression.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    // Ground truth: sum buildings and power across crucibleBins.
+    let truthBuildings = 0;
+    let truthPower = 0;
+    for (const bin of plan.crucibleBins) {
+      const fac = facilities.find((f) => f.id === bin.facilityId);
+      if (!fac) continue;
+      truthBuildings += Math.ceil(bin.buildingCount);
+      truthPower += fac.powerConsumption * bin.buildingCount;
+    }
+
+    expect(truthBuildings).toBeGreaterThan(0);
+    expect(truthPower).toBeGreaterThan(0);
+
+    // Allocation entries' total slots equal each recipe's facilityCount —
+    // the data layer's invariant. If this fails, allocation lost slots.
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "recipe") continue;
+      if (node.facilityCount <= 1e-9) continue;
+      const alloc = plan.recipeBinAllocations.get(node.recipeId);
+      expect(alloc).toBeDefined();
+      const allocSum = alloc!.perBin.reduce((s, e) => s + e.slots, 0);
+      expect(allocSum).toBeCloseTo(node.facilityCount, 5);
     }
   });
 

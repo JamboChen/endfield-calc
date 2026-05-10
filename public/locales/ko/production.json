@@ -7,6 +7,9 @@
     "pipes": "파이프",
     "tooltip": "필요한 출력 파이프 (분당 {{pipe_rate}}개 용량)"
   },
+  "transport": {
+    "internal": "내부 흐름"
+  },
   "recipe": {
     "inputs": "입력",
     "outputs": "출력",
@@ -32,9 +35,12 @@
     "unmarkRawMaterial": "표시 해제",
     "bin": {
       "slots": "{{slots}} 슬롯",
+      "slotsRaw": "슬롯",
+      "buildings": "동",
       "buildingsExplain": "{{n}}동의 건물이 {{m}}개의 레시피를 공유",
       "grouped": "묶음",
-      "powerSharedExplain": "전력은 묶음의 주 행에만 표시됩니다."
+      "powerSharedExplain": "전력은 묶음의 주 행에만 표시됩니다.",
+      "spanning": "레시피가 {{count}}개의 묶음에 분산:"
     },
     "totals": {
       "buildings": "총 건물 수",

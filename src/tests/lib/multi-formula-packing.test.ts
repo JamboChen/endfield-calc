@@ -468,4 +468,230 @@ describe("packCrucibleBins", () => {
       expect(r.bins[0].isGrouped).toBe(false);
     });
   });
+
+  describe("demand-id semantics on bins (regression)", () => {
+    // When Phase 3 swaps a Phase-2 demand from `_1` (Reactor variant) into
+    // a `_2` (Expanded twin) bin, `bin.recipeIds` must hold the DEMAND
+    // recipe ids (e.g. `lx_1`) not the physical twins (e.g. `lx_2`). This
+    // lets downstream consumers compare against `node.recipeId` (Phase 2's
+    // pick) with plain equality.
+    const items = [
+      item("xiranite_powder"),
+      item("water", { isLiquid: true }),
+      item("liquid_xiranite", { isLiquid: true }),
+    ];
+    const reactor = facility("mix_pool_1", 50, {
+      innerSlots: 5, liquidInPorts: 2, liquidOutPorts: 2, beltOutPorts: 1,
+    });
+    const expanded = facility("mix_pool_2", 100, {
+      innerSlots: 8, liquidInPorts: 2, liquidOutPorts: 2, beltOutPorts: 1,
+    });
+    const lx_1 = recipe("lx_1",
+      [{ itemId: "xiranite_powder", amount: 1 }, { itemId: "water", amount: 1 }],
+      [{ itemId: "liquid_xiranite", amount: 1 }],
+      "mix_pool_1",
+    );
+    const lx_2 = recipe("lx_2",
+      [{ itemId: "xiranite_powder", amount: 1 }, { itemId: "water", amount: 1 }],
+      [{ itemId: "liquid_xiranite", amount: 1 }],
+      "mix_pool_2",
+    );
+
+    test("bin.recipeIds holds Phase-2 demand ids, not physical twins", () => {
+      // With only one demand recipe and no other recipes, no grouping is
+      // beneficial (singleton bin on Reactor wins). This singleton path
+      // exercises the demand-id rule trivially: the bin shows `lx_1`,
+      // the demand recipe id.
+      const slotDemands = new Map<RecipeId, number>([
+        ["lx_1" as RecipeId, 1],
+      ]);
+      const r = packCrucibleBins({
+        recipeSlotDemands: slotDemands,
+        ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
+      });
+      expect(r.bins.length).toBeGreaterThan(0);
+      // Every bin's recipeIds must be a subset of the demand recipe ids.
+      for (const bin of r.bins) {
+        for (const rid of bin.recipeIds) {
+          expect([...slotDemands.keys()]).toContain(rid);
+        }
+      }
+    });
+
+    test("grouped bin with twin swap reports demand recipe ids", () => {
+      // 3-recipe Xircon-style scenario forces ILP onto Expanded; the
+      // demand was on `_1` recipes, so bin.recipeIds must still be the
+      // `_1` ids (not the physical `_2` twins the bin actually runs).
+      const items3 = [
+        item("xiranite_powder"),
+        item("water", { isLiquid: true }),
+        item("liquid_xiranite", { isLiquid: true }),
+        item("liquid_xiranite_poly", { isLiquid: true }),
+        item("liquid_xiranite_lowpoly", { isLiquid: true }),
+        item("liquid_sewage", { isLiquid: true }),
+        item("iron_powder"),
+        item("xiranite_poly"),
+      ];
+      const xe_1 = recipe("xe_1",
+        [{ itemId: "liquid_xiranite", amount: 1 }, { itemId: "liquid_sewage", amount: 1 }],
+        [
+          { itemId: "liquid_xiranite_poly", amount: 1 },
+          { itemId: "liquid_xiranite_lowpoly", amount: 1 },
+        ],
+        "mix_pool_1",
+      );
+      const xe_2 = recipe("xe_2",
+        [{ itemId: "liquid_xiranite", amount: 1 }, { itemId: "liquid_sewage", amount: 1 }],
+        [
+          { itemId: "liquid_xiranite_poly", amount: 1 },
+          { itemId: "liquid_xiranite_lowpoly", amount: 1 },
+        ],
+        "mix_pool_2",
+      );
+      const x_1 = recipe("x_1",
+        [{ itemId: "liquid_xiranite_poly", amount: 2 }, { itemId: "iron_powder", amount: 1 }],
+        [{ itemId: "xiranite_poly", amount: 1 }, { itemId: "liquid_sewage", amount: 1 }],
+        "mix_pool_1",
+      );
+      const x_2 = recipe("x_2",
+        [{ itemId: "liquid_xiranite_poly", amount: 2 }, { itemId: "iron_powder", amount: 1 }],
+        [{ itemId: "xiranite_poly", amount: 1 }, { itemId: "liquid_sewage", amount: 1 }],
+        "mix_pool_2",
+      );
+      const slotDemands = new Map<RecipeId, number>([
+        ["lx_1" as RecipeId, 4],
+        ["xe_1" as RecipeId, 4],
+        ["x_1" as RecipeId, 2],
+      ]);
+      const r = packCrucibleBins({
+        recipeSlotDemands: slotDemands,
+        ...buildMaps(items3, [lx_1, lx_2, xe_1, xe_2, x_1, x_2], [reactor, expanded]),
+      });
+
+      // All bins should be on Expanded (cheaper for grouped Xircon).
+      expect(r.bins.every((b) => b.facilityId === ("mix_pool_2" as FacilityId)))
+        .toBe(true);
+
+      // Every bin's recipeIds must contain Phase-2 demand ids only —
+      // never `lx_2`, `xe_2`, `x_2` (the physical twins).
+      const physicalIds = new Set(["lx_2", "xe_2", "x_2"]);
+      for (const bin of r.bins) {
+        for (const rid of bin.recipeIds) {
+          expect(physicalIds.has(rid as string)).toBe(false);
+          expect(["lx_1", "xe_1", "x_1"]).toContain(rid as string);
+        }
+      }
+    });
+
+    test("sister filter via plain id-equality removes self correctly", () => {
+      // After demand-id semantics, `bin.recipeIds.filter(rid => rid !== self)`
+      // must correctly drop the row's own recipe id. Verifies the off-by-one
+      // count fix (badge said "4 formulas" for a 3-formula bin).
+      const items3 = [
+        item("xiranite_powder"),
+        item("water", { isLiquid: true }),
+        item("liquid_xiranite", { isLiquid: true }),
+        item("liquid_xiranite_poly", { isLiquid: true }),
+        item("liquid_xiranite_lowpoly", { isLiquid: true }),
+        item("liquid_sewage", { isLiquid: true }),
+        item("iron_powder"),
+        item("xiranite_poly"),
+      ];
+      const xe_1 = recipe("xe_1",
+        [{ itemId: "liquid_xiranite", amount: 1 }, { itemId: "liquid_sewage", amount: 1 }],
+        [
+          { itemId: "liquid_xiranite_poly", amount: 1 },
+          { itemId: "liquid_xiranite_lowpoly", amount: 1 },
+        ],
+        "mix_pool_1",
+      );
+      const xe_2 = recipe("xe_2",
+        [{ itemId: "liquid_xiranite", amount: 1 }, { itemId: "liquid_sewage", amount: 1 }],
+        [
+          { itemId: "liquid_xiranite_poly", amount: 1 },
+          { itemId: "liquid_xiranite_lowpoly", amount: 1 },
+        ],
+        "mix_pool_2",
+      );
+      const x_1 = recipe("x_1",
+        [{ itemId: "liquid_xiranite_poly", amount: 2 }, { itemId: "iron_powder", amount: 1 }],
+        [{ itemId: "xiranite_poly", amount: 1 }, { itemId: "liquid_sewage", amount: 1 }],
+        "mix_pool_1",
+      );
+      const x_2 = recipe("x_2",
+        [{ itemId: "liquid_xiranite_poly", amount: 2 }, { itemId: "iron_powder", amount: 1 }],
+        [{ itemId: "xiranite_poly", amount: 1 }, { itemId: "liquid_sewage", amount: 1 }],
+        "mix_pool_2",
+      );
+      const slotDemands = new Map<RecipeId, number>([
+        ["lx_1" as RecipeId, 1],
+        ["xe_1" as RecipeId, 1],
+        ["x_1" as RecipeId, 1],
+      ]);
+      const r = packCrucibleBins({
+        recipeSlotDemands: slotDemands,
+        ...buildMaps(items3, [lx_1, lx_2, xe_1, xe_2, x_1, x_2], [reactor, expanded]),
+      });
+      const tripleBin = r.bins.find((b) => b.recipeIds.length === 3);
+      expect(tripleBin).toBeDefined();
+
+      // Plain id-equality sister filter for each demand recipe.
+      const selfIds = ["lx_1", "xe_1", "x_1"] as unknown as RecipeId[];
+      for (const self of selfIds) {
+        const sisters = tripleBin!.recipeIds.filter((rid) => rid !== self);
+        expect(sisters).toHaveLength(2);
+        expect(sisters).not.toContain(self);
+      }
+    });
+  });
+
+  describe("totals match plan.crucibleBins aggregate", () => {
+    test("Reactor pair: building count and power match bin sum", () => {
+      const items = [
+        item("powder1"),
+        item("powder2"),
+        item("water", { isLiquid: true }),
+        item("lpg1", { isLiquid: true }),
+        item("lpg2", { isLiquid: true }),
+      ];
+      const reactor = facility("mix_pool_1", 50, {
+        innerSlots: 5,
+        liquidInPorts: 2,
+        liquidOutPorts: 2,
+        beltOutPorts: 1,
+      });
+      const grass1 = recipe("grass1_1",
+        [{ itemId: "powder1", amount: 1 }, { itemId: "water", amount: 1 }],
+        [{ itemId: "lpg1", amount: 1 }],
+        "mix_pool_1",
+      );
+      const grass2 = recipe("grass2_1",
+        [{ itemId: "powder2", amount: 1 }, { itemId: "water", amount: 1 }],
+        [{ itemId: "lpg2", amount: 1 }],
+        "mix_pool_1",
+      );
+      const slotDemands = new Map<RecipeId, number>([
+        ["grass1_1" as RecipeId, 1],
+        ["grass2_1" as RecipeId, 1],
+      ]);
+      const r = packCrucibleBins({
+        recipeSlotDemands: slotDemands,
+        ...buildMaps(items, [grass1, grass2], [reactor]),
+      });
+
+      // 1 paired bin = 1 building, 50W. Singleton baseline = 2 buildings, 100W.
+      expect(r.bins.length).toBe(1);
+      expect(r.bins[0].buildingCount).toBe(1);
+      expect(r.bins[0].recipeIds.length).toBe(2);
+
+      // Total computed via reduction matches expected.
+      const totalBuildings = r.bins.reduce((s, b) => s + b.buildingCount, 0);
+      const totalPower = r.bins.reduce((s, b) => {
+        const fac = [reactor].find((f) => f.id === b.facilityId);
+        return s + (fac?.powerConsumption ?? 0) * b.buildingCount;
+      }, 0);
+      expect(totalBuildings).toBe(1);
+      expect(totalPower).toBe(50);
+    });
+  });
 });

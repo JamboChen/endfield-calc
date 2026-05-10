@@ -276,15 +276,23 @@ export function mapPlanToFlowSeparated(
     for (const producer of sorted) {
       if (remainingDemand <= 0.001) break;
 
-      const isBackward = isInSameCycle(producer.recipeId, consumerFacilityId);
-      const isInternal =
-        !isBackward && isCoLocated(producer.recipeId, consumerFacilityId);
+      // Co-location dominates SCC membership: when producer and consumer
+      // are in the same multi-formula bin, the flow is internal (no
+      // transport at all) regardless of whether they happen to be
+      // SCC partners. Visually, internal flows render as dashed
+      // muted edges; backward flows render with cycle styling.
+      // Allocation behaviour is identical (both use forceRunning
+      // byproduct allocation) so the choice is purely a visualisation
+      // preference.
+      const isInternal = isCoLocated(producer.recipeId, consumerFacilityId);
+      const isBackward =
+        !isInternal && isInSameCycle(producer.recipeId, consumerFacilityId);
       const toAllocate = Math.min(remainingDemand, producer.rate);
 
-      const direction: "backward" | "internal" | undefined = isBackward
-        ? "backward"
-        : isInternal
-          ? "internal"
+      const direction: "backward" | "internal" | undefined = isInternal
+        ? "internal"
+        : isBackward
+          ? "backward"
           : undefined;
 
       const actuallyAllocated = allocateFromPool(

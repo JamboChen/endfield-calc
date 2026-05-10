@@ -7,6 +7,9 @@
     "pipes": "tuberías",
     "tooltip": "Tuberías de salida requeridas (capacidad de {{pipe_rate}} artículos/min)"
   },
+  "transport": {
+    "internal": "interno"
+  },
   "recipe": {
     "inputs": "Entradas",
     "outputs": "Salidas",
@@ -32,9 +35,12 @@
     "unmarkRawMaterial": "Desmarcar",
     "bin": {
       "slots": "{{slots}} ranuras",
+      "slotsRaw": "ranuras",
+      "buildings": "edificios",
       "buildingsExplain": "{{n}} edificios comparten {{m}} fórmulas",
       "grouped": "agrupado",
-      "powerSharedExplain": "La energía se cuenta sólo en la fila principal del grupo."
+      "powerSharedExplain": "La energía se cuenta sólo en la fila principal del grupo.",
+      "spanning": "Receta dividida en {{count}} formas de grupo:"
     },
     "totals": {
       "buildings": "Edificios totales",

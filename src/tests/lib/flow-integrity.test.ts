@@ -80,9 +80,16 @@ describe("Phase 3 bin-aware integrity", () => {
     }
   });
 
-  test("internal-flow edges only between same-bin recipes", () => {
+  test("internal-flow edges only between same-bin recipes (and Xircon plan emits at least one)", () => {
     // Sanity invariant: an edge tagged direction='internal' must connect
     // two facility instances whose recipes are in the same bin.
+    //
+    // Positive assertion: the Xircon plan groups LX/XE/X into Expanded
+    // Crucibles, so the separated mapper MUST emit at least one
+    // internal edge (LX → XE, since Liquid Xiranite is fully internal
+    // to the {LX, XE, X} bin). A regression that breaks the
+    // co-location detection (e.g. id-vs-signature mismatch) would
+    // produce zero internal edges and the test should catch it.
     const plan = calculateProductionPlan(
       [{ itemId: "item_xiranite_poly" as ItemId, rate: 5 }],
       items,
@@ -102,9 +109,11 @@ describe("Phase 3 bin-aware integrity", () => {
       return m ? m[1] : null;
     };
 
+    let internalCount = 0;
     for (const edge of flow.edges) {
       const data = edge.data as { direction?: string } | undefined;
       if (data?.direction !== "internal") continue;
+      internalCount += 1;
       const srcRecipe = recipeIdFromFacilityId(edge.source);
       const tgtRecipe = recipeIdFromFacilityId(edge.target);
       if (!srcRecipe || !tgtRecipe) continue;
@@ -116,5 +125,10 @@ describe("Phase 3 bin-aware integrity", () => {
       expect(tgtBin).toBeDefined();
       expect(srcBin).toBe(tgtBin);
     }
+
+    // Positive assertion: at least one internal edge exists in the
+    // grouped Xircon plan. Catches regressions where co-location
+    // detection silently fails (e.g. demand-vs-physical id mismatch).
+    expect(internalCount).toBeGreaterThan(0);
   });
 });

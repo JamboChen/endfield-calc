@@ -288,6 +288,7 @@ export function useProductionPlan() {
     recipes,
     recipeOverrides,
     manualRawMaterials,
+    facilities,
     invalidCycleItemIds,
   );
 

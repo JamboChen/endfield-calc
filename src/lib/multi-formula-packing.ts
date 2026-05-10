@@ -371,15 +371,29 @@ const solvePacking = (
     const allowedRecipeIds = new Set<RecipeId>();
     for (const r of cls.alternatives) allowedRecipeIds.add(r.id);
     // Recipe-override pinning: if any item's override pins a specific
-    // variant of this class, only that variant is allowed.
+    // variant of this class, only that variant is allowed. If multiple
+    // overrides target the same equivalence class with conflicting
+    // variants, the last iteration wins; warn in dev so unusual setups
+    // surface instead of silently honouring one arbitrary pin.
     if (recipeOverrides) {
+      const classSig = recipeSignature(cls.canonicalRecipe);
+      const matchingOverrides: RecipeId[] = [];
       for (const [, overrideRecipeId] of recipeOverrides.entries()) {
         const overrideRecipe = recipeMap.get(overrideRecipeId);
         if (!overrideRecipe) continue;
-        if (recipeSignature(overrideRecipe) === recipeSignature(cls.canonicalRecipe)) {
-          allowedRecipeIds.clear();
-          allowedRecipeIds.add(overrideRecipeId);
+        if (recipeSignature(overrideRecipe) === classSig) {
+          matchingOverrides.push(overrideRecipeId);
         }
+      }
+      if (matchingOverrides.length > 0) {
+        const distinct = new Set(matchingOverrides);
+        if (distinct.size > 1 && import.meta.env?.DEV) {
+          console.warn(
+            `[CRUCIBLE_PACKING] multiple overrides target the same equivalence class (${classSig}); honouring last: ${matchingOverrides[matchingOverrides.length - 1]}`,
+          );
+        }
+        allowedRecipeIds.clear();
+        allowedRecipeIds.add(matchingOverrides[matchingOverrides.length - 1]);
       }
     }
     const shapeIdxs: number[] = [];
@@ -454,7 +468,16 @@ const solvePacking = (
   }
   if (r1.feasible !== true || r1.bounded === false) return null;
 
-  const buildingsOpt = r1.result as number;
+  if (typeof r1.result !== "number" || !Number.isFinite(r1.result)) {
+    if (import.meta.env?.DEV) {
+      console.warn(
+        "[CRUCIBLE_PACKING] pass-1 returned a non-finite objective; aborting",
+        r1.result,
+      );
+    }
+    return null;
+  }
+  const buildingsOpt = r1.result;
 
   // Pass 2: minimise power subject to total buildings ≤ pass-1 optimum.
   const passTwo: Model = {
@@ -506,16 +529,21 @@ const solvePacking = (
 };
 
 /**
- * Distribute slot demand across chosen bins using a greedy fill.
+ * Distribute slot demand across chosen bins using a greedy fill, then
+ * materialise `CrucibleBin[]` with bin.recipeIds rewritten to **demand
+ * recipe ids** (Phase 2's pick) — not the physical twin variant the ILP
+ * packed.
  *
- * Allocations are keyed by **demand recipe id** (the recipe id the
- * caller passed in via `recipeSlotDemands`, i.e. Phase 2's pick) — not
- * by the physical variant the ILP packed into the bin. This decouples
- * Phase 3's output from Phase 2's recipe choice: e.g. the LP may have
- * picked `lx_1` (Reactor variant) but Phase 3 may pack into a bin of
- * `lx_2` (Expanded twin). The allocation entry under `lx_1` correctly
- * reports the demand as satisfied; the bin's `recipeIds` reflects the
- * physical variant.
+ * The demand-id rewrite is the central correctness fix: downstream
+ * consumers (calculator graph, mappers, table) only have access to
+ * Phase 2's recipe ids. They compare against `bin.recipeIds` for
+ * sister-filtering, primary-row determination, and internal-edge
+ * tagging. Storing physical ids here would silently break every such
+ * comparison whenever Phase 3 swaps variants (e.g. demand on `lx_1`
+ * but bin physically runs `lx_2` on Expanded). The bin's
+ * `facilityId` separately records the physical facility for power /
+ * building-count purposes — that's the only thing that needs to be
+ * physical.
  *
  * Each building of a bin provides 1 slot of EACH of its constituent
  * recipes per cycle. Per-bin per-recipe budgets are tracked
@@ -524,13 +552,7 @@ const solvePacking = (
 const allocateSlotsToBins = (
   shapeCounts: Map<BinShape, number>,
   classes: Array<{ slotDemand: number; alternatives: Recipe[]; canonicalRecipe: Recipe; demandByRecipeId: Map<RecipeId, number> }>,
-  recipeMap: Map<RecipeId, Recipe>,
-  itemMap: Map<ItemId, Item>,
 ): { bins: CrucibleBin[]; allocations: Map<RecipeId, RecipeBinAllocation> } => {
-  // Materialise bins (one per shape, with buildingCount).
-  const bins: CrucibleBin[] = [];
-  const shapeBinId = new Map<BinShape, string>();
-  let emitIdx = 0;
   // Sort shapes deterministically: facility id, then size desc, then recipe ids.
   const sortedShapes = Array.from(shapeCounts.keys()).sort((a, b) => {
     if (a.facility.id !== b.facility.id) {
@@ -544,17 +566,94 @@ const allocateSlotsToBins = (
     return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
   });
 
-  for (const shape of sortedShapes) {
+  // Per equivalence class, allocate slot demand to physical-recipe slot
+  // budgets within bins. Each building of a bin provides 1 slot of EACH
+  // constituent recipe per cycle; classes drain only the budget for
+  // their member recipes, leaving other constituents' budgets untouched.
+  type AllocEntry = {
+    /** Demand recipe id (Phase 2's pick) — keys the allocation map. */
+    demandRecipeId: RecipeId;
+    /** Physical recipe id picked by ILP — used to dedupe co-locations. */
+    physicalRecipeId: RecipeId;
+    binId: string;
+    slots: number;
+  };
+  const allocEntries: AllocEntry[] = [];
+
+  // Map shape → tentative bin id (assigned in deterministic order).
+  const shapeIdByPosition: string[] = [];
+  sortedShapes.forEach((shape, idx) => {
     const count = shapeCounts.get(shape) ?? 0;
-    if (count <= 0) continue;
-    const id = makeBinId(shape.facility.id, shape.recipeIds, emitIdx++);
-    shapeBinId.set(shape, id);
+    if (count <= 0) return;
+    shapeIdByPosition[idx] = makeBinId(shape.facility.id, shape.recipeIds, idx);
+  });
+
+  // Per-bin, per-physical-recipe slot budget.
+  const remainingPerBinPerRecipe = new Map<string, Map<RecipeId, number>>();
+  sortedShapes.forEach((shape, idx) => {
+    const count = shapeCounts.get(shape) ?? 0;
+    if (count <= 0) return;
+    const binId = shapeIdByPosition[idx];
+    const perRecipe = new Map<RecipeId, number>();
+    for (const rid of shape.recipeIds) perRecipe.set(rid, count);
+    remainingPerBinPerRecipe.set(binId, perRecipe);
+  });
+
+  for (const cls of classes) {
+    const allowed = new Set(cls.alternatives.map((r) => r.id));
+    for (const [demandRecipeId, demand] of cls.demandByRecipeId.entries()) {
+      let remaining = demand;
+      sortedShapes.forEach((shape, idx) => {
+        if (remaining <= SLOT_DEMAND_EPSILON) return;
+        const count = shapeCounts.get(shape) ?? 0;
+        if (count <= 0) return;
+        const binId = shapeIdByPosition[idx];
+        const memberRecipeId = shape.recipeIds.find((rid) => allowed.has(rid));
+        if (!memberRecipeId) return;
+        const perRecipe = remainingPerBinPerRecipe.get(binId)!;
+        const cap = perRecipe.get(memberRecipeId) ?? 0;
+        if (cap <= SLOT_DEMAND_EPSILON) return;
+        const take = Math.min(cap, remaining);
+        perRecipe.set(memberRecipeId, cap - take);
+        remaining -= take;
+        allocEntries.push({
+          demandRecipeId,
+          physicalRecipeId: memberRecipeId,
+          binId,
+          slots: take,
+        });
+      });
+    }
+  }
+
+  // Materialise CrucibleBin[] with `recipeIds` populated from the demand
+  // ids that allocate to this bin (sorted, deduped). Skip shapes with no
+  // allocations (could happen if the ILP picked a shape but the greedy
+  // allocator didn't drain anything into it — defensive only; should be
+  // unreachable given that ILP shape counts equal slot supplies).
+  const binDemandIds = new Map<string, Set<RecipeId>>();
+  for (const e of allocEntries) {
+    let s = binDemandIds.get(e.binId);
+    if (!s) {
+      s = new Set();
+      binDemandIds.set(e.binId, s);
+    }
+    s.add(e.demandRecipeId);
+  }
+
+  const bins: CrucibleBin[] = [];
+  sortedShapes.forEach((shape, idx) => {
+    const count = shapeCounts.get(shape) ?? 0;
+    if (count <= 0) return;
+    const binId = shapeIdByPosition[idx];
+    const demandIds = Array.from(binDemandIds.get(binId) ?? []).sort();
+    if (demandIds.length === 0) return;
     bins.push({
-      id,
+      id: binId,
       facilityId: shape.facility.id,
-      recipeIds: shape.recipeIds,
+      recipeIds: demandIds,
       buildingCount: count,
-      // Scale net I/O by buildingCount (per-slot rate × number of buildings = total bin rate).
+      // Scale net I/O by buildingCount (per-slot rate × buildings = total bin rate).
       externalInputs: shape.netInputs.map((io) => ({
         itemId: io.itemId,
         rate: io.rate * count,
@@ -569,61 +668,19 @@ const allocateSlotsToBins = (
       innerSlotsUsed: shape.innerSlotsUsed,
       isGrouped: shape.recipeIds.length >= 2,
     });
-  }
-
-  // Per equivalence class, allocate slot demand to bins greedily.
-  // Each building of a bin provides 1 slot of EACH constituent recipe per
-  // cycle, so per-bin capacity is tracked PER recipe (not as a shared total
-  // across constituents). Classes drain only the budget for their member
-  // recipes, leaving other constituents' budgets untouched.
-  type AllocEntry = { recipeId: RecipeId; binId: string; slots: number };
-  const allocEntries: AllocEntry[] = [];
-  const remainingPerBinPerRecipe = new Map<string, Map<RecipeId, number>>();
-  for (const bin of bins) {
-    const perRecipe = new Map<RecipeId, number>();
-    for (const rid of bin.recipeIds) perRecipe.set(rid, bin.buildingCount);
-    remainingPerBinPerRecipe.set(bin.id, perRecipe);
-  }
-
-  for (const cls of classes) {
-    const allowed = new Set(cls.alternatives.map((r) => r.id));
-    // Iterate over each demand recipe in this class, draining its
-    // demand from bins. We key allocations by the original demand
-    // recipe id so downstream consumers can locate Phase-2's nodes.
-    for (const [demandRecipeId, demand] of cls.demandByRecipeId.entries()) {
-      let remaining = demand;
-      for (const bin of bins) {
-        if (remaining <= SLOT_DEMAND_EPSILON) break;
-        const memberRecipeId = bin.recipeIds.find((rid) => allowed.has(rid));
-        if (!memberRecipeId) continue;
-        const perRecipe = remainingPerBinPerRecipe.get(bin.id)!;
-        const cap = perRecipe.get(memberRecipeId) ?? 0;
-        if (cap <= SLOT_DEMAND_EPSILON) continue;
-        const take = Math.min(cap, remaining);
-        perRecipe.set(memberRecipeId, cap - take);
-        remaining -= take;
-        allocEntries.push({ recipeId: demandRecipeId, binId: bin.id, slots: take });
-      }
-    }
-  }
+  });
 
   // Build allocation map (keyed by demand recipe id).
   const allocations = new Map<RecipeId, RecipeBinAllocation>();
   for (const e of allocEntries) {
-    let cur = allocations.get(e.recipeId);
+    let cur = allocations.get(e.demandRecipeId);
     if (!cur) {
-      cur = { recipeId: e.recipeId, totalSlots: 0, perBin: [] };
-      allocations.set(e.recipeId, cur);
+      cur = { recipeId: e.demandRecipeId, totalSlots: 0, perBin: [] };
+      allocations.set(e.demandRecipeId, cur);
     }
     cur.totalSlots += e.slots;
     cur.perBin.push({ binId: e.binId, slots: e.slots });
   }
-
-  // Defensive: items unused in shapes but present in itemMap don't affect
-  // anything here; itemMap is only used by enumeration. (Keep parameter
-  // for symmetry with future enhancements.)
-  void recipeMap;
-  void itemMap;
 
   return { bins, allocations };
 };
@@ -774,12 +831,7 @@ export const packCrucibleBins = (input: PackingInput): PackingResult => {
     );
   }
 
-  const packed = allocateSlotsToBins(
-    solution.shapeCounts,
-    classes,
-    recipeMap,
-    itemMap,
-  );
+  const packed = allocateSlotsToBins(solution.shapeCounts, classes);
   const singletons = emitSingletonBins(
     recipeSlotDemands,
     packed.allocations,

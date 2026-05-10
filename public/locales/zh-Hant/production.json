@@ -7,6 +7,9 @@
     "pipes": "條管道",
     "tooltip": "所需輸出管道（每分鐘{{pipe_rate}}個物品容量）"
   },
+  "transport": {
+    "internal": "內部流轉"
+  },
   "recipe": {
     "inputs": "輸入",
     "outputs": "產出",
@@ -32,9 +35,12 @@
     "unmarkRawMaterial": "取消標記",
     "bin": {
       "slots": "{{slots}} 槽位",
+      "slotsRaw": "槽位",
+      "buildings": "座建築",
       "buildingsExplain": "{{n}} 座建築共享 {{m}} 個配方",
       "grouped": "已組合",
-      "powerSharedExplain": "功耗僅在主列顯示。"
+      "powerSharedExplain": "功耗僅在主列顯示。",
+      "spanning": "配方分佈於 {{count}} 個組合："
     },
     "totals": {
       "buildings": "建築總數",

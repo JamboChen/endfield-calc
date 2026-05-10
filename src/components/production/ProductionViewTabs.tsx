@@ -16,11 +16,11 @@ import type {
   ProductionDependencyGraph,
   VisualizationMode,
 } from "@/types";
-import type { ProductionLineData } from "./ProductionTable";
+import type { ProductionTableData } from "@/hooks/useProductionTable";
 
 interface ProductionViewTabsProps {
   plan: ProductionDependencyGraph | null;
-  tableData: ProductionLineData[];
+  tableData: ProductionTableData;
   items: Item[];
   facilities: Facility[];
   activeTab: "table" | "tree";
@@ -146,7 +146,8 @@ export default function ProductionViewTabs({
               )}
               <div className="h-full overflow-auto">
                 <ProductionTable
-                  data={tableData}
+                  data={tableData.rows}
+                  totals={tableData.totals}
                   items={items}
                   facilities={facilities}
                   onRecipeChange={onRecipeChange}
