@@ -38,7 +38,7 @@ import {
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate } from "@/lib/utils";
-import { pickBinHeadlineOutput } from "@/lib/plan-helpers";
+import { buildBinActivitySums, pickBinHeadlineOutput } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
 
 /**
@@ -185,6 +185,12 @@ export function mapPlanToFlowBinFused(
     allocated.set(itemId, out);
   }
 
+  // Per-bin sum of recipe activities — used in ceilMode=OFF to show
+  // mean activity on grouped bin cards instead of the integer
+  // `bin.buildingCount`. Mirrors `aggregateBinTotals`' ceilMode=OFF
+  // accounting so the card label matches the stats / table footer.
+  const sumByBin = buildBinActivitySums(plan);
+
   // Emit production-bin nodes.
   for (const bin of productionBins) {
     const headline = pickBinHeadlineOutput(bin, items, recipes, targetItemIds);
@@ -212,6 +218,20 @@ export function mapPlanToFlowBinFused(
           }))
       : undefined;
 
+    // Card-displayed building count:
+    //   - ceilMode=ON: physical `bin.buildingCount` (integer for grouped
+    //     bins, fractional for singletons on no-capabilities facilities).
+    //   - ceilMode=OFF: mean of per-recipe activities (sum_activities /
+    //     recipe_count). Reduces to `bin.buildingCount` for singletons;
+    //     for grouped bins, surfaces partial-load info that the integer
+    //     count would otherwise hide. Bounded above by `bin.buildingCount`
+    //     so it never exceeds the ceilMode=ON value.
+    const recipeCount = Math.max(1, bin.recipeIds.length);
+    const sumActivities = sumByBin.get(bin.id) ?? bin.buildingCount;
+    const facilityCount = ceilMode
+      ? bin.buildingCount
+      : sumActivities / recipeCount;
+
     flowNodes.push(
       createProductionFlowNode(
         bin.id,
@@ -220,7 +240,7 @@ export function mapPlanToFlowBinFused(
           targetRate: headlineRate,
           recipe: headlineRecipe,
           facility,
-          facilityCount: bin.buildingCount,
+          facilityCount,
           isRawMaterial: false,
           isTarget: targetItemIds.has(headline.itemId),
           dependencies: [],

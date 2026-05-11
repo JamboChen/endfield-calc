@@ -361,6 +361,100 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(waterOnBin).toBeDefined();
     expect(waterOnBin!.rate).toBeGreaterThan(0);
   });
+
+  test("ceilMode=OFF: grouped bin card shows mean(activities), not integer bin.buildingCount", () => {
+    // bf=1 ceilMode=OFF surfaces partial-load info that the integer
+    // `bin.buildingCount` hides for grouped bins. The Xircon {LX, XE, X}
+    // bin at target=57 hosts activities (LX=2, XE=2, X=1.9) across 2
+    // physical buildings; mean = 5.9 / 3 ≈ 1.967, which is what the
+    // card's facilityCount should report when ceilMode=OFF.
+    //
+    // ceilMode=ON: card shows the integer 2 (physical).
+    // ceilMode=OFF: card shows ≈ 1.967 (mean activity).
+    // Invariant: ceilMode=OFF value ≤ ceilMode=ON value, always.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 57 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flowOff = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map(),
+      false,
+    );
+    const flowOn = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map(),
+      true,
+    );
+
+    const xirconBin = plan.crucibleBins.find(
+      (b) =>
+        b.isGrouped &&
+        b.recipeIds.length === 3 &&
+        b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
+    );
+    expect(xirconBin).toBeDefined();
+
+    const offNode = flowOff.nodes.find((n) => n.id === xirconBin!.id);
+    const onNode = flowOn.nodes.find((n) => n.id === xirconBin!.id);
+    expect(offNode).toBeDefined();
+    expect(onNode).toBeDefined();
+
+    const offFacilityCount = (offNode!.data as {
+      productionNode?: { facilityCount: number };
+    }).productionNode!.facilityCount;
+    const onFacilityCount = (onNode!.data as {
+      productionNode?: { facilityCount: number };
+    }).productionNode!.facilityCount;
+
+    // ceilMode=OFF: mean activity ≈ 1.967.
+    expect(offFacilityCount).toBeCloseTo(1.967, 2);
+    // ceilMode=ON: physical buildingCount = 2.
+    expect(onFacilityCount).toBe(2);
+    // Invariant: OFF ≤ ON.
+    expect(offFacilityCount).toBeLessThanOrEqual(onFacilityCount);
+  });
+
+  test("ceilMode=OFF: singleton bin card facilityCount = bin.buildingCount (no change)", () => {
+    // For singleton bins (1 recipe), mean = sum / 1 = sum = bin.buildingCount.
+    // The Purifier bin (LIQUID_PURIFIER_XIRANITE_POLY_1, ~0.76 buildings at
+    // target=57) is a singleton; the card should show 0.76 regardless of
+    // ceilMode.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 57 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flowOff = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map(),
+      false,
+    );
+    const purifierBin = plan.crucibleBins.find(
+      (b) =>
+        b.recipeIds.length === 1 &&
+        b.facilityId === ("item_port_liquid_purifier_1" as never),
+    );
+    expect(purifierBin).toBeDefined();
+    const node = flowOff.nodes.find((n) => n.id === purifierBin!.id);
+    expect(node).toBeDefined();
+    const facilityCount = (node!.data as {
+      productionNode?: { facilityCount: number };
+    }).productionNode!.facilityCount;
+    expect(facilityCount).toBeCloseTo(purifierBin!.buildingCount, 6);
+  });
 });
 
 describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {

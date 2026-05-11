@@ -9,7 +9,7 @@ import type {
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
 import { calcRate } from "@/lib/utils";
-import { getRecipeInputItemId } from "@/lib/plan-helpers";
+import { aggregateBinTotals, getRecipeInputItemId } from "@/lib/plan-helpers";
 
 type MergedItemNode = {
   itemId: ItemId;
@@ -196,6 +196,7 @@ export function useProductionTable(
   manualRawMaterials: Set<ItemId>,
   facilities: Facility[] = [],
   invalidCycleItemIds: Set<ItemId> = new Set(),
+  ceilMode: boolean = false,
 ): ProductionTableData {
   return useMemo(() => {
     if (!plan || plan.nodes.size === 0) {
@@ -335,47 +336,24 @@ export function useProductionTable(
       });
     });
 
-    // Plan-level totals computed from `plan.crucibleBins` directly. This
-    // is the single source of truth for total buildings and power, since
-    // bin entries are emitted per-physical-shape with deterministic
-    // building counts. Deriving from rows would undercount split
-    // allocations. Disposal recipes go through emitSingletonBins, so
-    // they're already counted via `plan.crucibleBins`.
-    const facilityById = new Map(facilities.map((f) => [f.id, f]));
-    let totalBuildings = 0;
-    let totalPower = 0;
-
-    // Multi-formula baseline = "what if every multi-formula recipe ran
-    // in its own building". Compared against actual multi-formula bin
-    // counts to derive `groupedSavings`.
-    let multiFormulaBaseline = 0;
-    for (const node of sortedNodes) {
-      if (node.isRawMaterial) continue;
-      if (manualRawMaterials.has(node.itemId)) continue;
-      const recipeNode = node.recipeId
-        ? plan.nodes.get(node.recipeId)
-        : undefined;
-      if (recipeNode?.type !== "recipe") continue;
-      const fac = facilityById.get(recipeNode.facility.id);
-      if (fac?.capabilities) {
-        multiFormulaBaseline += Math.ceil(node.totalFacilityCount);
-      }
-    }
-
-    let multiFormulaActual = 0;
-    for (const bin of plan.crucibleBins) {
-      const fac = facilityById.get(bin.facilityId);
-      if (!fac) continue;
-      const buildings = Math.ceil(bin.buildingCount);
-      totalBuildings += buildings;
-      totalPower += fac.powerConsumption * bin.buildingCount;
-      if (fac.capabilities) multiFormulaActual += buildings;
-    }
-    const groupedSavings = Math.max(0, multiFormulaBaseline - multiFormulaActual);
+    // Plan-level totals come from the shared `aggregateBinTotals` helper
+    // in plan-helpers.ts — same numbers `useProductionStats` consumes,
+    // so the table footer and stats panel cannot drift. `ceilMode`
+    // controls physical-vs-theoretical building/power accounting.
+    const aggregates = aggregateBinTotals(plan, facilities, { ceilMode });
+    const groupedSavings = Math.max(
+      0,
+      aggregates.multiFormulaBaselineBuildings -
+        aggregates.multiFormulaActualBuildings,
+    );
 
     return {
       rows: [...itemRows, ...disposalRows],
-      totals: { totalBuildings, totalPower, groupedSavings },
+      totals: {
+        totalBuildings: aggregates.totalBuildings,
+        totalPower: aggregates.totalPower,
+        groupedSavings,
+      },
     };
-  }, [plan, recipes, recipeOverrides, manualRawMaterials, facilities, invalidCycleItemIds]);
+  }, [plan, recipes, recipeOverrides, manualRawMaterials, facilities, invalidCycleItemIds, ceilMode]);
 }

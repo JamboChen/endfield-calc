@@ -3,12 +3,184 @@ import type {
   ProductionGraphNode,
   ProductionNode,
   CrucibleBin,
+  Facility,
+  FacilityId,
   ItemId,
   RecipeId,
   Item,
   Recipe,
 } from "@/types";
 import { calcRate } from "@/lib/utils";
+
+/**
+ * Bin-level plan aggregates derived from `plan.crucibleBins`. Single
+ * source of truth for "how many physical buildings", "how much power",
+ * and "what's the per-facility breakdown" — consumed by both
+ * `useProductionStats` (the side-panel statistics card) and
+ * `useProductionTable` (the table footer totals).
+ *
+ * Keeping both hooks anchored to the same aggregator prevents the two
+ * from drifting (which is what produced the "Expanded Crucible: 3" bug
+ * at Xircon target=6 — the stats hook used to count per-recipe-ceiled
+ * `node.facilityCount` and triple-counted shared bins).
+ *
+ * The aggregator accepts a `ceilMode` flag that toggles between
+ * "physical" (whole buildings, full power per built building) and
+ * "theoretical" (fractional buildings, proportional power) views.
+ * Mode-dependent fields: `totalBuildings`, `totalPower`, `perFacility`.
+ * Mode-independent fields: `multiFormulaActualBuildings` and
+ * `multiFormulaBaselineBuildings` always count whole buildings — the
+ * "buildings saved" metric they feed is only physically meaningful at
+ * the integer level.
+ */
+export type BinAggregates = {
+  /**
+   * Σ effective bin building count across every bin.
+   * - `ceilMode=true`: Σ `Math.max(1, Math.ceil(bin.buildingCount))`.
+   * - `ceilMode=false`: Σ `mean(recipe activities in bin)` — the bin's
+   *   sum of per-recipe slot allocations divided by recipe count.
+   *   For singletons this collapses to `bin.buildingCount`; for grouped
+   *   bins it's strictly ≤ `bin.buildingCount`.
+   */
+  totalBuildings: number;
+  /**
+   * Σ `facility.powerConsumption × effective buildings` across bins.
+   * - `ceilMode=true`: each built (ceiled) building pays full power.
+   * - `ceilMode=false`: power scales with the bin's mean activity — a
+   *   half-utilised grouped bin draws half its physical power
+   *   complement.
+   */
+  totalPower: number;
+  /**
+   * Per-facility-id sum of effective building counts. Same ceilMode
+   * semantics as `totalBuildings`. One entry per facility hosting at
+   * least one bin. Used by the stats panel's per-facility breakdown.
+   */
+  perFacility: Map<FacilityId, number>;
+  /**
+   * Σ `Math.max(1, Math.ceil(bin.buildingCount))` for bins on
+   * facilities with `capabilities` (multi-formula-eligible). Always
+   * ceiled — this is the "physically built multi-formula buildings"
+   * counterfactual half of the groupedSavings calculation.
+   */
+  multiFormulaActualBuildings: number;
+  /**
+   * Σ `Math.ceil(node.facilityCount)` over recipe nodes whose facility
+   * has `capabilities` — i.e. "what would total be if every recipe ran
+   * in its own building, no grouping". Always ceiled (physical
+   * counterfactual). Subtracting `multiFormulaActualBuildings` from
+   * this gives groupedSavings.
+   */
+  multiFormulaBaselineBuildings: number;
+};
+
+/**
+ * Build a per-bin sum of recipe slot activities from
+ * `plan.recipeBinAllocations`. Used by the ceilMode=OFF branch of
+ * `aggregateBinTotals` and by the bin-fused-mapper's merged path to
+ * report each grouped bin's mean activity rather than the integer
+ * physical `buildingCount`.
+ *
+ * For singleton bins this returns `bin.buildingCount` (one recipe → one
+ * entry equals the bin's own count). For grouped bins it's the sum of
+ * per-recipe slot allocations the greedy allocator drained into this
+ * bin, which is bounded above by `recipeCount × bin.buildingCount`.
+ */
+export function buildBinActivitySums(
+  plan: ProductionDependencyGraph,
+): Map<string, number> {
+  const sumByBin = new Map<string, number>();
+  for (const alloc of plan.recipeBinAllocations.values()) {
+    for (const entry of alloc.perBin) {
+      sumByBin.set(
+        entry.binId,
+        (sumByBin.get(entry.binId) ?? 0) + entry.slots,
+      );
+    }
+  }
+  return sumByBin;
+}
+
+/**
+ * Aggregate `plan.crucibleBins` into building / power / per-facility
+ * counts. Pure function; both `useProductionStats` and
+ * `useProductionTable` call this so they cannot drift.
+ *
+ * `options.ceilMode` controls the rounding semantic:
+ *   - `true` (physical view): each bin contributes
+ *     `Math.max(1, Math.ceil(bin.buildingCount))` buildings, and pays
+ *     full power per ceiled building. A tiny 0.05-building Purifier
+ *     counts as 1 building drawing 50W (its full rating).
+ *   - `false` (theoretical / mean-activity view): each bin contributes
+ *     the **mean** of its constituent recipes' active slot allocations
+ *     (`sum_activities / recipe_count`). For singleton bins this
+ *     reduces to `bin.buildingCount` (no change). For grouped bins it
+ *     surfaces partial-load information that the integer bin count
+ *     hides — a `{LX, XE, X}` bin with activities (2, 2, 1.9) shows
+ *     `5.9 / 3 ≈ 1.967` instead of `2`. By construction
+ *     `mean ≤ bin.buildingCount`, so ceilMode=OFF values never exceed
+ *     ceilMode=ON values.
+ *
+ * `multiFormulaActualBuildings` and `multiFormulaBaselineBuildings`
+ * are always ceiled regardless of `ceilMode` — they represent
+ * physical building counts in the "savings vs no-grouping baseline"
+ * comparison, which only makes sense as integers.
+ *
+ * `multiFormulaBaselineBuildings` iterates production-graph recipe
+ * nodes (not item nodes) so each recipe contributes once even when
+ * multiple recipes co-produce an item or feeders are added by the SCC
+ * solver.
+ */
+export function aggregateBinTotals(
+  plan: ProductionDependencyGraph,
+  facilities: Facility[],
+  options: { ceilMode?: boolean } = {},
+): BinAggregates {
+  const { ceilMode = false } = options;
+  const facilityById = new Map(facilities.map((f) => [f.id, f] as const));
+  const sumByBin = buildBinActivitySums(plan);
+
+  let totalBuildings = 0;
+  let totalPower = 0;
+  let multiFormulaActualBuildings = 0;
+  const perFacility = new Map<FacilityId, number>();
+
+  for (const bin of plan.crucibleBins) {
+    const facility = facilityById.get(bin.facilityId);
+    if (!facility) continue;
+    const ceiledBuildings = Math.max(1, Math.ceil(bin.buildingCount));
+    const recipeCount = Math.max(1, bin.recipeIds.length);
+    const sumActivities = sumByBin.get(bin.id) ?? bin.buildingCount;
+    const meanActivity = sumActivities / recipeCount;
+    const effectiveBuildings = ceilMode ? ceiledBuildings : meanActivity;
+    totalBuildings += effectiveBuildings;
+    totalPower += facility.powerConsumption * effectiveBuildings;
+    perFacility.set(
+      facility.id,
+      (perFacility.get(facility.id) ?? 0) + effectiveBuildings,
+    );
+    if (facility.capabilities) {
+      // Always-ceiled — groupedSavings is a physical-buildings comparison.
+      multiFormulaActualBuildings += ceiledBuildings;
+    }
+  }
+
+  let multiFormulaBaselineBuildings = 0;
+  plan.nodes.forEach((node) => {
+    if (node.type !== "recipe") return;
+    if (node.facility?.capabilities) {
+      multiFormulaBaselineBuildings += Math.ceil(node.facilityCount);
+    }
+  });
+
+  return {
+    totalBuildings,
+    totalPower,
+    perFacility,
+    multiFormulaActualBuildings,
+    multiFormulaBaselineBuildings,
+  };
+}
 
 /**
  * Byproduct entry as rendered by `CustomProductionNode`. `amount` is the

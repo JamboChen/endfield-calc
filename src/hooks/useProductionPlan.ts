@@ -300,7 +300,13 @@ export function useProductionPlan() {
   }, [plan]);
 
   // View-specific data: computed in view layer hooks
-  const stats = useProductionStats(displayPlan, manualRawMaterials, ceilMode, items);
+  const stats = useProductionStats(
+    displayPlan,
+    manualRawMaterials,
+    facilities,
+    items,
+    ceilMode,
+  );
   const tableData = useProductionTable(
     displayPlan,
     recipes,
@@ -308,6 +314,7 @@ export function useProductionPlan() {
     manualRawMaterials,
     facilities,
     invalidCycleItemIds,
+    ceilMode,
   );
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
