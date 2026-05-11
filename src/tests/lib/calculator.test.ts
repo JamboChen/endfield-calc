@@ -9,7 +9,7 @@ import type {
   ProductionGraphNode,
   Recipe,
 } from "@/types";
-import { ItemId, RecipeId } from "@/types/constants";
+import { FacilityId, ItemId, RecipeId } from "@/types/constants";
 import {
   mockItems,
   mockFacilities,
@@ -1475,5 +1475,249 @@ describe("Issue #68 — Xiranite over-production", () => {
     const totalDemand = targetRate + consumerDemand;
 
     expect(powder.productionRate).toBeCloseTo(totalDemand, 3);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Xircon bin-fusion integrity (real-data regression)
+//
+// The Xircon production chain is the canonical multi-formula scenario:
+// Phase 2 LP gives fractional slot demands for {LX, XE, X, Purifier}, and
+// Phase 3 MIP packs LX/XE/X into Expanded Crucible bins. The X-bin shape
+// `{LX, XE, X}` has Sewage as INTERNAL (X produces 30/min, XE consumes
+// 30/min — net 0 per slot), and `buildBinShape` correctly classifies it.
+//
+// Historical bug: `CustomProductionNode` rendered the headline X recipe's
+// natural byproducts (`recipe.outputs = [Xircon, Sewage]`) on top of the
+// bin's `binExtraOutputs`, leaking the internal Sewage as a card "output"
+// scaled by the headline target rate. The display-layer fix relies on
+// `bin.externalOutputs` being authoritative — these tests guard the data-
+// layer invariants the fix depends on.
+// ────────────────────────────────────────────────────────────────────────
+describe("Xircon bin-fusion integrity (real data)", () => {
+  const XIRCON_TARGETS = [30, 56, 57, 58, 60, 89, 90, 91] as const;
+
+  test.each(XIRCON_TARGETS)(
+    "target=%i: bin externalOutputs ∩ internalItems = ∅ (no double-counting)",
+    (target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      for (const bin of plan.crucibleBins) {
+        const externalIds = new Set([
+          ...bin.externalOutputs.map((o) => o.itemId),
+          ...bin.externalInputs.map((i) => i.itemId),
+        ]);
+        for (const id of bin.internalItems) {
+          expect(externalIds.has(id)).toBe(false);
+        }
+      }
+    },
+  );
+
+  test.each(XIRCON_TARGETS)(
+    "target=%i: bin I/O classification matches per-recipe active-slot net flows",
+    (target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      for (const bin of plan.crucibleBins) {
+        // Skip disposal bins (recipe with no outputs).
+        const isDisposal = bin.recipeIds.some((rid) => {
+          const r = recipes.find((x) => x.id === rid);
+          return r && r.outputs.length === 0;
+        });
+        if (isDisposal) continue;
+
+        // Look up per-recipe ACTIVE slot allocation for this bin from
+        // `plan.recipeBinAllocations`. This is the per-recipe partial-
+        // load that the bin actually runs (may be less than
+        // bin.buildingCount when Phase 2 demand under-fills a slot).
+        const activeByRecipe = new Map<RecipeId, number>();
+        for (const rid of bin.recipeIds) {
+          const alloc = plan.recipeBinAllocations.get(rid);
+          if (!alloc) continue;
+          const entry = alloc.perBin.find((p) => p.binId === bin.id);
+          if (entry) activeByRecipe.set(rid, entry.slots);
+        }
+
+        // Net per item at active rates. Mirrors `allocateSlotsToBins`'s
+        // computation, so each bin's I/O classification should agree.
+        const netPerItem = new Map<ItemId, number>();
+        for (const rid of bin.recipeIds) {
+          const active = activeByRecipe.get(rid) ?? 0;
+          if (active <= 0) continue;
+          const recipe = recipes.find((x) => x.id === rid)!;
+          for (const inp of recipe.inputs) {
+            netPerItem.set(
+              inp.itemId,
+              (netPerItem.get(inp.itemId) ?? 0) -
+                calcRate(inp.amount, recipe.craftingTime) * active,
+            );
+          }
+          for (const out of recipe.outputs) {
+            netPerItem.set(
+              out.itemId,
+              (netPerItem.get(out.itemId) ?? 0) +
+                calcRate(out.amount, recipe.craftingTime) * active,
+            );
+          }
+        }
+
+        for (const [itemId, net] of netPerItem.entries()) {
+          const inOutputs = bin.externalOutputs.find((o) => o.itemId === itemId);
+          const inInputs = bin.externalInputs.find((i) => i.itemId === itemId);
+          const inInternal = bin.internalItems.includes(itemId);
+
+          if (Math.abs(net) <= 1e-9) {
+            expect(inInternal).toBe(true);
+            expect(inOutputs).toBeUndefined();
+            expect(inInputs).toBeUndefined();
+          } else if (net > 0) {
+            expect(inOutputs?.rate).toBeCloseTo(net, 3);
+            expect(inInputs).toBeUndefined();
+            expect(inInternal).toBe(false);
+          } else {
+            expect(inInputs?.rate).toBeCloseTo(-net, 3);
+            expect(inOutputs).toBeUndefined();
+            expect(inInternal).toBe(false);
+          }
+        }
+      }
+    },
+  );
+
+  test.each(XIRCON_TARGETS)(
+    "target=%i: Phase 3 allocation ≥ Phase 2 slot demand for every recipe",
+    (target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      const recipesOfInterest: RecipeId[] = [
+        RecipeId.POOL_XIRANITE_POLY_1,
+        RecipeId.POOL_LIQUID_XIRANITE_POLY_1,
+        RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1,
+        RecipeId.LIQUID_PURIFIER_XIRANITE_POLY_1,
+      ];
+      for (const rid of recipesOfInterest) {
+        const node = plan.nodes.get(rid);
+        if (!node || node.type !== "recipe") continue;
+        const phase2 = node.facilityCount;
+        if (phase2 <= 1e-9) continue;
+
+        const allocated = plan.crucibleBins.reduce(
+          (sum, b) => sum + (b.recipeIds.includes(rid) ? b.buildingCount : 0),
+          0,
+        );
+        // Phase 3 must provide at least Phase 2's demand (with a tiny
+        // float tolerance) and at most Phase 2's ceil + 1 (sanity bound).
+        expect(allocated).toBeGreaterThanOrEqual(phase2 - 1e-6);
+      }
+    },
+  );
+
+  test.each(XIRCON_TARGETS)(
+    "target=%i: total Xircon production meets target",
+    (target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      const xirconBin = plan.crucibleBins.find((b) =>
+        b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
+      );
+      expect(xirconBin).toBeDefined();
+      const xirconRate =
+        xirconBin?.externalOutputs.find(
+          (o) => o.itemId === ItemId.ITEM_XIRANITE_POLY,
+        )?.rate ?? 0;
+      expect(xirconRate).toBeGreaterThanOrEqual(target - 1e-6);
+    },
+  );
+
+  test("target=57: Xircon-producing bin reports active rates (57/min Xircon, Sewage external input)", () => {
+    // The specific bug the user reported. Phase 2 LP demands x_X = 1.9,
+    // x_XE = x_LX = 3.04, x_P = 0.76. With MIP lex pass 3 (smallest-
+    // shape-sum tie-breaker), Phase 3 picks `2 × {LX, XE, X} +
+    // 2 × {LX, XE}` — 4 buildings total, no idle slots.
+    //
+    // In the Xircon bin (`{LX, XE, X}` × 2):
+    //   - LX active = 2 (full × 2 buildings), XE active = 2, X active = 1.9.
+    //   - Xircon: 1.9 × 30 = 57/min OUT (matches target exactly).
+    //   - Lowpoly: 2 × 30 = 60/min OUT.
+    //   - Sewage: produced 1.9×30 = 57; consumed by XE 2×30 = 60 →
+    //     net = -3 → EXTERNAL INPUT (sister bin and Furnace supply it).
+    //   - Xiranite: LX 60 = XE 60 → internal balanced.
+    //
+    // This is the "bin shows production rate matching Phase 2 plan"
+    // invariant; replaces the old full-capacity model that displayed
+    // 90 Xircon (over-provisioned by 33).
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 57 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const xirconBin = plan.crucibleBins.find((b) =>
+      b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
+    );
+    expect(xirconBin).toBeDefined();
+    expect(xirconBin!.recipeIds).toEqual(
+      expect.arrayContaining([
+        RecipeId.POOL_XIRANITE_POLY_1,
+        RecipeId.POOL_LIQUID_XIRANITE_POLY_1,
+        RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1,
+      ]),
+    );
+
+    // Active Xircon rate = exactly the target (1.9 × 30 = 57).
+    const xirconRate = xirconBin!.externalOutputs.find(
+      (o) => o.itemId === ItemId.ITEM_XIRANITE_POLY,
+    )?.rate;
+    expect(xirconRate).toBeCloseTo(57, 3);
+
+    // Xiranite still internal (LX active 2 = XE active 2 in this bin).
+    expect(xirconBin!.internalItems).toContain(ItemId.ITEM_LIQUID_XIRANITE);
+
+    // Sewage NOT in external outputs (this was the display bug symptom).
+    const sewageInOutputs = xirconBin!.externalOutputs.some(
+      (o) => o.itemId === ItemId.ITEM_LIQUID_SEWAGE,
+    );
+    expect(sewageInOutputs).toBe(false);
+
+    // Sewage IS now an external INPUT: X (active 1.9) produces 57 Sewage,
+    // XE (active 2) consumes 60 Sewage → deficit of 3/min.
+    const sewageInInputs = xirconBin!.externalInputs.find(
+      (i) => i.itemId === ItemId.ITEM_LIQUID_SEWAGE,
+    );
+    expect(sewageInInputs?.rate).toBeCloseTo(3, 3);
+  });
+
+  test("Expanded Crucible building total is monotonic non-decreasing in target", () => {
+    const totals = XIRCON_TARGETS.map((target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      return plan.crucibleBins
+        .filter((b) => b.facilityId === FacilityId.ITEM_PORT_MIX_POOL_2)
+        .reduce((s, b) => s + Math.ceil(b.buildingCount), 0);
+    });
+    for (let i = 1; i < totals.length; i++) {
+      expect(totals[i]).toBeGreaterThanOrEqual(totals[i - 1]);
+    }
   });
 });

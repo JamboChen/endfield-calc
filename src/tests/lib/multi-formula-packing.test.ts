@@ -151,14 +151,19 @@ describe("packCrucibleBins", () => {
     const recipes = [lx_1, lx_2, xe_1, xe_2, x_1, x_2];
     const facilities = [reactor, expanded];
 
-    test("optimal triple: 4 buildings of {LX, XE, X} on Expanded", () => {
+    test("optimal triple: 4 buildings on Expanded covering slot demand", () => {
       // Slot demands: LX = 4, XE = 4, X = 2.
       // Inner slot count for {LX,XE,X}: 8 distinct items
       // (xiranite_powder, water, liquid_xiranite, liquid_sewage,
       //  liquid_xiranite_poly, liquid_xiranite_lowpoly, iron_powder, xiranite_poly)
       // → fits Expanded (8 inner) but NOT Reactor (5 inner).
-      // Optimal: 4 buildings of Expanded {LX,XE,X} = 4 buildings @ 100W = 400W.
-      // Reactor singletons: 10 buildings @ 50W = 500W.
+      //
+      // Two MIP-optimal packings tie at 4 buildings @ 100W = 400W:
+      //   - 4 × {LX,XE,X}: shape-sum 4·3 = 12, X over-provisioned by 2.
+      //   - 2 × {LX,XE,X} + 2 × {LX,XE}: shape-sum 2·3+2·2 = 10, exact fit.
+      // Lex pass 3 (min Σ x_t × |shape_t|) picks the second; both satisfy
+      // the slot-coverage invariant which is what this test verifies.
+      // Reactor singletons would cost 10 buildings @ 50W = 500W (worse).
       const slotDemands = new Map<RecipeId, number>([
         ["lx_1" as RecipeId, 4],
         ["xe_1" as RecipeId, 4],
@@ -191,6 +196,111 @@ describe("packCrucibleBins", () => {
         (b) => b.facilityId === ("mix_pool_2" as FacilityId),
       );
       expect(allExpanded).toBe(true);
+
+      // Slot coverage invariant: every demand class allocated ≥ demand.
+      const slotsByRecipe = new Map<string, number>();
+      for (const bin of r.bins) {
+        for (const rid of bin.recipeIds) {
+          slotsByRecipe.set(
+            rid,
+            (slotsByRecipe.get(rid) ?? 0) + bin.buildingCount,
+          );
+        }
+      }
+      expect(slotsByRecipe.get("lx_1") ?? 0).toBeGreaterThanOrEqual(4);
+      expect(slotsByRecipe.get("xe_1") ?? 0).toBeGreaterThanOrEqual(4);
+      expect(slotsByRecipe.get("x_1") ?? 0).toBeGreaterThanOrEqual(2);
+    });
+
+    test("fractional demand: bin reports active rates (Xircon target=57 style)", () => {
+      // Phase 2 LP demands at target=57 Xircon (real ratios).
+      // x_X = 1.9, x_XE = x_LX = 3.04.
+      // With lex pass 3, MIP picks 2×{LX,XE,X} + 2×{LX,XE}: 4 buildings,
+      // no idle slots. The Xircon bin (`{LX,XE,X}` × 2) hosts LX/XE at
+      // full 2 slots each, X at 1.9 of 2 slots (partial load).
+      const slotDemands = new Map<RecipeId, number>([
+        ["lx_1" as RecipeId, 3.04],
+        ["xe_1" as RecipeId, 3.04],
+        ["x_1" as RecipeId, 1.9],
+      ]);
+      const r = packCrucibleBins({
+        recipeSlotDemands: slotDemands,
+        ...buildMaps(items, recipes, facilities),
+      });
+
+      // Total buildings = 4 (2 + 2).
+      const totalBuildings = r.bins.reduce(
+        (s, b) => s + b.buildingCount,
+        0,
+      );
+      expect(totalBuildings).toBe(4);
+
+      // The Xircon-producing bin contains all three recipes.
+      const xirconBin = r.bins.find((b) =>
+        b.externalOutputs.some((o) => o.itemId === ("xiranite_poly" as ItemId)),
+      );
+      expect(xirconBin).toBeDefined();
+      expect(xirconBin!.recipeIds.length).toBe(3);
+      expect(xirconBin!.buildingCount).toBe(2);
+
+      // Active Xircon rate = 1.9 × 30 = 57/min (matches Phase 2 demand).
+      const xirconOut = xirconBin!.externalOutputs.find(
+        (o) => o.itemId === ("xiranite_poly" as ItemId),
+      );
+      expect(xirconOut?.rate).toBeCloseTo(57, 3);
+
+      // Sewage: X (active 1.9) produces 57, XE (active 2) consumes 60 →
+      // net -3 → EXTERNAL INPUT. (At full capacity it'd be internal;
+      // at active rates X under-produces.)
+      const sewageIn = xirconBin!.externalInputs.find(
+        (i) => i.itemId === ("liquid_sewage" as ItemId),
+      );
+      expect(sewageIn?.rate).toBeCloseTo(3, 3);
+
+      // Xiranite still internal (LX active 2 = XE active 2 in this bin).
+      expect(xirconBin!.internalItems).toContain("liquid_xiranite" as ItemId);
+
+      // Sister bin {LX, XE} absorbs the LX/XE residual (1.04 slots each).
+      const sisterBin = r.bins.find(
+        (b) =>
+          b.recipeIds.includes("lx_1" as RecipeId) &&
+          b.recipeIds.includes("xe_1" as RecipeId) &&
+          !b.recipeIds.includes("x_1" as RecipeId),
+      );
+      expect(sisterBin).toBeDefined();
+      expect(sisterBin!.buildingCount).toBe(2);
+    });
+
+    test("pass 3 prefers smaller shape mix when buildings/power tie", () => {
+      // Demand x_X=1, x_LX=x_XE=2 admits two 2-building packings:
+      //   - 2×{LX,XE,X}: 2 X, 2 LX, 2 XE. shape-sum 6. X over by 1.
+      //   - 1×{LX,XE,X} + 1×{LX,XE}: 1 X, 2 LX, 2 XE. shape-sum 5. Exact.
+      // Both: 2 buildings @ 100W = 200W. Pass 3 picks the smaller sum.
+      const slotDemands = new Map<RecipeId, number>([
+        ["lx_1" as RecipeId, 2],
+        ["xe_1" as RecipeId, 2],
+        ["x_1" as RecipeId, 1],
+      ]);
+      const r = packCrucibleBins({
+        recipeSlotDemands: slotDemands,
+        ...buildMaps(items, recipes, facilities),
+      });
+
+      const totalBuildings = r.bins.reduce(
+        (s, b) => s + b.buildingCount,
+        0,
+      );
+      expect(totalBuildings).toBe(2);
+
+      // Pass 3 should select 1×{LX,XE,X} + 1×{LX,XE} (smaller shape sum).
+      const tripleBin = r.bins.find((b) => b.recipeIds.length === 3);
+      const pairBin = r.bins.find(
+        (b) =>
+          b.recipeIds.length === 2 &&
+          !b.recipeIds.includes("x_1" as RecipeId),
+      );
+      expect(tripleBin?.buildingCount).toBe(1);
+      expect(pairBin?.buildingCount).toBe(1);
     });
 
     test("smaller demand: 1 building of {LX, XE, X} on Expanded", () => {

@@ -52,6 +52,15 @@ const SLOT_DEMAND_EPSILON = 1e-9;
 /** Building-count slack added to lex pass 2's cap to absorb LP noise. */
 const LEX_BUILDINGS_TOLERANCE = 1e-6;
 
+/**
+ * Power-budget slack added to lex pass 3's cap to absorb LP noise.
+ * Generous (1e-3) relative to typical power values (multiples of 50W or
+ * 100W per building) so rounding noise doesn't accidentally exclude a
+ * legitimately optimal pass-3 packing. Tight enough that pass 3 can't
+ * swap a higher-power facility tier under the cap.
+ */
+const LEX_POWER_TOLERANCE = 1e-3;
+
 export type PackingInput = {
   /** Per-recipe slot demands from Phase 2. */
   recipeSlotDemands: Map<RecipeId, number>;
@@ -494,6 +503,7 @@ const solvePacking = (
     passTwo.variables[varName] = { ...coefs, buildings_cap: 1 };
   }
   let r2: Record<string, number | boolean | undefined>;
+  let pass2Succeeded = true;
   try {
     r2 = solver.Solve(passTwo) as Record<string, number | boolean | undefined>;
   } catch (e) {
@@ -502,6 +512,7 @@ const solvePacking = (
     }
     // Fall back to pass-1 result.
     r2 = r1;
+    pass2Succeeded = false;
   }
   if (r2.feasible !== true || r2.bounded === false) {
     if (import.meta.env?.DEV) {
@@ -510,13 +521,76 @@ const solvePacking = (
       );
     }
     r2 = r1;
+    pass2Succeeded = false;
+  }
+
+  // Pass 3: minimise Σ x_t × |recipes_in_shape_t|, subject to building +
+  // power caps from prior passes. Equivalent (up to a constant) to
+  // minimising total over-provisioning Σ(allocated_slots − demand). Breaks
+  // ties between equally-priced packings that differ in shape distribution
+  // — e.g. for Xircon target=57, prefers `2×{LX,XE,X} + 2×{LX,XE}` (sum
+  // 10) over `3×{LX,XE,X} + 1×{LX,XE}` (sum 11), eliminating the
+  // "idle X slot in building 3 of an {LX,XE,X} bin" artefact. Both
+  // packings cost 4 buildings @ 400W, so pass 1 and pass 2 tie.
+  //
+  // Only runs if pass 2 succeeded — otherwise r2 is r1 and there's no
+  // meaningful power cap to enforce.
+  let finalResult = r2;
+  if (
+    pass2Succeeded &&
+    typeof r2.result === "number" &&
+    Number.isFinite(r2.result)
+  ) {
+    const powerOpt = r2.result;
+    const passThree: Model = {
+      optimize: "shape_size",
+      opType: "min",
+      constraints: {
+        ...constraints,
+        buildings_cap: { max: buildingsOpt + LEX_BUILDINGS_TOLERANCE },
+        power_cap: { max: powerOpt + LEX_POWER_TOLERANCE },
+      },
+      variables: {},
+      ints,
+    };
+    for (const [varName, coefs] of Object.entries(variables)) {
+      const shape = shapeByVar.get(varName);
+      const shapeSize = shape ? shape.recipeIds.length : 0;
+      passThree.variables[varName] = {
+        ...coefs,
+        buildings_cap: 1,
+        power_cap: coefs.power,
+        shape_size: shapeSize,
+      };
+    }
+    let r3: Record<string, number | boolean | undefined>;
+    try {
+      r3 = solver.Solve(passThree) as Record<string, number | boolean | undefined>;
+    } catch (e) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          "[CRUCIBLE_PACKING] pass-3 solver threw, falling back to pass-2:",
+          e,
+        );
+      }
+      r3 = r2;
+    }
+    if (r3.feasible !== true || r3.bounded === false) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[CRUCIBLE_PACKING] pass-3 ${r3.bounded === false ? "unbounded" : "infeasible"} after lex caps; falling back to pass-2`,
+        );
+      }
+      r3 = r2;
+    }
+    finalResult = r3;
   }
 
   const shapeCounts = new Map<BinShape, number>();
   let totalBuildings = 0;
   let totalPower = 0;
   for (const [varName, shape] of shapeByVar.entries()) {
-    const v = r2[varName];
+    const v = finalResult[varName];
     if (typeof v !== "number") continue;
     const count = Math.round(v);
     if (count <= 0) continue;
@@ -548,10 +622,25 @@ const solvePacking = (
  * Each building of a bin provides 1 slot of EACH of its constituent
  * recipes per cycle. Per-bin per-recipe budgets are tracked
  * independently so different classes drain different budgets.
+ *
+ * **Active-rate I/O**: bin external I/O is computed from the per-bin
+ * per-recipe ACTIVE slot count (= sum of slots the greedy allocator
+ * drained into this bin for each recipe), NOT from
+ * `shape.netOutputs × buildingCount`. The difference matters when a
+ * recipe's Phase 2 demand is less than the bin's `buildingCount` (e.g.
+ * Xircon at target=57: bin `{LX, XE, X}` × 2 hosts LX/XE at full and X
+ * at 1.9 of 2 slots). At full-capacity the X-Sewage cycle nets to zero;
+ * at active rate X under-produces Sewage and the bin shows Sewage as a
+ * small external input. This matches Phase 2's mass-balance plan
+ * exactly, and lets the merged bin card display the actual production
+ * rate (matching what Recipe view shows) instead of theoretical
+ * full-capacity.
  */
 const allocateSlotsToBins = (
   shapeCounts: Map<BinShape, number>,
   classes: Array<{ slotDemand: number; alternatives: Recipe[]; canonicalRecipe: Recipe; demandByRecipeId: Map<RecipeId, number> }>,
+  recipeMap: Map<RecipeId, Recipe>,
+  itemMap: Map<ItemId, Item>,
 ): { bins: CrucibleBin[]; allocations: Map<RecipeId, RecipeBinAllocation> } => {
   // Sort shapes deterministically: facility id, then size desc, then recipe ids.
   const sortedShapes = Array.from(shapeCounts.keys()).sort((a, b) => {
@@ -641,6 +730,21 @@ const allocateSlotsToBins = (
     s.add(e.demandRecipeId);
   }
 
+  // Per-bin per-physical-recipe ACTIVE slot count. Sum across allocEntries
+  // because the greedy allocator may have produced multiple entries
+  // targeting the same bin/recipe (when an equivalence class has multiple
+  // demand-recipe ids draining to the same physical recipe in the same
+  // bin).
+  const activeSlotsByBin = new Map<string, Map<RecipeId, number>>();
+  for (const e of allocEntries) {
+    let m = activeSlotsByBin.get(e.binId);
+    if (!m) {
+      m = new Map();
+      activeSlotsByBin.set(e.binId, m);
+    }
+    m.set(e.physicalRecipeId, (m.get(e.physicalRecipeId) ?? 0) + e.slots);
+  }
+
   const bins: CrucibleBin[] = [];
   sortedShapes.forEach((shape, idx) => {
     const count = shapeCounts.get(shape) ?? 0;
@@ -648,23 +752,67 @@ const allocateSlotsToBins = (
     const binId = shapeIdByPosition[idx];
     const demandIds = Array.from(binDemandIds.get(binId) ?? []).sort();
     if (demandIds.length === 0) return;
+
+    // Compute net I/O from ACTIVE per-recipe slot counts, not from
+    // `shape.netOutputs × count`. When a recipe's Phase 2 demand is
+    // smaller than the bin's per-recipe physical capacity (= count),
+    // the recipe runs at partial load and its contribution scales
+    // accordingly. Items that net to zero across these active flows are
+    // classified as internal; positive → external output; negative →
+    // external input. Mirrors `buildBinShape`'s classification logic at
+    // the 1-slot-per-recipe enumeration step.
+    const activeMap = activeSlotsByBin.get(binId) ?? new Map<RecipeId, number>();
+    const netRates = new Map<ItemId, number>();
+    for (const rid of shape.recipeIds) {
+      const active = activeMap.get(rid) ?? 0;
+      if (active <= 0) continue;
+      const recipe = recipeMap.get(rid);
+      if (!recipe) continue;
+      for (const inp of recipe.inputs) {
+        netRates.set(
+          inp.itemId,
+          (netRates.get(inp.itemId) ?? 0) -
+            calcRate(inp.amount, recipe.craftingTime) * active,
+        );
+      }
+      for (const out of recipe.outputs) {
+        netRates.set(
+          out.itemId,
+          (netRates.get(out.itemId) ?? 0) +
+            calcRate(out.amount, recipe.craftingTime) * active,
+        );
+      }
+    }
+
+    const externalInputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }> = [];
+    const externalOutputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }> = [];
+    const internalItems: ItemId[] = [];
+    for (const [itemId, net] of netRates.entries()) {
+      const isLiquid = itemMap.get(itemId)?.isLiquid ?? false;
+      if (Math.abs(net) <= NET_FLOW_EPSILON) {
+        internalItems.push(itemId);
+      } else if (net < 0) {
+        externalInputs.push({ itemId, rate: -net, isLiquid });
+      } else {
+        externalOutputs.push({ itemId, rate: net, isLiquid });
+      }
+    }
+
+    // Sort for determinism (mirrors buildBinShape).
+    const byItemId = (a: { itemId: ItemId }, b: { itemId: ItemId }) =>
+      a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0;
+    externalInputs.sort(byItemId);
+    externalOutputs.sort(byItemId);
+    internalItems.sort();
+
     bins.push({
       id: binId,
       facilityId: shape.facility.id,
       recipeIds: demandIds,
       buildingCount: count,
-      // Scale net I/O by buildingCount (per-slot rate × buildings = total bin rate).
-      externalInputs: shape.netInputs.map((io) => ({
-        itemId: io.itemId,
-        rate: io.rate * count,
-        isLiquid: io.isLiquid,
-      })),
-      externalOutputs: shape.netOutputs.map((io) => ({
-        itemId: io.itemId,
-        rate: io.rate * count,
-        isLiquid: io.isLiquid,
-      })),
-      internalItems: shape.internalItems,
+      externalInputs,
+      externalOutputs,
+      internalItems,
       innerSlotsUsed: shape.innerSlotsUsed,
       // `isGrouped` reflects user-visible recipe count, not physical
       // shape size. In the theoretical case where a multi-formula shape
@@ -835,7 +983,12 @@ export const packCrucibleBins = (input: PackingInput): PackingResult => {
     );
   }
 
-  const packed = allocateSlotsToBins(solution.shapeCounts, classes);
+  const packed = allocateSlotsToBins(
+    solution.shapeCounts,
+    classes,
+    recipeMap,
+    itemMap,
+  );
   const singletons = emitSingletonBins(
     recipeSlotDemands,
     packed.allocations,
