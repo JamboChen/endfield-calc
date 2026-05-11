@@ -16,7 +16,8 @@ import type {
   FlowNodeDataWithTarget,
   RecipeId,
 } from "@/types";
-import { getTransportCountWithFacilities, getPickupPointCount, formatCount, calcRate, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
+import { getTransportCountWithFacilities, getPickupPointCount, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
+import { computeNodeByproducts } from "@/lib/plan-helpers";
 
 /**
  * Type alias for a React Flow node containing production data.
@@ -78,51 +79,14 @@ export default function CustomProductionNode({
   const sisterRecipeIds = node.binSisterRecipeIds ?? [];
   const isGroupedBuilding = sisterRecipeIds.length > 0;
 
-  // Compute byproduct outputs. Two paths:
-  //   1. Per-recipe (existing): the headline recipe's secondary outputs.
-  //   2. Bin-fused (new): when `node.binExtraOutputs` is set, the bin's
-  //      external outputs other than the headline. This covers items
-  //      from sister recipes in the bin (which wouldn't appear in the
-  //      headline recipe's `outputs` array on its own).
-  const recipeByproducts =
-    node.recipe && node.recipe.outputs.length > 1
-      ? node.recipe.outputs
-          .filter((o) => o.itemId !== node.item.id)
-          .map((o) => {
-            const primaryOutput = node.recipe!.outputs.find(
-              (p) => p.itemId === node.item.id,
-            );
-            const rate = primaryOutput
-              ? (o.amount / primaryOutput.amount) * node.targetRate
-              : calcRate(o.amount, node.recipe!.craftingTime) *
-                node.facilityCount;
-            return {
-              item: getItemById(items, o.itemId),
-              amount: o.amount,
-              rate,
-            };
-          })
-          .filter((b) => b.item != null)
-      : [];
-  const binExtraByproducts = (node.binExtraOutputs ?? [])
-    .map((io) => ({
-      item: getItemById(items, io.itemId),
-      amount: 0, // not meaningful at bin level; rate already scaled.
-      rate: io.rate,
-    }))
-    .filter((b) => b.item != null);
-  // Dedupe by item id (avoid double-listing if the headline recipe and
-  // bin-extra outputs both mention the same item).
-  const seenByproductIds = new Set<string>([node.item.id]);
-  const byproducts: Array<{ item: ReturnType<typeof getItemById>; amount: number; rate: number }> = [];
-  for (const bp of [...recipeByproducts, ...binExtraByproducts]) {
-    if (!bp.item) continue;
-    if (seenByproductIds.has(bp.item.id)) continue;
-    seenByproductIds.add(bp.item.id);
-    byproducts.push(bp);
-  }
+  // Compute byproducts. For grouped bins (multi-formula buildings), this
+  // relies on `bin.externalOutputs` which correctly excludes items that
+  // are internally balanced (e.g. Sewage in the Xircon `{LX, XE, X}` bin);
+  // for singletons / per-recipe view, it uses the headline recipe's
+  // outputs. See `computeNodeByproducts` for the full rationale.
+  const byproducts = computeNodeByproducts(node, items);
 
-  const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item!.id)];
+  const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item.id)];
 
   // Adjust border/rate colors based on node type for better visual distinction
   let borderClasses = "border-2";
@@ -354,11 +318,11 @@ export default function CustomProductionNode({
 
             {/* Co-outputs (byproducts) */}
             {byproducts.map((bp) => (
-              <div key={bp.item!.id} className="flex items-start gap-1.5 mt-1.5 ml-1">
-                <ItemIcon item={bp.item!} size="sm" />
+              <div key={bp.item.id} className="flex items-start gap-1.5 mt-1.5 ml-1">
+                <ItemIcon item={bp.item} size="sm" />
                 <div className="flex-1 min-w-0">
                   <div className="text-[11px] text-muted-foreground truncate leading-tight">
-                    {getItemName(bp.item!)}
+                    {getItemName(bp.item)}
                   </div>
                   <div className="flex items-baseline gap-1">
                     <span className="font-mono text-[10px]">
@@ -367,7 +331,7 @@ export default function CustomProductionNode({
                     <span className="text-[9px] text-muted-foreground">/min</span>
                     <span className="text-[9px] text-muted-foreground/50">·</span>
                     <span className="text-[9px] text-muted-foreground tabular-nums">
-                      {formatCount(getTransportCountWithFacilities(bp.rate, bp.item!, ceilMode, node.facilityCount), ceilMode)} {getTransportLabel(bp.item!)}
+                      {formatCount(getTransportCountWithFacilities(bp.rate, bp.item, ceilMode, node.facilityCount), ceilMode)} {getTransportLabel(bp.item)}
                     </span>
                   </div>
                 </div>

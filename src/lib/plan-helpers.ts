@@ -1,6 +1,7 @@
 import type {
   ProductionDependencyGraph,
   ProductionGraphNode,
+  ProductionNode,
   CrucibleBin,
   ItemId,
   RecipeId,
@@ -8,6 +9,94 @@ import type {
   Recipe,
 } from "@/types";
 import { calcRate } from "@/lib/utils";
+
+/**
+ * Byproduct entry as rendered by `CustomProductionNode`. `amount` is the
+ * recipe-level per-cycle amount when sourced from a recipe's outputs;
+ * meaningless (0) when sourced from a bin's aggregated `externalOutputs`,
+ * since the rate is already pre-scaled.
+ */
+export type NodeByproduct = {
+  item: Item;
+  amount: number;
+  rate: number;
+};
+
+/**
+ * Compute the list of byproduct outputs for a production node's card.
+ *
+ * Two paths based on whether the node is part of a grouped bin:
+ *
+ *   1. **Grouped bin** (`node.bin?.isGrouped === true`): use ONLY the
+ *      bin's `binExtraOutputs` (its `externalOutputs` minus the
+ *      headline). Items that are internally balanced inside the bin
+ *      (e.g. Sewage in a `{LX, XE, X}` Xircon bin where X produces it
+ *      and XE consumes it 1:1) live in `bin.internalItems` and are
+ *      correctly absent from `externalOutputs` — using this path
+ *      prevents the headline recipe's natural byproducts from
+ *      reintroducing them.
+ *
+ *   2. **Singleton bin / per-recipe view** (no `node.bin`): use the
+ *      headline recipe's secondary outputs. For singletons the recipe
+ *      cannot internally cancel anything (only one recipe), so its
+ *      raw outputs match the bin's externals. For per-recipe view
+ *      there is no bin abstraction at all; the recipe's outputs are
+ *      the authoritative byproduct source.
+ *
+ * Both paths dedupe against the headline (`node.item.id`) and against
+ * each other so an item never appears twice.
+ *
+ * The two paths are NEVER combined: combining them was the root cause
+ * of the "Sewage shown as 60/min external on the Xircon bin" display
+ * bug — the headline recipe's outputs would re-add Sewage that the
+ * bin had correctly classified as internal.
+ */
+export function computeNodeByproducts(
+  node: ProductionNode,
+  items: Item[],
+): NodeByproduct[] {
+  const itemById = new Map(items.map((i) => [i.id, i] as const));
+  const seen = new Set<string>([node.item.id]);
+  const result: NodeByproduct[] = [];
+
+  // Grouped bin: bin.externalOutputs is authoritative; recipe-level
+  // byproducts would re-introduce internally-balanced items.
+  if (node.bin?.isGrouped) {
+    for (const io of node.binExtraOutputs ?? []) {
+      if (seen.has(io.itemId)) continue;
+      const item = itemById.get(io.itemId);
+      if (!item) continue;
+      seen.add(io.itemId);
+      result.push({ item, amount: 0, rate: io.rate });
+    }
+    return result;
+  }
+
+  // Singleton bin or per-recipe view: recipe.outputs is authoritative.
+  // Byproduct rate is derived from primary output's rate via the cycle
+  // ratio (byproduct.amount / primary.amount × headline targetRate); if
+  // no primary match exists (defensive — recipe with no output matching
+  // node.item.id), fall back to per-facility rate.
+  const recipe = node.recipe;
+  if (recipe && recipe.outputs.length > 1) {
+    const primaryOutput = recipe.outputs.find(
+      (p) => p.itemId === node.item.id,
+    );
+    for (const o of recipe.outputs) {
+      if (o.itemId === node.item.id) continue;
+      if (seen.has(o.itemId)) continue;
+      const item = itemById.get(o.itemId);
+      if (!item) continue;
+      const rate = primaryOutput
+        ? (o.amount / primaryOutput.amount) * node.targetRate
+        : calcRate(o.amount, recipe.craftingTime) * node.facilityCount;
+      seen.add(o.itemId);
+      result.push({ item, amount: o.amount, rate });
+    }
+  }
+
+  return result;
+}
 
 /**
  * Pick the bin's "headline" external output — the one displayed as the
