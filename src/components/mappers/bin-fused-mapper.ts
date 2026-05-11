@@ -88,12 +88,26 @@ export function mapPlanToFlowBinFused(
   // external I/O. A bin appears as a producer for each item in its
   // externalOutputs and as a consumer for each item in its
   // externalInputs.
+  //
+  // Raw materials are deliberately NOT registered as producers even when
+  // a bin produces them as a byproduct (e.g. Liquid Purifier outputs
+  // Liquid Water). Reason: raw items are conceptually pickup-sourced; the
+  // merged-mapper (bf=0) makes the same call via `getItemProducers`
+  // returning [] for raw items, ensuring a raw-material pickup node is
+  // emitted regardless of byproduct producers. Mirroring that here keeps
+  // bf=1 visually consistent with bf=0 — the byproduct still appears on
+  // the producing bin's card (via `bin.externalOutputs` →
+  // `binExtraOutputs` → `computeNodeByproducts`), but no edge is drawn
+  // from it; consumer bins receive their raw input from the pickup node
+  // emitted in the rawMaterialDemand loop below.
   type ProducerEntry = { binId: string; rate: number };
   type ConsumerEntry = { binId: string; rate: number };
   const producersByItem = new Map<ItemId, ProducerEntry[]>();
   const consumersByItem = new Map<ItemId, ConsumerEntry[]>();
   for (const bin of productionBins) {
     for (const out of bin.externalOutputs) {
+      const outNode = plan.nodes.get(out.itemId);
+      if (outNode?.type === "item" && outNode.isRawMaterial) continue;
       const arr = producersByItem.get(out.itemId) ?? [];
       arr.push({ binId: bin.id, rate: out.rate });
       producersByItem.set(out.itemId, arr);
@@ -508,6 +522,10 @@ export function mapPlanToFlowBinFusedSeparated(
   }
 
   // Producer/consumer lookups keyed by per-building instance id.
+  // Raw materials are deliberately NOT registered as producers — see
+  // the equivalent block in `mapPlanToFlowBinFused` above for the
+  // rationale. The raw-pickup loop downstream emits pickup nodes for
+  // raw items based on consumer demand, matching bf=0 behaviour.
   type Entry = { instanceId: string; rate: number };
   const producersByItem = new Map<ItemId, Entry[]>();
   const consumersByItem = new Map<ItemId, Entry[]>();
@@ -515,6 +533,8 @@ export function mapPlanToFlowBinFusedSeparated(
     const id = buildingInstanceId(inst.bin.id, inst.instanceIdx);
     for (const out of inst.perBuildingOutputs) {
       if (out.rate <= 0.001) continue;
+      const outNode = plan.nodes.get(out.itemId);
+      if (outNode?.type === "item" && outNode.isRawMaterial) continue;
       const arr = producersByItem.get(out.itemId) ?? [];
       arr.push({ instanceId: id, rate: out.rate });
       producersByItem.set(out.itemId, arr);

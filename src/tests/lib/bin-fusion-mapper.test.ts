@@ -18,6 +18,7 @@ import { describe, test, expect } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
 import { pickBinHeadlineOutput } from "@/lib/plan-helpers";
 import { mapPlanToFlowBinFused, mapPlanToFlowBinFusedSeparated } from "@/components/mappers/bin-fused-mapper";
+import { createRawMaterialId } from "@/lib/node-keys";
 import { items, recipes, facilities } from "@/data";
 import { ItemId } from "@/types/constants";
 import type {
@@ -297,6 +298,68 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
         dangling.push(`edge ${e.id} target ${e.target} missing`);
     }
     expect(dangling).toEqual([]);
+  });
+
+  test("raw water pickup is emitted even when Liquid Purifier produces water as byproduct", () => {
+    // Regression: bin-fused-mapper used to skip raw-pickup emission for
+    // items that had any bin producer. The Liquid Purifier produces
+    // Liquid Water as a byproduct (1 Water per cycle alongside the Poly
+    // output), so Water was incorrectly treated as "supplied" and the
+    // raw pickup vanished — leaving LX consumers' water demand unsourced.
+    //
+    // Expected behaviour (matches bf=0 / merged-mapper via
+    // `getItemProducers` returning [] for raw items):
+    //   - Pickup node emitted with rate = total LX water demand.
+    //   - No water edge originates from the Purifier bin (its byproduct
+    //     is shown on the bin card via `binExtraOutputs` but not routed).
+    //   - Edges from the pickup feed each consumer bin's water input.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 56 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map(),
+      false,
+    );
+
+    // (a) Raw water pickup node exists.
+    const waterPickupId = createRawMaterialId(ItemId.ITEM_LIQUID_WATER);
+    const waterPickup = flow.nodes.find((n) => n.id === waterPickupId);
+    expect(waterPickup).toBeDefined();
+
+    // (b) No water-bearing edge originates from the Liquid Purifier bin.
+    const purifierBin = plan.crucibleBins.find((b) =>
+      b.facilityId === ("item_port_liquid_purifier_1" as never),
+    );
+    expect(purifierBin).toBeDefined();
+    const waterEdgesFromPurifier = flow.edges.filter(
+      (e) =>
+        e.source === purifierBin!.id &&
+        e.sourceHandle === ItemId.ITEM_LIQUID_WATER,
+    );
+    expect(waterEdgesFromPurifier).toHaveLength(0);
+
+    // (c) Edges from the pickup go to at least one consumer bin.
+    const waterEdgesFromPickup = flow.edges.filter(
+      (e) => e.source === waterPickupId,
+    );
+    expect(waterEdgesFromPickup.length).toBeGreaterThan(0);
+
+    // (d) The Purifier bin's externalOutputs still includes water — the
+    // data layer is unchanged; only the routing changes. This guards
+    // that `computeNodeByproducts` will still surface Clean Water on
+    // the Purifier bin card.
+    const waterOnBin = purifierBin!.externalOutputs.find(
+      (o) => o.itemId === ItemId.ITEM_LIQUID_WATER,
+    );
+    expect(waterOnBin).toBeDefined();
+    expect(waterOnBin!.rate).toBeGreaterThan(0);
   });
 });
 
