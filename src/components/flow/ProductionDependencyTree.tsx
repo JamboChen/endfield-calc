@@ -30,7 +30,6 @@ import CustomDisposalNode from "../nodes/CustomDisposalNode";
 import { useTranslation } from "react-i18next";
 import { getLayoutedElements } from "@/lib/layout";
 import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
-import { mapPlanToFlowSeparated } from "../mappers/separated-mapper";
 import {
   mapPlanToFlowBinFused,
   mapPlanToFlowBinFusedSeparated,
@@ -263,28 +262,24 @@ export default function ProductionDependencyTree({
       }
 
       // Select mapper:
-      //   - Facility View (separated): per-building bin-fused mapper
-      //     (one node per physical building, with bin formulas inside).
-      //     The legacy per-recipe-instance separated mapper is preserved
-      //     as a fallback when binFusion is OFF (Recipe-View toggle has
-      //     no UI affordance for Facility View, but the underlying flag
-      //     still threads through for completeness / debugging).
+      //   - Facility View (separated) is ALWAYS bin-fused per the
+      //     documented invariant; the Recipe-View toggle has no UI
+      //     affordance in this mode and must not leak through when the
+      //     user persisted bf=0 in the URL hash.
       //   - Recipe View (merged) with binFusion ON (default): one card
       //     per bin via the bin-fused merged mapper.
       //   - Recipe View (merged) with binFusion OFF: per-recipe via
       //     the original merged mapper (chain-debugging mode).
       const flowData =
         visualizationMode === "separated"
-          ? binFusion
-            ? mapPlanToFlowBinFusedSeparated(
-                plan,
-                items,
-                recipes,
-                facilities,
-                targetRates,
-                ceilMode,
-              )
-            : mapPlanToFlowSeparated(plan, items, facilities, targetRates, ceilMode)
+          ? mapPlanToFlowBinFusedSeparated(
+              plan,
+              items,
+              recipes,
+              facilities,
+              targetRates,
+              ceilMode,
+            )
           : binFusion
             ? mapPlanToFlowBinFused(plan, items, recipes, facilities, targetRates, ceilMode)
             : mapPlanToFlowMerged(plan, items, facilities, targetRates, ceilMode);
