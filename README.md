@@ -60,7 +60,53 @@ pnpm install
 pnpm run dev
 ```
 
-## Contributing
+### Docker
+
+**Step 1: Build the image via GitHub Actions**
+
+The image is hosted on GitHub Container Registry and must be built first. Go to your repository on GitHub:
+
+> **Actions** → **Docker Build and Push** → **Run workflow**
+
+This pushes the image to `ghcr.io/your_username/endfield-calc:latest`.
+
+**Step 2: Run with Docker Compose**
+
+Edit `compose.yaml` and replace the placeholder values:
+
+```yaml
+services:
+  endfield-calc:
+    image: ghcr.io/your_username/endfield-calc:latest
+    ports:
+      - "your_port:80"
+    restart: unless-stopped
+```
+
+Then run:
+
+```bash
+docker compose up -d
+```
+
+**Build locally**
+
+If you prefer to build the image on your own machine instead of using GitHub Actions:
+
+```bash
+git clone https://github.com/JamboChen/endfield-calc.git
+cd endfield-calc
+docker compose -f - up -d <<EOF
+services:
+  endfield-calc:
+    build: .
+    ports:
+      - "your_port:80"
+    restart: unless-stopped
+EOF
+```
+
+Or edit `compose.yaml` to replace `image:` with `build: .` and run `docker compose up -d --build`.
 
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 

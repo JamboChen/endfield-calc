@@ -1,6 +1,6 @@
 services:
   endfield-calc:
-    image: ghcr.io/jambochen/endfield-calc:latest
+    image: ghcr.io/your_username/endfield-calc:latest
     ports:
-      - "8080:80"
+      - "your_port:80"
     restart: unless-stopped

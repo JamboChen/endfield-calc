@@ -58,9 +58,58 @@ git clone https://github.com/JamboChen/endfield-calc.git
 cd endfield-calc
 pnpm install
 pnpm run dev
-````
+```
 
-## 参与贡献
+### Docker
+
+**第一步：通过 GitHub Actions 构建镜像**
+
+镜像托管在 GitHub Container Registry，需先触发构建。在 GitHub 仓库页面操作：
+
+> **Actions** → **Docker Build and Push** → **Run workflow**
+
+构建完成后镜像会推送至 `ghcr.io/your_username/endfield-calc:latest`。
+
+**第二步：使用 Docker Compose 运行**
+
+编辑 `compose.yaml`，替换其中的占位符：
+
+```yaml
+services:
+  endfield-calc:
+    image: ghcr.io/your_username/endfield-calc:latest
+    ports:
+      - "your_port:80"
+    restart: unless-stopped
+```
+
+然后运行：
+
+```bash
+docker compose up -d
+```
+
+
+**本地构建镜像**
+
+如果不想使用 GitHub Actions，也可以在本地直接构建：
+
+将 `compose.yaml` 中的 `image:` 替换为 `build: .`：
+
+```yaml
+services:
+  endfield-calc:
+    build: .
+    ports:
+      - "your_port:80"
+    restart: unless-stopped
+```
+
+然后运行：
+
+```bash
+docker compose up -d --build
+```
 
 欢迎任何形式的贡献！请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详细规范。
 
