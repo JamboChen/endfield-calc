@@ -60,6 +60,12 @@ export default function ProductionViewTabs({
     useState<VisualizationMode>("merged");
   const [twoEndAlignment, setTwoEndAlignment] = useState(false);
 
+  // The bin-fusion toggle only has visible effect when at least one bin
+  // packs ≥2 demand recipes; for singleton / non-multi-formula plans the
+  // ON / OFF outputs are identical, so we hide the control entirely.
+  const hasGroupableRecipes =
+    plan?.crucibleBins.some((bin) => bin.isGrouped) ?? false;
+
   return (
     <div className="flex-1 min-w-0">
       <Card className="h-full flex flex-col">
@@ -112,29 +118,27 @@ export default function ProductionViewTabs({
               </div>
             )}
 
-            {/* Bin-fusion toggle: shows only in Recipe View (merged).
-                Facility View (separated) is always bin-fused. */}
-            {activeTab === "tree" && visualizationMode === "merged" && (
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="bin-fusion"
-                  checked={binFusion}
-                  onCheckedChange={onBinFusionChange}
-                />
-                <Label
-                  htmlFor="bin-fusion"
-                  title={t("binFusionTooltip", {
-                    defaultValue:
-                      "Show one card per shared building (default) or per recipe (for chain debugging)",
-                  })}
-                  className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
-                >
-                  {binFusion
-                    ? t("binFusionLabelOn", { defaultValue: "Buildings" })
-                    : t("binFusionLabelOff", { defaultValue: "Recipes" })}
-                </Label>
-              </div>
-            )}
+            {/* Bin-fusion toggle: shows only in Recipe View (merged) AND
+                only when the current plan contains at least one grouped
+                bin. Facility View (separated) is always bin-fused. */}
+            {activeTab === "tree" &&
+              visualizationMode === "merged" &&
+              hasGroupableRecipes && (
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="bin-fusion"
+                    checked={binFusion}
+                    onCheckedChange={onBinFusionChange}
+                  />
+                  <Label
+                    htmlFor="bin-fusion"
+                    title={t("binFusionTooltip")}
+                    className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
+                  >
+                    {t("binFusion")}
+                  </Label>
+                </div>
+              )}
 
             {activeTab === "tree" && (
               <ToggleGroup
