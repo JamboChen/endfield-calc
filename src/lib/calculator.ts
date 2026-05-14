@@ -178,6 +178,11 @@ function buildProductionGraph(
   ): { facility: Facility; binId: string | undefined; sisters: RecipeId[] } => {
     const allocation = recipeBinAllocations.get(recipeId);
     if (!allocation || allocation.perBin.length === 0) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[resolveBinInfo] recipe ${recipeId} has no bin allocation; using fallback facility`,
+        );
+      }
       return { facility: fallbackFacility, binId: undefined, sisters: [] };
     }
     // Use the first bin entry as the primary association. Recipes split
@@ -185,6 +190,11 @@ function buildProductionGraph(
     // Phase 3 picks one facility per equivalence class.
     const bin = binById.get(allocation.perBin[0].binId);
     if (!bin) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[resolveBinInfo] recipe ${recipeId} references missing bin ${allocation.perBin[0].binId}`,
+        );
+      }
       return { facility: fallbackFacility, binId: undefined, sisters: [] };
     }
     const fac = maps.facilityMap.get(bin.facilityId);

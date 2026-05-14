@@ -24,7 +24,6 @@ import type {
   Recipe,
   Facility,
   ProductionDependencyGraph,
-  ProductionGraphNode,
   CrucibleBin,
   FlowProductionNode,
   FlowTargetNode,
@@ -37,7 +36,7 @@ import {
   createDisposalSinkNode,
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
-import { calcRate } from "@/lib/utils";
+import { calcRate, getTransportCapacity } from "@/lib/utils";
 import { buildBinActivitySums, pickBinHeadlineOutput } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
 
@@ -686,7 +685,7 @@ export function mapPlanToFlowBinFusedSeparated(
     if (totalDemand <= 0.001) continue;
     const item = itemById.get(itemId);
     if (!item) continue;
-    const transportCap = item.isLiquid ? 120 : 30;
+    const transportCap = getTransportCapacity(item);
     const pickupCount = Math.max(1, Math.ceil(totalDemand / transportCap));
     for (let i = 0; i < pickupCount; i++) {
       const pickupId = `${createRawMaterialId(itemId)}-p${i}`;
@@ -801,7 +800,7 @@ export function mapPlanToFlowBinFusedSeparated(
     if (node?.type !== "item" || !node.isRawMaterial) continue;
     const item = itemById.get(itemId);
     if (!item) continue;
-    const transportCap = item.isLiquid ? 120 : 30;
+    const transportCap = getTransportCapacity(item);
     // Track remaining capacity per pickup point.
     const totalDemand = consumers.reduce((s, c) => s + c.rate, 0);
     const pickupCount = Math.max(1, Math.ceil(totalDemand / transportCap));
@@ -850,9 +849,3 @@ export function mapPlanToFlowBinFusedSeparated(
   assertFlowIntegrity("bin-fused-separated-mapper", allNodes, flowEdges);
   return { nodes: allNodes, edges: flowEdges };
 }
-
-// CrucibleBin & ProductionGraphNode imports are referenced via type
-// annotations above; intentionally exported via `void` to silence
-// unused-import lints when tree-shaking infers them.
-void ({} as ProductionGraphNode);
-void ({} as CrucibleBin);
