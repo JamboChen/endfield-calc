@@ -1293,7 +1293,7 @@ describe("Phase 3 multi-formula bin packing", () => {
     let totalPoolBuildings = 0;
     for (const bin of plan.crucibleBins) {
       const fac = facilities.find((f) => f.id === bin.facilityId);
-      if (!fac?.capabilities) continue;
+      if (fac?.cacheSlots == null) continue;
       // Only count Crucible bins (multi-formula-capable facilities).
       totalPoolBuildings += bin.buildingCount;
     }
@@ -1303,7 +1303,7 @@ describe("Phase 3 multi-formula bin packing", () => {
       const recipe = recipes.find((r) => r.id === recipeId);
       if (!recipe) continue;
       const fac = facilities.find((f) => f.id === recipe.facilityId);
-      if (!fac?.capabilities) continue;
+      if (fac?.cacheSlots == null) continue;
       ungroupedSlots += Math.ceil(alloc.totalSlots);
     }
 
@@ -1313,7 +1313,7 @@ describe("Phase 3 multi-formula bin packing", () => {
   test("recipes outside multi-formula facilities get singleton bins", () => {
     // A simple non-pool plan should produce singleton bins (one bin per
     // recipe, isGrouped = false). Iron-powder grinding is on a Grinder
-    // facility without `capabilities`.
+    // facility without `cacheSlots`.
     const plan = calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 30 }],
       items,
@@ -1339,7 +1339,7 @@ describe("Phase 3 multi-formula bin packing", () => {
     );
     // Every recipe with non-zero facilityCount in the plan should have a
     // RecipeBinAllocation, including disposal recipes — they go through
-    // emitSingletonBins because their facility lacks `capabilities`.
+    // emitSingletonBins because their facility lacks `cacheSlots`.
     // This guards against silent drops where a recipe's slot demand is
     // unallocated.
     for (const node of plan.nodes.values()) {
@@ -1407,7 +1407,7 @@ describe("Phase 3 multi-formula bin packing", () => {
       const recipe = recipes.find((r) => r.id === recipeId);
       if (!recipe) continue;
       const fac = facilities.find((f) => f.id === recipe.facilityId);
-      if (!fac?.capabilities) continue;
+      if (fac?.cacheSlots == null) continue;
       totalPoolSlots += alloc.totalSlots;
     }
 
@@ -1415,7 +1415,7 @@ describe("Phase 3 multi-formula bin packing", () => {
     let totalPoolBuildings = 0;
     for (const bin of plan.crucibleBins) {
       const fac = facilities.find((f) => f.id === bin.facilityId);
-      if (!fac?.capabilities) continue;
+      if (fac?.cacheSlots == null) continue;
       totalPoolBuildings += bin.buildingCount;
     }
 
@@ -1713,7 +1713,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         facilities,
       );
       return plan.crucibleBins
-        .filter((b) => b.facilityId === FacilityId.ITEM_PORT_MIX_POOL_2)
+        .filter((b) => b.facilityId === FacilityId.MIX_POOL_2)
         .reduce((s, b) => s + Math.ceil(b.buildingCount), 0);
     });
     for (let i = 1; i < totals.length; i++) {

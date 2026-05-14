@@ -335,7 +335,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
 
     // (b) No water-bearing edge originates from the Liquid Purifier bin.
     const purifierBin = plan.crucibleBins.find((b) =>
-      b.facilityId === ("item_port_liquid_purifier_1" as never),
+      b.facilityId === ("liquid_purifier_1" as never),
     );
     expect(purifierBin).toBeDefined();
     const waterEdgesFromPurifier = flow.edges.filter(
@@ -445,7 +445,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     const purifierBin = plan.crucibleBins.find(
       (b) =>
         b.recipeIds.length === 1 &&
-        b.facilityId === ("item_port_liquid_purifier_1" as never),
+        b.facilityId === ("liquid_purifier_1" as never),
     );
     expect(purifierBin).toBeDefined();
     const node = flowOff.nodes.find((n) => n.id === purifierBin!.id);

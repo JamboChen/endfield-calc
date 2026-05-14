@@ -22,50 +22,75 @@ type Recipe = {
 };
 
 /**
- * Multi-formula facility capabilities. When present on a `Facility`, the
- * solver may pack multiple recipes into a single building, sharing
- * inner-slot inventory and external port budget. Facilities without this
- * field are treated as single-formula (one recipe per building).
- *
- * "Inner slots" represent the building's internal inventory budget — every
- * distinct item touched by any constituent recipe (inputs, outputs, internal
- * intermediates) consumes one slot.
- *
- * Port caps apply to the *net* external flow at the chosen slot ratios:
- * an item produced and consumed in equal amounts inside the bin is fully
- * internal and does not occupy a port.
+ * Placement cap for a facility. The per-domain instance limit is
+ * `base + sum(increments)`. `null` on a Facility means uncapped.
  */
-type FacilityCapabilities = {
-  /** Maximum distinct items that may appear inside the building. */
-  innerSlots: number;
-  /** Maximum distinct liquid items entering from outside. */
-  liquidInPorts: number;
-  /** Maximum distinct liquid items leaving to outside. */
-  liquidOutPorts: number;
-  /**
-   * Belt-input port count. When undefined, belt-input variety is uncapped
-   * (limited only by `innerSlots`); throughput remains validated separately.
-   */
-  beltInPorts?: number;
-  /** Maximum distinct non-liquid items leaving to outside. */
-  beltOutPorts: number;
-  /**
-   * Optional cap on number of formulas (recipes) per building. When
-   * undefined, only `innerSlots` and port caps limit grouping.
-   */
-  maxFormulas?: number;
-};
+type PlacementCap = { base: number; increments: number[] };
 
+/**
+ * One logical I/O stream of a building, carrying its physical port count.
+ * Each Channel represents one slot in the player's view; multi-port channels
+ * are physical taps sharing the same logical stream.
+ */
+type Channel = { ports: number };
+
+/**
+ * Belt and pipe channels for one direction (in or out).
+ */
+type Channels = { belt: Channel[]; pipe: Channel[] };
+
+/**
+ * A factory building. Schema mirrors the game-data dump emitted by the
+ * upstream `build-factory-buildings.ts` extractor, with the calc-side
+ * `FacilityId` brand applied to `id`.
+ *
+ * Multi-formula capability is signalled by the presence of `cacheSlots`
+ * (mix pools today: 5 for `mix_pool_1`, 8 for `mix_pool_2`). Without
+ * `cacheSlots`, the building is single-formula (one recipe per building).
+ *
+ * Distinct-item port caps used by the bin-packing solver are derived from
+ * channel counts:
+ *   - `liquidInPorts`  = `channelsIn.pipe.length`
+ *   - `liquidOutPorts` = `channelsOut.pipe.length`
+ *   - `beltOutPorts`   = `channelsOut.belt.length`
+ *   - belt-in distinct-item variety is intentionally uncapped wrt bin
+ *     packing (throughput remains validated separately during post-pass).
+ *
+ * Advisory fields (`channels{In,Out}`, `category`, `numId`, `domains`,
+ * `cap`) carry data for future consumers (per-channel routing
+ * visualisation, placement-aware planning warnings, categorical
+ * filters). They are not consumed by today's solver.
+ */
 type Facility = {
   id: FacilityId;
-  powerConsumption: number;
-  iconUrl?: string;
+  /** Numeric entity id from upstream `entity-ids.json` (−1 if unresolved). */
+  numId: number;
+  /**
+   * Building progression tier (1..4 today), derived upstream from
+   * `FactoryBuildingItemReverseTable -> ItemTable.rarity`.
+   */
   tier: number;
   /**
-   * Multi-formula grouping capabilities. When present, the solver may pack
-   * multiple recipes into a single building of this facility type.
+   * Game enum `GEnums.FacBuildingType` value: 6 MachineCrafter,
+   * 10 loader-class, 25 pump-class, 27 FluidReaction, 28 LiquidCleaner.
    */
-  capabilities?: FacilityCapabilities;
+  category: number;
+  /** Power draw per active building (0 = passive). */
+  powerConsumption: number;
+  channelsIn: Channels;
+  channelsOut: Channels;
+  /**
+   * Mix-pool inner-slot budget. Present only on FluidReaction buildings;
+   * its presence is the multi-formula capability flag.
+   */
+  cacheSlots?: number;
+  /**
+   * Numeric DomainDataTable.sortId values. Empty = placeable anywhere.
+   */
+  domains: number[];
+  /** Per-domain instance limit; `null` = uncapped. */
+  cap: PlacementCap | null;
+  iconUrl?: string;
 };
 
-export type { Item, Recipe, RecipeItem, Facility, FacilityCapabilities };
+export type { Item, Recipe, RecipeItem, Facility, Channel, Channels, PlacementCap };

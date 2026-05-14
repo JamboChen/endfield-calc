@@ -221,20 +221,21 @@ const xRecipe: Recipe = {
     { itemId: xirconItem.id, amount: 1 },
     { itemId: sewageItem.id, amount: 1 },
   ],
-  facilityId: "item_port_mix_pool_1" as FacilityId,
+  facilityId: "mix_pool_1" as FacilityId,
   craftingTime: 2,
 };
 
 const facility: Facility = {
-  id: "item_port_mix_pool_2" as FacilityId,
+  id: "mix_pool_2" as FacilityId,
+  numId: 81,
   powerConsumption: 100,
   tier: 3,
-  capabilities: {
-    innerSlots: 8,
-    liquidInPorts: 2,
-    liquidOutPorts: 2,
-    beltOutPorts: 1,
-  },
+  category: 27,
+  channelsIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+  channelsOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+  cacheSlots: 8,
+  domains: [],
+  cap: null,
 };
 
 const baseNode = (): ProductionNode => ({
@@ -272,7 +273,7 @@ describe("computeNodeByproducts", () => {
         id: "pool_liquid_liquid_xiranite_1" as RecipeId,
         inputs: [{ itemId: ironItem.id, amount: 1 }],
         outputs: [{ itemId: xiraniteItem.id, amount: 1 }],
-        facilityId: "item_port_mix_pool_1" as FacilityId,
+        facilityId: "mix_pool_1" as FacilityId,
         craftingTime: 2,
       };
       const node: ProductionNode = {
@@ -500,7 +501,7 @@ describe("aggregateBinTotals (real data)", () => {
       facilities,
     );
     const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
-    expect(totals.perFacility.get(FacilityIdEnum.ITEM_PORT_MIX_POOL_2)).toBe(1);
+    expect(totals.perFacility.get(FacilityIdEnum.MIX_POOL_2)).toBe(1);
   });
 
   test("ceilMode=true: Xircon target=57 Expanded count matches plan.crucibleBins aggregate", () => {
@@ -514,11 +515,11 @@ describe("aggregateBinTotals (real data)", () => {
     );
     const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
     const expandedDirectCount = plan.crucibleBins
-      .filter((b) => b.facilityId === FacilityIdEnum.ITEM_PORT_MIX_POOL_2)
+      .filter((b) => b.facilityId === FacilityIdEnum.MIX_POOL_2)
       .reduce((s, b) => s + Math.max(1, Math.ceil(b.buildingCount)), 0);
-    expect(totals.perFacility.get(FacilityIdEnum.ITEM_PORT_MIX_POOL_2))
+    expect(totals.perFacility.get(FacilityIdEnum.MIX_POOL_2))
       .toBe(expandedDirectCount);
-    expect(totals.perFacility.get(FacilityIdEnum.ITEM_PORT_MIX_POOL_2))
+    expect(totals.perFacility.get(FacilityIdEnum.MIX_POOL_2))
       .toBe(4);
   });
 
@@ -596,7 +597,7 @@ describe("aggregateBinTotals (real data)", () => {
     const sumByBin = buildBinActivitySums(plan);
     const xirconBin = plan.crucibleBins.find((b) =>
       b.recipeIds.length === 3 &&
-      b.facilityId === FacilityIdEnum.ITEM_PORT_MIX_POOL_2,
+      b.facilityId === FacilityIdEnum.MIX_POOL_2,
     );
     expect(xirconBin).toBeDefined();
     const sumActivities = sumByBin.get(xirconBin!.id) ?? 0;
@@ -639,7 +640,7 @@ describe("aggregateBinTotals (real data)", () => {
       .toBeGreaterThanOrEqual(totals.multiFormulaActualBuildings);
   });
 
-  test("multiFormulaActual sums only bins on facilities with capabilities", () => {
+  test("multiFormulaActual sums only bins on multi-formula-eligible facilities", () => {
     const plan = calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
@@ -651,7 +652,7 @@ describe("aggregateBinTotals (real data)", () => {
     let expected = 0;
     for (const bin of plan.crucibleBins) {
       const fac = facilityById.get(bin.facilityId);
-      if (fac?.capabilities) {
+      if (fac?.cacheSlots != null) {
         expected += Math.max(1, Math.ceil(bin.buildingCount));
       }
     }
@@ -748,7 +749,7 @@ describe("aggregateBinTotals (real data)", () => {
     );
     const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
     const furnaceCount = totals.perFacility.get(
-      FacilityIdEnum.ITEM_PORT_FURNANCE_1,
+      FacilityIdEnum.FURNANCE_1,
     );
     expect(furnaceCount).toBeGreaterThanOrEqual(1);
   });
@@ -766,13 +767,13 @@ describe("aggregateBinTotals (real data)", () => {
     );
     const totals = aggregateBinTotals(plan, facilities, { ceilMode: false });
     const furnaceCount = totals.perFacility.get(
-      FacilityIdEnum.ITEM_PORT_FURNANCE_1,
+      FacilityIdEnum.FURNANCE_1,
     );
     expect(furnaceCount).toBeDefined();
 
     // Independently sum raw bin.buildingCount over Furnace bins.
     const expected = plan.crucibleBins
-      .filter((b) => b.facilityId === FacilityIdEnum.ITEM_PORT_FURNANCE_1)
+      .filter((b) => b.facilityId === FacilityIdEnum.FURNANCE_1)
       .reduce((s, b) => s + b.buildingCount, 0);
     expect(furnaceCount!).toBeCloseTo(expected, 6);
   });

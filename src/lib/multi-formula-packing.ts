@@ -2,12 +2,12 @@
  * Phase 3: pack multi-formula facility recipes into shared buildings.
  *
  * Given Phase 2's per-recipe slot demands (`recipeFacilityCounts`), this
- * module decides how those slots are physically realised. For facilities
- * with `capabilities` defined (e.g. Reactor / Expanded Crucible), multiple
- * recipes may share a single building, sharing inner-slot inventory and
- * external port budget. Each "bin" of buildings has the same recipe
- * configuration; each building of that bin provides 1 slot of each
- * constituent recipe per cycle.
+ * module decides how those slots are physically realised. For multi-formula
+ * facilities (those with `cacheSlots` defined — e.g. Reactor / Expanded
+ * Crucible), multiple recipes may share a single building, sharing
+ * inner-slot inventory and external port budget. Each "bin" of buildings
+ * has the same recipe configuration; each building of that bin provides
+ * 1 slot of each constituent recipe per cycle.
  *
  * Algorithm:
  *   1. Group recipes by facility. Per facility, enumerate all valid
@@ -25,9 +25,9 @@
  *      per-recipe `RecipeBinAllocation` distributing slot demand across
  *      the chosen bins.
  *
- * Recipes with no `capabilities`-aware facility produce a trivial
- * singleton bin per recipe so downstream consumers always see a uniform
- * data shape.
+ * Recipes hosted by single-formula facilities (no `cacheSlots`) produce
+ * a trivial singleton bin per recipe so downstream consumers always see
+ * a uniform data shape.
  */
 
 import solver from "javascript-lp-solver";
@@ -131,18 +131,23 @@ const recipeSignature = (r: Recipe): string => {
 /**
  * Compute the net per-slot I/O of a candidate recipe set, treating each
  * recipe as contributing exactly 1 slot. Returns `null` if the
- * combination violates `facility.capabilities`.
+ * combination violates the facility's inner-slot or port budget.
+ *
+ * Distinct-item port caps are derived from channel counts:
+ *   - liquid-in  = `channelsIn.pipe.length`
+ *   - liquid-out = `channelsOut.pipe.length`
+ *   - belt-out   = `channelsOut.belt.length`
+ *
+ * Belt-input variety is intentionally uncapped wrt bin packing; throughput
+ * is validated separately during post-pass.
  */
 const buildBinShape = (
   recipes: Recipe[],
   facility: Facility,
   itemMap: Map<ItemId, Item>,
 ): BinShape | null => {
-  const caps = facility.capabilities;
-  if (!caps) return null;
-  if (caps.maxFormulas !== undefined && recipes.length > caps.maxFormulas) {
-    return null;
-  }
+  const innerSlots = facility.cacheSlots;
+  if (innerSlots == null) return null;
 
   // Per-item net rate at 1 slot per recipe.
   const netRates = new Map<ItemId, number>();
@@ -164,7 +169,7 @@ const buildBinShape = (
     }
   }
 
-  if (itemTouched.size > caps.innerSlots) return null;
+  if (itemTouched.size > innerSlots) return null;
 
   const netInputs: BinShape["netInputs"] = [];
   const netOutputs: BinShape["netOutputs"] = [];
@@ -172,7 +177,6 @@ const buildBinShape = (
 
   let liquidIn = 0;
   let liquidOut = 0;
-  let beltIn = 0;
   let beltOut = 0;
 
   for (const itemId of itemTouched) {
@@ -188,7 +192,6 @@ const buildBinShape = (
       const rate = -net;
       netInputs.push({ itemId, rate, isLiquid });
       if (isLiquid) liquidIn += 1;
-      else beltIn += 1;
     } else {
       netOutputs.push({ itemId, rate: net, isLiquid });
       if (isLiquid) liquidOut += 1;
@@ -196,10 +199,9 @@ const buildBinShape = (
     }
   }
 
-  if (liquidIn > caps.liquidInPorts) return null;
-  if (liquidOut > caps.liquidOutPorts) return null;
-  if (beltOut > caps.beltOutPorts) return null;
-  if (caps.beltInPorts !== undefined && beltIn > caps.beltInPorts) return null;
+  if (liquidIn > facility.channelsIn.pipe.length) return null;
+  if (liquidOut > facility.channelsOut.pipe.length) return null;
+  if (beltOut > facility.channelsOut.belt.length) return null;
 
   // Sort for deterministic output.
   const byItemId = (
@@ -222,11 +224,12 @@ const buildBinShape = (
 
 /**
  * DFS subset enumeration with cap-violation pruning. Yields every valid
- * `BinShape` (size 1..|R|) that fits within `facility.capabilities`.
+ * `BinShape` (size 1..|R|) that fits within the facility's inner-slot
+ * and port budget.
  *
  * Pruning: at each step we extend the current subset by adding a recipe
  * whose index is greater than the last (combinations, not permutations)
- * AND whose addition keeps `union of items ≤ innerSlots`. We always
+ * AND whose addition keeps `union of items ≤ cacheSlots`. We always
  * verify port caps via `buildBinShape` since net I/O can only be
  * computed once the full set is known (item production and consumption
  * across recipes can cancel).
@@ -236,14 +239,13 @@ const enumerateBinShapes = (
   facility: Facility,
   itemMap: Map<ItemId, Item>,
 ): BinShape[] => {
-  const caps = facility.capabilities;
-  if (!caps || recipes.length === 0) return [];
+  const innerSlots = facility.cacheSlots;
+  if (innerSlots == null || recipes.length === 0) return [];
 
   const shapes: BinShape[] = [];
   const itemsTouchedBy = recipes.map(
     (r) => new Set([...r.inputs.map((i) => i.itemId), ...r.outputs.map((o) => o.itemId)]),
   );
-  const maxFormulas = caps.maxFormulas ?? recipes.length;
 
   const dfs = (
     startIdx: number,
@@ -258,12 +260,11 @@ const enumerateBinShapes = (
       );
       if (shape) shapes.push(shape);
     }
-    if (chosen.length >= maxFormulas) return;
 
     for (let i = startIdx; i < recipes.length; i++) {
       const itemsAfter = new Set(unionItems);
       for (const id of itemsTouchedBy[i]) itemsAfter.add(id);
-      if (itemsAfter.size > caps.innerSlots) continue;
+      if (itemsAfter.size > innerSlots) continue;
       chosen.push(i);
       dfs(i + 1, chosen, itemsAfter);
       chosen.pop();
@@ -905,7 +906,7 @@ export const packCrucibleBins = (input: PackingInput): PackingResult => {
     input;
 
   // Identify which recipes are eligible for multi-formula packing
-  // (their facility has `capabilities`).
+  // (their facility has `cacheSlots` defined).
   const eligibleRecipeIds = new Set<RecipeId>();
   const eligibleFacilities = new Set<Facility>();
   for (const [recipeId, slotDemand] of recipeSlotDemands.entries()) {
@@ -913,7 +914,7 @@ export const packCrucibleBins = (input: PackingInput): PackingResult => {
     const recipe = recipeMap.get(recipeId);
     if (!recipe) continue;
     const facility = facilityMap.get(recipe.facilityId);
-    if (!facility?.capabilities) continue;
+    if (facility?.cacheSlots == null) continue;
     eligibleRecipeIds.add(recipeId);
     eligibleFacilities.add(facility);
     // Twins on other facilities (different facility, same signature) also
@@ -921,7 +922,7 @@ export const packCrucibleBins = (input: PackingInput): PackingResult => {
     for (const r of recipeMap.values()) {
       if (recipeSignature(r) !== recipeSignature(recipe)) continue;
       const f = facilityMap.get(r.facilityId);
-      if (f?.capabilities) eligibleFacilities.add(f);
+      if (f?.cacheSlots != null) eligibleFacilities.add(f);
     }
   }
 

@@ -123,7 +123,8 @@ export type ProductionDependencyGraph = {
   invalidCycles: InvalidCycleInfo[];
   /**
    * Result of Phase 3 multi-formula bin packing. Empty when the plan
-   * contains no recipes from facilities with `capabilities` defined.
+   * contains no recipes from multi-formula facilities (those with
+   * `cacheSlots` defined).
    *
    * Each bin represents one or more buildings of a multi-formula facility
    * hosting a fixed set of recipes. `buildingCount` is the integer number
@@ -134,7 +135,7 @@ export type ProductionDependencyGraph = {
    * Per-recipe distribution across bins. For a recipe `r` with slot demand
    * `N_r`, the entry's `perBin` array sums to `N_r` and each row indicates
    * how many slots of `r` are allocated to bin `binId`. Recipes from
-   * facilities without `capabilities` produce trivial allocations
+   * single-formula facilities (no `cacheSlots`) produce trivial allocations
    * (`perBin = [{ binId: <singleton-bin>, slots: N_r }]`).
    */
   recipeBinAllocations: Map<RecipeId, RecipeBinAllocation>;
@@ -147,8 +148,9 @@ export type ProductionDependencyGraph = {
  * recipe per cycle.
  *
  * Singleton bins (one recipe per building) are emitted for every active
- * recipe even when the facility lacks `capabilities` — they unify the
- * data shape downstream consumers (mappers, table) work against.
+ * recipe even when the facility is single-formula (no `cacheSlots`) —
+ * they unify the data shape downstream consumers (mappers, table)
+ * work against.
  *
  * **`recipeIds` semantics**: the recipe ids stored here are **demand
  * recipe ids** (Phase 2's pick), not the physical twin variant the ILP
@@ -185,7 +187,7 @@ export type CrucibleBin = {
   externalOutputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }>;
   /** Items whose net flow is zero (fully internal); occupies an inner slot. */
   internalItems: ItemId[];
-  /** Distinct item count actually used by this bin (≤ facility.capabilities.innerSlots). */
+  /** Distinct item count actually used by this bin (≤ facility.cacheSlots). */
   innerSlotsUsed: number;
   /** True when this bin shape groups ≥ 2 distinct recipes per building. */
   isGrouped: boolean;

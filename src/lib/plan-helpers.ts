@@ -59,17 +59,17 @@ export type BinAggregates = {
   perFacility: Map<FacilityId, number>;
   /**
    * Σ `Math.max(1, Math.ceil(bin.buildingCount))` for bins on
-   * facilities with `capabilities` (multi-formula-eligible). Always
-   * ceiled — this is the "physically built multi-formula buildings"
-   * counterfactual half of the groupedSavings calculation.
+   * multi-formula-eligible facilities (those with `cacheSlots` defined).
+   * Always ceiled — this is the "physically built multi-formula
+   * buildings" counterfactual half of the groupedSavings calculation.
    */
   multiFormulaActualBuildings: number;
   /**
-   * Σ `Math.ceil(node.facilityCount)` over recipe nodes whose facility
-   * has `capabilities` — i.e. "what would total be if every recipe ran
-   * in its own building, no grouping". Always ceiled (physical
-   * counterfactual). Subtracting `multiFormulaActualBuildings` from
-   * this gives groupedSavings.
+   * Σ `Math.ceil(node.facilityCount)` over recipe nodes hosted on
+   * multi-formula-eligible facilities — i.e. "what would total be if
+   * every recipe ran in its own building, no grouping". Always ceiled
+   * (physical counterfactual). Subtracting `multiFormulaActualBuildings`
+   * from this gives groupedSavings.
    */
   multiFormulaBaselineBuildings: number;
 };
@@ -159,7 +159,7 @@ export function aggregateBinTotals(
       facility.id,
       (perFacility.get(facility.id) ?? 0) + effectiveBuildings,
     );
-    if (facility.capabilities) {
+    if (facility.cacheSlots != null) {
       // Always-ceiled — groupedSavings is a physical-buildings comparison.
       multiFormulaActualBuildings += ceiledBuildings;
     }
@@ -168,7 +168,7 @@ export function aggregateBinTotals(
   let multiFormulaBaselineBuildings = 0;
   plan.nodes.forEach((node) => {
     if (node.type !== "recipe") return;
-    if (node.facility?.capabilities) {
+    if (node.facility?.cacheSlots != null) {
       multiFormulaBaselineBuildings += Math.ceil(node.facilityCount);
     }
   });

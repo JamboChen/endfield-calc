@@ -62,19 +62,38 @@ export const mockItems: Item[] = [
   { id: ItemId.ITEM_BOTTLED_REC_HP_1, tier: 4 },
 ];
 
-// Mock facilities
+// Mock facilities. Use minimal new-schema fixtures with empty channels —
+// these tests don't exercise multi-formula packing, so channel topology is
+// inert. `MIX_POOL_1` carries a `cacheSlots` to keep it eligible for
+// Phase 3 in tests that touch pool recipes.
+const baseFacility = {
+  numId: 0,
+  category: 0,
+  channelsIn: { belt: [], pipe: [] },
+  channelsOut: { belt: [], pipe: [] },
+  domains: [],
+  cap: null,
+};
 export const mockFacilities: Facility[] = [
-  { id: FacilityId.ITEM_PORT_FURNANCE_1, powerConsumption: 10, tier: 1 },
-  { id: FacilityId.ITEM_PORT_GRINDER_1, powerConsumption: 8, tier: 1 },
-  { id: FacilityId.ITEM_PORT_CMPT_MC_1, powerConsumption: 12, tier: 1 },
-  { id: FacilityId.ITEM_PORT_PLANTER_1, powerConsumption: 5, tier: 1 },
-  { id: FacilityId.ITEM_PORT_DISMANTLER_1, powerConsumption: 10, tier: 1 },
-  { id: FacilityId.ITEM_PORT_FILLING_PD_MC_1, powerConsumption: 10, tier: 1 },
-  { id: FacilityId.ITEM_PORT_MIX_POOL_1, powerConsumption: 6, tier: 1 },
-  { id: FacilityId.ITEM_PORT_SHAPER_1, powerConsumption: 10, tier: 1 },
-  { id: FacilityId.ITEM_PORT_TOOLS_ASM_MC_1, powerConsumption: 15, tier: 1 },
-  { id: FacilityId.ITEM_PORT_LIQUID_CLEANER_1, powerConsumption: 50, tier: 3 },
-  { id: FacilityId.ITEM_PORT_XIRANITE_OVEN_1, powerConsumption: 50, tier: 4 },
+  { ...baseFacility, id: FacilityId.FURNANCE_1, powerConsumption: 10, tier: 1 },
+  { ...baseFacility, id: FacilityId.GRINDER_1, powerConsumption: 8, tier: 1 },
+  { ...baseFacility, id: FacilityId.COMPONENT_MC_1, powerConsumption: 12, tier: 1 },
+  { ...baseFacility, id: FacilityId.PLANTER_1, powerConsumption: 5, tier: 1 },
+  { ...baseFacility, id: FacilityId.DISMANTLER_1, powerConsumption: 10, tier: 1 },
+  { ...baseFacility, id: FacilityId.FILLING_POWDER_MC_1, powerConsumption: 10, tier: 1 },
+  {
+    ...baseFacility,
+    id: FacilityId.MIX_POOL_1,
+    powerConsumption: 6,
+    tier: 1,
+    cacheSlots: 5,
+    channelsIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+    channelsOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+  },
+  { ...baseFacility, id: FacilityId.SHAPER_1, powerConsumption: 10, tier: 1 },
+  { ...baseFacility, id: FacilityId.TOOLS_ASSEBLING_MC_1, powerConsumption: 15, tier: 1 },
+  { ...baseFacility, id: FacilityId.LIQUID_CLEANER_1, powerConsumption: 50, tier: 3 },
+  { ...baseFacility, id: FacilityId.XIRANITE_OVEN_1, powerConsumption: 50, tier: 4 },
 ];
 
 // Recipes that include both multi-recipe options AND the grinder, enabling
@@ -85,7 +104,7 @@ export const overrideCycleRecipes: Recipe[] = [
     id: RecipeId.FURNANCE_IRON_NUGGET_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Iron nugget from powder (alternative — creates cycle when overridden)
@@ -93,7 +112,7 @@ export const overrideCycleRecipes: Recipe[] = [
     id: RecipeId.FURNANCE_IRON_NUGGET_2,
     inputs: [{ itemId: ItemId.ITEM_IRON_POWDER, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Iron nugget -> Iron powder (only recipe for powder — completes the cycle)
@@ -101,7 +120,7 @@ export const overrideCycleRecipes: Recipe[] = [
     id: RecipeId.GRINDER_IRON_POWDER_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_POWDER, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_GRINDER_1,
+    facilityId: FacilityId.GRINDER_1,
     craftingTime: 2,
   },
 ];
@@ -113,7 +132,7 @@ export const simpleRecipes: Recipe[] = [
     id: RecipeId.FURNANCE_IRON_NUGGET_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Iron nugget -> Iron powder (30/min per facility)
@@ -121,7 +140,7 @@ export const simpleRecipes: Recipe[] = [
     id: RecipeId.GRINDER_IRON_POWDER_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_POWDER, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_GRINDER_1,
+    facilityId: FacilityId.GRINDER_1,
     craftingTime: 2,
   },
   // Iron nugget -> Iron component (30/min per facility)
@@ -129,7 +148,7 @@ export const simpleRecipes: Recipe[] = [
     id: RecipeId.COMPONENT_IRON_CMPT_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_CMPT, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    facilityId: FacilityId.COMPONENT_MC_1,
     craftingTime: 2,
   },
 ];
@@ -141,7 +160,7 @@ export const multiRecipeItems: Recipe[] = [
     id: RecipeId.FURNANCE_IRON_NUGGET_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Iron nugget from powder (alternative recipe)
@@ -149,7 +168,7 @@ export const multiRecipeItems: Recipe[] = [
     id: RecipeId.FURNANCE_IRON_NUGGET_2,
     inputs: [{ itemId: ItemId.ITEM_IRON_POWDER, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Glass from sand
@@ -157,7 +176,7 @@ export const multiRecipeItems: Recipe[] = [
     id: RecipeId.FURNANCE_QUARTZ_GLASS_1,
     inputs: [{ itemId: ItemId.ITEM_QUARTZ_SAND, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Glass from powder (alternative recipe)
@@ -165,7 +184,7 @@ export const multiRecipeItems: Recipe[] = [
     id: RecipeId.FURNANCE_QUARTZ_GLASS_2,
     inputs: [{ itemId: ItemId.ITEM_QUARTZ_POWDER, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
 ];
@@ -177,7 +196,7 @@ export const cycleRecipes: Recipe[] = [
     id: RecipeId.FURNANCE_QUARTZ_GLASS_1,
     inputs: [{ itemId: ItemId.ITEM_QUARTZ_SAND, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Create bottle from glass
@@ -185,7 +204,7 @@ export const cycleRecipes: Recipe[] = [
     id: RecipeId.SHAPER_GLASS_BOTTLE_1,
     inputs: [{ itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 2 }],
     outputs: [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_GRASS_1, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_SHAPER_1,
+    facilityId: FacilityId.SHAPER_1,
     craftingTime: 2,
   },
   // Grass powder (needed for liquid)
@@ -193,7 +212,7 @@ export const cycleRecipes: Recipe[] = [
     id: RecipeId.GRINDER_PLANT_GRASS_POWDER_1_1,
     inputs: [{ itemId: ItemId.ITEM_PLANT_GRASS_1, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_PLANT_GRASS_POWDER_1, amount: 2 }],
-    facilityId: FacilityId.ITEM_PORT_GRINDER_1,
+    facilityId: FacilityId.GRINDER_1,
     craftingTime: 2,
   },
   // Powder + Water -> Liquid
@@ -204,7 +223,7 @@ export const cycleRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
     ],
     outputs: [{ itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_1, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    facilityId: FacilityId.MIX_POOL_1,
     craftingTime: 2,
   },
   // Fill bottle (bottle returns + liquid consumed) - THIS CREATES THE CYCLE
@@ -217,7 +236,7 @@ export const cycleRecipes: Recipe[] = [
     outputs: [
       { itemId: ItemId.ITEM_FBOTTLE_GLASS_GRASS_1, amount: 1 }, // Bottle returns
     ],
-    facilityId: FacilityId.ITEM_PORT_FILLING_PD_MC_1,
+    facilityId: FacilityId.FILLING_POWDER_MC_1,
     craftingTime: 2,
   },
   // Dismantle bottle (bottle returns + liquid produced) - THIS COMPLETES THE CYCLE
@@ -228,7 +247,7 @@ export const cycleRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_FBOTTLE_GLASS_GRASS_1, amount: 1 }, // Bottle returns
       { itemId: ItemId.ITEM_LIQUID_PLANT_GRASS_1, amount: 1 }, // Liquid produced
     ],
-    facilityId: FacilityId.ITEM_PORT_DISMANTLER_1,
+    facilityId: FacilityId.DISMANTLER_1,
     craftingTime: 2,
   },
 ];
@@ -246,7 +265,7 @@ export const byproductRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
     ],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Copper nugget -> Copper component
@@ -254,7 +273,7 @@ export const byproductRecipes: Recipe[] = [
     id: RecipeId.COMPONENT_COPPER_CMPT_1,
     inputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_COPPER_CMPT, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    facilityId: FacilityId.COMPONENT_MC_1,
     craftingTime: 2,
   },
   // Sewage disposal (Liquid Cleaner) — outputs nothing
@@ -262,7 +281,7 @@ export const byproductRecipes: Recipe[] = [
     id: RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
     inputs: [{ itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 }],
     outputs: [],
-    facilityId: FacilityId.ITEM_PORT_LIQUID_CLEANER_1,
+    facilityId: FacilityId.LIQUID_CLEANER_1,
     craftingTime: 2,
   },
 ];
@@ -293,7 +312,7 @@ export const byproductSCCRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
     ],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Copper nugget -> Copper component
@@ -301,7 +320,7 @@ export const byproductSCCRecipes: Recipe[] = [
     id: RecipeId.COMPONENT_COPPER_CMPT_1,
     inputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_COPPER_CMPT, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    facilityId: FacilityId.COMPONENT_MC_1,
     craftingTime: 2,
   },
   // Liquid Xiranite + Sewage -> Liquid Xiranite Poly + Liquid Xiranite Lowpoly
@@ -316,7 +335,7 @@ export const byproductSCCRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 1 },
     ],
-    facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    facilityId: FacilityId.MIX_POOL_1,
     craftingTime: 2,
   },
   // Liquid Xiranite Poly × 2 + Iron Powder -> Xiranite Poly + Sewage
@@ -331,7 +350,7 @@ export const byproductSCCRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_XIRANITE_POLY, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
     ],
-    facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    facilityId: FacilityId.MIX_POOL_1,
     craftingTime: 2,
   },
   // Xiranite Poly -> Proc Battery (FinalProduct, target 2)
@@ -339,7 +358,7 @@ export const byproductSCCRecipes: Recipe[] = [
     id: RecipeId.TOOLS_PROC_BATTERY_1_1,
     inputs: [{ itemId: ItemId.ITEM_XIRANITE_POLY, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_PROC_BATTERY_1, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_TOOLS_ASM_MC_1,
+    facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
     craftingTime: 2,
   },
   // Iron ore -> Iron nugget (for iron powder chain)
@@ -347,7 +366,7 @@ export const byproductSCCRecipes: Recipe[] = [
     id: RecipeId.FURNANCE_IRON_NUGGET_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Iron nugget -> Iron powder
@@ -355,7 +374,7 @@ export const byproductSCCRecipes: Recipe[] = [
     id: RecipeId.GRINDER_IRON_POWDER_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_POWDER, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_GRINDER_1,
+    facilityId: FacilityId.GRINDER_1,
     craftingTime: 2,
   },
 ];
@@ -370,7 +389,7 @@ export const complexRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_IRON_CMPT, amount: 10 }, // Using iron instead of originium for simplicity
     ],
     outputs: [{ itemId: ItemId.ITEM_PROC_BATTERY_1, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_TOOLS_ASM_MC_1,
+    facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
     craftingTime: 10,
   },
   // Glass component
@@ -378,7 +397,7 @@ export const complexRecipes: Recipe[] = [
     id: RecipeId.COMPONENT_GLASS_CMPT_1,
     inputs: [{ itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_GLASS_CMPT, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    facilityId: FacilityId.COMPONENT_MC_1,
     craftingTime: 2,
   },
   // Iron component
@@ -386,7 +405,7 @@ export const complexRecipes: Recipe[] = [
     id: RecipeId.COMPONENT_IRON_CMPT_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_CMPT, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_CMPT_MC_1,
+    facilityId: FacilityId.COMPONENT_MC_1,
     craftingTime: 2,
   },
   // Glass from sand
@@ -394,7 +413,7 @@ export const complexRecipes: Recipe[] = [
     id: RecipeId.FURNANCE_QUARTZ_GLASS_1,
     inputs: [{ itemId: ItemId.ITEM_QUARTZ_SAND, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Iron from ore
@@ -402,7 +421,7 @@ export const complexRecipes: Recipe[] = [
     id: RecipeId.FURNANCE_IRON_NUGGET_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
 ];
@@ -422,7 +441,7 @@ export const xirconRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_XIRANITE_POLY, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
     ],
-    facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    facilityId: FacilityId.MIX_POOL_1,
     craftingTime: 2,
   },
   // Core cycle recipe: liquid_xiranite + liquid_sewage → liquid_xiranite_poly + liquid_xiranite_lowpoly
@@ -436,7 +455,7 @@ export const xirconRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 1 },
     ],
-    facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    facilityId: FacilityId.MIX_POOL_1,
     craftingTime: 2,
   },
   // xiranite_powder + liquid_water → liquid_xiranite
@@ -447,7 +466,7 @@ export const xirconRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
     ],
     outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_MIX_POOL_1,
+    facilityId: FacilityId.MIX_POOL_1,
     craftingTime: 2,
   },
   // carbon_enr ×2 + liquid_water → xiranite_powder
@@ -458,7 +477,7 @@ export const xirconRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
     ],
     outputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_XIRANITE_OVEN_1,
+    facilityId: FacilityId.XIRANITE_OVEN_1,
     craftingTime: 2,
   },
   // External sewage source: copper_ore + liquid_water → copper_nugget + liquid_sewage
@@ -472,7 +491,7 @@ export const xirconRecipes: Recipe[] = [
       { itemId: ItemId.ITEM_COPPER_NUGGET, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 },
     ],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // iron_nugget → iron_powder
@@ -480,7 +499,7 @@ export const xirconRecipes: Recipe[] = [
     id: RecipeId.GRINDER_IRON_POWDER_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_POWDER, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_GRINDER_1,
+    facilityId: FacilityId.GRINDER_1,
     craftingTime: 2,
   },
   // iron_ore → iron_nugget
@@ -488,7 +507,7 @@ export const xirconRecipes: Recipe[] = [
     id: RecipeId.FURNANCE_IRON_NUGGET_1,
     inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
-    facilityId: FacilityId.ITEM_PORT_FURNANCE_1,
+    facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
   },
   // Disposal: liquid_xiranite_lowpoly
@@ -496,7 +515,7 @@ export const xirconRecipes: Recipe[] = [
     id: RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_XIRANITE_LOWPOLY,
     inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 1 }],
     outputs: [],
-    facilityId: FacilityId.ITEM_PORT_LIQUID_CLEANER_1,
+    facilityId: FacilityId.LIQUID_CLEANER_1,
     craftingTime: 2,
   },
   // Disposal: liquid_sewage
@@ -504,7 +523,7 @@ export const xirconRecipes: Recipe[] = [
     id: RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
     inputs: [{ itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 }],
     outputs: [],
-    facilityId: FacilityId.ITEM_PORT_LIQUID_CLEANER_1,
+    facilityId: FacilityId.LIQUID_CLEANER_1,
     craftingTime: 2,
   },
 ];

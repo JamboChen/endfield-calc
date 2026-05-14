@@ -206,17 +206,17 @@ export default function CustomProductionNode({
                       used: node.bin.innerSlotsUsed,
                     })}
                   </div>
-                  {facility?.capabilities && (
+                  {facility?.cacheSlots != null && (
                     <div className="text-muted-foreground">
                       {t("tree.portUtilization", {
                         defaultValue:
                           "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out",
                         liqIn: node.bin.externalInputs.filter((io) => io.isLiquid).length,
-                        liqInCap: facility.capabilities.liquidInPorts,
+                        liqInCap: facility.channelsIn.pipe.length,
                         liqOut: node.bin.externalOutputs.filter((io) => io.isLiquid).length,
-                        liqOutCap: facility.capabilities.liquidOutPorts,
+                        liqOutCap: facility.channelsOut.pipe.length,
                         beltOut: node.bin.externalOutputs.filter((io) => !io.isLiquid).length,
-                        beltOutCap: facility.capabilities.beltOutPorts,
+                        beltOutCap: facility.channelsOut.belt.length,
                       })}
                     </div>
                   )}

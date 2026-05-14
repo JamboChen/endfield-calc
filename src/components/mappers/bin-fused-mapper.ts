@@ -220,7 +220,7 @@ export function mapPlanToFlowBinFused(
 
     // Card-displayed building count:
     //   - ceilMode=ON: physical `bin.buildingCount` (integer for grouped
-    //     bins, fractional for singletons on no-capabilities facilities).
+    //     bins, fractional for singletons on single-formula facilities).
     //   - ceilMode=OFF: mean of per-recipe activities (sum_activities /
     //     recipe_count). Reduces to `bin.buildingCount` for singletons;
     //     for grouped bins, surfaces partial-load info that the integer
