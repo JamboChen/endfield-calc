@@ -20,6 +20,12 @@ interface SavedPlan {
   recipeOverrides: Record<string, string>;
   manualRawMaterials: string[];
   ceilMode: boolean;
+  /**
+   * Optional. When absent (legacy saves predating bin-fusion), the
+   * loader defaults to `true` (bin-fusion on) — matching the
+   * `parseHash` default.
+   */
+  binFusion?: boolean;
 }
 
 interface ParsedHashState {
@@ -380,6 +386,7 @@ export function useProductionPlan() {
       recipeOverrides: Object.fromEntries(recipeOverrides),
       manualRawMaterials: Array.from(manualRawMaterials),
       ceilMode,
+      binFusion,
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -391,7 +398,7 @@ export function useProductionPlan() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion]);
 
   const handleOpenPlan = useCallback(() => {
     if (!fileInputRef.current) {
@@ -419,6 +426,9 @@ export function useProductionPlan() {
             );
             setManualRawMaterials(new Set(data.manualRawMaterials as ItemId[]));
             setCeilMode(data.ceilMode);
+            // Legacy saves (pre-bin-fusion) omit `binFusion`; default to on
+            // to match `parseHash` and the in-app default.
+            setBinFusion(data.binFusion ?? true);
           } catch {
             // ignore invalid files
           }
