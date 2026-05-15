@@ -192,6 +192,23 @@ export function mapPlanToFlowBinFused(
       consumersByItem.set(inp.itemId, arr);
     }
   }
+  // Target sinks consume target items. Registered BEFORE disposal bins
+  // so the greedy allocator gives targets priority over disposal in
+  // edge cases where producer output is split between them. Matches
+  // `mapPlanToFlowSeparated`'s target-pass-then-disposal-pass ordering
+  // and prevents floating-point noise from leaving a target sink
+  // ε under-allocated. (Disposal's surplus is implicit: whatever is
+  // left after targets / consumers / internal use is what gets
+  // disposed.)
+  plan.nodes.forEach((node, nodeId) => {
+    if (node.type !== "item") return;
+    if (!node.isTarget || node.isRawMaterial) return;
+    const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
+    if (userTargetRate <= 0.001) return;
+    const arr = consumersByItem.get(node.itemId as ItemId) ?? [];
+    arr.push({ binId: createTargetSinkId(nodeId), rate: userTargetRate });
+    consumersByItem.set(node.itemId as ItemId, arr);
+  });
   // Disposal bins consume items too — register them as consumers so
   // producer bins route surplus to disposal correctly.
   for (const bin of disposalBins) {
@@ -205,16 +222,6 @@ export function mapPlanToFlowBinFused(
     arr.push({ binId: disposalSinkId, rate });
     consumersByItem.set(inp.itemId, arr);
   }
-  // Target sinks consume target items.
-  plan.nodes.forEach((node, nodeId) => {
-    if (node.type !== "item") return;
-    if (!node.isTarget || node.isRawMaterial) return;
-    const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
-    if (userTargetRate <= 0.001) return;
-    const arr = consumersByItem.get(node.itemId as ItemId) ?? [];
-    arr.push({ binId: createTargetSinkId(nodeId), rate: userTargetRate });
-    consumersByItem.set(node.itemId as ItemId, arr);
-  });
 
   // Raw-material pickup tracking. A raw material is an item with no
   // producing bin (any consumer's input that's not in producersByItem).
@@ -557,6 +564,62 @@ export function mapPlanToFlowBinFusedSeparated(
   const buildingInstanceId = (binId: string, idx: number): string =>
     `${binId}-bldg${idx}`;
 
+  // Cycle-pair set for backward-edge tagging. Built from
+  // `plan.detectedCycles` (unresolved SCCs, even if LP-solved). Mirrors
+  // the per-recipe cyclePairs in `mapPlanToFlowSeparated:64-76`.
+  //
+  // Why tag at the mapper instead of relying solely on
+  // `applyEdgeStyling`'s post-layout position check (`flow-utils.ts:184`):
+  // ELK reads `edge.data.direction === "backward"` in `layout.ts:266` and
+  // sets `elk.layered.priority.direction` accordingly. Without the tag,
+  // cycle edges get default priority and the layout differs from bf=0.
+  // The position-based fallback still works for final styling, but the
+  // node positions themselves diverge if we don't feed ELK the
+  // semantic-cycle hint.
+  const cyclePairs = new Set<string>();
+  plan.detectedCycles.forEach((cycle) => {
+    const recipeIds = cycle.cycleNodes
+      .filter((cn) => cn.recipe !== null)
+      .map((cn) => cn.recipe!.id);
+    for (const a of recipeIds) {
+      for (const b of recipeIds) {
+        if (a !== b) cyclePairs.add(`${a}:${b}`);
+      }
+    }
+  });
+
+  // Extract bin id from a per-building instance id ("bin-xxx-bldg0"
+  // → "bin-xxx") or from a target/disposal sink id (no match — returns
+  // null and the caller treats the id as not-a-building).
+  const binIdFromInstanceId = (instanceId: string): string | null => {
+    const m = instanceId.match(/^(.+)-bldg\d+$/);
+    return m ? m[1] : null;
+  };
+
+  // Determine if an edge between two building-instances crosses a
+  // detected-cycle boundary. Either direction of an SCC pair counts as
+  // backward (matches `mapPlanToFlowSeparated`'s symmetric tagging).
+  const binsById = new Map<string, Bin>();
+  for (const bin of plan.bins) binsById.set(bin.id, bin);
+  const isCycleEdge = (
+    producerInstanceId: string,
+    consumerInstanceId: string,
+  ): boolean => {
+    if (cyclePairs.size === 0) return false;
+    const producerBinId = binIdFromInstanceId(producerInstanceId);
+    const consumerBinId = binIdFromInstanceId(consumerInstanceId);
+    if (!producerBinId || !consumerBinId) return false;
+    const producerBin = binsById.get(producerBinId);
+    const consumerBin = binsById.get(consumerBinId);
+    if (!producerBin || !consumerBin) return false;
+    for (const pr of producerBin.recipeIds) {
+      for (const cr of consumerBin.recipeIds) {
+        if (cyclePairs.has(`${pr}:${cr}`)) return true;
+      }
+    }
+    return false;
+  };
+
   // Build per-bin instance count and per-instance rates.
   type BinInstance = {
     bin: Bin;
@@ -718,6 +781,18 @@ export function mapPlanToFlowBinFusedSeparated(
       consumersByItem.set(inp.itemId, arr);
     }
   }
+  // Target sinks consume target items. Registered BEFORE disposal so
+  // greedy allocation gives targets priority. See the equivalent
+  // ordering note in `mapPlanToFlowBinFused` above.
+  plan.nodes.forEach((node, nodeId) => {
+    if (node.type !== "item") return;
+    if (!node.isTarget || node.isRawMaterial) return;
+    const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
+    if (userTargetRate <= 0.001) return;
+    const arr = consumersByItem.get(node.itemId as ItemId) ?? [];
+    arr.push({ instanceId: createTargetSinkId(nodeId), rate: userTargetRate });
+    consumersByItem.set(node.itemId as ItemId, arr);
+  });
   // Disposal bins consume items; register one disposal-sink consumer
   // per disposal bin (not per building, since disposal sinks aren't
   // visualised per-instance in the existing app).
@@ -731,16 +806,6 @@ export function mapPlanToFlowBinFusedSeparated(
     arr.push({ instanceId: sinkId, rate });
     consumersByItem.set(inp.itemId, arr);
   }
-  // Target sinks consume target items.
-  plan.nodes.forEach((node, nodeId) => {
-    if (node.type !== "item") return;
-    if (!node.isTarget || node.isRawMaterial) return;
-    const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
-    if (userTargetRate <= 0.001) return;
-    const arr = consumersByItem.get(node.itemId as ItemId) ?? [];
-    arr.push({ instanceId: createTargetSinkId(nodeId), rate: userTargetRate });
-    consumersByItem.set(node.itemId as ItemId, arr);
-  });
 
   // Greedy producer→consumer allocation per item, similar to merged.
   type AllocEdge = { producerId: string; consumerId: string; rate: number };
@@ -968,12 +1033,19 @@ export function mapPlanToFlowBinFusedSeparated(
   ]);
 
   // Bin → consumer edges (per-building, one per allocation entry).
+  // Edges between building-instances of bins that participate in the
+  // same detected cycle get `direction: "backward"` so ELK's layered
+  // layout deprioritizes them (`layout.ts:264-276`), preserving cycle
+  // visual structure consistent with `mapPlanToFlowSeparated`.
   for (const [itemId, edges] of allocated.entries()) {
     const sourceItem = itemById.get(itemId);
     for (const edge of edges) {
       if (edge.rate <= 0.001) continue;
       if (!emittedNodeIds.has(edge.producerId)) continue;
       if (!emittedNodeIds.has(edge.consumerId)) continue;
+      const direction = isCycleEdge(edge.producerId, edge.consumerId)
+        ? "backward"
+        : undefined;
       flowEdges.push(
         createEdge(
           `e${edgeIdCounter++}`,
@@ -981,7 +1053,7 @@ export function mapPlanToFlowBinFusedSeparated(
           edge.consumerId,
           edge.rate,
           sourceItem,
-          undefined,
+          direction,
           ceilMode,
         ),
       );

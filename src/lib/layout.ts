@@ -265,12 +265,22 @@ export const getLayoutedElements = async (
       const isBackward =
         edge.type === "backwardEdge" || edge.data?.direction === "backward";
 
+      // `elk.layered.priority.direction` is an int with lower bound 0
+      // (per https://www.eclipse.org/elk/reference/options/org-eclipse-elk-layered-priority-direction.html).
+      // Higher values mean "more important to keep this edge pointing in
+      // the layout direction" — i.e. less likely to be reversed during
+      // cycle breaking. Backward edges get the lowest priority (0) so
+      // ELK prefers to reverse them; forward edges get a high priority
+      // (10) so ELK avoids reversing them. The previous value of `-10`
+      // for backward edges was below the lower bound and silently
+      // clamped to 0 — same effective behaviour, but now expressed
+      // correctly.
       return {
         id: edge.id,
         sources: [edge.source],
         targets: [edge.target],
         layoutOptions: {
-          "elk.layered.priority.direction": isBackward ? "-10" : "10",
+          "elk.layered.priority.direction": isBackward ? "0" : "10",
         },
       };
     }),

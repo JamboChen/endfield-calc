@@ -557,6 +557,43 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     }
   });
 
+  test("target sink incoming edges sum to userTargetRate (target priority over disposal)", () => {
+    // Recipe View counterpart of the Facility View test. The merged
+    // bin-fused mapper also registers consumers in the order
+    // target-then-disposal so the greedy allocator gives targets
+    // priority. For Xircon Poly @ 60/min, the bin emits a single card
+    // and its single edge to the target sink must carry exactly the
+    // full target rate.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_XIRANITE_POLY, 60]]),
+      false,
+    );
+
+    const sinkId = createTargetSinkId(ItemId.ITEM_XIRANITE_POLY);
+    const targetIncoming = flow.edges.filter(
+      (e) =>
+        e.target === sinkId &&
+        e.sourceHandle === ItemId.ITEM_XIRANITE_POLY,
+    );
+    expect(targetIncoming.length).toBeGreaterThan(0);
+
+    const totalRate = targetIncoming.reduce(
+      (sum, e) => sum + ((e.data as { flowRate?: number })?.flowRate ?? 0),
+      0,
+    );
+    expect(totalRate).toBeCloseTo(60, 6);
+  });
+
   test("singleton-terminal target with multiple inputs routes all inputs to embedded sink (Xiranite Powder regression)", () => {
     // Regression: my first attempt at the singleton-terminal skip
     // produced isolated `raw_item_liquid_water` and
@@ -865,6 +902,93 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       productionInfo?: unknown;
     };
     expect(sinkData.productionInfo).toBeUndefined();
+  });
+
+  test("cycle edges between bins carry direction=backward (ELK layout hint)", () => {
+    // Regression: bin-fused-separated previously didn't tag cycle edges
+    // with direction=backward, causing ELK to lay them out with default
+    // priority. `mapPlanToFlowSeparated:287-296` tags both directions
+    // of detected cycles to feed ELK's `elk.layered.priority.direction`
+    // (see `layout.ts:264-276`). Bin-fused-separated must match for
+    // consistent visual layout of multi-bin cycles.
+    //
+    // The moss seed cycle (planter ↔ seedcollector) is the canonical
+    // multi-bin cycle in real data — planter and seedcollector are on
+    // different facilities, hence different bins. Detected by the SCC
+    // detector and surfaces in `plan.detectedCycles` because the
+    // LP-based solver doesn't add solved cycles to `resolvedSCCIds`.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_PLANT_MOSS_POWDER_1, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+    expect(plan.detectedCycles.length).toBeGreaterThan(0);
+
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map(),
+      false,
+    );
+
+    // Find edges between moss-cycle bins (planter / seedcollector).
+    const cycleEdges = flow.edges.filter((e) => {
+      const isPlanter = e.source.includes("planter") || e.target.includes("planter");
+      const isSeedcollector =
+        e.source.includes("seedcollector") || e.target.includes("seedcollector");
+      return isPlanter && isSeedcollector;
+    });
+    expect(cycleEdges.length).toBeGreaterThan(0);
+
+    // Every cycle edge must be tagged direction=backward.
+    for (const e of cycleEdges) {
+      const data = e.data as { direction?: string };
+      expect(data?.direction).toBe("backward");
+    }
+  });
+
+  test("target sink incoming edges sum to userTargetRate (target priority over disposal)", () => {
+    // Regression: bin-fused-separated previously registered disposal-bin
+    // consumers BEFORE target sinks in the greedy allocator's consumer
+    // map. With well-balanced plans this produced identical results,
+    // but floating-point noise could leave a target ε under-allocated
+    // because disposal got first pick. Reversing the order ensures
+    // targets always receive exactly their requested rate.
+    //
+    // Xircon Poly @ 60/min puts the grouped {LX, XE, X} bin at 2
+    // buildings, each connecting to the target sink. Total target
+    // sink incoming for ITEM_XIRANITE_POLY must equal 60/min exactly.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_XIRANITE_POLY, 60]]),
+      false,
+    );
+
+    const sinkId = createTargetSinkId(ItemId.ITEM_XIRANITE_POLY);
+    const targetIncoming = flow.edges.filter(
+      (e) =>
+        e.target === sinkId &&
+        e.sourceHandle === ItemId.ITEM_XIRANITE_POLY,
+    );
+    expect(targetIncoming.length).toBeGreaterThan(0);
+
+    const totalRate = targetIncoming.reduce(
+      (sum, e) => sum + ((e.data as { flowRate?: number })?.flowRate ?? 0),
+      0,
+    );
+    expect(totalRate).toBeCloseTo(60, 6);
   });
 
   test("singleton-terminal target with multiple inputs routes all inputs to embedded sink (Xiranite Powder regression)", () => {
