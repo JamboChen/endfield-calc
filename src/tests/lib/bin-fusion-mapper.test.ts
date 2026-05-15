@@ -18,7 +18,7 @@ import { describe, test, expect } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
 import { pickBinHeadlineOutput } from "@/lib/plan-helpers";
 import { mapPlanToFlowBinFused, mapPlanToFlowBinFusedSeparated } from "@/components/mappers/bin-fused-mapper";
-import { createRawMaterialId } from "@/lib/node-keys";
+import { createRawMaterialId, createTargetSinkId } from "@/lib/node-keys";
 import { items, recipes, facilities } from "@/data";
 import { ItemId } from "@/types/constants";
 import type {
@@ -455,6 +455,31 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     }).productionNode!.facilityCount;
     expect(facilityCount).toBeCloseTo(purifierBin!.buildingCount, 6);
   });
+
+  test("zero-rate target emits no isolated sink node", () => {
+    // Reachability: the URL-hash parser in `useProductionPlan` accepts
+    // any `rate >= 0`, so a hash like `#t=item_iron_nugget:0` results
+    // in `targetRates.get(itemId) === 0`. The consumer-registration
+    // loop already skips zero-rate targets; the sink-emission loop
+    // must match, otherwise an isolated `target-sink-*` node trips
+    // assertFlowIntegrity in dev mode.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_IRON_NUGGET, 0]]),
+      false,
+    );
+    const sinkId = createTargetSinkId(ItemId.ITEM_IRON_NUGGET);
+    expect(flow.nodes.find((n) => n.id === sinkId)).toBeUndefined();
+  });
 });
 
 describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
@@ -558,5 +583,27 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
         dangling.push(`edge ${e.id} target ${e.target} missing`);
     }
     expect(dangling).toEqual([]);
+  });
+
+  test("zero-rate target emits no isolated sink node", () => {
+    // Mirror of the Recipe View test: the separated mapper's
+    // sink-emission loop must also skip zero-rate targets so no
+    // isolated `target-sink-*` node escapes into the graph.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_IRON_NUGGET, 0]]),
+      false,
+    );
+    const sinkId = createTargetSinkId(ItemId.ITEM_IRON_NUGGET);
+    expect(flow.nodes.find((n) => n.id === sinkId)).toBeUndefined();
   });
 });

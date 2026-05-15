@@ -299,6 +299,10 @@ export function mapPlanToFlowBinFused(
     if (!node.isTarget || node.isRawMaterial) return;
     const targetSinkId = createTargetSinkId(nodeId);
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
+    // Mirror the consumer-registration guard above: zero-rate targets
+    // have no incoming edges, so emitting a sink for them produces an
+    // isolated node that trips assertFlowIntegrity in dev mode.
+    if (userTargetRate <= 0.001) return;
 
     // Find producer bins for this target.
     const producers = producersByItem.get(node.itemId as ItemId) ?? [];
@@ -726,6 +730,10 @@ export function mapPlanToFlowBinFusedSeparated(
     if (!node.isTarget || node.isRawMaterial) return;
     const targetSinkId = createTargetSinkId(nodeId);
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
+    // Mirror the consumer-registration guard: zero-rate targets have no
+    // incoming edges; emitting a sink for them produces an isolated
+    // node that trips assertFlowIntegrity in dev mode.
+    if (userTargetRate <= 0.001) return;
     targetSinkNodes.push(
       createTargetSinkNode(
         targetSinkId,
