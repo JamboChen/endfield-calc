@@ -212,11 +212,11 @@ export default function CustomProductionNode({
                         defaultValue:
                           "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out",
                         liqIn: node.bin.externalInputs.filter((io) => io.isLiquid).length,
-                        liqInCap: facility.channelsIn.pipe.length,
+                        liqInCap: facility.buffersIn.pipe.length,
                         liqOut: node.bin.externalOutputs.filter((io) => io.isLiquid).length,
-                        liqOutCap: facility.channelsOut.pipe.length,
+                        liqOutCap: facility.buffersOut.pipe.length,
                         beltOut: node.bin.externalOutputs.filter((io) => !io.isLiquid).length,
-                        beltOutCap: facility.channelsOut.belt.length,
+                        beltOutCap: facility.buffersOut.belt.length,
                       })}
                     </div>
                   )}

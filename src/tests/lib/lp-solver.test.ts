@@ -9,8 +9,8 @@ const FAC: Facility = {
   powerConsumption: 10,
   tier: 1,
   category: 0,
-  channelsIn: { belt: [], pipe: [] },
-  channelsOut: { belt: [], pipe: [] },
+  buffersIn: { belt: [], pipe: [] },
+  buffersOut: { belt: [], pipe: [] },
   domains: [],
   cap: null,
 };
@@ -20,8 +20,8 @@ const FAC_HEAVY: Facility = {
   powerConsumption: 50,
   tier: 1,
   category: 0,
-  channelsIn: { belt: [], pipe: [] },
-  channelsOut: { belt: [], pipe: [] },
+  buffersIn: { belt: [], pipe: [] },
+  buffersOut: { belt: [], pipe: [] },
   domains: [],
   cap: null,
 };

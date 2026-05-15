@@ -19,7 +19,7 @@ import type {
 
 /**
  * Thin defaults wrapper. Caller supplies the new-schema fields they care
- * about; everything else falls back to safe empty defaults. Channels are
+ * about; everything else falls back to safe empty defaults. Buffers are
  * explicit in fixtures so each test exercises the same shape the solver
  * reads at runtime.
  */
@@ -47,8 +47,8 @@ const facility = (id: string, opts: Partial<Facility> = {}): Facility => ({
   tier: 1,
   category: 0,
   powerConsumption: 0,
-  channelsIn: { belt: [], pipe: [] },
-  channelsOut: { belt: [], pipe: [] },
+  buffersIn: { belt: [], pipe: [] },
+  buffersOut: { belt: [], pipe: [] },
   domains: [],
   cap: null,
   ...opts,
@@ -106,19 +106,19 @@ describe("packCrucibleBins", () => {
       item("xiranite_poly"), // Xircon
     ];
     // Reactor (50W, 5 inner) and Expanded (100W, 8 inner) crucibles —
-    // shapes mirror the production data: 2 distinct liquid-in channels,
-    // 2 distinct liquid-out channels, 1 belt-out channel.
+    // shapes mirror the production data: 2 distinct liquid-in buffers,
+    // 2 distinct liquid-out buffers, 1 belt-out buffer.
     const reactor = facility("mix_pool_1", {
       powerConsumption: 50,
       cacheSlots: 5,
-      channelsIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-      channelsOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     });
     const expanded = facility("mix_pool_2", {
       powerConsumption: 100,
       cacheSlots: 8,
-      channelsIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-      channelsOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     });
     // Pool LX recipes (twins)
     const lx_1 = recipe("lx_1",
@@ -370,8 +370,8 @@ describe("packCrucibleBins", () => {
       const expandedSmall = facility("mix_pool_2", {
         powerConsumption: 100,
         cacheSlots: 8,
-        channelsIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-        channelsOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+        buffersIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+        buffersOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
       });
       const a = recipe("a_1",
         [{ itemId: "water", amount: 1 }],
@@ -420,8 +420,8 @@ describe("packCrucibleBins", () => {
     const reactor = facility("mix_pool_1", {
       powerConsumption: 50,
       cacheSlots: 5,
-      channelsIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-      channelsOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     });
     const grass1 = recipe("grass1_1",
       [{ itemId: "plant_grass_powder_1", amount: 1 }, { itemId: "water", amount: 1 }],
@@ -461,14 +461,14 @@ describe("packCrucibleBins", () => {
     const reactor = facility("mix_pool_1", {
       powerConsumption: 50,
       cacheSlots: 5,
-      channelsIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-      channelsOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     });
     const expanded = facility("mix_pool_2", {
       powerConsumption: 100,
       cacheSlots: 8,
-      channelsIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-      channelsOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     });
     const lx_1 = recipe("lx_1",
       [{ itemId: "xiranite_powder", amount: 1 }, { itemId: "water", amount: 1 }],
@@ -521,12 +521,12 @@ describe("packCrucibleBins", () => {
       const fac1 = facility("fac1", {
         powerConsumption: 50,
         cacheSlots: 2,
-        channelsOut: { belt: [{ ports: 1 }], pipe: [] },
+        buffersOut: { belt: [{ ports: 1 }], pipe: [] },
       });
       const fac2 = facility("fac2", {
         powerConsumption: 80,
         cacheSlots: 2,
-        channelsOut: { belt: [{ ports: 1 }], pipe: [] },
+        buffersOut: { belt: [{ ports: 1 }], pipe: [] },
       });
       const slotDemands = new Map<RecipeId, number>([["a" as RecipeId, 1]]);
       const r = packCrucibleBins({
@@ -550,8 +550,8 @@ describe("packCrucibleBins", () => {
       const fac = facility("fac", {
         powerConsumption: 50,
         cacheSlots: 5,
-        channelsIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }] },
-        channelsOut: { belt: [], pipe: [{ ports: 1 }, { ports: 1 }] },
+        buffersIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }] },
+        buffersOut: { belt: [], pipe: [{ ports: 1 }, { ports: 1 }] },
       });
       const r1 = recipe("r1",
         [{ itemId: "a", amount: 1 }, { itemId: "water", amount: 1 }],
@@ -585,7 +585,7 @@ describe("packCrucibleBins", () => {
       const fac = facility("fac", {
         powerConsumption: 50,
         cacheSlots: 5,
-        channelsOut: { belt: [{ ports: 1 }], pipe: [] },
+        buffersOut: { belt: [{ ports: 1 }], pipe: [] },
       });
       const r1 = recipe("r1",
         [{ itemId: "raw", amount: 1 }],
@@ -617,14 +617,14 @@ describe("packCrucibleBins", () => {
     const reactor = facility("mix_pool_1", {
       powerConsumption: 50,
       cacheSlots: 5,
-      channelsIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-      channelsOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     });
     const expanded = facility("mix_pool_2", {
       powerConsumption: 100,
       cacheSlots: 8,
-      channelsIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-      channelsOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+      buffersOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     });
     const lx_1 = recipe("lx_1",
       [{ itemId: "xiranite_powder", amount: 1 }, { itemId: "water", amount: 1 }],
@@ -797,8 +797,8 @@ describe("packCrucibleBins", () => {
       const reactor = facility("mix_pool_1", {
         powerConsumption: 50,
         cacheSlots: 5,
-        channelsIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-        channelsOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+        buffersIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+        buffersOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
       });
       const grass1 = recipe("grass1_1",
         [{ itemId: "powder1", amount: 1 }, { itemId: "water", amount: 1 }],

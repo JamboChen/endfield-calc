@@ -28,16 +28,21 @@ type Recipe = {
 type PlacementCap = { base: number; increments: number[] };
 
 /**
- * One logical I/O stream of a building, carrying its physical port count.
- * Each Channel represents one slot in the player's view; multi-port channels
- * are physical taps sharing the same logical stream.
+ * One logical I/O stream of a building (one slot in the player's view),
+ * carrying its physical port count. The engine itself uses "buffer" to
+ * name the binding/grouping layer that ties one or more physical ports
+ * to one cache — see `*BufferBinding[]` arrays in
+ * `FactoryMachineCraftGroupTable.json` and `buildingBufferStackLimit`
+ * in `FactoryItemTable.json`.
+ *
+ * Multi-port buffers are physical taps sharing the same logical stream.
  */
-type Channel = { ports: number };
+type Buffer = { ports: number };
 
 /**
- * Belt and pipe channels for one direction (in or out).
+ * Belt and pipe buffers for one direction (in or out).
  */
-type Channels = { belt: Channel[]; pipe: Channel[] };
+type Buffers = { belt: Buffer[]; pipe: Buffer[] };
 
 /**
  * A factory building. Schema mirrors the game-data dump emitted by the
@@ -49,15 +54,15 @@ type Channels = { belt: Channel[]; pipe: Channel[] };
  * `cacheSlots`, the building is single-formula (one recipe per building).
  *
  * Distinct-item port caps used by the bin-packing solver are derived from
- * channel counts:
- *   - `liquidInPorts`  = `channelsIn.pipe.length`
- *   - `liquidOutPorts` = `channelsOut.pipe.length`
- *   - `beltOutPorts`   = `channelsOut.belt.length`
+ * buffer counts:
+ *   - `liquidInPorts`  = `buffersIn.pipe.length`
+ *   - `liquidOutPorts` = `buffersOut.pipe.length`
+ *   - `beltOutPorts`   = `buffersOut.belt.length`
  *   - belt-in distinct-item variety is intentionally uncapped wrt bin
  *     packing (throughput remains validated separately during post-pass).
  *
- * Advisory fields (`channels{In,Out}`, `category`, `numId`, `domains`,
- * `cap`) carry data for future consumers (per-channel routing
+ * Advisory fields (`buffers{In,Out}`, `category`, `numId`, `domains`,
+ * `cap`) carry data for future consumers (per-buffer routing
  * visualisation, placement-aware planning warnings, categorical
  * filters). They are not consumed by today's solver.
  */
@@ -77,8 +82,8 @@ type Facility = {
   category: number;
   /** Power draw per active building (0 = passive). */
   powerConsumption: number;
-  channelsIn: Channels;
-  channelsOut: Channels;
+  buffersIn: Buffers;
+  buffersOut: Buffers;
   /**
    * Mix-pool inner-slot budget. Present only on FluidReaction buildings;
    * its presence is the multi-formula capability flag.
@@ -93,4 +98,4 @@ type Facility = {
   iconUrl?: string;
 };
 
-export type { Item, Recipe, RecipeItem, Facility, Channel, Channels, PlacementCap };
+export type { Item, Recipe, RecipeItem, Facility, Buffer, Buffers, PlacementCap };

@@ -62,15 +62,15 @@ export const mockItems: Item[] = [
   { id: ItemId.ITEM_BOTTLED_REC_HP_1, tier: 4 },
 ];
 
-// Mock facilities. Use minimal new-schema fixtures with empty channels —
-// these tests don't exercise multi-formula packing, so channel topology is
+// Mock facilities. Use minimal new-schema fixtures with empty buffers —
+// these tests don't exercise multi-formula packing, so buffer topology is
 // inert. `MIX_POOL_1` carries a `cacheSlots` to keep it eligible for
 // Phase 3 in tests that touch pool recipes.
 const baseFacility = {
   numId: 0,
   category: 0,
-  channelsIn: { belt: [], pipe: [] },
-  channelsOut: { belt: [], pipe: [] },
+  buffersIn: { belt: [], pipe: [] },
+  buffersOut: { belt: [], pipe: [] },
   domains: [],
   cap: null,
 };
@@ -87,8 +87,8 @@ export const mockFacilities: Facility[] = [
     powerConsumption: 6,
     tier: 1,
     cacheSlots: 5,
-    channelsIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
-    channelsOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+    buffersIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
+    buffersOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
   },
   { ...baseFacility, id: FacilityId.SHAPER_1, powerConsumption: 10, tier: 1 },
   { ...baseFacility, id: FacilityId.TOOLS_ASSEBLING_MC_1, powerConsumption: 15, tier: 1 },

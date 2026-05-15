@@ -133,10 +133,10 @@ const recipeSignature = (r: Recipe): string => {
  * recipe as contributing exactly 1 slot. Returns `null` if the
  * combination violates the facility's inner-slot or port budget.
  *
- * Distinct-item port caps are derived from channel counts:
- *   - liquid-in  = `channelsIn.pipe.length`
- *   - liquid-out = `channelsOut.pipe.length`
- *   - belt-out   = `channelsOut.belt.length`
+ * Distinct-item port caps are derived from buffer counts:
+ *   - liquid-in  = `buffersIn.pipe.length`
+ *   - liquid-out = `buffersOut.pipe.length`
+ *   - belt-out   = `buffersOut.belt.length`
  *
  * Belt-input variety is intentionally uncapped wrt bin packing; throughput
  * is validated separately during post-pass.
@@ -199,9 +199,9 @@ const buildBinShape = (
     }
   }
 
-  if (liquidIn > facility.channelsIn.pipe.length) return null;
-  if (liquidOut > facility.channelsOut.pipe.length) return null;
-  if (beltOut > facility.channelsOut.belt.length) return null;
+  if (liquidIn > facility.buffersIn.pipe.length) return null;
+  if (liquidOut > facility.buffersOut.pipe.length) return null;
+  if (beltOut > facility.buffersOut.belt.length) return null;
 
   // Sort for deterministic output.
   const byItemId = (
