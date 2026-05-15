@@ -480,6 +480,148 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     const sinkId = createTargetSinkId(ItemId.ITEM_IRON_NUGGET);
     expect(flow.nodes.find((n) => n.id === sinkId)).toBeUndefined();
   });
+
+  test("singleton-terminal target folds into one embedded sink (bf=0 parity)", () => {
+    // Regression: prior to the singleton-terminal skip, the merged bin-fused
+    // mapper emitted both the bin's production card AND the target sink
+    // with embedded recipe info — duplicating the same information twice
+    // on screen for any simple A→B chain. The merged-mapper (bf=0) folds
+    // terminal recipes into the target sink via `isRecipeTerminal`, and
+    // the bin-fused mapper must match that for visual parity.
+    //
+    // Iron Nugget is the simplest terminal-target chain in the real data
+    // (Furnace × 1 producing only Iron Nugget, no byproducts, no consumers
+    // other than the target sink).
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_IRON_NUGGET, 10]]),
+      false,
+    );
+
+    // No production bin node emitted for the iron-nugget bin.
+    const ironBin = plan.bins.find((b) =>
+      b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_IRON_NUGGET),
+    );
+    expect(ironBin).toBeDefined();
+    const binNode = flow.nodes.find((n) => n.id === ironBin!.id);
+    expect(binNode).toBeUndefined();
+
+    // The target sink IS emitted, and carries embedded productionInfo.
+    const sinkId = createTargetSinkId(ItemId.ITEM_IRON_NUGGET);
+    const sinkNode = flow.nodes.find((n) => n.id === sinkId);
+    expect(sinkNode).toBeDefined();
+    const sinkData = sinkNode!.data as {
+      productionInfo?: {
+        facility: { id: string } | null;
+        facilityCount: number;
+        recipe: { id: string } | null;
+      };
+    };
+    expect(sinkData.productionInfo).toBeDefined();
+    expect(sinkData.productionInfo!.recipe?.id).toBe(ironBin!.recipeIds[0]);
+    expect(sinkData.productionInfo!.facilityCount).toBeCloseTo(
+      ironBin!.buildingCount,
+      6,
+    );
+
+    // No dangling edges — the bin→sink edge from greedy allocation must
+    // be filtered out when the bin isn't emitted.
+    const nodeIds = new Set(flow.nodes.map((n) => n.id));
+    for (const e of flow.edges) {
+      expect(nodeIds.has(e.source)).toBe(true);
+      expect(nodeIds.has(e.target)).toBe(true);
+    }
+
+    // No isolated nodes — the target sink must have at least one
+    // incoming edge from the rerouted input (iron_ore raw material),
+    // and the raw iron_ore pickup must have at least one outgoing edge.
+    const referenced = new Set<string>();
+    for (const e of flow.edges) {
+      referenced.add(e.source);
+      referenced.add(e.target);
+    }
+    for (const n of flow.nodes) {
+      expect(
+        referenced.has(n.id),
+        `node ${n.id} has no incident edges`,
+      ).toBe(true);
+    }
+  });
+
+  test("singleton-terminal target with multiple inputs routes all inputs to embedded sink (Xiranite Powder regression)", () => {
+    // Regression: my first attempt at the singleton-terminal skip
+    // produced isolated `raw_item_liquid_water` and
+    // `target-sink-item_xiranite_powder` nodes because the skipped
+    // bin's input edges were filtered out without being rerouted. The
+    // Xiranite Oven recipe consumes two inputs (Carbon Enriched +
+    // Liquid Water) and outputs Xiranite Powder, exposing the case
+    // that single-input Iron Nugget couldn't.
+    //
+    // Both inputs must land directly on the target sink, and neither
+    // the raw water pickup nor the target sink may end up isolated.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POWDER, rate: 10 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_XIRANITE_POWDER, 10]]),
+      false,
+    );
+
+    // Singleton-terminal bin must be skipped.
+    const xiraniteBin = plan.bins.find((b) =>
+      b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POWDER),
+    );
+    expect(xiraniteBin).toBeDefined();
+    expect(flow.nodes.find((n) => n.id === xiraniteBin!.id)).toBeUndefined();
+
+    // Target sink emitted with embedded productionInfo.
+    const sinkId = createTargetSinkId(ItemId.ITEM_XIRANITE_POWDER);
+    const sinkNode = flow.nodes.find((n) => n.id === sinkId);
+    expect(sinkNode).toBeDefined();
+    const sinkData = sinkNode!.data as {
+      productionInfo?: { recipe: { id: string } | null };
+    };
+    expect(sinkData.productionInfo).toBeDefined();
+
+    // Target sink has incoming edges (one per input).
+    const sinkIncoming = flow.edges.filter((e) => e.target === sinkId);
+    expect(sinkIncoming.length).toBeGreaterThan(0);
+
+    // Raw water pickup has at least one outgoing edge to the target sink.
+    const rawWaterId = createRawMaterialId(ItemId.ITEM_LIQUID_WATER);
+    const waterEdges = flow.edges.filter((e) => e.source === rawWaterId);
+    expect(waterEdges.length).toBeGreaterThan(0);
+    expect(waterEdges.some((e) => e.target === sinkId)).toBe(true);
+
+    // No isolated nodes (the exact regression we're guarding against).
+    const referenced = new Set<string>();
+    for (const e of flow.edges) {
+      referenced.add(e.source);
+      referenced.add(e.target);
+    }
+    for (const n of flow.nodes) {
+      expect(
+        referenced.has(n.id),
+        `node ${n.id} has no incident edges`,
+      ).toBe(true);
+    }
+  });
 });
 
 describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
@@ -605,5 +747,269 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     );
     const sinkId = createTargetSinkId(ItemId.ITEM_IRON_NUGGET);
     expect(flow.nodes.find((n) => n.id === sinkId)).toBeUndefined();
+  });
+
+  test("singleton-terminal target with ≤1 building folds into embedded sink (bf=0 parity)", () => {
+    // Mirror of the Recipe View test for Facility View. When a singleton
+    // bin collapses to one effective building (ceil(buildingCount) === 1)
+    // and its sole output is a terminal target, the building card is
+    // skipped and recipe info is embedded on the target sink instead —
+    // matching `mapPlanToFlowSeparated`' else branch at
+    // `separated-mapper.ts:754-773`.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_IRON_NUGGET, 10]]),
+      false,
+    );
+
+    const ironBin = plan.bins.find((b) =>
+      b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_IRON_NUGGET),
+    );
+    expect(ironBin).toBeDefined();
+    expect(Math.max(1, Math.ceil(ironBin!.buildingCount))).toBe(1);
+
+    // No building-instance nodes emitted for the iron-nugget bin.
+    const buildingNodes = flow.nodes.filter((n) =>
+      n.id.startsWith(`${ironBin!.id}-bldg`),
+    );
+    expect(buildingNodes).toHaveLength(0);
+
+    // Target sink carries embedded productionInfo.
+    const sinkId = createTargetSinkId(ItemId.ITEM_IRON_NUGGET);
+    const sinkNode = flow.nodes.find((n) => n.id === sinkId);
+    expect(sinkNode).toBeDefined();
+    const sinkData = sinkNode!.data as {
+      productionInfo?: {
+        facility: { id: string } | null;
+        facilityCount: number;
+        recipe: { id: string } | null;
+      };
+    };
+    expect(sinkData.productionInfo).toBeDefined();
+    expect(sinkData.productionInfo!.recipe?.id).toBe(ironBin!.recipeIds[0]);
+    expect(sinkData.productionInfo!.facilityCount).toBeCloseTo(
+      ironBin!.buildingCount,
+      6,
+    );
+
+    // No dangling edges.
+    const nodeIds = new Set(flow.nodes.map((n) => n.id));
+    for (const e of flow.edges) {
+      expect(nodeIds.has(e.source)).toBe(true);
+      expect(nodeIds.has(e.target)).toBe(true);
+    }
+
+    // No isolated nodes — every emitted node must participate in at
+    // least one edge.
+    const referenced = new Set<string>();
+    for (const e of flow.edges) {
+      referenced.add(e.source);
+      referenced.add(e.target);
+    }
+    for (const n of flow.nodes) {
+      expect(
+        referenced.has(n.id),
+        `node ${n.id} has no incident edges`,
+      ).toBe(true);
+    }
+  });
+
+  test("singleton-terminal target with >1 buildings emits per-building cards (no embed)", () => {
+    // Counter-test: ensure the singleton-terminal skip only fires when
+    // ceil(buildingCount) === 1. With multiple buildings, the existing
+    // per-building emission must still happen (matches bf=0 multi-facility
+    // branch). The target sink should NOT have productionInfo embedded
+    // in this case — building cards carry the recipe info instead.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 100 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_IRON_NUGGET, 100]]),
+      false,
+    );
+
+    const ironBin = plan.bins.find((b) =>
+      b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_IRON_NUGGET),
+    );
+    expect(ironBin).toBeDefined();
+    const expectedBuildings = Math.max(1, Math.ceil(ironBin!.buildingCount));
+    expect(expectedBuildings).toBeGreaterThan(1);
+
+    // Building-instance nodes emitted.
+    const buildingNodes = flow.nodes.filter((n) =>
+      n.id.startsWith(`${ironBin!.id}-bldg`),
+    );
+    expect(buildingNodes).toHaveLength(expectedBuildings);
+
+    // Target sink has NO embedded productionInfo.
+    const sinkId = createTargetSinkId(ItemId.ITEM_IRON_NUGGET);
+    const sinkNode = flow.nodes.find((n) => n.id === sinkId);
+    expect(sinkNode).toBeDefined();
+    const sinkData = sinkNode!.data as {
+      productionInfo?: unknown;
+    };
+    expect(sinkData.productionInfo).toBeUndefined();
+  });
+
+  test("singleton-terminal target with multiple inputs routes all inputs to embedded sink (Xiranite Powder regression)", () => {
+    // Facility View equivalent of the Xiranite Powder Recipe View
+    // regression. The Xiranite Oven recipe consumes Carbon Enriched +
+    // Liquid Water and outputs Xiranite Powder — a singleton-terminal
+    // bin with two inputs. Both inputs must reach the target sink
+    // directly; raw water pickup must not be orphaned.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POWDER, rate: 10 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_XIRANITE_POWDER, 10]]),
+      false,
+    );
+
+    const xiraniteBin = plan.bins.find((b) =>
+      b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POWDER),
+    );
+    expect(xiraniteBin).toBeDefined();
+    expect(Math.max(1, Math.ceil(xiraniteBin!.buildingCount))).toBe(1);
+
+    // No building-instance nodes emitted.
+    const buildingNodes = flow.nodes.filter((n) =>
+      n.id.startsWith(`${xiraniteBin!.id}-bldg`),
+    );
+    expect(buildingNodes).toHaveLength(0);
+
+    // Target sink emitted with embed.
+    const sinkId = createTargetSinkId(ItemId.ITEM_XIRANITE_POWDER);
+    const sinkNode = flow.nodes.find((n) => n.id === sinkId);
+    expect(sinkNode).toBeDefined();
+    const sinkData = sinkNode!.data as {
+      productionInfo?: { recipe: { id: string } | null };
+    };
+    expect(sinkData.productionInfo).toBeDefined();
+
+    // Target sink has incoming edges.
+    const sinkIncoming = flow.edges.filter((e) => e.target === sinkId);
+    expect(sinkIncoming.length).toBeGreaterThan(0);
+
+    // No isolated nodes.
+    const referenced = new Set<string>();
+    for (const e of flow.edges) {
+      referenced.add(e.source);
+      referenced.add(e.target);
+    }
+    for (const n of flow.nodes) {
+      expect(
+        referenced.has(n.id),
+        `node ${n.id} has no incident edges`,
+      ).toBe(true);
+    }
+  });
+
+  test("per-building cards for grouped multi-building target carry isDirectTarget (star ribbon)", () => {
+    // Regression: `mapPlanToFlowBinFusedSeparated` hardcoded
+    // `isDirectTarget: false` on every per-building emission, so the
+    // amber Star ribbon in `CustomProductionNode.tsx:284-297` never
+    // showed. For Xircon Poly @ 60/min the {LX, XE, X} bin produces
+    // the target across 2+ buildings — each must carry
+    // `isDirectTarget: true` plus a non-zero per-building
+    // `directTargetRate`, matching `separated-mapper.ts:698-705`'
+    // terminal multi-facility branch.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_XIRANITE_POLY, 60]]),
+      false,
+    );
+
+    const xirconBin = plan.bins.find(
+      (b) =>
+        b.isGrouped &&
+        b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
+    );
+    expect(xirconBin).toBeDefined();
+
+    const buildings = flow.nodes.filter((n) =>
+      n.id.startsWith(`${xirconBin!.id}-bldg`),
+    );
+    expect(buildings.length).toBeGreaterThan(0);
+
+    for (const b of buildings) {
+      const data = b.data as {
+        isDirectTarget?: boolean;
+        directTargetRate?: number;
+      };
+      expect(data.isDirectTarget).toBe(true);
+      expect(data.directTargetRate ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  test("per-building cards on singleton multi-building target carry isDirectTarget", () => {
+    // Counterpart of the grouped test for singleton bins with
+    // buildingCount > 1 (Iron Nugget @ 100/min). Not a
+    // singleton-terminal case (the skip gate requires N === 1), so
+    // building cards emit — and each must still carry the star.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 100 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([[ItemId.ITEM_IRON_NUGGET, 100]]),
+      false,
+    );
+
+    const ironBin = plan.bins.find((b) =>
+      b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_IRON_NUGGET),
+    );
+    expect(ironBin).toBeDefined();
+
+    const buildings = flow.nodes.filter((n) =>
+      n.id.startsWith(`${ironBin!.id}-bldg`),
+    );
+    expect(buildings.length).toBeGreaterThan(1);
+
+    for (const b of buildings) {
+      const data = b.data as {
+        isDirectTarget?: boolean;
+        directTargetRate?: number;
+      };
+      expect(data.isDirectTarget).toBe(true);
+      expect(data.directTargetRate ?? 0).toBeGreaterThan(0);
+    }
   });
 });

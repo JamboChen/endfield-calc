@@ -83,6 +83,65 @@ export function mapPlanToFlowBinFused(
     else productionBins.push(bin);
   }
 
+  // Identify "singleton-terminal" bins: bins whose sole purpose is to
+  // produce a target item with no other consumers in the plan. These
+  // are folded into the target sink's embedded productionInfo
+  // (matching `merged-mapper.ts`' `isRecipeTerminal` behaviour) — the
+  // bin's input edges route directly to the target sink so the
+  // visualisation looks identical to bf=0 for simple A→B chains.
+  //
+  // Detection happens BEFORE building producer/consumer maps so we can
+  // bake the bin→sink redirect into map construction (Option B from
+  // the design discussion). Building maps with phantom skipped-bin
+  // entries that get retroactively dropped (Option A) leaves room for
+  // future code to read inconsistent state — every isolated node bug
+  // we hit on this branch traced back to that pattern.
+  //
+  // Conditions (all must hold):
+  //   1. The bin hosts a single recipe (no grouping).
+  //   2. The bin has exactly one external output.
+  //   3. That output is a target item.
+  //   4. The bin is the sole producer of the target (no other
+  //      production bin lists this item in `externalOutputs`).
+  //   5. The target's only consumer is its own target sink (no
+  //      production bin's `externalInputs` lists it, no disposal
+  //      bin's recipe consumes it).
+  //
+  // Condition 5 is stricter than `isRecipeTerminal` (which permits
+  // disposal of the primary output). The stricter rule keeps disposal
+  // edges intact — a disposal sink consuming the primary would dangle
+  // if we skipped the bin.
+  const singletonTerminalBinIds = new Set<string>();
+  const sinkByBinId = new Map<string, string>();
+  const singletonTerminalBinByTargetItem = new Map<ItemId, Bin>();
+  for (const bin of productionBins) {
+    if (bin.recipeIds.length !== 1) continue;
+    if (bin.externalOutputs.length !== 1) continue;
+    const outputItemId = bin.externalOutputs[0].itemId;
+    if (!targetItemIds.has(outputItemId)) continue;
+    // Sole producer: no other production bin outputs this item.
+    const otherProducer = productionBins.some(
+      (b) =>
+        b.id !== bin.id &&
+        b.externalOutputs.some((o) => o.itemId === outputItemId),
+    );
+    if (otherProducer) continue;
+    // No production-bin consumer.
+    const productionConsumer = productionBins.some((b) =>
+      b.externalInputs.some((i) => i.itemId === outputItemId),
+    );
+    if (productionConsumer) continue;
+    // No disposal-bin consumer.
+    const disposalConsumer = disposalBins.some((b) => {
+      const r = recipeById.get(b.recipeIds[0]);
+      return r?.inputs.some((i) => i.itemId === outputItemId) ?? false;
+    });
+    if (disposalConsumer) continue;
+    singletonTerminalBinIds.add(bin.id);
+    sinkByBinId.set(bin.id, createTargetSinkId(outputItemId));
+    singletonTerminalBinByTargetItem.set(outputItemId, bin);
+  }
+
   // Per-item producer-bin and consumer-bin lookups built from the bins'
   // external I/O. A bin appears as a producer for each item in its
   // externalOutputs and as a consumer for each item in its
@@ -99,21 +158,37 @@ export function mapPlanToFlowBinFused(
   // `binExtraOutputs` → `computeNodeByproducts`), but no edge is drawn
   // from it; consumer bins receive their raw input from the pickup node
   // emitted in the rawMaterialDemand loop below.
+  //
+  // Singleton-terminal bins (identified above) are EXCLUDED from
+  // producer registration and have their consumer registrations
+  // redirected to the target sink id. This bakes the merged-mapper's
+  // terminal-recipe edge rerouting (at `merged-mapper.ts:204-211`)
+  // into map construction time so the greedy allocator and edge
+  // emission don't need to know about the skip.
   type ProducerEntry = { binId: string; rate: number };
   type ConsumerEntry = { binId: string; rate: number };
   const producersByItem = new Map<ItemId, ProducerEntry[]>();
   const consumersByItem = new Map<ItemId, ConsumerEntry[]>();
   for (const bin of productionBins) {
-    for (const out of bin.externalOutputs) {
-      const outNode = plan.nodes.get(out.itemId);
-      if (outNode?.type === "item" && outNode.isRawMaterial) continue;
-      const arr = producersByItem.get(out.itemId) ?? [];
-      arr.push({ binId: bin.id, rate: out.rate });
-      producersByItem.set(out.itemId, arr);
+    const skipped = singletonTerminalBinIds.has(bin.id);
+    // Skip producer registration for singleton-terminal bins: their
+    // output → target-sink edge would be redundant with the embed.
+    if (!skipped) {
+      for (const out of bin.externalOutputs) {
+        const outNode = plan.nodes.get(out.itemId);
+        if (outNode?.type === "item" && outNode.isRawMaterial) continue;
+        const arr = producersByItem.get(out.itemId) ?? [];
+        arr.push({ binId: bin.id, rate: out.rate });
+        producersByItem.set(out.itemId, arr);
+      }
     }
+    // Redirect consumer registration for singleton-terminal bins:
+    // input items now have the target sink as consumer, so edges from
+    // upstream producers land on the sink directly.
+    const consumerBinId = sinkByBinId.get(bin.id) ?? bin.id;
     for (const inp of bin.externalInputs) {
       const arr = consumersByItem.get(inp.itemId) ?? [];
-      arr.push({ binId: bin.id, rate: inp.rate });
+      arr.push({ binId: consumerBinId, rate: inp.rate });
       consumersByItem.set(inp.itemId, arr);
     }
   }
@@ -192,6 +267,7 @@ export function mapPlanToFlowBinFused(
 
   // Emit production-bin nodes.
   for (const bin of productionBins) {
+    if (singletonTerminalBinIds.has(bin.id)) continue;
     const headline = pickBinHeadlineOutput(bin, items, recipes, targetItemIds);
     const facility = facilityById.get(bin.facilityId);
     if (!facility) continue;
@@ -304,30 +380,28 @@ export function mapPlanToFlowBinFused(
     // isolated node that trips assertFlowIntegrity in dev mode.
     if (userTargetRate <= 0.001) return;
 
-    // Find producer bins for this target.
-    const producers = producersByItem.get(node.itemId as ItemId) ?? [];
-
-    // Embed recipe info when the target has exactly one producer that
-    // is itself a singleton (sole recipe in the bin) — keeps the
-    // existing "terminal target" pattern.
+    // Embed recipe info when this target's producer is a singleton-
+    // terminal bin — i.e. one we excluded from `producersByItem` and
+    // from the bin-emission loop above. The embed becomes the target
+    // sink's facility chip, matching `merged-mapper.ts`' terminal-recipe
+    // collapse for bf=0 parity.
     let embedded: {
       facility: Facility | null;
       facilityCount: number;
       recipe: Recipe | null;
     } | undefined;
-    if (producers.length === 1) {
-      const bin = plan.bins.find((b) => b.id === producers[0].binId);
-      if (bin && bin.recipeIds.length === 1) {
-        const recipe = recipeById.get(bin.recipeIds[0]);
-        const facility = facilityById.get(bin.facilityId);
-        if (recipe && facility) {
-          // Only embed if the bin emits no separate flow node for itself
-          // (terminal target: bin's only output is this target).
-          const isTerminal = bin.externalOutputs.length === 1;
-          if (isTerminal) {
-            embedded = { facility, facilityCount: bin.buildingCount, recipe };
-          }
-        }
+    const terminalBin = singletonTerminalBinByTargetItem.get(
+      node.itemId as ItemId,
+    );
+    if (terminalBin) {
+      const recipe = recipeById.get(terminalBin.recipeIds[0]);
+      const facility = facilityById.get(terminalBin.facilityId);
+      if (recipe && facility) {
+        embedded = {
+          facility,
+          facilityCount: terminalBin.buildingCount,
+          recipe,
+        };
       }
     }
 
@@ -493,13 +567,66 @@ export function mapPlanToFlowBinFusedSeparated(
     isPartialLoad: boolean;
   };
 
-  const productionInstances: BinInstance[] = [];
+  // Classify bins: production (recipes with outputs) vs disposal
+  // (recipes with no outputs). Done up front so singleton-terminal
+  // detection can use both sets.
+  const productionBins: Bin[] = [];
   const disposalBins: Bin[] = [];
   for (const bin of plan.bins) {
-    if (isDisposalBin(bin)) {
-      disposalBins.push(bin);
-      continue;
-    }
+    if (isDisposalBin(bin)) disposalBins.push(bin);
+    else productionBins.push(bin);
+  }
+
+  // Identify "singleton-terminal" bins (same semantics as the merged
+  // bin-fused mapper) — bins folded into the target sink's embed
+  // chip. For the Facility View, an additional gate applies:
+  // `Math.max(1, Math.ceil(bin.buildingCount)) === 1`. This matches
+  // `mapPlanToFlowSeparated`'s else branch at
+  // `separated-mapper.ts:754-773`, which embeds only for terminal
+  // targets with `facilityCount ≤ 1`. With >1 buildings the existing
+  // per-building emission is preserved (matches bf=0 multi-facility
+  // branch).
+  //
+  // Detection runs BEFORE building producersByItem/consumersByItem so
+  // we can bake the bin→sink redirect into map construction (Option B
+  // from the design discussion). Detecting after map build (Option A)
+  // and then remapping post-hoc left isolated raw-material pickup and
+  // target sink nodes — the Xiranite Powder regression.
+  const singletonTerminalBinIds = new Set<string>();
+  const sinkByBinId = new Map<string, string>();
+  const singletonTerminalBinByTargetItem = new Map<ItemId, Bin>();
+  for (const bin of productionBins) {
+    if (bin.recipeIds.length !== 1) continue;
+    if (bin.externalOutputs.length !== 1) continue;
+    if (Math.max(1, Math.ceil(bin.buildingCount)) !== 1) continue;
+    const outputItemId = bin.externalOutputs[0].itemId;
+    if (!targetItemIds.has(outputItemId)) continue;
+    const otherProducer = productionBins.some(
+      (b) =>
+        b.id !== bin.id &&
+        b.externalOutputs.some((o) => o.itemId === outputItemId),
+    );
+    if (otherProducer) continue;
+    const productionConsumer = productionBins.some((b) =>
+      b.externalInputs.some((i) => i.itemId === outputItemId),
+    );
+    if (productionConsumer) continue;
+    const disposalConsumer = disposalBins.some((b) => {
+      const r = recipeById.get(b.recipeIds[0]);
+      return r?.inputs.some((i) => i.itemId === outputItemId) ?? false;
+    });
+    if (disposalConsumer) continue;
+    singletonTerminalBinIds.add(bin.id);
+    sinkByBinId.set(bin.id, createTargetSinkId(outputItemId));
+    singletonTerminalBinByTargetItem.set(outputItemId, bin);
+  }
+
+  // Build per-bin instance count and per-instance rates. Singleton-
+  // terminal bins are excluded from instance emission entirely — their
+  // single building's data is rendered via the target sink's embed.
+  const productionInstances: BinInstance[] = [];
+  for (const bin of productionBins) {
+    if (singletonTerminalBinIds.has(bin.id)) continue;
     const N = Math.max(1, Math.ceil(bin.buildingCount));
     // Per-building rates: total bin rate ÷ N. For integer buildingCount
     // (always true for grouped bins after Phase 3 ILP), this is exact.
@@ -549,6 +676,13 @@ export function mapPlanToFlowBinFusedSeparated(
   // the equivalent block in `mapPlanToFlowBinFused` above for the
   // rationale. The raw-pickup loop downstream emits pickup nodes for
   // raw items based on consumer demand, matching bf=0 behaviour.
+  //
+  // Singleton-terminal bins are absent from productionInstances (we
+  // skipped them above), so they contribute no producer entries. For
+  // their INPUT items, however, we still need consumer entries — and
+  // those redirect to the target sink id so input edges land on the
+  // sink directly, matching merged-mapper's terminal-recipe edge
+  // rerouting.
   type Entry = { instanceId: string; rate: number };
   const producersByItem = new Map<ItemId, Entry[]>();
   const consumersByItem = new Map<ItemId, Entry[]>();
@@ -566,6 +700,21 @@ export function mapPlanToFlowBinFusedSeparated(
       if (inp.rate <= 0.001) continue;
       const arr = consumersByItem.get(inp.itemId) ?? [];
       arr.push({ instanceId: id, rate: inp.rate });
+      consumersByItem.set(inp.itemId, arr);
+    }
+  }
+  // Add consumer entries for singleton-terminal bins' inputs, keyed by
+  // their target sink id so upstream producer edges land on the sink.
+  // Each skipped bin contributes its single building's worth of input
+  // rate (N === 1 by the singleton-terminal detection gate).
+  for (const bin of productionBins) {
+    if (!singletonTerminalBinIds.has(bin.id)) continue;
+    const sinkId = sinkByBinId.get(bin.id);
+    if (!sinkId) continue;
+    for (const inp of bin.externalInputs) {
+      if (inp.rate <= 0.001) continue;
+      const arr = consumersByItem.get(inp.itemId) ?? [];
+      arr.push({ instanceId: sinkId, rate: inp.rate });
       consumersByItem.set(inp.itemId, arr);
     }
   }
@@ -621,7 +770,9 @@ export function mapPlanToFlowBinFusedSeparated(
     allocated.set(itemId, out);
   }
 
-  // Emit production-instance nodes.
+  // Emit production-instance nodes. (Singleton-terminal bins were
+  // excluded from `productionInstances` upstream — no guard needed
+  // here.)
   for (const inst of productionInstances) {
     const headline = pickBinHeadlineOutput(inst.bin, items, recipes, targetItemIds);
     const facility = facilityById.get(inst.bin.facilityId);
@@ -673,7 +824,18 @@ export function mapPlanToFlowBinFusedSeparated(
           facilityIndex: inst.instanceIdx,
           totalFacilities: inst.instanceCount,
           isPartialLoad: inst.isPartialLoad,
-          isDirectTarget: false,
+          // Mirror `separated-mapper.ts:698-705`' star-ribbon handling
+          // for terminal multi-facility targets: each building card
+          // carrying a target headline gets `isDirectTarget: true` plus
+          // its per-building `directTargetRate`. Without this, no
+          // per-building card in Facility View ever shows the target
+          // star — a regression noticed on Xircon Poly @ 60/min where
+          // the {LX, XE, X} bin's two buildings produce the target but
+          // looked indistinguishable from non-target buildings.
+          isDirectTarget: targetItemIds.has(headline.itemId),
+          directTargetRate: targetItemIds.has(headline.itemId)
+            ? headlineRate
+            : undefined,
         },
       ),
     );
@@ -734,6 +896,32 @@ export function mapPlanToFlowBinFusedSeparated(
     // incoming edges; emitting a sink for them produces an isolated
     // node that trips assertFlowIntegrity in dev mode.
     if (userTargetRate <= 0.001) return;
+
+    // Embed recipe info when this target's producer is a singleton-
+    // terminal bin — i.e. one we excluded from productionInstances
+    // upstream. The embed becomes the target sink's facility chip,
+    // matching `mapPlanToFlowSeparated`' embed path at
+    // `separated-mapper.ts:754-773`.
+    let embedded: {
+      facility: Facility | null;
+      facilityCount: number;
+      recipe: Recipe | null;
+    } | undefined;
+    const terminalBin = singletonTerminalBinByTargetItem.get(
+      node.itemId as ItemId,
+    );
+    if (terminalBin) {
+      const recipe = recipeById.get(terminalBin.recipeIds[0]);
+      const facility = facilityById.get(terminalBin.facilityId);
+      if (recipe && facility) {
+        embedded = {
+          facility,
+          facilityCount: terminalBin.buildingCount,
+          recipe,
+        };
+      }
+    }
+
     targetSinkNodes.push(
       createTargetSinkNode(
         targetSinkId,
@@ -741,7 +929,7 @@ export function mapPlanToFlowBinFusedSeparated(
         userTargetRate,
         items,
         facilities,
-        undefined,
+        embedded,
         ceilMode,
       ),
     );
