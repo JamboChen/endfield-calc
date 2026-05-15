@@ -1,5 +1,5 @@
 /**
- * Unit tests for Phase 3 packCrucibleBins.
+ * Unit tests for Phase 3 packBins.
  *
  * Style: synthetic items/recipes/facilities defined inline so each test
  * isolates one packing scenario from upstream-data drift. Uses real
@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { packCrucibleBins } from "@/lib/multi-formula-packing";
+import { packBins } from "@/lib/multi-formula-packing";
 import type {
   Item,
   Recipe,
@@ -60,13 +60,13 @@ const buildMaps = (items: Item[], recipes: Recipe[], facilities: Facility[]) => 
   facilityMap: new Map(facilities.map((f) => [f.id, f])),
 });
 
-describe("packCrucibleBins", () => {
+describe("packBins", () => {
   describe("trivial / fallback", () => {
     test("empty demand returns empty bins", () => {
       const items: Item[] = [];
       const recipes: Recipe[] = [];
       const facilities: Facility[] = [];
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: new Map(),
         ...buildMaps(items, recipes, facilities),
       });
@@ -81,7 +81,7 @@ describe("packCrucibleBins", () => {
       const slotDemands = new Map<RecipeId, number>([
         ["r1" as RecipeId, 1.5],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [r1], [fac]),
       });
@@ -178,7 +178,7 @@ describe("packCrucibleBins", () => {
         ["xe_1" as RecipeId, 4],
         ["x_1" as RecipeId, 2],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -232,7 +232,7 @@ describe("packCrucibleBins", () => {
         ["xe_1" as RecipeId, 3.04],
         ["x_1" as RecipeId, 1.9],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -290,7 +290,7 @@ describe("packCrucibleBins", () => {
         ["xe_1" as RecipeId, 2],
         ["x_1" as RecipeId, 1],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -321,7 +321,7 @@ describe("packCrucibleBins", () => {
         ["xe_1" as RecipeId, 1],
         ["x_1" as RecipeId, 1],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -346,7 +346,7 @@ describe("packCrucibleBins", () => {
         ["xe_1" as RecipeId, 1],
         ["x_1" as RecipeId, 1],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -393,7 +393,7 @@ describe("packCrucibleBins", () => {
         ["b_1" as RecipeId, 1],
         ["c_1" as RecipeId, 1],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(itemsWithExtras, [a, b, c], [expandedSmall]),
       });
@@ -439,7 +439,7 @@ describe("packCrucibleBins", () => {
         ["grass1_1" as RecipeId, 1],
         ["grass2_1" as RecipeId, 1],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [grass1, grass2], [reactor]),
       });
@@ -488,7 +488,7 @@ describe("packCrucibleBins", () => {
       const overrides = new Map<ItemId, RecipeId>([
         ["liquid_xiranite" as ItemId, "lx_2" as RecipeId],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         recipeOverrides: overrides,
         ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
@@ -529,7 +529,7 @@ describe("packCrucibleBins", () => {
         buffersOut: { belt: [{ ports: 1 }], pipe: [] },
       });
       const slotDemands = new Map<RecipeId, number>([["a" as RecipeId, 1]]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [a, b], [fac1, fac2]),
       });
@@ -567,11 +567,11 @@ describe("packCrucibleBins", () => {
         ["r1" as RecipeId, 1],
         ["r2" as RecipeId, 1],
       ]);
-      const a = packCrucibleBins({
+      const a = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [r1, r2], [fac]),
       });
-      const b = packCrucibleBins({
+      const b = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [r1, r2], [fac]),
       });
@@ -593,7 +593,7 @@ describe("packCrucibleBins", () => {
         "fac",
       );
       const slotDemands = new Map<RecipeId, number>([["r1" as RecipeId, 1]]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [r1], [fac]),
       });
@@ -645,7 +645,7 @@ describe("packCrucibleBins", () => {
       const slotDemands = new Map<RecipeId, number>([
         ["lx_1" as RecipeId, 1],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
       });
@@ -703,7 +703,7 @@ describe("packCrucibleBins", () => {
         ["xe_1" as RecipeId, 4],
         ["x_1" as RecipeId, 2],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items3, [lx_1, lx_2, xe_1, xe_2, x_1, x_2], [reactor, expanded]),
       });
@@ -768,7 +768,7 @@ describe("packCrucibleBins", () => {
         ["xe_1" as RecipeId, 1],
         ["x_1" as RecipeId, 1],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items3, [lx_1, lx_2, xe_1, xe_2, x_1, x_2], [reactor, expanded]),
       });
@@ -785,7 +785,7 @@ describe("packCrucibleBins", () => {
     });
   });
 
-  describe("totals match plan.crucibleBins aggregate", () => {
+  describe("totals match plan.bins aggregate", () => {
     test("Reactor pair: building count and power match bin sum", () => {
       const items = [
         item("powder1"),
@@ -814,7 +814,7 @@ describe("packCrucibleBins", () => {
         ["grass1_1" as RecipeId, 1],
         ["grass2_1" as RecipeId, 1],
       ]);
-      const r = packCrucibleBins({
+      const r = packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [grass1, grass2], [reactor]),
       });

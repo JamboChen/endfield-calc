@@ -64,7 +64,7 @@ export default function ProductionViewTabs({
   // packs ≥2 demand recipes; for singleton / non-multi-formula plans the
   // ON / OFF outputs are identical, so we hide the control entirely.
   const hasGroupableRecipes =
-    plan?.crucibleBins.some((bin) => bin.isGrouped) ?? false;
+    plan?.bins.some((bin) => bin.isGrouped) ?? false;
 
   return (
     <div className="flex-1 min-w-0">

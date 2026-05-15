@@ -22,7 +22,7 @@ import { createRawMaterialId, createTargetSinkId } from "@/lib/node-keys";
 import { items, recipes, facilities } from "@/data";
 import { ItemId } from "@/types/constants";
 import type {
-  CrucibleBin,
+  Bin,
   Item,
   Recipe,
   ItemId as ItemIdType,
@@ -55,7 +55,7 @@ describe("pickBinHeadlineOutput", () => {
     const itemB = mkItem("b", { tier: 5 });
     const recipeA = mkRecipe("ra", [], [{ itemId: "a", amount: 1 }]);
     const recipeB = mkRecipe("rb", [], [{ itemId: "b", amount: 1 }]);
-    const bin: CrucibleBin = {
+    const bin: Bin = {
       id: "bin-test",
       facilityId: "fac" as never,
       recipeIds: ["ra", "rb"] as never[],
@@ -83,7 +83,7 @@ describe("pickBinHeadlineOutput", () => {
     const itemB = mkItem("b", { tier: 5 });
     const recipeA = mkRecipe("ra", [], [{ itemId: "a", amount: 1 }]);
     const recipeB = mkRecipe("rb", [], [{ itemId: "b", amount: 1 }]);
-    const bin: CrucibleBin = {
+    const bin: Bin = {
       id: "bin-test",
       facilityId: "fac" as never,
       recipeIds: ["ra", "rb"] as never[],
@@ -106,7 +106,7 @@ describe("pickBinHeadlineOutput", () => {
     const itemLiquid = mkItem("liquid", { tier: 3, isLiquid: true });
     const recipeS = mkRecipe("rs", [], [{ itemId: "solid", amount: 1 }]);
     const recipeL = mkRecipe("rl", [], [{ itemId: "liquid", amount: 1 }]);
-    const bin: CrucibleBin = {
+    const bin: Bin = {
       id: "bin-test",
       facilityId: "fac" as never,
       recipeIds: ["rs", "rl"] as never[],
@@ -129,7 +129,7 @@ describe("pickBinHeadlineOutput", () => {
     const itemA = mkItem("a", { tier: 1 });
     const recipeB = mkRecipe("rb", [], [{ itemId: "b", amount: 1 }]);
     const recipeA = mkRecipe("ra", [], [{ itemId: "a", amount: 1 }]);
-    const bin: CrucibleBin = {
+    const bin: Bin = {
       id: "bin-test",
       facilityId: "fac" as never,
       recipeIds: ["ra", "rb"] as never[],
@@ -148,7 +148,7 @@ describe("pickBinHeadlineOutput", () => {
   });
 
   test("returns null for bin with no external outputs", () => {
-    const bin: CrucibleBin = {
+    const bin: Bin = {
       id: "bin-test",
       facilityId: "fac" as never,
       recipeIds: [] as never[],
@@ -177,7 +177,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     // Total emitted production nodes (excluding raw materials and sinks)
     // should equal the number of non-disposal bins in the plan.
     const productionBinIds = new Set(
-      plan.crucibleBins
+      plan.bins
         .filter((b) => {
           if (b.recipeIds.length !== 1) return true;
           const r = recipes.find((x) => x.id === b.recipeIds[0]);
@@ -197,7 +197,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     // Every production node carries its bin metadata.
     for (const n of productionNodes) {
       const data = n.data as {
-        productionNode?: { binId?: string; bin?: CrucibleBin };
+        productionNode?: { binId?: string; bin?: Bin };
       };
       expect(data.productionNode?.binId).toBeDefined();
     }
@@ -219,7 +219,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, new Map(), false);
 
     // Find the bin containing the Xircon (XIRANITE_POLY) recipe.
-    const xirconBin = plan.crucibleBins.find(
+    const xirconBin = plan.bins.find(
       (b) =>
         b.isGrouped &&
         b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
@@ -232,7 +232,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       productionNode?: {
         item: Item;
         binExtraOutputs?: Array<{ itemId: ItemIdType }>;
-        bin?: CrucibleBin;
+        bin?: Bin;
       };
     };
     expect(data.productionNode?.item.id).toBe(ItemId.ITEM_XIRANITE_POLY);
@@ -253,7 +253,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     );
     const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, new Map(), false);
 
-    const xirconBin = plan.crucibleBins.find(
+    const xirconBin = plan.bins.find(
       (b) =>
         b.isGrouped &&
         b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
@@ -334,7 +334,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(waterPickup).toBeDefined();
 
     // (b) No water-bearing edge originates from the Liquid Purifier bin.
-    const purifierBin = plan.crucibleBins.find((b) =>
+    const purifierBin = plan.bins.find((b) =>
       b.facilityId === ("liquid_purifier_1" as never),
     );
     expect(purifierBin).toBeDefined();
@@ -395,7 +395,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       true,
     );
 
-    const xirconBin = plan.crucibleBins.find(
+    const xirconBin = plan.bins.find(
       (b) =>
         b.isGrouped &&
         b.recipeIds.length === 3 &&
@@ -442,7 +442,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       new Map(),
       false,
     );
-    const purifierBin = plan.crucibleBins.find(
+    const purifierBin = plan.bins.find(
       (b) =>
         b.recipeIds.length === 1 &&
         b.facilityId === ("liquid_purifier_1" as never),
@@ -500,7 +500,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     );
 
     // For each non-disposal bin, count emitted building-nodes.
-    for (const bin of plan.crucibleBins) {
+    for (const bin of plan.bins) {
       if (bin.recipeIds.length === 1) {
         const r = recipes.find((x) => x.id === bin.recipeIds[0]);
         if (r && r.outputs.length === 0) continue; // disposal bin
@@ -529,7 +529,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       false,
     );
 
-    const xirconBin = plan.crucibleBins.find(
+    const xirconBin = plan.bins.find(
       (b) =>
         b.isGrouped &&
         b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),

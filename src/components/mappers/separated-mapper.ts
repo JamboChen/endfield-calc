@@ -80,7 +80,7 @@ export function mapPlanToFlowSeparated(
   // building. Edges between co-located producers and consumers traverse
   // no transport (internal flow) and are tagged with `direction: "internal"`.
   const coLocatedPairs = new Set<string>();
-  for (const bin of plan.crucibleBins) {
+  for (const bin of plan.bins) {
     if (!bin.isGrouped) continue;
     for (const a of bin.recipeIds) {
       for (const b of bin.recipeIds) {

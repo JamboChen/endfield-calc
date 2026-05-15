@@ -160,7 +160,7 @@ export default function CustomProductionNode({
           {isGroupedBuilding && (
             <div className="mt-2 pt-2 border-t">
               <div className="font-semibold text-purple-700 dark:text-purple-400">
-                {t("tree.crucibleGroup", { defaultValue: "Crucible Group" })}
+                {t("tree.multiFormulaGroup", { defaultValue: "Multi-Formula Building" })}
               </div>
               {/* Per-formula breakdown: each constituent recipe with its
                 * I/O at slot rate. When `node.bin` is provided (bin-fused

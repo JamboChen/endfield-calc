@@ -163,7 +163,7 @@ function sortNodes(
 
 /**
  * Plan-level totals for the production-table footer. Computed from
- * `plan.crucibleBins` directly so split allocations (one recipe spanning
+ * `plan.bins` directly so split allocations (one recipe spanning
  * multiple bin shapes) are counted correctly. Deriving totals from the
  * row list would undercount whenever the ILP splits a recipe across
  * bins, since each row only carries its first-bin association.
@@ -211,7 +211,7 @@ export function useProductionTable(
     const sortedNodes = sortNodes(mergedNodes, plan);
 
     // Per-bin lookup for bin-aware power amortisation.
-    const binById = new Map(plan.crucibleBins.map((b) => [b.id, b]));
+    const binById = new Map(plan.bins.map((b) => [b.id, b]));
 
     const itemRows: ProductionLineData[] = sortedNodes.map((node) => {
       const itemNode = plan.nodes.get(node.itemId) as Extract<

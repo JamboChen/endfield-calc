@@ -53,10 +53,10 @@ export type ProductionNode = {
    * port utilization, and power-breakdown sections. Always omitted
    * for non-fused (per-recipe) nodes — the standard tooltip is enough.
    *
-   * Carrying the full `CrucibleBin` object on the node keeps the
+   * Carrying the full `Bin` object on the node keeps the
    * tooltip self-contained without re-querying the plan.
    */
-  bin?: CrucibleBin;
+  bin?: Bin;
 };
 
 /**
@@ -130,7 +130,7 @@ export type ProductionDependencyGraph = {
    * hosting a fixed set of recipes. `buildingCount` is the integer number
    * of physical buildings of this bin's shape.
    */
-  crucibleBins: CrucibleBin[];
+  bins: Bin[];
   /**
    * Per-recipe distribution across bins. For a recipe `r` with slot demand
    * `N_r`, the entry's `perBin` array sums to `N_r` and each row indicates
@@ -156,11 +156,11 @@ export type ProductionDependencyGraph = {
  * recipe ids** (Phase 2's pick), not the physical twin variant the ILP
  * may have packed. This lets downstream consumers compare against
  * production-graph recipe ids with plain equality. The bin's
- * `facilityId` separately records the physical facility (e.g. Reactor
- * vs Expanded Crucible) so power and building-count cost are always
- * accurate.
+ * `facilityId` separately records the physical facility (e.g. the
+ * smaller vs larger variant in a multi-formula family) so power and
+ * building-count cost are always accurate.
  */
-export type CrucibleBin = {
+export type Bin = {
   /** Stable bin identifier, e.g. "bin-mix_pool_2-pool_xirpoly_1-pool_xe_1-pool_lx_1-0". */
   id: string;
   /** Physical facility hosting every building of this bin. */

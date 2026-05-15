@@ -1,9 +1,9 @@
 /**
  * Bin-fused merged-view mapper.
  *
- * Emits one flow node per `CrucibleBin` (instead of per recipe) so that
- * multi-formula buildings (Reactor / Expanded Crucible groups) appear as
- * a single card with the bin's external I/O. Internal flows between
+ * Emits one flow node per `Bin` (instead of per recipe) so that
+ * multi-formula buildings appear as a single card with the bin's
+ * external I/O. Internal flows between
  * co-located recipes are hidden (no edges).
  *
  * For singletons (1 formula per bin, the common case), the output is
@@ -24,7 +24,7 @@ import type {
   Recipe,
   Facility,
   ProductionDependencyGraph,
-  CrucibleBin,
+  Bin,
   FlowProductionNode,
   FlowTargetNode,
   FlowDisposalNode,
@@ -41,7 +41,7 @@ import { buildBinActivitySums, pickBinHeadlineOutput } from "@/lib/plan-helpers"
 import { assertFlowIntegrity } from "./flow-assertions";
 
 /**
- * Map a production plan's `crucibleBins` to React Flow nodes/edges with
+ * Map a production plan's `bins` to React Flow nodes/edges with
  * one node per bin (bin-fused view). Suitable for merged Recipe View
  * when the "Show buildings" toggle is on (default).
  */
@@ -69,16 +69,16 @@ export function mapPlanToFlowBinFused(
 
   // Skip disposal bins from regular production-node emission; they
   // become disposal sink nodes below.
-  const isDisposalBin = (bin: CrucibleBin): boolean => {
+  const isDisposalBin = (bin: Bin): boolean => {
     if (bin.recipeIds.length !== 1) return false;
     const recipe = recipeById.get(bin.recipeIds[0]);
     return !!recipe && recipe.outputs.length === 0;
   };
 
   // Bin classification.
-  const productionBins: CrucibleBin[] = [];
-  const disposalBins: CrucibleBin[] = [];
-  for (const bin of plan.crucibleBins) {
+  const productionBins: Bin[] = [];
+  const disposalBins: Bin[] = [];
+  for (const bin of plan.bins) {
     if (isDisposalBin(bin)) disposalBins.push(bin);
     else productionBins.push(bin);
   }
@@ -316,7 +316,7 @@ export function mapPlanToFlowBinFused(
       recipe: Recipe | null;
     } | undefined;
     if (producers.length === 1) {
-      const bin = plan.crucibleBins.find((b) => b.id === producers[0].binId);
+      const bin = plan.bins.find((b) => b.id === producers[0].binId);
       if (bin && bin.recipeIds.length === 1) {
         const recipe = recipeById.get(bin.recipeIds[0]);
         const facility = facilityById.get(bin.facilityId);
@@ -471,7 +471,7 @@ export function mapPlanToFlowBinFusedSeparated(
   const facilityById = new Map(facilities.map((f) => [f.id, f] as const));
   const targetItemIds = new Set(plan.targets);
 
-  const isDisposalBin = (bin: CrucibleBin): boolean => {
+  const isDisposalBin = (bin: Bin): boolean => {
     if (bin.recipeIds.length !== 1) return false;
     const recipe = recipeById.get(bin.recipeIds[0]);
     return !!recipe && recipe.outputs.length === 0;
@@ -485,7 +485,7 @@ export function mapPlanToFlowBinFusedSeparated(
 
   // Build per-bin instance count and per-instance rates.
   type BinInstance = {
-    bin: CrucibleBin;
+    bin: Bin;
     instanceIdx: number;
     instanceCount: number;
     perBuildingInputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }>;
@@ -494,8 +494,8 @@ export function mapPlanToFlowBinFusedSeparated(
   };
 
   const productionInstances: BinInstance[] = [];
-  const disposalBins: CrucibleBin[] = [];
-  for (const bin of plan.crucibleBins) {
+  const disposalBins: Bin[] = [];
+  for (const bin of plan.bins) {
     if (isDisposalBin(bin)) {
       disposalBins.push(bin);
       continue;

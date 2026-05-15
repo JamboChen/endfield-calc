@@ -1251,9 +1251,9 @@ describe("Phase 3 multi-formula bin packing", () => {
       facilities,
     );
 
-    // Phase 3 must populate crucibleBins.
-    expect(plan.crucibleBins).toBeDefined();
-    expect(plan.crucibleBins.length).toBeGreaterThan(0);
+    // Phase 3 must populate bins.
+    expect(plan.bins).toBeDefined();
+    expect(plan.bins.length).toBeGreaterThan(0);
 
     // The three pool recipes should all be allocated.
     const allocations = plan.recipeBinAllocations;
@@ -1272,7 +1272,7 @@ describe("Phase 3 multi-formula bin packing", () => {
 
     // At least one bin should be a grouped (multi-formula) bin packing
     // pool recipes together.
-    const groupedBins = plan.crucibleBins.filter(
+    const groupedBins = plan.bins.filter(
       (b) =>
         b.isGrouped &&
         b.recipeIds.some(
@@ -1291,7 +1291,7 @@ describe("Phase 3 multi-formula bin packing", () => {
     // ungrouped baseline. Specifically, the three pool recipes' slots
     // should pack into fewer buildings than they would individually.
     let totalPoolBuildings = 0;
-    for (const bin of plan.crucibleBins) {
+    for (const bin of plan.bins) {
       const fac = facilities.find((f) => f.id === bin.facilityId);
       if (fac?.cacheSlots == null) continue;
       // Only count Crucible bins (multi-formula-capable facilities).
@@ -1321,10 +1321,10 @@ describe("Phase 3 multi-formula bin packing", () => {
       facilities,
     );
 
-    expect(plan.crucibleBins).toBeDefined();
+    expect(plan.bins).toBeDefined();
     // All bins should be singletons (no grouping possible without
     // multi-formula capability).
-    for (const bin of plan.crucibleBins) {
+    for (const bin of plan.bins) {
       expect(bin.isGrouped).toBe(false);
       expect(bin.recipeIds.length).toBe(1);
     }
@@ -1349,14 +1349,14 @@ describe("Phase 3 multi-formula bin packing", () => {
     }
   });
 
-  test("plan totals match plan.crucibleBins aggregate (split-allocation safe)", () => {
+  test("plan totals match plan.bins aggregate (split-allocation safe)", () => {
     // The totals presented in the production-table footer must be
-    // computed from `plan.crucibleBins` directly, not derived from
+    // computed from `plan.bins` directly, not derived from
     // per-row associations. If a recipe's slot demand is split across
     // multiple bins (asymmetric demand can force the ILP into a split),
     // the per-row first-bin-only association would undercount the
     // secondary bins. Asserting the bin-aggregated totals matches the
-    // ground-truth from `plan.crucibleBins` catches that regression.
+    // ground-truth from `plan.bins` catches that regression.
     const plan = calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
@@ -1364,10 +1364,10 @@ describe("Phase 3 multi-formula bin packing", () => {
       facilities,
     );
 
-    // Ground truth: sum buildings and power across crucibleBins.
+    // Ground truth: sum buildings and power across bins.
     let truthBuildings = 0;
     let truthPower = 0;
-    for (const bin of plan.crucibleBins) {
+    for (const bin of plan.bins) {
       const fac = facilities.find((f) => f.id === bin.facilityId);
       if (!fac) continue;
       truthBuildings += Math.ceil(bin.buildingCount);
@@ -1413,7 +1413,7 @@ describe("Phase 3 multi-formula bin packing", () => {
 
     // Sum bin building counts for multi-formula facilities.
     let totalPoolBuildings = 0;
-    for (const bin of plan.crucibleBins) {
+    for (const bin of plan.bins) {
       const fac = facilities.find((f) => f.id === bin.facilityId);
       if (fac?.cacheSlots == null) continue;
       totalPoolBuildings += bin.buildingCount;
@@ -1506,7 +1506,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         recipes,
         facilities,
       );
-      for (const bin of plan.crucibleBins) {
+      for (const bin of plan.bins) {
         const externalIds = new Set([
           ...bin.externalOutputs.map((o) => o.itemId),
           ...bin.externalInputs.map((i) => i.itemId),
@@ -1527,7 +1527,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         recipes,
         facilities,
       );
-      for (const bin of plan.crucibleBins) {
+      for (const bin of plan.bins) {
         // Skip disposal bins (recipe with no outputs).
         const isDisposal = bin.recipeIds.some((rid) => {
           const r = recipes.find((x) => x.id === rid);
@@ -1614,7 +1614,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         const phase2 = node.facilityCount;
         if (phase2 <= 1e-9) continue;
 
-        const allocated = plan.crucibleBins.reduce(
+        const allocated = plan.bins.reduce(
           (sum, b) => sum + (b.recipeIds.includes(rid) ? b.buildingCount : 0),
           0,
         );
@@ -1634,7 +1634,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         recipes,
         facilities,
       );
-      const xirconBin = plan.crucibleBins.find((b) =>
+      const xirconBin = plan.bins.find((b) =>
         b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
       );
       expect(xirconBin).toBeDefined();
@@ -1669,7 +1669,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
       recipes,
       facilities,
     );
-    const xirconBin = plan.crucibleBins.find((b) =>
+    const xirconBin = plan.bins.find((b) =>
       b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
     );
     expect(xirconBin).toBeDefined();
@@ -1712,7 +1712,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         recipes,
         facilities,
       );
-      return plan.crucibleBins
+      return plan.bins
         .filter((b) => b.facilityId === FacilityId.MIX_POOL_2)
         .reduce((s, b) => s + Math.ceil(b.buildingCount), 0);
     });

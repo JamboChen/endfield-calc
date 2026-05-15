@@ -46,7 +46,7 @@
       "buildings": "建物総数",
       "power": "総電力",
       "viaGrouping": "グループ化による節約",
-      "savingsExplain": "複数レシピを同一の化学反応炉にパックすることで節約した建物数。"
+      "savingsExplain": "複数レシピを同一の建物にパックすることで節約した建物数。"
     }
   },
   "tree": {
@@ -75,7 +75,7 @@
     "exportFormat": "形式",
     "exportScale": "スケール",
     "exportConfirm": "エクスポート",
-    "crucibleGroup": "化学反応炉グループ",
+    "multiFormulaGroup": "マルチレシピ建物",
     "runningWith": "同時実行中",
     "groupedBuilding": "共有施設",
     "formulas": "種のレシピ",

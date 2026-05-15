@@ -13,7 +13,7 @@ import type {
   Recipe,
   Facility,
   ProductionNode,
-  CrucibleBin,
+  Bin,
   ItemId,
   RecipeId,
   FacilityId,
@@ -315,7 +315,7 @@ describe("computeNodeByproducts", () => {
   describe("grouped bin (bin-fused, the fixed bug case)", () => {
     // Bin shape {LX, XE, X} where Sewage and Xiranite are internal, and
     // Lowpoly is the only external byproduct (beyond the headline Xircon).
-    const groupedBin: CrucibleBin = {
+    const groupedBin: Bin = {
       id: "bin-grouped" as string,
       facilityId: facility.id,
       recipeIds: [
@@ -425,7 +425,7 @@ describe("computeNodeByproducts", () => {
     test("primary item never appears in byproducts even if in binExtraOutputs", () => {
       // Defensive: bin-fused-mapper filters headline out of binExtraOutputs,
       // but the function should also dedupe defensively.
-      const groupedBin: CrucibleBin = {
+      const groupedBin: Bin = {
         id: "bin-dedupe",
         facilityId: facility.id,
         recipeIds: [xRecipe.id, "sister_1" as RecipeId],
@@ -504,9 +504,9 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.perFacility.get(FacilityIdEnum.MIX_POOL_2)).toBe(1);
   });
 
-  test("ceilMode=true: Xircon target=57 Expanded count matches plan.crucibleBins aggregate", () => {
+  test("ceilMode=true: Xircon target=57 Expanded count matches plan.bins aggregate", () => {
     // At target=57 MIP picks 2×{LX,XE,X} + 2×{LX,XE} = 4 Expanded.
-    // The helper must agree with a direct count over crucibleBins.
+    // The helper must agree with a direct count over bins.
     const plan = calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
@@ -514,7 +514,7 @@ describe("aggregateBinTotals (real data)", () => {
       facilities,
     );
     const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
-    const expandedDirectCount = plan.crucibleBins
+    const expandedDirectCount = plan.bins
       .filter((b) => b.facilityId === FacilityIdEnum.MIX_POOL_2)
       .reduce((s, b) => s + Math.max(1, Math.ceil(b.buildingCount)), 0);
     expect(totals.perFacility.get(FacilityIdEnum.MIX_POOL_2))
@@ -539,7 +539,7 @@ describe("aggregateBinTotals (real data)", () => {
 
     let expected = 0;
     const facilityById = new Map(facilities.map((f) => [f.id, f]));
-    for (const bin of plan.crucibleBins) {
+    for (const bin of plan.bins) {
       const fac = facilityById.get(bin.facilityId);
       if (!fac) continue;
       const recipeCount = Math.max(1, bin.recipeIds.length);
@@ -557,7 +557,7 @@ describe("aggregateBinTotals (real data)", () => {
       facilities,
     );
     const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
-    const expected = plan.crucibleBins.reduce(
+    const expected = plan.bins.reduce(
       (s, b) => s + Math.max(1, Math.ceil(b.buildingCount)),
       0,
     );
@@ -574,7 +574,7 @@ describe("aggregateBinTotals (real data)", () => {
     const totals = aggregateBinTotals(plan, facilities);
     const sumByBin = buildBinActivitySums(plan);
 
-    const expected = plan.crucibleBins.reduce((s, b) => {
+    const expected = plan.bins.reduce((s, b) => {
       const recipeCount = Math.max(1, b.recipeIds.length);
       const sumActivities = sumByBin.get(b.id) ?? b.buildingCount;
       return s + sumActivities / recipeCount;
@@ -595,7 +595,7 @@ describe("aggregateBinTotals (real data)", () => {
       facilities,
     );
     const sumByBin = buildBinActivitySums(plan);
-    const xirconBin = plan.crucibleBins.find((b) =>
+    const xirconBin = plan.bins.find((b) =>
       b.recipeIds.length === 3 &&
       b.facilityId === FacilityIdEnum.MIX_POOL_2,
     );
@@ -619,7 +619,7 @@ describe("aggregateBinTotals (real data)", () => {
         facilities,
       );
       const sumByBin = buildBinActivitySums(plan);
-      for (const bin of plan.crucibleBins) {
+      for (const bin of plan.bins) {
         const recipeCount = Math.max(1, bin.recipeIds.length);
         const sumActivities = sumByBin.get(bin.id) ?? bin.buildingCount;
         const mean = sumActivities / recipeCount;
@@ -650,7 +650,7 @@ describe("aggregateBinTotals (real data)", () => {
     const totals = aggregateBinTotals(plan, facilities);
     const facilityById = new Map(facilities.map((f) => [f.id, f]));
     let expected = 0;
-    for (const bin of plan.crucibleBins) {
+    for (const bin of plan.bins) {
       const fac = facilityById.get(bin.facilityId);
       if (fac?.cacheSlots != null) {
         expected += Math.max(1, Math.ceil(bin.buildingCount));
@@ -696,7 +696,7 @@ describe("aggregateBinTotals (real data)", () => {
       targets: new Set<ItemId>(),
       detectedCycles: [],
       invalidCycles: [],
-      crucibleBins: [],
+      bins: [],
       recipeBinAllocations: new Map(),
     };
     const totals = aggregateBinTotals(emptyPlan, facilities);
@@ -717,7 +717,7 @@ describe("aggregateBinTotals (real data)", () => {
       targets: new Set<ItemId>(),
       detectedCycles: [],
       invalidCycles: [],
-      crucibleBins: [
+      bins: [
         {
           id: "bin-orphan",
           facilityId: "not_a_real_facility" as FacilityId,
@@ -772,7 +772,7 @@ describe("aggregateBinTotals (real data)", () => {
     expect(furnaceCount).toBeDefined();
 
     // Independently sum raw bin.buildingCount over Furnace bins.
-    const expected = plan.crucibleBins
+    const expected = plan.bins
       .filter((b) => b.facilityId === FacilityIdEnum.FURNANCE_1)
       .reduce((s, b) => s + b.buildingCount, 0);
     expect(furnaceCount!).toBeCloseTo(expected, 6);
@@ -828,7 +828,7 @@ describe("aggregateBinTotals (real data)", () => {
     const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
     const facilityById = new Map(facilities.map((f) => [f.id, f]));
     let expected = 0;
-    for (const bin of plan.crucibleBins) {
+    for (const bin of plan.bins) {
       const fac = facilityById.get(bin.facilityId);
       if (!fac) continue;
       expected +=

@@ -46,7 +46,7 @@
       "buildings": "총 건물 수",
       "power": "총 전력",
       "viaGrouping": "묶음으로 절약",
-      "savingsExplain": "여러 레시피를 다중 레시피 반응기에 패킹하여 절약된 건물 수입니다."
+      "savingsExplain": "여러 레시피를 다중 레시피 건물에 패킹하여 절약된 건물 수입니다."
     }
   },
   "tree": {
@@ -75,7 +75,7 @@
     "exportFormat": "형식",
     "exportScale": "배율",
     "exportConfirm": "내보내기",
-    "crucibleGroup": "반응기 묶음",
+    "multiFormulaGroup": "다중 레시피 건물",
     "runningWith": "동시 실행",
     "groupedBuilding": "공유 건물",
     "formulas": "개의 레시피",

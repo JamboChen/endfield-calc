@@ -3,11 +3,11 @@
  *
  * Given Phase 2's per-recipe slot demands (`recipeFacilityCounts`), this
  * module decides how those slots are physically realised. For multi-formula
- * facilities (those with `cacheSlots` defined — e.g. Reactor / Expanded
- * Crucible), multiple recipes may share a single building, sharing
- * inner-slot inventory and external port budget. Each "bin" of buildings
- * has the same recipe configuration; each building of that bin provides
- * 1 slot of each constituent recipe per cycle.
+ * facilities (those with `cacheSlots` defined), multiple recipes may share
+ * a single building, sharing inner-slot inventory and external port
+ * budget. Each "bin" of buildings has the same recipe configuration;
+ * each building of that bin provides 1 slot of each constituent recipe
+ * per cycle.
  *
  * Algorithm:
  *   1. Group recipes by facility. Per facility, enumerate all valid
@@ -21,7 +21,7 @@
  *   3. Solve a lex two-pass MIP:
  *        - Pass 1: minimise total buildings (Σ x_t).
  *        - Pass 2: minimise total power subject to pass-1 optimum.
- *   4. Emit `CrucibleBin[]` with per-bin net I/O metadata, plus a
+ *   4. Emit `Bin[]` with per-bin net I/O metadata, plus a
  *      per-recipe `RecipeBinAllocation` distributing slot demand across
  *      the chosen bins.
  *
@@ -39,7 +39,7 @@ import type {
   ItemId,
   RecipeId,
   FacilityId,
-  CrucibleBin,
+  Bin,
   RecipeBinAllocation,
 } from "@/types";
 
@@ -77,7 +77,7 @@ export type PackingInput = {
 };
 
 export type PackingResult = {
-  bins: CrucibleBin[];
+  bins: Bin[];
   allocations: Map<RecipeId, RecipeBinAllocation>;
 };
 
@@ -283,7 +283,7 @@ const enumerateBinShapes = (
  * Twins matter because Phase 2's LP picks one variant of each pool
  * recipe (typically `_1` for power minimisation pre-grouping), but
  * Phase 3 should consider both `_1` and `_2` so it can pack into
- * Expanded Crucibles when beneficial.
+ * the larger variant when beneficial.
  */
 const buildEquivalenceClasses = (
   recipeSlotDemands: Map<RecipeId, number>,
@@ -399,7 +399,7 @@ const solvePacking = (
         const distinct = new Set(matchingOverrides);
         if (distinct.size > 1 && import.meta.env?.DEV) {
           console.warn(
-            `[CRUCIBLE_PACKING] multiple overrides target the same equivalence class (${classSig}); honouring last: ${matchingOverrides[matchingOverrides.length - 1]}`,
+            `[BIN_PACKING] multiple overrides target the same equivalence class (${classSig}); honouring last: ${matchingOverrides[matchingOverrides.length - 1]}`,
           );
         }
         allowedRecipeIds.clear();
@@ -472,7 +472,7 @@ const solvePacking = (
     r1 = solver.Solve(passOne) as Record<string, number | boolean | undefined>;
   } catch (e) {
     if (import.meta.env?.DEV) {
-      console.warn("[CRUCIBLE_PACKING] pass-1 solver threw:", e);
+      console.warn("[BIN_PACKING] pass-1 solver threw:", e);
     }
     return null;
   }
@@ -481,7 +481,7 @@ const solvePacking = (
   if (typeof r1.result !== "number" || !Number.isFinite(r1.result)) {
     if (import.meta.env?.DEV) {
       console.warn(
-        "[CRUCIBLE_PACKING] pass-1 returned a non-finite objective; aborting",
+        "[BIN_PACKING] pass-1 returned a non-finite objective; aborting",
         r1.result,
       );
     }
@@ -509,7 +509,7 @@ const solvePacking = (
     r2 = solver.Solve(passTwo) as Record<string, number | boolean | undefined>;
   } catch (e) {
     if (import.meta.env?.DEV) {
-      console.warn("[CRUCIBLE_PACKING] pass-2 solver threw:", e);
+      console.warn("[BIN_PACKING] pass-2 solver threw:", e);
     }
     // Fall back to pass-1 result.
     r2 = r1;
@@ -518,7 +518,7 @@ const solvePacking = (
   if (r2.feasible !== true || r2.bounded === false) {
     if (import.meta.env?.DEV) {
       console.warn(
-        "[CRUCIBLE_PACKING] pass-2 infeasible/unbounded, falling back to pass-1",
+        "[BIN_PACKING] pass-2 infeasible/unbounded, falling back to pass-1",
       );
     }
     r2 = r1;
@@ -570,7 +570,7 @@ const solvePacking = (
     } catch (e) {
       if (import.meta.env?.DEV) {
         console.warn(
-          "[CRUCIBLE_PACKING] pass-3 solver threw, falling back to pass-2:",
+          "[BIN_PACKING] pass-3 solver threw, falling back to pass-2:",
           e,
         );
       }
@@ -579,7 +579,7 @@ const solvePacking = (
     if (r3.feasible !== true || r3.bounded === false) {
       if (import.meta.env?.DEV) {
         console.warn(
-          `[CRUCIBLE_PACKING] pass-3 ${r3.bounded === false ? "unbounded" : "infeasible"} after lex caps; falling back to pass-2`,
+          `[BIN_PACKING] pass-3 ${r3.bounded === false ? "unbounded" : "infeasible"} after lex caps; falling back to pass-2`,
         );
       }
       r3 = r2;
@@ -605,7 +605,7 @@ const solvePacking = (
 
 /**
  * Distribute slot demand across chosen bins using a greedy fill, then
- * materialise `CrucibleBin[]` with bin.recipeIds rewritten to **demand
+ * materialise `Bin[]` with bin.recipeIds rewritten to **demand
  * recipe ids** (Phase 2's pick) — not the physical twin variant the ILP
  * packed.
  *
@@ -642,7 +642,7 @@ const allocateSlotsToBins = (
   classes: Array<{ slotDemand: number; alternatives: Recipe[]; canonicalRecipe: Recipe; demandByRecipeId: Map<RecipeId, number> }>,
   recipeMap: Map<RecipeId, Recipe>,
   itemMap: Map<ItemId, Item>,
-): { bins: CrucibleBin[]; allocations: Map<RecipeId, RecipeBinAllocation> } => {
+): { bins: Bin[]; allocations: Map<RecipeId, RecipeBinAllocation> } => {
   // Sort shapes deterministically: facility id, then size desc, then recipe ids.
   const sortedShapes = Array.from(shapeCounts.keys()).sort((a, b) => {
     if (a.facility.id !== b.facility.id) {
@@ -716,7 +716,7 @@ const allocateSlotsToBins = (
     }
   }
 
-  // Materialise CrucibleBin[] with `recipeIds` populated from the demand
+  // Materialise Bin[] with `recipeIds` populated from the demand
   // ids that allocate to this bin (sorted, deduped). Skip shapes with no
   // allocations (could happen if the ILP picked a shape but the greedy
   // allocator didn't drain anything into it — defensive only; should be
@@ -746,7 +746,7 @@ const allocateSlotsToBins = (
     m.set(e.physicalRecipeId, (m.get(e.physicalRecipeId) ?? 0) + e.slots);
   }
 
-  const bins: CrucibleBin[] = [];
+  const bins: Bin[] = [];
   sortedShapes.forEach((shape, idx) => {
     const count = shapeCounts.get(shape) ?? 0;
     if (count <= 0) return;
@@ -849,8 +849,8 @@ const emitSingletonBins = (
   recipeMap: Map<RecipeId, Recipe>,
   facilityMap: Map<FacilityId, Facility>,
   itemMap: Map<ItemId, Item>,
-): { bins: CrucibleBin[]; allocations: Map<RecipeId, RecipeBinAllocation> } => {
-  const bins: CrucibleBin[] = [];
+): { bins: Bin[]; allocations: Map<RecipeId, RecipeBinAllocation> } => {
+  const bins: Bin[] = [];
   const allocations = new Map<RecipeId, RecipeBinAllocation>();
   let idx = 0;
 
@@ -901,7 +901,7 @@ const emitSingletonBins = (
 /**
  * Phase 3 entry point. Returns bins + per-recipe allocations.
  */
-export const packCrucibleBins = (input: PackingInput): PackingResult => {
+export const packBins = (input: PackingInput): PackingResult => {
   const { recipeSlotDemands, recipeMap, facilityMap, itemMap, recipeOverrides } =
     input;
 
@@ -958,7 +958,7 @@ export const packCrucibleBins = (input: PackingInput): PackingResult => {
 
   if (import.meta.env?.DEV) {
     console.log(
-      `[CRUCIBLE_PACKING] Enumerated ${allShapes.length} bin shapes across ${eligibleFacilities.size} facilities`,
+      `[BIN_PACKING] Enumerated ${allShapes.length} bin shapes across ${eligibleFacilities.size} facilities`,
     );
   }
 
@@ -966,7 +966,7 @@ export const packCrucibleBins = (input: PackingInput): PackingResult => {
   if (!solution) {
     if (import.meta.env?.DEV) {
       console.warn(
-        "[CRUCIBLE_PACKING] ILP failed; falling back to all-singleton bins",
+        "[BIN_PACKING] ILP failed; falling back to all-singleton bins",
       );
     }
     return emitSingletonBins(
@@ -980,7 +980,7 @@ export const packCrucibleBins = (input: PackingInput): PackingResult => {
 
   if (import.meta.env?.DEV) {
     console.log(
-      `[CRUCIBLE_PACKING] Solved: ${solution.totalBuildings} buildings, ${solution.totalPower}W`,
+      `[BIN_PACKING] Solved: ${solution.totalBuildings} buildings, ${solution.totalPower}W`,
     );
   }
 

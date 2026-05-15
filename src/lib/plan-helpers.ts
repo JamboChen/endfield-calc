@@ -2,7 +2,7 @@ import type {
   ProductionDependencyGraph,
   ProductionGraphNode,
   ProductionNode,
-  CrucibleBin,
+  Bin,
   Facility,
   FacilityId,
   ItemId,
@@ -13,7 +13,7 @@ import type {
 import { calcRate } from "@/lib/utils";
 
 /**
- * Bin-level plan aggregates derived from `plan.crucibleBins`. Single
+ * Bin-level plan aggregates derived from `plan.bins`. Single
  * source of truth for "how many physical buildings", "how much power",
  * and "what's the per-facility breakdown" — consumed by both
  * `useProductionStats` (the side-panel statistics card) and
@@ -102,7 +102,7 @@ export function buildBinActivitySums(
 }
 
 /**
- * Aggregate `plan.crucibleBins` into building / power / per-facility
+ * Aggregate `plan.bins` into building / power / per-facility
  * counts. Pure function; both `useProductionStats` and
  * `useProductionTable` call this so they cannot drift.
  *
@@ -145,7 +145,7 @@ export function aggregateBinTotals(
   let multiFormulaActualBuildings = 0;
   const perFacility = new Map<FacilityId, number>();
 
-  for (const bin of plan.crucibleBins) {
+  for (const bin of plan.bins) {
     const facility = facilityById.get(bin.facilityId);
     if (!facility) continue;
     const ceiledBuildings = Math.max(1, Math.ceil(bin.buildingCount));
@@ -288,7 +288,7 @@ export function computeNodeByproducts(
  * outputs (degenerate case; pure consumer bin).
  */
 export function pickBinHeadlineOutput(
-  bin: CrucibleBin,
+  bin: Bin,
   items: Item[],
   recipes: Recipe[],
   targetItemIds: Set<ItemId>,

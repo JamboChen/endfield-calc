@@ -70,7 +70,7 @@ export type ProductionLineData = {
 
 /**
  * Plan-level totals shown in the production-table footer. Computed
- * upstream from `plan.crucibleBins` so split allocations are counted
+ * upstream from `plan.bins` so split allocations are counted
  * correctly. Caller-provided to keep this component a pure renderer.
  */
 export type ProductionTableTotals = {
@@ -294,7 +294,7 @@ const ProductionTable = memo(function ProductionTable({
   );
 
   // Plan-level totals come from the upstream hook (computed from
-  // `plan.crucibleBins` directly, which is split-allocation-safe). When
+  // `plan.bins` directly, which is split-allocation-safe). When
   // the caller doesn't supply totals (e.g. ad-hoc consumers), fall back
   // to a row-derived approximation. This fallback is accurate when no
   // recipe is split across multiple bins, which holds for any plan
@@ -579,8 +579,8 @@ const ProductionTable = memo(function ProductionTable({
                         <TooltipContent side="left" className="max-w-[280px]">
                           <div className="text-xs space-y-1">
                             <div className="font-semibold">
-                              {t("tree.crucibleGroup", {
-                                defaultValue: "Crucible Group",
+                              {t("tree.multiFormulaGroup", {
+                                defaultValue: "Multi-Formula Building",
                               })}
                             </div>
                             <div className="text-muted-foreground">
@@ -794,7 +794,7 @@ const ProductionTable = memo(function ProductionTable({
                   <p className="text-xs">
                     {t("table.totals.savingsExplain", {
                       defaultValue:
-                        "Buildings saved by packing recipes into shared multi-formula crucibles.",
+                        "Buildings saved by packing recipes into shared multi-formula buildings.",
                     })}
                   </p>
                 </TooltipContent>

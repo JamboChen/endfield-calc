@@ -9,14 +9,14 @@ import type {
   InvalidCycleInfo,
   ProductionDependencyGraph,
   ProductionGraphNode,
-  CrucibleBin,
+  Bin,
   RecipeBinAllocation,
 } from "@/types";
 import { forcedDisposalItems } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { buildBipartiteGraph, detectSCCs, buildCondensedDAGAndSort } from "./graph-builder";
 import { calculateFlows } from "./flow-solver";
-import { packCrucibleBins } from "./multi-formula-packing";
+import { packBins } from "./multi-formula-packing";
 import type {
   ProductionMaps,
   BipartiteGraph,
@@ -123,7 +123,7 @@ function buildProductionGraph(
   maps: ProductionMaps,
   invalidSCCs: InvalidSCCInfo[] = [],
   recipeOverrides?: Map<ItemId, RecipeId>,
-  crucibleBins: CrucibleBin[] = [],
+  bins: Bin[] = [],
   recipeBinAllocations: Map<RecipeId, RecipeBinAllocation> = new Map(),
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
@@ -160,8 +160,8 @@ function buildProductionGraph(
   });
 
   // Build bin lookup keyed by allocation entry's binId.
-  const binById = new Map<string, CrucibleBin>();
-  for (const bin of crucibleBins) binById.set(bin.id, bin);
+  const binById = new Map<string, Bin>();
+  for (const bin of bins) binById.set(bin.id, bin);
 
   /**
    * Resolve the bin metadata for a given recipe. Returns the recipe's
@@ -290,7 +290,7 @@ function buildProductionGraph(
     targets: graph.targets,
     detectedCycles,
     invalidCycles,
-    crucibleBins,
+    bins,
     recipeBinAllocations,
   };
 }
@@ -406,7 +406,7 @@ export function calculateProductionPlan(
         `[SUCCESS] Valid production plan found in ${iteration} iteration(s)`,
       );
       injectDisposalRecipes(graph, flowData, maps, targets);
-      const packing = packCrucibleBins({
+      const packing = packBins({
         recipeSlotDemands: flowData.recipeFacilityCounts,
         recipeMap: maps.recipeMap,
         itemMap: maps.itemMap,
@@ -441,7 +441,7 @@ export function calculateProductionPlan(
           `Returning best-effort result with ${invalidSCCs.length} invalid cycle(s).`,
       );
       injectDisposalRecipes(graph, flowData, maps, targets);
-      const packing = packCrucibleBins({
+      const packing = packBins({
         recipeSlotDemands: flowData.recipeFacilityCounts,
         recipeMap: maps.recipeMap,
         itemMap: maps.itemMap,

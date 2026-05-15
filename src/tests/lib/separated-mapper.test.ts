@@ -336,7 +336,7 @@ describe("Separated mapper — Phase 3 bin annotations", () => {
         };
       };
       const pn = data.productionNode!;
-      const binMatch = plan.crucibleBins.find((b) => b.id === pn.binId);
+      const binMatch = plan.bins.find((b) => b.id === pn.binId);
       expect(binMatch).toBeDefined();
       // sister count + 1 (self) must equal bin's recipe count.
       const formulaCountFromUI = (pn.binSisterRecipeIds?.length ?? 0) + 1;

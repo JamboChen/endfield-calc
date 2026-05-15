@@ -46,7 +46,7 @@
       "buildings": "建築總數",
       "power": "總功耗",
       "viaGrouping": "因組合節省",
-      "savingsExplain": "透過將配方打包到多配方反應池中節省的建築數量。"
+      "savingsExplain": "透過將配方打包到多配方建築中節省的建築數量。"
     }
   },
   "tree": {
@@ -75,7 +75,7 @@
     "exportFormat": "格式",
     "exportScale": "縮放比例",
     "exportConfirm": "匯出",
-    "crucibleGroup": "反應池組合",
+    "multiFormulaGroup": "多配方建築",
     "runningWith": "同時執行",
     "groupedBuilding": "共享建築",
     "formulas": "個配方",
