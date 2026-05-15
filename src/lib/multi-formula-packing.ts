@@ -79,6 +79,13 @@ export type PackingInput = {
 export type PackingResult = {
   bins: Bin[];
   allocations: Map<RecipeId, RecipeBinAllocation>;
+  /**
+   * Non-fatal warnings surfaced from packing. Populated when a recipe
+   * override pinned a variant whose facility has no valid bin shape
+   * (forcing the packer to fall back to per-recipe singletons), or
+   * other override-related diagnostics worth surfacing to the user.
+   */
+  warnings: string[];
 };
 
 /** Bin "shape": a recipe subset hosted by one facility type. */
@@ -360,7 +367,6 @@ const solvePacking = (
     demandByRecipeId: Map<RecipeId, number>;
   }>,
   recipeOverrides: Map<ItemId, RecipeId> | undefined,
-  recipeMap: Map<RecipeId, Recipe>,
 ): SolveOutput | null => {
   if (shapes.length === 0 || classes.length === 0) {
     return { shapeCounts: new Map(), totalBuildings: 0, totalPower: 0 };
@@ -370,61 +376,85 @@ const solvePacking = (
   const shapeByVar = new Map<string, BinShape>();
   shapes.forEach((s, i) => shapeByVar.set(`x_${i}`, s));
 
-  // Build equivalence-class membership: for each class, the set of bin
-  // shape indices containing any class-member recipe.
+  // Build LP constraints per equivalence class. The formulation has two
+  // levels of constraints per class:
+  //
+  //   1. **Per-pin restricted** (one per pinned demand-recipe in the
+  //      class): `Σ_{shapes containing pin} x_t ≥ pin_demand`. Forces
+  //      the ILP to build enough facility-restricted shapes to cover
+  //      the demand attributable to each user-pinned variant.
+  //   2. **Class-wide total** (one per class): `Σ_{any class shape} x_t
+  //      ≥ Σ_demands_in_class`. Ensures the total slot supply across
+  //      the class meets total demand. Shapes serving a pin also count
+  //      toward the total — the LP can pack pinned-only or
+  //      pinned+substitute as it prefers (subject to lex passes).
+  //
+  // The split honours per-pin user intent (e.g. "tier-1 facility for
+  // item_a, tier-2 facility for item_b" when items share an equivalence
+  // class) instead of collapsing all demand onto the last-iterated pin,
+  // while preserving free substitution among non-pinned demand for the
+  // common no-conflict case.
+  //
+  // A demand-recipe is "pinned" iff some `recipeOverrides` entry's
+  // recipe id equals it. The override key (which item the user pinned)
+  // doesn't matter — only the chosen recipe variant.
   const classMembership: Array<{
     name: string;
     rhs: number;
     shapeIdxs: number[];
     classIdx: number;
-  }> = classes.map((cls, classIdx) => {
-    const allowedRecipeIds = new Set<RecipeId>();
-    for (const r of cls.alternatives) allowedRecipeIds.add(r.id);
-    // Recipe-override pinning: if any item's override pins a specific
-    // variant of this class, only that variant is allowed. If multiple
-    // overrides target the same equivalence class with conflicting
-    // variants, the last iteration wins; warn in dev so unusual setups
-    // surface instead of silently honouring one arbitrary pin.
+  }> = [];
+
+  classes.forEach((cls, classIdx) => {
+    const classRecipeIds = new Set<RecipeId>(cls.alternatives.map((r) => r.id));
+
+    // Identify demand-recipes that are pinned by any user override.
+    const pinnedDemandIds = new Set<RecipeId>();
     if (recipeOverrides) {
-      const classSig = recipeSignature(cls.canonicalRecipe);
-      const matchingOverrides: RecipeId[] = [];
-      for (const [, overrideRecipeId] of recipeOverrides.entries()) {
-        const overrideRecipe = recipeMap.get(overrideRecipeId);
-        if (!overrideRecipe) continue;
-        if (recipeSignature(overrideRecipe) === classSig) {
-          matchingOverrides.push(overrideRecipeId);
+      for (const overrideRecipeId of recipeOverrides.values()) {
+        if (cls.demandByRecipeId.has(overrideRecipeId)) {
+          pinnedDemandIds.add(overrideRecipeId);
         }
-      }
-      if (matchingOverrides.length > 0) {
-        const distinct = new Set(matchingOverrides);
-        if (distinct.size > 1 && import.meta.env?.DEV) {
-          console.warn(
-            `[BIN_PACKING] multiple overrides target the same equivalence class (${classSig}); honouring last: ${matchingOverrides[matchingOverrides.length - 1]}`,
-          );
-        }
-        allowedRecipeIds.clear();
-        allowedRecipeIds.add(matchingOverrides[matchingOverrides.length - 1]);
       }
     }
-    const shapeIdxs: number[] = [];
+
+    // Per-pin restricted constraint.
+    for (const pinId of pinnedDemandIds) {
+      const pinDemand = cls.demandByRecipeId.get(pinId) ?? 0;
+      if (pinDemand <= SLOT_DEMAND_EPSILON) continue;
+      const shapeIdxs: number[] = [];
+      shapes.forEach((shape, idx) => {
+        if (shape.recipeIds.includes(pinId)) shapeIdxs.push(idx);
+      });
+      classMembership.push({
+        name: `cls_${classIdx}_pin_${pinId}`,
+        rhs: pinDemand,
+        shapeIdxs,
+        classIdx,
+      });
+    }
+
+    // Class-wide total constraint.
+    const totalShapeIdxs: number[] = [];
     shapes.forEach((shape, idx) => {
       for (const rid of shape.recipeIds) {
-        if (allowedRecipeIds.has(rid)) {
-          shapeIdxs.push(idx);
+        if (classRecipeIds.has(rid)) {
+          totalShapeIdxs.push(idx);
           return;
         }
       }
     });
-    return {
-      name: `cls_${classIdx}`,
+    classMembership.push({
+      name: `cls_${classIdx}_total`,
       rhs: cls.slotDemand,
-      shapeIdxs,
+      shapeIdxs: totalShapeIdxs,
       classIdx,
-    };
+    });
   });
 
-  // If any class has no shapes (e.g. due to an over-restrictive override
-  // making all alternatives invalid), packing is infeasible.
+  // If any constraint has no shapes (e.g. a pin restricts to a recipe
+  // with no valid shape on its facility, or a class has no shapes at
+  // all), packing is infeasible.
   for (const cm of classMembership) {
     if (cm.shapeIdxs.length === 0) return null;
   }
@@ -642,6 +672,7 @@ const allocateSlotsToBins = (
   classes: Array<{ slotDemand: number; alternatives: Recipe[]; canonicalRecipe: Recipe; demandByRecipeId: Map<RecipeId, number> }>,
   recipeMap: Map<RecipeId, Recipe>,
   itemMap: Map<ItemId, Item>,
+  recipeOverrides: Map<ItemId, RecipeId> | undefined,
 ): { bins: Bin[]; allocations: Map<RecipeId, RecipeBinAllocation> } => {
   // Sort shapes deterministically: facility id, then size desc, then recipe ids.
   const sortedShapes = Array.from(shapeCounts.keys()).sort((a, b) => {
@@ -689,9 +720,39 @@ const allocateSlotsToBins = (
     remainingPerBinPerRecipe.set(binId, perRecipe);
   });
 
+  // For each class, identify pinned demand-recipes (those referenced by
+  // any user override). Pinned demand-recipes are restricted to shapes
+  // containing the pin itself — they cannot substitute through other
+  // class members. Unpinned demand-recipes accept any class member.
+  //
+  // Pinned demands are allocated first so they claim restricted shapes
+  // before unpinned demands can substitute into them. Within each
+  // tier (pinned/unpinned), demand-recipe ids sort alphabetically for
+  // determinism.
   for (const cls of classes) {
-    const allowed = new Set(cls.alternatives.map((r) => r.id));
-    for (const [demandRecipeId, demand] of cls.demandByRecipeId.entries()) {
+    const classRecipeIds = new Set<RecipeId>(cls.alternatives.map((r) => r.id));
+    const pinnedDemandIds = new Set<RecipeId>();
+    if (recipeOverrides) {
+      for (const overrideRecipeId of recipeOverrides.values()) {
+        if (cls.demandByRecipeId.has(overrideRecipeId)) {
+          pinnedDemandIds.add(overrideRecipeId);
+        }
+      }
+    }
+
+    const sortedDemands = [...cls.demandByRecipeId.entries()].sort(
+      ([a], [b]) => {
+        const aPinned = pinnedDemandIds.has(a);
+        const bPinned = pinnedDemandIds.has(b);
+        if (aPinned !== bPinned) return aPinned ? -1 : 1;
+        return a < b ? -1 : a > b ? 1 : 0;
+      },
+    );
+
+    for (const [demandRecipeId, demand] of sortedDemands) {
+      const allowed = pinnedDemandIds.has(demandRecipeId)
+        ? new Set<RecipeId>([demandRecipeId])
+        : classRecipeIds;
       let remaining = demand;
       sortedShapes.forEach((shape, idx) => {
         if (remaining <= SLOT_DEMAND_EPSILON) return;
@@ -899,7 +960,68 @@ const emitSingletonBins = (
 };
 
 /**
- * Phase 3 entry point. Returns bins + per-recipe allocations.
+ * Identify recipe-override pins that have no valid bin shape on their
+ * facility. These pins force `solvePacking` into infeasibility — the
+ * packer falls back to per-recipe singletons, losing grouping
+ * benefits. Returns a list of human-readable warning strings (one per
+ * problematic pin) so the UI can surface them to the user.
+ */
+const buildInfeasiblePinWarnings = (
+  recipeOverrides: Map<ItemId, RecipeId> | undefined,
+  recipeSlotDemands: Map<RecipeId, number>,
+  recipeMap: Map<RecipeId, Recipe>,
+  facilityMap: Map<FacilityId, Facility>,
+  itemMap: Map<ItemId, Item>,
+): string[] => {
+  if (!recipeOverrides || recipeOverrides.size === 0) return [];
+  const warnings: string[] = [];
+  const seenPins = new Set<RecipeId>();
+
+  for (const overrideRecipeId of recipeOverrides.values()) {
+    if (seenPins.has(overrideRecipeId)) continue;
+    seenPins.add(overrideRecipeId);
+    if ((recipeSlotDemands.get(overrideRecipeId) ?? 0) <= SLOT_DEMAND_EPSILON) {
+      continue;
+    }
+    const recipe = recipeMap.get(overrideRecipeId);
+    if (!recipe) continue;
+    const facility = facilityMap.get(recipe.facilityId);
+    // Pins on single-formula facilities don't participate in packing.
+    if (facility?.cacheSlots == null) continue;
+    // Does ANY valid shape on this facility contain the pinned recipe?
+    const recipesOnFac: Recipe[] = [];
+    for (const r of recipeMap.values()) {
+      if (r.facilityId !== facility.id) continue;
+      if (recipeSignature(r) !== recipeSignature(recipe)) continue;
+      recipesOnFac.push(r);
+    }
+    // Also consider other class members on the same facility.
+    for (const r of recipeMap.values()) {
+      if (r.facilityId !== facility.id) continue;
+      if (recipesOnFac.some((x) => x.id === r.id)) continue;
+      // Include if it's in the same class as any already-included recipe.
+      if (
+        recipesOnFac.some(
+          (x) => recipeSignature(x) === recipeSignature(r),
+        )
+      ) {
+        recipesOnFac.push(r);
+      }
+    }
+    const shapes = enumerateBinShapes(recipesOnFac, facility, itemMap);
+    const hasShape = shapes.some((s) => s.recipeIds.includes(overrideRecipeId));
+    if (!hasShape) {
+      warnings.push(
+        `Recipe override "${overrideRecipeId}" on facility "${facility.id}" has no valid bin shape — packer fell back to per-recipe bins for this recipe.`,
+      );
+    }
+  }
+
+  return warnings;
+};
+
+/**
+ * Phase 3 entry point. Returns bins + per-recipe allocations + warnings.
  */
 export const packBins = (input: PackingInput): PackingResult => {
   const { recipeSlotDemands, recipeMap, facilityMap, itemMap, recipeOverrides } =
@@ -962,20 +1084,38 @@ export const packBins = (input: PackingInput): PackingResult => {
     );
   }
 
-  const solution = solvePacking(allShapes, classes, recipeOverrides, recipeMap);
+  const solution = solvePacking(allShapes, classes, recipeOverrides);
   if (!solution) {
     if (import.meta.env?.DEV) {
       console.warn(
         "[BIN_PACKING] ILP failed; falling back to all-singleton bins",
       );
     }
-    return emitSingletonBins(
+    // Diagnose: surface infeasible-pin warnings to the user. The packer
+    // never throws — fallback always produces a valid plan — but the
+    // user should know why grouping didn't happen.
+    const warnings = buildInfeasiblePinWarnings(
+      recipeOverrides,
       recipeSlotDemands,
-      new Map(),
       recipeMap,
       facilityMap,
       itemMap,
     );
+    if (warnings.length === 0) {
+      warnings.push(
+        "Multi-formula bin packer fell back to per-recipe bins due to an infeasible constraint configuration.",
+      );
+    }
+    return {
+      ...emitSingletonBins(
+        recipeSlotDemands,
+        new Map(),
+        recipeMap,
+        facilityMap,
+        itemMap,
+      ),
+      warnings,
+    };
   }
 
   if (import.meta.env?.DEV) {
@@ -989,6 +1129,7 @@ export const packBins = (input: PackingInput): PackingResult => {
     classes,
     recipeMap,
     itemMap,
+    recipeOverrides,
   );
   const singletons = emitSingletonBins(
     recipeSlotDemands,
@@ -1001,5 +1142,6 @@ export const packBins = (input: PackingInput): PackingResult => {
   return {
     bins: [...packed.bins, ...singletons.bins],
     allocations: new Map([...packed.allocations, ...singletons.allocations]),
+    warnings: [],
   };
 };

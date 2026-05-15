@@ -234,12 +234,14 @@ export function useProductionPlan() {
     return { ...plan, nodes: activeNodes, edges: activeEdges } as ProductionDependencyGraph;
   }, [plan]);
 
-  // Derive warning messages from invalid cycles (with translated item names).
-  // Only cycles caused by user recipe overrides generate warnings — pre-existing
+  // Derive warning messages from invalid cycles (with translated item names)
+  // plus any non-fatal warnings the calculator surfaced (e.g. packer
+  // fallback warnings from `multi-formula-packing`). Cycle warnings only
+  // fire for cycles caused by user recipe overrides — pre-existing
   // unsolvable cycles in the game data are not actionable and are skipped.
   const warnings: string[] = useMemo(() => {
-    if (!plan || plan.invalidCycles.length === 0) return [];
-    return plan.invalidCycles
+    if (!plan) return [];
+    const cycleWarnings = plan.invalidCycles
       .filter((ic) => ic.overriddenItemIds.length > 0)
       .map((ic) => {
         const overriddenSet = new Set(ic.overriddenItemIds);
@@ -284,6 +286,8 @@ export function useProductionPlan() {
           overriddenItems: overriddenLabels,
         });
       });
+
+    return [...cycleWarnings, ...(plan.warnings ?? [])];
   }, [plan, recipeOverrides, t]);
 
   // Collect overridden item IDs from invalid cycles for table row styling.

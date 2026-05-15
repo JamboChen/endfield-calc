@@ -125,6 +125,7 @@ function buildProductionGraph(
   recipeOverrides?: Map<ItemId, RecipeId>,
   bins: Bin[] = [],
   recipeBinAllocations: Map<RecipeId, RecipeBinAllocation> = new Map(),
+  warnings: string[] = [],
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
@@ -292,6 +293,7 @@ function buildProductionGraph(
     invalidCycles,
     bins,
     recipeBinAllocations,
+    warnings,
   };
 }
 
@@ -422,6 +424,7 @@ export function calculateProductionPlan(
         recipeOverrides,
         packing.bins,
         packing.allocations,
+        packing.warnings,
       );
     }
 
@@ -457,6 +460,7 @@ export function calculateProductionPlan(
         recipeOverrides,
         packing.bins,
         packing.allocations,
+        packing.warnings,
       );
     }
 

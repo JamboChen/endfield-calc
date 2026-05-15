@@ -482,8 +482,12 @@ describe("packBins", () => {
     );
 
     test("override forces specific variant", () => {
+      // In the realistic pipeline, the flow solver respects the user's
+      // recipe override and routes demand through the pinned variant.
+      // Here we simulate that by placing slot demand on lx_2 (the pin)
+      // and verify the packer builds lx_2's facility.
       const slotDemands = new Map<RecipeId, number>([
-        ["lx_1" as RecipeId, 2],
+        ["lx_2" as RecipeId, 2],
       ]);
       const overrides = new Map<ItemId, RecipeId>([
         ["liquid_xiranite" as ItemId, "lx_2" as RecipeId],
@@ -493,11 +497,129 @@ describe("packBins", () => {
         recipeOverrides: overrides,
         ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
       });
-      // With LX pinned to lx_2, all bins must use lx_2 (Expanded).
+      // With lx_2 pinned and demand routed through it, all bins must
+      // use lx_2's facility (Expanded). The pin's per-recipe restricted
+      // constraint forces this — substituting to lx_1 (cheaper power)
+      // would have been the LP's preference otherwise.
       const allOnExpanded = r.bins.every(
         (b) => b.facilityId === ("mix_pool_2" as FacilityId),
       );
       expect(allOnExpanded).toBe(true);
+    });
+
+    test("conflict: two items pinning different variants build both facilities", () => {
+      // Two recipes producing different items but in the same equivalence
+      // class (same I/O structure, different facilities). User pins item
+      // A to recipe_a_1 and item B to recipe_a_2. The packer must honour
+      // BOTH pins by building each facility independently — not collapse
+      // to one (which the old "last-wins" code did).
+      //
+      // We don't have a real same-class-different-items scenario in the
+      // synthetic data, so we exercise it via two distinct demand-recipes
+      // in the same class. The flow solver attributes their demands
+      // separately; the packer's per-pin restricted constraints force
+      // each to its pinned facility.
+      const slotDemands = new Map<RecipeId, number>([
+        ["lx_1" as RecipeId, 3],
+        ["lx_2" as RecipeId, 2],
+      ]);
+      const overrides = new Map<ItemId, RecipeId>([
+        ["item_a" as ItemId, "lx_1" as RecipeId],
+        ["item_b" as ItemId, "lx_2" as RecipeId],
+      ]);
+      const r = packBins({
+        recipeSlotDemands: slotDemands,
+        recipeOverrides: overrides,
+        ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
+      });
+      // Both facilities must appear in the bin set.
+      const facilityIds = new Set(r.bins.map((b) => b.facilityId));
+      expect(facilityIds.has("mix_pool_1" as FacilityId)).toBe(true);
+      expect(facilityIds.has("mix_pool_2" as FacilityId)).toBe(true);
+      // Pin demands honoured: at least 3 buildings on lx_1's facility,
+      // at least 2 on lx_2's facility.
+      const lx1Buildings = r.bins
+        .filter((b) => b.facilityId === ("mix_pool_1" as FacilityId))
+        .reduce((sum, b) => sum + b.buildingCount, 0);
+      const lx2Buildings = r.bins
+        .filter((b) => b.facilityId === ("mix_pool_2" as FacilityId))
+        .reduce((sum, b) => sum + b.buildingCount, 0);
+      expect(lx1Buildings).toBeGreaterThanOrEqual(3);
+      expect(lx2Buildings).toBeGreaterThanOrEqual(2);
+    });
+
+    test("single pin + unpinned coexist: pin honoured, unpinned free to substitute", () => {
+      // One pinned demand-recipe (lx_2 via item_b's override) plus one
+      // unpinned demand-recipe (lx_1) in the same class. The pin must be
+      // honoured at lx_2's facility; the unpinned portion is free to use
+      // any class member — the LP picks the min-power option, which is
+      // lx_1's facility (50W vs 100W).
+      const slotDemands = new Map<RecipeId, number>([
+        ["lx_1" as RecipeId, 4], // unpinned
+        ["lx_2" as RecipeId, 1], // pinned
+      ]);
+      const overrides = new Map<ItemId, RecipeId>([
+        ["item_b" as ItemId, "lx_2" as RecipeId],
+      ]);
+      const r = packBins({
+        recipeSlotDemands: slotDemands,
+        recipeOverrides: overrides,
+        ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
+      });
+      // lx_2 facility (Expanded) must have at least 1 building (pin).
+      const lx2Buildings = r.bins
+        .filter((b) => b.facilityId === ("mix_pool_2" as FacilityId))
+        .reduce((sum, b) => sum + b.buildingCount, 0);
+      expect(lx2Buildings).toBeGreaterThanOrEqual(1);
+      // Total class capacity ≥ total demand (5). Power optimisation
+      // should prefer lx_1's facility for the unpinned 4 slots.
+      const totalBuildings = r.bins.reduce(
+        (sum, b) => sum + b.buildingCount,
+        0,
+      );
+      expect(totalBuildings).toBeGreaterThanOrEqual(5);
+    });
+
+    test("infeasible pin: fallback to singletons with warning", () => {
+      // User pins a recipe whose facility has no buffer capacity for the
+      // recipe's I/O — no bin shape exists. The packer falls back to
+      // per-recipe singletons (still produces a valid plan) and emits
+      // a warning describing the infeasibility so the user understands
+      // why grouping didn't happen.
+      const noBufferFac = facility("no_buffer", {
+        powerConsumption: 100,
+        cacheSlots: 8,
+        // No belt-out / pipe-out buffers — no shape with lx_2 can be
+        // constructed because the recipe's solid output can't be routed.
+        buffersIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }] },
+        buffersOut: { belt: [], pipe: [] },
+      });
+      const lx_2_no_buf = recipe(
+        "lx_2_no_buf",
+        [
+          { itemId: "xiranite_powder", amount: 1 },
+          { itemId: "water", amount: 1 },
+        ],
+        [{ itemId: "liquid_xiranite", amount: 1 }],
+        "no_buffer",
+      );
+      const slotDemands = new Map<RecipeId, number>([
+        ["lx_2_no_buf" as RecipeId, 2],
+      ]);
+      const overrides = new Map<ItemId, RecipeId>([
+        ["liquid_xiranite" as ItemId, "lx_2_no_buf" as RecipeId],
+      ]);
+      const r = packBins({
+        recipeSlotDemands: slotDemands,
+        recipeOverrides: overrides,
+        ...buildMaps(items, [lx_1, lx_2, lx_2_no_buf], [reactor, expanded, noBufferFac]),
+      });
+      // Fallback path: per-recipe singletons.
+      expect(r.bins.length).toBeGreaterThan(0);
+      // Warnings populated.
+      expect(r.warnings.length).toBeGreaterThan(0);
+      // Warning mentions the pinned recipe id.
+      expect(r.warnings.some((w) => w.includes("lx_2_no_buf"))).toBe(true);
     });
   });
 

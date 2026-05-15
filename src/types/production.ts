@@ -139,6 +139,14 @@ export type ProductionDependencyGraph = {
    * (`perBin = [{ binId: <singleton-bin>, slots: N_r }]`).
    */
   recipeBinAllocations: Map<RecipeId, RecipeBinAllocation>;
+  /**
+   * Non-fatal warnings surfaced from any calculation stage. Currently
+   * populated by Phase 3 bin packing when a user recipe override pins a
+   * variant that has no valid bin shape on its facility, forcing a
+   * fallback to per-recipe singletons. Empty when the calculation
+   * completed without such issues.
+   */
+  warnings: string[];
 };
 
 /**
