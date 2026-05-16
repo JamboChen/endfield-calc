@@ -121,8 +121,7 @@ function findFlowIntegrityIssues(
  * - Test mode (vitest): throws on any violation. Mapper bugs that
  *   produce orphaned sinks, dangling edges, or cross-bin internal
  *   flows become hard test failures rather than silently-warning
- *   console noise. This is what catches regressions like Xiranite
- *   Powder's "two isolated nodes" before they reach the user.
+ *   console noise.
  * - Dev mode (browser): logs warnings to the console so the developer
  *   can spot graph anomalies without crashing the page.
  */

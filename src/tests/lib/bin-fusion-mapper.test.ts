@@ -795,9 +795,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     // Mirror of the Recipe View test for Facility View. When a singleton
     // bin collapses to one effective building (ceil(buildingCount) === 1)
     // and its sole output is a terminal target, the building card is
-    // skipped and recipe info is embedded on the target sink instead —
-    // matching `mapPlanToFlowSeparated`' else branch at
-    // `separated-mapper.ts:754-773`.
+    // skipped and recipe info is embedded on the target sink instead.
     const plan = calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 }],
       items,
@@ -912,10 +910,9 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
   test("cycle edges between bins carry direction=backward (ELK layout hint)", () => {
     // Regression: bin-fused-separated previously didn't tag cycle edges
     // with direction=backward, causing ELK to lay them out with default
-    // priority. `mapPlanToFlowSeparated:287-296` tags both directions
-    // of detected cycles to feed ELK's `elk.layered.priority.direction`
-    // (see `layout.ts:264-276`). Bin-fused-separated must match for
-    // consistent visual layout of multi-bin cycles.
+    // priority. The mapper now tags both directions of detected cycles
+    // to feed ELK's `elk.layered.priority.direction` (see `layout.ts`)
+    // for consistent visual layout of multi-bin cycles.
     //
     // The moss seed cycle (planter ↔ seedcollector) is the canonical
     // multi-bin cycle in real data — planter and seedcollector are on
@@ -1059,12 +1056,10 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
   test("per-building cards for grouped multi-building target carry isDirectTarget (star ribbon)", () => {
     // Regression: `mapPlanToFlowBinFusedSeparated` hardcoded
     // `isDirectTarget: false` on every per-building emission, so the
-    // amber Star ribbon in `CustomProductionNode.tsx:284-297` never
-    // showed. For Xircon Poly @ 60/min the {LX, XE, X} bin produces
-    // the target across 2+ buildings — each must carry
-    // `isDirectTarget: true` plus a non-zero per-building
-    // `directTargetRate`, matching `separated-mapper.ts:698-705`'
-    // terminal multi-facility branch.
+    // amber Star ribbon in `CustomProductionNode` never showed. For
+    // Xircon Poly @ 60/min the {LX, XE, X} bin produces the target
+    // across 2+ buildings — each must carry `isDirectTarget: true`
+    // plus a non-zero per-building `directTargetRate`.
     const plan = calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
@@ -1143,12 +1138,11 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
   });
 
   test("battery SCC scenario: bin-fused renders connected graph with target reachable", () => {
-    // Migrated from the now-deleted `separated-mapper.test.ts`. Exercises
-    // the bin-fused-separated mapper on a synthetic byproduct-SCC
-    // recipe graph (`byproductSCCRecipes`) targeting Battery. Adds
-    // coverage for a different graph topology than the Xircon scenario
-    // — the byproduct producer (furnace) is OUTSIDE the SCC and feeds
-    // Sewage into the cycle.
+    // Exercises bin-fused-separated on a synthetic byproduct-SCC recipe
+    // graph (`byproductSCCRecipes`) targeting Battery. Covers a
+    // different graph topology than the Xircon scenario: the byproduct
+    // producer (furnace) is OUTSIDE the SCC and feeds Sewage into the
+    // cycle.
     //
     // The elevated `assertFlowIntegrity` in test mode (see
     // `flow-assertions.ts`) hard-fails on dangling edges or isolated
@@ -1203,12 +1197,11 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
   });
 
   test("grouped bin sister count matches bin.recipeIds.length (off-by-one regression)", () => {
-    // Migrated from the now-deleted `separated-mapper.test.ts` Phase 3
-    // bin annotations test. Specifically catches the off-by-one bug in
-    // the sister filter where `bin.recipeIds.filter((rid) => rid !== self)`
-    // would incorrectly retain the self id (e.g. lx_1's sisters would be
-    // [lx_2, xe_2, x_2] instead of [xe_1, x_1], producing a "4 formulas"
-    // badge for a 3-formula bin).
+    // Catches the off-by-one bug in the sister filter where
+    // `bin.recipeIds.filter((rid) => rid !== self)` would incorrectly
+    // retain the self id (e.g. lx_1's sisters would be [lx_2, xe_2,
+    // x_2] instead of [xe_1, x_1], producing a "4 formulas" badge for
+    // a 3-formula bin).
     //
     // Uses real data so Phase 3 actually packs the {LX, XE, X} pool
     // into Expanded Crucible bins.

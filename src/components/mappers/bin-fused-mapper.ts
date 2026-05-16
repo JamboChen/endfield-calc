@@ -75,7 +75,6 @@ export function mapPlanToFlowBinFused(
     return !!recipe && recipe.outputs.length === 0;
   };
 
-  // Bin classification.
   const productionBins: Bin[] = [];
   const disposalBins: Bin[] = [];
   for (const bin of plan.bins) {
@@ -90,12 +89,11 @@ export function mapPlanToFlowBinFused(
   // bin's input edges route directly to the target sink so the
   // visualisation looks identical to bf=0 for simple A→B chains.
   //
-  // Detection happens BEFORE building producer/consumer maps so we can
-  // bake the bin→sink redirect into map construction (Option B from
-  // the design discussion). Building maps with phantom skipped-bin
-  // entries that get retroactively dropped (Option A) leaves room for
-  // future code to read inconsistent state — every isolated node bug
-  // we hit on this branch traced back to that pattern.
+  // Detection happens BEFORE building producer/consumer maps so the
+  // bin→sink redirect is baked into map construction. The alternative
+  // — building maps with skipped-bin entries that get retroactively
+  // dropped — leaves phantom state in the data structures that several
+  // isolated-node bugs traced back to.
   //
   // Conditions (all must hold):
   //   1. The bin hosts a single recipe (no grouping).
@@ -162,9 +160,9 @@ export function mapPlanToFlowBinFused(
   // Singleton-terminal bins (identified above) are EXCLUDED from
   // producer registration and have their consumer registrations
   // redirected to the target sink id. This bakes the merged-mapper's
-  // terminal-recipe edge rerouting (at `merged-mapper.ts:204-211`)
-  // into map construction time so the greedy allocator and edge
-  // emission don't need to know about the skip.
+  // terminal-recipe edge rerouting into map construction time so the
+  // greedy allocator and edge emission don't need to know about the
+  // skip.
   type ProducerEntry = { binId: string; rate: number };
   type ConsumerEntry = { binId: string; rate: number };
   const producersByItem = new Map<ItemId, ProducerEntry[]>();
@@ -194,12 +192,10 @@ export function mapPlanToFlowBinFused(
   }
   // Target sinks consume target items. Registered BEFORE disposal bins
   // so the greedy allocator gives targets priority over disposal in
-  // edge cases where producer output is split between them. Matches
-  // `mapPlanToFlowSeparated`'s target-pass-then-disposal-pass ordering
-  // and prevents floating-point noise from leaving a target sink
-  // ε under-allocated. (Disposal's surplus is implicit: whatever is
-  // left after targets / consumers / internal use is what gets
-  // disposed.)
+  // edge cases where producer output is split between them. Prevents
+  // floating-point noise from leaving a target sink ε under-allocated
+  // — disposal's surplus is implicit (whatever is left after targets,
+  // consumers, and internal use).
   plan.nodes.forEach((node, nodeId) => {
     if (node.type !== "item") return;
     if (!node.isTarget || node.isRawMaterial) return;
@@ -451,8 +447,8 @@ export function mapPlanToFlowBinFused(
     );
   }
 
-  // Emit edges from the greedy allocation. Skip edges whose producer
-  // bin or consumer didn't make it into the node set (defensive).
+  // Emit edges from the greedy allocation. Defensive endpoint check
+  // filters dangling edges in case a producer or consumer was dropped.
   const emittedNodeIds = new Set([
     ...flowNodes.map((n) => n.id),
     ...targetSinkNodes.map((n) => n.id),
@@ -462,11 +458,7 @@ export function mapPlanToFlowBinFused(
     const sourceItem = itemById.get(itemId);
     for (const edge of edges) {
       if (edge.rate <= 0.001) continue;
-      // Skip if either endpoint is missing (would dangle).
       if (!emittedNodeIds.has(edge.producerId)) continue;
-      // For raw materials we may need to emit a pickup node here.
-      // (Already handled below in the raw-input pass.)
-      // For consumer (target/disposal/bin), skip if not emitted.
       if (!emittedNodeIds.has(edge.consumerId)) continue;
       flowEdges.push(
         createEdge(
@@ -565,17 +557,18 @@ export function mapPlanToFlowBinFusedSeparated(
     `${binId}-bldg${idx}`;
 
   // Cycle-pair set for backward-edge tagging. Built from
-  // `plan.detectedCycles` (unresolved SCCs, even if LP-solved). Mirrors
-  // the per-recipe cyclePairs in `mapPlanToFlowSeparated:64-76`.
+  // `plan.detectedCycles` (unresolved SCCs, even if LP-solved).
   //
   // Why tag at the mapper instead of relying solely on
-  // `applyEdgeStyling`'s post-layout position check (`flow-utils.ts:184`):
-  // ELK reads `edge.data.direction === "backward"` in `layout.ts:266` and
-  // sets `elk.layered.priority.direction` accordingly. Without the tag,
-  // cycle edges get default priority and the layout differs from bf=0.
-  // The position-based fallback still works for final styling, but the
-  // node positions themselves diverge if we don't feed ELK the
-  // semantic-cycle hint.
+  // `applyEdgeStyling`'s post-layout position check: ELK reads
+  // `edge.data.direction === "backward"` in `layout.ts` and sets
+  // `elk.layered.priority.direction` accordingly. Without the tag,
+  // cycle edges get default priority and ELK's layered cycle breaking
+  // picks edges to reverse via its internal heuristic; the resulting
+  // node positions then differ from the legacy per-recipe Facility
+  // View layout. The position-based fallback handles final styling
+  // either way, but the node positions themselves diverge if we don't
+  // feed ELK the semantic-cycle hint.
   const cyclePairs = new Set<string>();
   plan.detectedCycles.forEach((cycle) => {
     const recipeIds = cycle.cycleNodes
@@ -598,7 +591,8 @@ export function mapPlanToFlowBinFusedSeparated(
 
   // Determine if an edge between two building-instances crosses a
   // detected-cycle boundary. Either direction of an SCC pair counts as
-  // backward (matches `mapPlanToFlowSeparated`'s symmetric tagging).
+  // backward (symmetric — both directions of a 2-recipe cycle get the
+  // tag, ELK's GREEDY strategy picks which to reverse).
   const binsById = new Map<string, Bin>();
   for (const bin of plan.bins) binsById.set(bin.id, bin);
   const isCycleEdge = (
@@ -640,21 +634,14 @@ export function mapPlanToFlowBinFusedSeparated(
     else productionBins.push(bin);
   }
 
-  // Identify "singleton-terminal" bins (same semantics as the merged
-  // bin-fused mapper) — bins folded into the target sink's embed
-  // chip. For the Facility View, an additional gate applies:
-  // `Math.max(1, Math.ceil(bin.buildingCount)) === 1`. This matches
-  // `mapPlanToFlowSeparated`'s else branch at
-  // `separated-mapper.ts:754-773`, which embeds only for terminal
-  // targets with `facilityCount ≤ 1`. With >1 buildings the existing
-  // per-building emission is preserved (matches bf=0 multi-facility
-  // branch).
-  //
-  // Detection runs BEFORE building producersByItem/consumersByItem so
-  // we can bake the bin→sink redirect into map construction (Option B
-  // from the design discussion). Detecting after map build (Option A)
-  // and then remapping post-hoc left isolated raw-material pickup and
-  // target sink nodes — the Xiranite Powder regression.
+  // Identify "singleton-terminal" bins. Same 5 conditions as the
+  // merged bin-fused mapper above (single recipe, single external
+  // output, target item, sole producer, target sink is the sole
+  // consumer), with one extra gate for Facility View:
+  // `Math.max(1, Math.ceil(bin.buildingCount)) === 1`. Multi-building
+  // targets fall through to per-building emission. Detection runs
+  // before map build for the same reason as in the merged path —
+  // baking the bin→sink redirect in avoids phantom-state bugs.
   const singletonTerminalBinIds = new Set<string>();
   const sinkByBinId = new Map<string, string>();
   const singletonTerminalBinByTargetItem = new Map<ItemId, Bin>();
@@ -889,14 +876,14 @@ export function mapPlanToFlowBinFusedSeparated(
           facilityIndex: inst.instanceIdx,
           totalFacilities: inst.instanceCount,
           isPartialLoad: inst.isPartialLoad,
-          // Mirror `separated-mapper.ts:698-705`' star-ribbon handling
-          // for terminal multi-facility targets: each building card
-          // carrying a target headline gets `isDirectTarget: true` plus
-          // its per-building `directTargetRate`. Without this, no
-          // per-building card in Facility View ever shows the target
-          // star — a regression noticed on Xircon Poly @ 60/min where
-          // the {LX, XE, X} bin's two buildings produce the target but
-          // looked indistinguishable from non-target buildings.
+          // Per-building cards carrying a target headline get
+          // `isDirectTarget: true` plus their per-building
+          // `directTargetRate` so the amber Star ribbon renders.
+          // Without this, no per-building card in Facility View shows
+          // the target star — a regression noticed on Xircon Poly @
+          // 60/min where the {LX, XE, X} bin's two buildings produce
+          // the target but looked indistinguishable from non-target
+          // buildings.
           isDirectTarget: targetItemIds.has(headline.itemId),
           directTargetRate: targetItemIds.has(headline.itemId)
             ? headlineRate
@@ -964,9 +951,9 @@ export function mapPlanToFlowBinFusedSeparated(
 
     // Embed recipe info when this target's producer is a singleton-
     // terminal bin — i.e. one we excluded from productionInstances
-    // upstream. The embed becomes the target sink's facility chip,
-    // matching `mapPlanToFlowSeparated`' embed path at
-    // `separated-mapper.ts:754-773`.
+    // upstream. The embed becomes the target sink's facility chip
+    // (matches the singleton-terminal embed in the merged bin-fused
+    // mapper above).
     let embedded: {
       facility: Facility | null;
       facilityCount: number;
@@ -1035,8 +1022,8 @@ export function mapPlanToFlowBinFusedSeparated(
   // Bin → consumer edges (per-building, one per allocation entry).
   // Edges between building-instances of bins that participate in the
   // same detected cycle get `direction: "backward"` so ELK's layered
-  // layout deprioritizes them (`layout.ts:264-276`), preserving cycle
-  // visual structure consistent with `mapPlanToFlowSeparated`.
+  // layout deprioritizes them during cycle breaking (see `layout.ts`),
+  // preserving cycle node positioning across views.
   for (const [itemId, edges] of allocated.entries()) {
     const sourceItem = itemById.get(itemId);
     for (const edge of edges) {

@@ -381,7 +381,7 @@ describe("computeNodeByproducts", () => {
 
   describe("singleton bin (bin-fused but only one recipe)", () => {
     test("falls through to recipe.outputs path (node.bin is undefined)", () => {
-      // In bin-fused-mapper.ts:218, `bin: bin.isGrouped ? bin : undefined`,
+      // The bin-fused mapper sets `bin: bin.isGrouped ? bin : undefined`,
       // so singleton bins have node.bin === undefined and binExtraOutputs
       // === undefined. The function falls through to the recipe path.
       const node: ProductionNode = {

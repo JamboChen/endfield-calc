@@ -117,8 +117,8 @@ export class CapacityPoolManager {
    * (which is denominated in primary output units).
    *
    * A facility is considered "running" if it has been processed (activated by
-   * the main loop or first-visit in allocateFromPool) or if its primary
-   * capacity has been consumed by a prior allocate() call.
+   * the caller via `markProcessed`) or if its primary capacity has been
+   * consumed by a prior `allocate()` call.
    *
    * All tracking is in primary output units — one recipe execution produces
    * both primary and byproduct outputs, so byproduct capacity is 1:1 with
