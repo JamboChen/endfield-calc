@@ -1,7 +1,10 @@
 import { describe, test, expect, beforeAll } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
 import { mapPlanToFlowMerged } from "@/components/mappers/merged-mapper";
-import { mapPlanToFlowSeparated } from "@/components/mappers/separated-mapper";
+import {
+  mapPlanToFlowBinFused,
+  mapPlanToFlowBinFusedSeparated,
+} from "@/components/mappers/bin-fused-mapper";
 import { items, recipes, facilities } from "@/data";
 import type { ItemId, ProductionDependencyGraph } from "@/types";
 import type { Edge, Node } from "@xyflow/react";
@@ -42,7 +45,7 @@ describe("flow mapper integrity", () => {
   });
 
   for (const c of cases) {
-    test(`${c.name}: merged has no dangling edges or isolated nodes`, () => {
+    test(`${c.name}: merged (legacy bf=0) has no dangling edges or isolated nodes`, () => {
       const { plan, targetRates } = plans.get(c.name)!;
       const flow = mapPlanToFlowMerged(plan, items, facilities, targetRates);
       const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
@@ -50,9 +53,23 @@ describe("flow mapper integrity", () => {
       expect(isolated).toEqual([]);
     });
 
-    test(`${c.name}: separated has no dangling edges or isolated nodes`, () => {
+    test(`${c.name}: bin-fused Recipe View has no dangling edges or isolated nodes`, () => {
       const { plan, targetRates } = plans.get(c.name)!;
-      const flow = mapPlanToFlowSeparated(plan, items, facilities, targetRates);
+      const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, targetRates);
+      const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
+      expect(dangling).toEqual([]);
+      expect(isolated).toEqual([]);
+    });
+
+    test(`${c.name}: bin-fused Facility View has no dangling edges or isolated nodes`, () => {
+      const { plan, targetRates } = plans.get(c.name)!;
+      const flow = mapPlanToFlowBinFusedSeparated(
+        plan,
+        items,
+        recipes,
+        facilities,
+        targetRates,
+      );
       const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
       expect(dangling).toEqual([]);
       expect(isolated).toEqual([]);
@@ -78,57 +95,5 @@ describe("Phase 3 bin-aware integrity", () => {
       if (node.facilityCount <= 1e-9) continue;
       expect(node.binId).toBeDefined();
     }
-  });
-
-  test("internal-flow edges only between same-bin recipes (and Xircon plan emits at least one)", () => {
-    // Sanity invariant: an edge tagged direction='internal' must connect
-    // two facility instances whose recipes are in the same bin.
-    //
-    // Positive assertion: the Xircon plan groups LX/XE/X into Expanded
-    // Crucibles, so the separated mapper MUST emit at least one
-    // internal edge (LX → XE, since Liquid Xiranite is fully internal
-    // to the {LX, XE, X} bin). A regression that breaks the
-    // co-location detection (e.g. id-vs-signature mismatch) would
-    // produce zero internal edges and the test should catch it.
-    const plan = calculateProductionPlan(
-      [{ itemId: "item_xiranite_poly" as ItemId, rate: 5 }],
-      items,
-      recipes,
-      facilities,
-    );
-    const flow = mapPlanToFlowSeparated(plan, items, facilities, new Map());
-
-    // Build a bin-membership lookup keyed by recipe id.
-    const recipeToBin = new Map<string, string | undefined>();
-    for (const node of plan.nodes.values()) {
-      if (node.type === "recipe") recipeToBin.set(node.recipeId, node.binId);
-    }
-
-    const recipeIdFromFacilityId = (fid: string): string | null => {
-      const m = fid.match(/^(.+)-f\d+$/);
-      return m ? m[1] : null;
-    };
-
-    let internalCount = 0;
-    for (const edge of flow.edges) {
-      const data = edge.data as { direction?: string } | undefined;
-      if (data?.direction !== "internal") continue;
-      internalCount += 1;
-      const srcRecipe = recipeIdFromFacilityId(edge.source);
-      const tgtRecipe = recipeIdFromFacilityId(edge.target);
-      if (!srcRecipe || !tgtRecipe) continue;
-      const srcBin = recipeToBin.get(srcRecipe);
-      const tgtBin = recipeToBin.get(tgtRecipe);
-      // Internal edges should connect recipes in the same bin (and
-      // grouped, since singleton bins have no internal pairs).
-      expect(srcBin).toBeDefined();
-      expect(tgtBin).toBeDefined();
-      expect(srcBin).toBe(tgtBin);
-    }
-
-    // Positive assertion: at least one internal edge exists in the
-    // grouped Xircon plan. Catches regressions where co-location
-    // detection silently fails (e.g. demand-vs-physical id mismatch).
-    expect(internalCount).toBeGreaterThan(0);
   });
 });

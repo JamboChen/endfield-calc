@@ -17,13 +17,3 @@ export function createTargetSinkId(itemId: string): string {
 export function createRawMaterialId(itemId: string): string {
   return `raw_${itemId}`;
 }
-
-/**
- * Create a pickup point node ID for separated mode.
- *
- * @example
- * createPickupPointId("iron_ore", 0) // "raw_iron_ore-p0"
- */
-export function createPickupPointId(itemId: string, index: number): string {
-  return `${createRawMaterialId(itemId)}-p${index}`;
-}
