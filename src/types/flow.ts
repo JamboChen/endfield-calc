@@ -46,50 +46,6 @@ export interface FlowNodeDataSeparated extends FlowNodeData {
 }
 
 /**
- * Represents a single physical facility instance in separated mode.
- * Each instance has its own capacity and can be connected independently.
- */
-export interface FacilityInstance {
-  /** Unique identifier for this facility instance (e.g., "node-iron-smelting-0") */
-  facilityId: string;
-  /** Reference to the original node key for traceability */
-  nodeKey: string;
-  /** Zero-based index of this facility among facilities of the same type */
-  facilityIndex: number;
-  /** Maximum output rate this facility can produce (items per minute) */
-  maxOutputRate: number;
-  /** Actual output rate this facility is producing (may be less than max for the last facility) */
-  actualOutputRate: number;
-  /** Remaining capacity available for allocation to consumers (items per minute) */
-  remainingCapacity: number;
-}
-
-/**
- * Entry in the capacity pool representing all facilities for a specific production step.
- * The pool manages allocation of production capacity to downstream consumers.
- */
-export interface CapacityPoolEntry {
-  /** The original production node this pool represents */
-  productionNode: ProductionNode;
-  /** Total production capacity across all facilities (items per minute) */
-  totalCapacity: number;
-  /** Array of individual facility instances that make up this production step */
-  facilities: FacilityInstance[];
-}
-
-/**
- * Result of allocating capacity from a producer to a consumer.
- * Multiple allocations may be needed if a single producer can't satisfy all demand.
- */
-export interface AllocationResult {
-  /** Node ID of the source facility providing the allocation */
-  sourceNodeId: string;
-  /** Amount allocated in this result (items per minute) */
-  allocatedAmount: number;
-  /** Index of the facility providing this allocation */
-  fromFacilityIndex: number;
-}
-/**
  * Extended FlowNodeData that includes target information.
  * Used when a production node is also a direct user-defined target.
  */

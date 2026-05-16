@@ -15,8 +15,8 @@ export const calcRate = (amount: number, craftingTime: number): number =>
 
 import type { Item, ItemId } from "@/types";
 
-export const TRANSPORT_BELT_CAPACITY = 30;
-export const TRANSPORT_PIPE_CAPACITY = 120;
+const TRANSPORT_BELT_CAPACITY = 30;
+const TRANSPORT_PIPE_CAPACITY = 120;
 
 export const getTransportCapacity = (item?: Item): number =>
   item?.isLiquid ? TRANSPORT_PIPE_CAPACITY : TRANSPORT_BELT_CAPACITY;

@@ -338,7 +338,7 @@ export function pickBinHeadlineOutput(
 /**
  * Returns ALL output item IDs for a recipe node in the production graph.
  */
-export function getRecipeOutputItemIds(
+function getRecipeOutputItemIds(
   plan: ProductionDependencyGraph,
   recipeId: string,
 ): string[] {

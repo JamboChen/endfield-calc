@@ -12,19 +12,6 @@ import { getTransportCount, getTransportCountWithFacilities, formatCount } from 
 import { getTransportLabel, getInternalFlowLabel } from "@/lib/i18n-helpers";
 
 /**
- * Aggregated production node data.
- * Combines multiple occurrences of the same production step.
- */
-export type AggregatedProductionNodeData = {
-  /** Representative ProductionNode (from first encounter) */
-  node: ProductionNode;
-  /** Total production rate across all branches */
-  totalRate: number;
-  /** Total facility count across all branches */
-  totalFacilityCount: number;
-};
-
-/**
  * Creates a standardized edge for React Flow with optional pre-computed direction.
  *
  * @param id Unique edge identifier
