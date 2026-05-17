@@ -1,6 +1,6 @@
 import { Handle, type NodeProps, type Node, Position } from "@xyflow/react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Factory, Zap, Star, ArrowDownToLine, Layers } from "lucide-react";
+import { Factory, Zap, Star, ArrowDownToLine, Boxes, Repeat } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -72,10 +72,10 @@ export default function CustomProductionNode({
   const targetRate = isTarget ? data.directTargetRate : undefined;
 
   // Bin grouping info: when this recipe is co-located with sisters in a
-  // multi-formula building, show a group badge plus sister names in the
-  // tooltip. Sister recipe names are looked up from data.facilities or
-  // surfaced via `getRecipeName`. We resolve sister recipes by ID via the
-  // global recipe data in `data.items`'s sibling recipe list when available.
+  // multi-formula building, the facility chip (Zone 2) gains a `Boxes` icon
+  // and a `· N formulas` suffix, and — when the bin has internal recycle —
+  // a dashed-bordered Zone 1.5 row surfaces those internal items as muted
+  // mini-icons. Detailed per-formula breakdown stays in the tooltip.
   const sisterRecipeIds = node.binSisterRecipeIds ?? [];
   const isGroupedBuilding = sisterRecipeIds.length > 0;
 
@@ -295,28 +295,9 @@ export default function CustomProductionNode({
                   </TooltipContent>
                 </Tooltip>
               )}
-              {/* Group badge: building hosts >=2 formulas */}
-              {isGroupedBuilding && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="absolute -top-1 -left-1 bg-purple-500 dark:bg-purple-600 text-white rounded-sm w-5 h-5 flex items-center justify-center shadow-sm">
-                      <Layers className="h-3 w-3" />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p className="text-xs">
-                      {t("tree.groupedBuilding", {
-                        defaultValue: "Shared building",
-                      })}{" "}
-                      ({sisterRecipeIds.length + 1}{" "}
-                      {t("tree.formulas", { defaultValue: "formulas" })})
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
             </div>
 
-            {/* Co-outputs (byproducts) */}
+            {/* Co-outputs (byproducts) — items the building exports alongside the primary output */}
             {byproducts.map((bp) => (
               <div key={bp.item.id} className="flex items-start gap-1.5 mt-1.5 ml-1">
                 <ItemIcon item={bp.item} size="sm" />
@@ -338,30 +319,83 @@ export default function CustomProductionNode({
               </div>
             ))}
 
+            {/* === Zone 1.5: Internal recycle ===
+              * Items produced AND consumed inside this grouped bin — they
+              * never leave the building, so they have no edges and no
+              * transport cost. Shown as a muted, dashed-bordered icon row
+              * to clearly distinguish them from the bright Zone 1 exports
+              * above. Singletons have empty internalItems; bf=0 / per-recipe
+              * nodes have no `bin` reference and so skip this row entirely.
+              */}
+            {node.bin && node.bin.internalItems.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-dashed border-muted-foreground/25">
+                <Repeat className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+                <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                  {t("tree.internal", { defaultValue: "Internal" })}
+                </span>
+                <div className="flex items-center gap-1 flex-wrap min-w-0">
+                  {node.bin.internalItems.map((iid) => {
+                    const it = getItemById(items, iid);
+                    if (!it) return null;
+                    return (
+                      <Tooltip key={iid}>
+                        <TooltipTrigger asChild>
+                          <div className="opacity-60 hover:opacity-100 transition-opacity cursor-help">
+                            <ItemIcon item={it} size="sm" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <p className="text-xs">{getItemName(it)}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* === Zone 2: Facility / Source === */}
 
-            {/* Facility details (produced items) */}
+            {/* Facility details (produced items)
+              * Line 1 (always): facility icon + name + count.
+              * Line 2 (grouped bins only): Boxes icon + "N formulas".
+              * Two-line form keeps Line 1 identical to the singleton chip
+              * so the facility name has the full chip width and never
+              * truncates the grouping suffix. */}
             {!node.isRawMaterial && facility && (
-              <div className="flex items-center justify-between mt-2 bg-blue-100/50 dark:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 rounded-sm px-2 py-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  {facility.iconUrl ? (
-                    <img
-                      src={facility.iconUrl}
-                      alt={facilityName}
-                      className="h-4 w-4 object-contain shrink-0"
-                    />
-                  ) : (
-                    <Factory className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                  )}
-                  <span className="text-[10px] text-muted-foreground truncate">
-                    {facilityName}
+              <div className="mt-2 bg-blue-100/50 dark:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 rounded-sm px-2 py-1">
+                {/* Line 1: facility identity + count */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {facility.iconUrl ? (
+                      <img
+                        src={facility.iconUrl}
+                        alt={facilityName}
+                        className="h-4 w-4 object-contain shrink-0"
+                      />
+                    ) : (
+                      <Factory className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    )}
+                    <span className="text-[10px] text-muted-foreground truncate">
+                      {facilityName}
+                    </span>
+                  </div>
+                  <span className="font-mono font-semibold text-xs shrink-0 ml-2">
+                    {isSeparated
+                      ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
+                      : `×${formatCount(node.facilityCount, ceilMode)}`}
                   </span>
                 </div>
-                <span className="font-mono font-semibold text-xs shrink-0 ml-2">
-                  {isSeparated
-                    ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
-                    : `×${formatCount(node.facilityCount, ceilMode)}`}
-                </span>
+                {/* Line 2: grouping signal (multi-formula building) */}
+                {isGroupedBuilding && (
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <Boxes className="h-4 w-4 text-blue-600/80 dark:text-blue-400/80 shrink-0" />
+                    <span className="text-[10px] text-muted-foreground/70">
+                      {sisterRecipeIds.length + 1}{" "}
+                      {t("tree.formulas", { defaultValue: "formulas" })}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
             {/* Pickup point (raw materials) */}

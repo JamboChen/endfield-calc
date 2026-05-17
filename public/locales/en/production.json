@@ -80,6 +80,7 @@
     "groupedBuilding": "Shared building",
     "formulas": "formulas",
     "formulasInBin": "Formulas in this building",
+    "internal": "Internal",
     "internalItems": "Internal items (circulating)",
     "innerSlotsUsed": "Inner slots: {{used}}",
     "portUtilization": "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out"
