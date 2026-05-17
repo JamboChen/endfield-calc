@@ -40,6 +40,9 @@ export default defineConfig({
     // the continuous-LP-relaxation packer) but catches genuinely-stuck
     // tests.
     testTimeout: 30000,
+    // Pre-load HiGHS WASM once per worker so solver call sites can run
+    // synchronously inside tests. See `src/tests/setup.ts`.
+    setupFiles: ["./src/tests/setup.ts"],
   },
 });
 

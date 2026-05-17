@@ -1,4 +1,5 @@
 import { calculateProductionPlan } from "@/lib/calculator";
+import { initHighs, isHighsReady } from "@/lib/highs-singleton";
 import { items, recipes, facilities, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
@@ -190,28 +191,65 @@ export function useProductionPlan() {
     history.replaceState(null, "", newUrl);
   }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion]);
 
-  // Core calculation: only returns dependency tree and cycles
-  const { plan, error } = useMemo(() => {
-    let plan = null;
-    let error: string | null = null;
+  // HiGHS WASM solver is async. Kick off WASM init at mount time so
+  // the first calculation has it ready; track readiness so we can
+  // surface a "loading solver…" state instead of running calculations
+  // against an uninitialised solver.
+  const [solverReady, setSolverReady] = useState<boolean>(isHighsReady);
+  useEffect(() => {
+    if (isHighsReady()) return;
+    let cancelled = false;
+    initHighs()
+      .then(() => {
+        if (!cancelled) setSolverReady(true);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        // Surface init failure as a calculation-level error so the
+        // user sees something. Extremely rare (WASM compile failure).
+        console.error("[HIGHS] init failed:", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-    try {
-      if (targets.length > 0) {
-        plan = calculateProductionPlan(
-          targets,
-          items,
-          recipes,
-          facilities,
-          recipeOverrides,
-          manualRawMaterials,
-        );
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : t("calculationError");
+  // Core calculation: async because `calculateProductionPlan` awaits
+  // HiGHS via the solver wrappers. `plan` / `error` are `useState`s
+  // updated via effect rather than `useMemo` returns, because async
+  // memoisation isn't a standard React pattern.
+  const [plan, setPlan] = useState<ProductionDependencyGraph | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!solverReady) return;
+    if (targets.length === 0) {
+      setPlan(null);
+      setError(null);
+      return;
     }
-
-    return { plan, error };
-  }, [targets, recipeOverrides, manualRawMaterials, t]);
+    let cancelled = false;
+    setError(null);
+    calculateProductionPlan(
+      targets,
+      items,
+      recipes,
+      facilities,
+      recipeOverrides,
+      manualRawMaterials,
+    )
+      .then((result) => {
+        if (cancelled) return;
+        setPlan(result);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : t("calculationError"));
+        setPlan(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [solverReady, targets, recipeOverrides, manualRawMaterials, t]);
 
   // Filter zero-rate nodes from the plan for display. Note: `plan.bins`
   // and `plan.recipeBinAllocations` are intentionally NOT filtered — Phase 3
@@ -474,5 +512,6 @@ export function useProductionPlan() {
     handleAddClick,
     handleSavePlan,
     handleOpenPlan,
+    solverReady,
   };
 }

@@ -32,9 +32,9 @@ const cases: { name: string; targetId: ItemId; rate: number }[] = [
 describe("flow mapper integrity", () => {
   const plans = new Map<string, { plan: ProductionDependencyGraph; targetRates: Map<ItemId, number> }>();
 
-  beforeAll(() => {
+  beforeAll(async () => {
     for (const c of cases) {
-      const plan = calculateProductionPlan(
+      const plan = await calculateProductionPlan(
         [{ itemId: c.targetId, rate: c.rate }],
         items,
         recipes,
@@ -45,7 +45,7 @@ describe("flow mapper integrity", () => {
   });
 
   for (const c of cases) {
-    test(`${c.name}: merged (legacy bf=0) has no dangling edges or isolated nodes`, () => {
+    test(`${c.name}: merged (legacy bf=0) has no dangling edges or isolated nodes`, async () => {
       const { plan, targetRates } = plans.get(c.name)!;
       const flow = mapPlanToFlowMerged(plan, items, facilities, targetRates);
       const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
@@ -53,7 +53,7 @@ describe("flow mapper integrity", () => {
       expect(isolated).toEqual([]);
     });
 
-    test(`${c.name}: bin-fused Recipe View has no dangling edges or isolated nodes`, () => {
+    test(`${c.name}: bin-fused Recipe View has no dangling edges or isolated nodes`, async () => {
       const { plan, targetRates } = plans.get(c.name)!;
       const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, targetRates);
       const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
@@ -61,7 +61,7 @@ describe("flow mapper integrity", () => {
       expect(isolated).toEqual([]);
     });
 
-    test(`${c.name}: bin-fused Facility View has no dangling edges or isolated nodes`, () => {
+    test(`${c.name}: bin-fused Facility View has no dangling edges or isolated nodes`, async () => {
       const { plan, targetRates } = plans.get(c.name)!;
       const flow = mapPlanToFlowBinFusedSeparated(
         plan,
@@ -78,12 +78,12 @@ describe("flow mapper integrity", () => {
 });
 
 describe("Phase 3 bin-aware integrity", () => {
-  test("xircon plan: every recipe node has a binId after Phase 3", () => {
+  test("xircon plan: every recipe node has a binId after Phase 3", async () => {
     // Phase 3 should annotate every active recipe in the plan with a
     // binId (singleton or grouped). Recipes lacking a binId would render
     // as if Phase 3 didn't run, which breaks downstream amortization
     // logic in the production table and node tooltips.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: "item_xiranite_poly" as ItemId, rate: 5 }],
       items,
       recipes,

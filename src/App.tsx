@@ -40,7 +40,17 @@ export default function App() {
     setBinFusion,
     handleSavePlan,
     handleOpenPlan,
+    solverReady,
   } = useProductionPlan();
+
+  // Surface "loading solver…" before the HiGHS WASM has finished
+  // loading. On a typical broadband connection this is invisible
+  // (~1-2 s); on slow networks the user sees the message instead of
+  // a frozen Calculate button. Error case is a console message — the
+  // chance of WASM compile failing in a modern browser is near zero.
+  const solverNotReadyMessage = solverReady
+    ? null
+    : i18n.t("solverLoading", { defaultValue: "Loading solver…" });
 
   const targetRates = useMemo(
     () => new Map(targets.map((t) => [t.itemId as ItemId, t.rate])),
@@ -71,7 +81,7 @@ export default function App() {
                 facilityRequirements={stats.facilityRequirements}
                 totalPickupPoints={stats.totalPickupPoints}
                 rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
-                error={error}
+                error={error ?? solverNotReadyMessage}
                 onTargetChange={handleTargetChange}
                 onTargetRemove={handleTargetRemove}
                 onAddClick={handleAddClick}
@@ -108,7 +118,7 @@ export default function App() {
               facilityRequirements={stats.facilityRequirements}
               totalPickupPoints={stats.totalPickupPoints}
               rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
-              error={error}
+              error={error ?? solverNotReadyMessage}
               onTargetChange={handleTargetChange}
               onTargetRemove={handleTargetRemove}
               onAddClick={handleAddClick}

@@ -60,8 +60,8 @@ const getRecipeInputs = (
 };
 
 describe("Simple Production Plan", () => {
-  test("calculates plan for single raw material", () => {
-    const plan = calculateProductionPlan(
+  test("calculates plan for single raw material", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_ORE, rate: 30 }],
       mockItems,
       simpleRecipes,
@@ -75,8 +75,8 @@ describe("Simple Production Plan", () => {
     expect(getProducer(plan, ItemId.ITEM_IRON_ORE)).toBeNull();
   });
 
-  test("calculates plan for simple linear chain", () => {
-    const plan = calculateProductionPlan(
+  test("calculates plan for simple linear chain", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 30 }],
       mockItems,
       simpleRecipes,
@@ -111,8 +111,8 @@ describe("Simple Production Plan", () => {
     expect(getProducer(plan, ItemId.ITEM_IRON_ORE)).toBeNull();
   });
 
-  test("calculates facility count correctly", () => {
-    const plan = calculateProductionPlan(
+  test("calculates facility count correctly", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 60 }],
       mockItems,
       simpleRecipes,
@@ -130,8 +130,8 @@ describe("Simple Production Plan", () => {
     }
   });
 
-  test("handles fractional facility counts", () => {
-    const plan = calculateProductionPlan(
+  test("handles fractional facility counts", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 15 }],
       mockItems,
       simpleRecipes,
@@ -146,8 +146,8 @@ describe("Simple Production Plan", () => {
 });
 
 describe("Multiple Recipe Selection", () => {
-  test("uses default selector to pick first recipe", () => {
-    const plan = calculateProductionPlan(
+  test("uses default selector to pick first recipe", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
       mockItems,
       multiRecipeItems,
@@ -162,12 +162,12 @@ describe("Multiple Recipe Selection", () => {
     expect(inputs).toContain(ItemId.ITEM_IRON_ORE);
   });
 
-  test("respects recipe overrides", () => {
+  test("respects recipe overrides", async () => {
     const overrides = new Map([
       [ItemId.ITEM_IRON_NUGGET, RecipeId.FURNANCE_IRON_NUGGET_2],
     ]);
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
       mockItems,
       multiRecipeItems,
@@ -193,12 +193,12 @@ describe("Override Cycle Resolution (Issue #51)", () => {
   // as a feeder, producing the chain:
   // Iron Ore → FURNANCE_1 → Iron Nugget → GRINDER → Iron Powder → FURNANCE_2 → Iron Nugget
 
-  test("resolves override cycle by adding feeder recipe", () => {
+  test("resolves override cycle by adding feeder recipe", async () => {
     const overrides = new Map([
       [ItemId.ITEM_IRON_NUGGET, RecipeId.FURNANCE_IRON_NUGGET_2],
     ]);
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
       mockItems,
       overrideCycleRecipes,
@@ -238,12 +238,12 @@ describe("Override Cycle Resolution (Issue #51)", () => {
     expect(ironNugget.productionRate).toBeGreaterThan(0);
   });
 
-  test("feeder chain produces correct facility counts", () => {
+  test("feeder chain produces correct facility counts", async () => {
     const overrides = new Map([
       [ItemId.ITEM_IRON_NUGGET, RecipeId.FURNANCE_IRON_NUGGET_2],
     ]);
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
       mockItems,
       overrideCycleRecipes,
@@ -267,14 +267,14 @@ describe("Override Cycle Resolution (Issue #51)", () => {
     }
   });
 
-  test("Iron Powder target with stale Iron Nugget override", () => {
+  test("Iron Powder target with stale Iron Nugget override", async () => {
     // User previously overrode Iron Nugget → FURNANCE_2, then changed
     // target to Iron Powder. The stale override creates the same cycle.
     const overrides = new Map([
       [ItemId.ITEM_IRON_NUGGET, RecipeId.FURNANCE_IRON_NUGGET_2],
     ]);
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 30 }],
       mockItems,
       overrideCycleRecipes,
@@ -288,7 +288,7 @@ describe("Override Cycle Resolution (Issue #51)", () => {
     expect(ironPowder.productionRate).toBeGreaterThan(0);
   });
 
-  test("bottle cycle with overrides is resolved by feeder extension", () => {
+  test("bottle cycle with overrides is resolved by feeder extension", async () => {
     // The bottle filling/dismantling cycle with overrides. The test fixture's
     // SHAPER produces FBOTTLE directly, so the feeder extension successfully
     // resolves the cycle by adding SHAPER (for FBOTTLE) and POOL (for Liquid
@@ -301,7 +301,7 @@ describe("Override Cycle Resolution (Issue #51)", () => {
       [ItemId.ITEM_LIQUID_PLANT_GRASS_1, RecipeId.DISMANTLER_GLASS_GRASS_1_1],
     ]);
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_GRASS_1, rate: 30 }],
       mockItems,
       cycleRecipes,
@@ -318,7 +318,7 @@ describe("Override Cycle Resolution (Issue #51)", () => {
     expect(fbottle.productionRate).toBeGreaterThan(0);
   });
 
-  test("failed extension produces invalidCycles with override info", () => {
+  test("failed extension produces invalidCycles with override info", async () => {
     // Use a minimal recipe set with ONLY the cycle recipes (no SHAPER, no
     // POOL). Without external feeder recipes, the extension cannot resolve
     // the cycle and the SCC is marked invalid.
@@ -336,7 +336,7 @@ describe("Override Cycle Resolution (Issue #51)", () => {
       [ItemId.ITEM_LIQUID_PLANT_GRASS_1, RecipeId.DISMANTLER_GLASS_GRASS_1_1],
     ]);
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_GRASS_1, rate: 30 }],
       mockItems,
       minimalCycleRecipes,
@@ -358,8 +358,8 @@ describe("Override Cycle Resolution (Issue #51)", () => {
 });
 
 describe("Multiple Targets", () => {
-  test("calculates plan for multiple independent targets", () => {
-    const plan = calculateProductionPlan(
+  test("calculates plan for multiple independent targets", async () => {
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_IRON_POWDER, rate: 30 },
         { itemId: ItemId.ITEM_GLASS_CMPT, rate: 15 },
@@ -381,8 +381,8 @@ describe("Multiple Targets", () => {
 });
 
 describe("Complex Dependencies", () => {
-  test("calculates multi-tier production plan", () => {
-    const plan = calculateProductionPlan(
+  test("calculates multi-tier production plan", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_PROC_BATTERY_1, rate: 6 }],
       mockItems,
       complexRecipes,
@@ -408,7 +408,7 @@ describe("Complex Dependencies", () => {
 });
 
 describe("Cycle Detection", () => {
-  test("bottle cycle with overrides is resolved by feeder extension", () => {
+  test("bottle cycle with overrides is resolved by feeder extension", async () => {
     // With the test fixture's SHAPER producing FBOTTLE directly, the feeder
     // extension resolves the cycle. The plan should be valid with FBOTTLE
     // produced via the linearized chain.
@@ -420,7 +420,7 @@ describe("Cycle Detection", () => {
       [ItemId.ITEM_LIQUID_PLANT_GRASS_1, RecipeId.DISMANTLER_GLASS_GRASS_1_1],
     ]);
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_GRASS_1, rate: 30 }],
       mockItems,
       cycleRecipes,
@@ -437,7 +437,7 @@ describe("Cycle Detection", () => {
     expect(fbottle.productionRate).toBeGreaterThan(0);
   });
 
-  test("cycle net outputs calculation", () => {
+  test("cycle net outputs calculation", async () => {
     const overrides = new Map([
       [
         ItemId.ITEM_FBOTTLE_GLASS_GRASS_1,
@@ -446,7 +446,7 @@ describe("Cycle Detection", () => {
       [ItemId.ITEM_LIQUID_PLANT_GRASS_1, RecipeId.DISMANTLER_GLASS_GRASS_1_1],
     ]);
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_FBOTTLE_GLASS_GRASS_1, rate: 30 }],
       mockItems,
       cycleRecipes,
@@ -465,9 +465,9 @@ describe("Cycle Detection", () => {
 });
 
 describe("Manual Raw Materials", () => {
-  test("treats manually specified items as raw materials", () => {
+  test("treats manually specified items as raw materials", async () => {
     const manualRaw = new Set([ItemId.ITEM_IRON_NUGGET]);
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 30 }],
       mockItems,
       simpleRecipes,
@@ -482,9 +482,9 @@ describe("Manual Raw Materials", () => {
     expect(getProducer(plan, ItemId.ITEM_IRON_NUGGET)).toBeNull();
   });
 
-  test("manual raw materials override recipe availability", () => {
+  test("manual raw materials override recipe availability", async () => {
     const manualRaw = new Set([ItemId.ITEM_QUARTZ_GLASS]);
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_GLASS_CMPT, rate: 30 }],
       mockItems,
       complexRecipes,
@@ -500,14 +500,19 @@ describe("Manual Raw Materials", () => {
 });
 
 describe("Edge Cases", () => {
-  test("throws error for empty targets", () => {
-    expect(() =>
+  test("throws error for empty targets", async () => {
+    // calculateProductionPlan is async — the throw is at the top of
+    // the function body, before any await, so it surfaces as a
+    // synchronous throw inside the Promise constructor. Either
+    // `.rejects.toThrow` or wrapping the call works; use rejects for
+    // consistency with all other Promise-returning assertions.
+    await expect(
       calculateProductionPlan([], mockItems, simpleRecipes, mockFacilities),
-    ).toThrow("No targets specified");
+    ).rejects.toThrow("No targets specified");
   });
 
-  test("handles item with no available recipes as raw material", () => {
-    const plan = calculateProductionPlan(
+  test("handles item with no available recipes as raw material", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_QUARTZ_SAND, rate: 30 }],
       mockItems,
       simpleRecipes,
@@ -518,8 +523,8 @@ describe("Edge Cases", () => {
     expect(getProducer(plan, ItemId.ITEM_QUARTZ_SAND)).toBeNull();
   });
 
-  test("handles zero target rate", () => {
-    const plan = calculateProductionPlan(
+  test("handles zero target rate", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 0 }],
       mockItems,
       simpleRecipes,
@@ -534,8 +539,8 @@ describe("Edge Cases", () => {
     }
   });
 
-  test("handles very small production rates", () => {
-    const plan = calculateProductionPlan(
+  test("handles very small production rates", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 0.1 }],
       mockItems,
       simpleRecipes,
@@ -547,8 +552,8 @@ describe("Edge Cases", () => {
     }
   });
 
-  test("handles very large production rates", () => {
-    const plan = calculateProductionPlan(
+  test("handles very large production rates", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 10000 }],
       mockItems,
       simpleRecipes,
@@ -562,7 +567,7 @@ describe("Edge Cases", () => {
 });
 
 describe("Recipe Output Amounts", () => {
-  test("handles recipes with multiple output amounts", () => {
+  test("handles recipes with multiple output amounts", async () => {
     const recipe: Recipe = {
       id: RecipeId.GRINDER_PLANT_MOSS_POWDER_1_1,
       inputs: [{ itemId: ItemId.ITEM_PLANT_MOSS_1, amount: 1 }],
@@ -570,7 +575,7 @@ describe("Recipe Output Amounts", () => {
       facilityId: mockFacilities[1].id,
       craftingTime: 2,
     };
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_PLANT_MOSS_POWDER_1, rate: 60 }],
       mockItems,
       [recipe],
@@ -589,8 +594,8 @@ describe("Recipe Output Amounts", () => {
 });
 
 describe("Byproduct Recipes", () => {
-  test("handles recipes with byproduct outputs without crashing", () => {
-    const plan = calculateProductionPlan(
+  test("handles recipes with byproduct outputs without crashing", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
       mockItems,
       byproductRecipes,
@@ -605,8 +610,8 @@ describe("Byproduct Recipes", () => {
     expect(producer?.recipeId).toBe(RecipeId.FURNANCE_COPPER_NUGGET_1);
   });
 
-  test("byproduct items are not treated as raw materials", () => {
-    const plan = calculateProductionPlan(
+  test("byproduct items are not treated as raw materials", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
       mockItems,
       byproductRecipes,
@@ -617,8 +622,8 @@ describe("Byproduct Recipes", () => {
     expect(sewageNode.isRawMaterial).toBe(false);
   });
 
-  test("byproduct target reuses existing recipe instead of selecting a new one", () => {
-    const plan = calculateProductionPlan(
+  test("byproduct target reuses existing recipe instead of selecting a new one", async () => {
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 },
         { itemId: ItemId.ITEM_LIQUID_SEWAGE, rate: 30 },
@@ -644,8 +649,8 @@ describe("Byproduct Recipes", () => {
     expect(nuggetNode.productionRate).toBeCloseTo(30, 5);
   });
 
-  test("byproduct production rate scales with primary output demand", () => {
-    const plan = calculateProductionPlan(
+  test("byproduct production rate scales with primary output demand", async () => {
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 },
         { itemId: ItemId.ITEM_LIQUID_SEWAGE, rate: 60 },
@@ -673,12 +678,12 @@ describe("Byproduct Recipes", () => {
 });
 
 describe("Byproduct with SCC Cycle", () => {
-  test("byproduct target survives when one producer is in a zero-output SCC", () => {
+  test("byproduct target survives when one producer is in a zero-output SCC", async () => {
     // Three targets: Copper Component (30) + Proc Battery (30) + Liquid Sewage (30)
     // The battery chain pulls in the Xircon SCC. The SCC has a 30/min sewage deficit,
     // plus the 30/min sewage target = 60/min external sewage needed.
     // The furnace (also needed for copper_cmpt) supplies all external sewage.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 },
         { itemId: ItemId.ITEM_PROC_BATTERY_1, rate: 30 },
@@ -711,12 +716,12 @@ describe("Byproduct with SCC Cycle", () => {
     }
   });
 
-  test("byproduct produced by multiple recipes has summed rate", () => {
+  test("byproduct produced by multiple recipes has summed rate", async () => {
     // Two targets: Copper Component (30) + Proc Battery (30)
     // The battery chain pulls in the Xircon SCC (pool_xiranite_poly_1 produces 30/min sewage).
     // The furnace (for copper_nugget) also produces 30/min sewage.
     // Total sewage production = 60/min (30 from SCC + 30 from furnace).
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 },
         { itemId: ItemId.ITEM_PROC_BATTERY_1, rate: 30 },
@@ -734,10 +739,10 @@ describe("Byproduct with SCC Cycle", () => {
 });
 
 describe("Disposal Recipes", () => {
-  test("injects disposal when byproduct has no consumers", () => {
+  test("injects disposal when byproduct has no consumers", async () => {
     // Target: Copper Component → produces Sewage as byproduct with no consumer
     // Expected: Disposal recipe injected for the full 30/min surplus
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
       mockItems,
       byproductRecipes,
@@ -757,10 +762,10 @@ describe("Disposal Recipes", () => {
     }
   });
 
-  test("does not inject disposal when byproduct is a target", () => {
+  test("does not inject disposal when byproduct is a target", async () => {
     // Target: Copper Component + Liquid Sewage (as target)
     // Sewage target demand equals production → no surplus → no disposal
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 },
         { itemId: ItemId.ITEM_LIQUID_SEWAGE, rate: 30 },
@@ -775,11 +780,11 @@ describe("Disposal Recipes", () => {
     expect(plan.nodes.has(disposalRecipeId)).toBe(false);
   });
 
-  test("injects disposal only for surplus when byproduct is partially targeted", () => {
+  test("injects disposal only for surplus when byproduct is partially targeted", async () => {
     // Target: Copper Component (rate 60 → 2 furnaces → 60/min sewage)
     //       + Liquid Sewage target at 30/min
     // Surplus = 60 - 30 = 30/min → 1 disposal facility
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_COPPER_CMPT, rate: 60 },
         { itemId: ItemId.ITEM_LIQUID_SEWAGE, rate: 30 },
@@ -799,11 +804,11 @@ describe("Disposal Recipes", () => {
     }
   });
 
-  test("disposal facility count scales with surplus", () => {
+  test("disposal facility count scales with surplus", async () => {
     // Target: Copper Component at rate 90 → 3 furnaces → 90/min sewage
     // No consumer or target for sewage → full disposal
     // Expected: 3 disposal facilities (90/30 = 3)
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 90 }],
       mockItems,
       byproductRecipes,
@@ -820,8 +825,8 @@ describe("Disposal Recipes", () => {
     }
   });
 
-  test("disposal has correct edges in production graph", () => {
-    const plan = calculateProductionPlan(
+  test("disposal has correct edges in production graph", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
       mockItems,
       byproductRecipes,
@@ -847,7 +852,7 @@ describe("Disposal Recipes", () => {
 });
 
 describe("Stress Tests", () => {
-  test("handles deeply nested dependency chain", () => {
+  test("handles deeply nested dependency chain", async () => {
     const items = Array.from({ length: 11 }, (_, i) => ({
       id: `ITEM_LEVEL_${i}` as ItemId,
       tier: i,
@@ -860,7 +865,7 @@ describe("Stress Tests", () => {
       craftingTime: 2,
     }));
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: items[10].id, rate: 30 }],
       items,
       recipes,
@@ -890,8 +895,8 @@ describe("Xircon Production Chain", () => {
   // but 2 liquid_xiranite_poly are consumed per xiranite_poly).
   const D = 30;
 
-  test("produces xiranite_poly with correct facility counts", () => {
-    const plan = calculateProductionPlan(
+  test("produces xiranite_poly with correct facility counts", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: D }],
       mockItems,
       xirconRecipes,
@@ -919,8 +924,8 @@ describe("Xircon Production Chain", () => {
     }
   });
 
-  test("includes external sewage source for cycle deficit", () => {
-    const plan = calculateProductionPlan(
+  test("includes external sewage source for cycle deficit", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: D }],
       mockItems,
       xirconRecipes,
@@ -939,8 +944,8 @@ describe("Xircon Production Chain", () => {
     expect(plan.nodes.has(ItemId.ITEM_COPPER_NUGGET)).toBe(true);
   });
 
-  test("liquid_xiranite_lowpoly surplus is disposed", () => {
-    const plan = calculateProductionPlan(
+  test("liquid_xiranite_lowpoly surplus is disposed", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: D }],
       mockItems,
       xirconRecipes,
@@ -959,8 +964,8 @@ describe("Xircon Production Chain", () => {
     }
   });
 
-  test("liquid_sewage is fully consumed with no disposal needed", () => {
-    const plan = calculateProductionPlan(
+  test("liquid_sewage is fully consumed with no disposal needed", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: D }],
       mockItems,
       xirconRecipes,
@@ -975,8 +980,8 @@ describe("Xircon Production Chain", () => {
     expect(plan.nodes.has(sewageDisposalId)).toBe(false);
   });
 
-  test("upstream recipes have correct facility counts", () => {
-    const plan = calculateProductionPlan(
+  test("upstream recipes have correct facility counts", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: D }],
       mockItems,
       xirconRecipes,
@@ -1000,12 +1005,12 @@ describe("Xircon Production Chain", () => {
     }
   });
 
-  test("dual target: xircon + sewage produces correct facility counts", () => {
+  test("dual target: xircon + sewage produces correct facility counts", async () => {
     // When both xiranite_poly AND liquid_sewage are targets, the SCC deficit
     // (30/min) plus the sewage target (30/min) means the furnace must supply
     // 60/min total → 2 facilities. The deficit must not double-count the
     // target demand that's already included in the SCC's external demand.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_XIRANITE_POLY, rate: D },
         { itemId: ItemId.ITEM_LIQUID_SEWAGE, rate: D },
@@ -1045,8 +1050,8 @@ describe("Xircon Production Chain", () => {
 });
 
 describe("Real 1.2 data regression", () => {
-  test("xiranite_enr_powder produces complete chain with no invalid cycles", () => {
-    const plan = calculateProductionPlan(
+  test("xiranite_enr_powder produces complete chain with no invalid cycles", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, rate: 6 }],
       items,
       recipes,
@@ -1074,8 +1079,8 @@ describe("Real 1.2 data regression", () => {
     }
   });
 
-  test("copper_enr + xiranite_poly multi-target does not inflate water consumption", () => {
-    const plan = calculateProductionPlan(
+  test("copper_enr + xiranite_poly multi-target does not inflate water consumption", async () => {
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_COPPER_ENR, rate: 5 },
         { itemId: ItemId.ITEM_XIRANITE_POLY, rate: 5 },
@@ -1100,7 +1105,7 @@ describe("Real 1.2 data regression", () => {
     ).toBe(true);
   });
 
-  test("xiranite_jade_gourd disposes surplus sewage instead of over-running absorber", () => {
+  test("xiranite_jade_gourd disposes surplus sewage instead of over-running absorber", async () => {
     // Bug regression: previously, 1 Xiranite Jade Gourd at 1/min consumed
     // 19 Xiranite/min because the Hetonite chain produces 9 Sewage/min as
     // a byproduct, and the SCC solver routed it all into the Xircon Effluent
@@ -1113,7 +1118,7 @@ describe("Real 1.2 data regression", () => {
     // Xircon Effluent supply between Pool and Liquid Purifier via the
     // LOWPOLY constraint, settling at 14 Xiranite/min — the same cost as
     // producing Heavy Xiranite as a standalone target.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_HULU, rate: 1 }],
       items,
       recipes,
@@ -1151,7 +1156,7 @@ describe("Real 1.2 data regression", () => {
     }
   });
 
-  test("SC Wuling Battery requires Clean Water as raw material", () => {
+  test("SC Wuling Battery requires Clean Water as raw material", async () => {
     // Bug regression: Tarjan places liquid_water in scc.items because the
     // Xircon refinement loop has both a water consumer
     // (POOL_LIQUID_LIQUID_XIRANITE) and a water byproduct producer
@@ -1159,7 +1164,7 @@ describe("Real 1.2 data regression", () => {
     // balance constraints, and Phase 5 only iterates scc.externalInputs —
     // which by definition excludes scc.items. Without a Phase-4.5 raw
     // deficit propagation, water vanishes from the plan output.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 1 }],
       items,
       recipes,
@@ -1174,12 +1179,12 @@ describe("Real 1.2 data regression", () => {
     }
   });
 
-  test("LIQUID_COPPER_ENR plan requires Liquid Acid as raw material", () => {
+  test("LIQUID_COPPER_ENR plan requires Liquid Acid as raw material", async () => {
     // Same pattern via LIQUID_PURIFIER_COPPER_ENR_1: produces liquid_acid
     // as byproduct, while POOL_LIQUID_COPPER consumes it. Both are part
     // of the copper-enrichment SCC, so liquid_acid (a forced raw) lands
     // in scc.items and must be propagated by Phase 4.5.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_LIQUID_COPPER_ENR, rate: 30 }],
       items,
       recipes,
@@ -1206,8 +1211,8 @@ describe("Jade Gourd disposal sink at non-integer rates", () => {
   // and thus avoided the bug naturally; rates 1, 2, 4, 5/min triggered it.
   test.each([1, 2, 3, 4, 5, 6])(
     "rate %d/min has no phantom xircon-effluent disposal sink",
-    (rate) => {
-      const plan = calculateProductionPlan(
+    async (rate) => {
+      const plan = await calculateProductionPlan(
         [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_HULU, rate }],
         items,
         recipes,
@@ -1235,7 +1240,7 @@ describe("Jade Gourd disposal sink at non-integer rates", () => {
 });
 
 describe("Phase 3 multi-formula bin packing", () => {
-  test("Xircon plan packs LX/XE/X recipes into Expanded Crucible bins", () => {
+  test("Xircon plan packs LX/XE/X recipes into Expanded Crucible bins", async () => {
     // The Xircon production chain involves three pool recipes:
     //   POOL_LIQUID_LIQUID_XIRANITE (LX)
     //   POOL_LIQUID_XIRANITE_POLY (XE)
@@ -1244,7 +1249,7 @@ describe("Phase 3 multi-formula bin packing", () => {
     // (50W per slot, 1 building per slot). Phase 3 packs the three into
     // Expanded Crucible buildings (100W per building, up to 3 formulas
     // each) sharing slot capacity, saving both buildings AND power.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
       items,
       recipes,
@@ -1310,11 +1315,11 @@ describe("Phase 3 multi-formula bin packing", () => {
     expect(totalPoolBuildings).toBeLessThanOrEqual(ungroupedSlots);
   });
 
-  test("recipes outside multi-formula facilities get singleton bins", () => {
+  test("recipes outside multi-formula facilities get singleton bins", async () => {
     // A simple non-pool plan should produce singleton bins (one bin per
     // recipe, isGrouped = false). Iron-powder grinding is on a Grinder
     // facility without `cacheSlots`.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 30 }],
       items,
       recipes,
@@ -1330,8 +1335,8 @@ describe("Phase 3 multi-formula bin packing", () => {
     }
   });
 
-  test("recipe-bin allocations cover every active recipe (incl. disposal)", () => {
-    const plan = calculateProductionPlan(
+  test("recipe-bin allocations cover every active recipe (incl. disposal)", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
       items,
       recipes,
@@ -1349,7 +1354,7 @@ describe("Phase 3 multi-formula bin packing", () => {
     }
   });
 
-  test("plan totals match plan.bins aggregate (split-allocation safe)", () => {
+  test("plan totals match plan.bins aggregate (split-allocation safe)", async () => {
     // The totals presented in the production-table footer must be
     // computed from `plan.bins` directly, not derived from
     // per-row associations. If a recipe's slot demand is split across
@@ -1357,7 +1362,7 @@ describe("Phase 3 multi-formula bin packing", () => {
     // the per-row first-bin-only association would undercount the
     // secondary bins. Asserting the bin-aggregated totals matches the
     // ground-truth from `plan.bins` catches that regression.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
       recipes,
@@ -1389,12 +1394,12 @@ describe("Phase 3 multi-formula bin packing", () => {
     }
   });
 
-  test("plan-level pool building count <= ungrouped baseline", () => {
+  test("plan-level pool building count <= ungrouped baseline", async () => {
     // Sanity: Phase 3 must never increase building count vs. the naive
     // one-recipe-per-building baseline (where each recipe slot needs its
     // own building). Stronger than the basic equivalence — it asserts
     // the optimiser is doing actual work.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
       recipes,
@@ -1426,7 +1431,7 @@ describe("Phase 3 multi-formula bin packing", () => {
 });
 
 describe("Issue #68 — Xiranite over-production", () => {
-  test("Xiranite powder production matches summed consumer demand", () => {
+  test("Xiranite powder production matches summed consumer demand", async () => {
     const targets = [
       { itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 11.5 },
       { itemId: ItemId.ITEM_BOTTLED_REC_HP_5, rate: 1 },
@@ -1442,7 +1447,7 @@ describe("Issue #68 — Xiranite over-production", () => {
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, rate: 1 },
     ];
 
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       targets,
       items,
       recipes,
@@ -1499,8 +1504,8 @@ describe("Xircon bin-fusion integrity (real data)", () => {
 
   test.each(XIRCON_TARGETS)(
     "target=%i: bin externalOutputs ∩ internalItems = ∅ (no double-counting)",
-    (target) => {
-      const plan = calculateProductionPlan(
+    async (target) => {
+      const plan = await calculateProductionPlan(
         [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
         items,
         recipes,
@@ -1520,8 +1525,8 @@ describe("Xircon bin-fusion integrity (real data)", () => {
 
   test.each(XIRCON_TARGETS)(
     "target=%i: bin I/O classification matches per-recipe active-slot net flows",
-    (target) => {
-      const plan = calculateProductionPlan(
+    async (target) => {
+      const plan = await calculateProductionPlan(
         [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
         items,
         recipes,
@@ -1595,8 +1600,8 @@ describe("Xircon bin-fusion integrity (real data)", () => {
 
   test.each(XIRCON_TARGETS)(
     "target=%i: Phase 3 allocation matches Phase 2 slot demand (strict equality)",
-    (target) => {
-      const plan = calculateProductionPlan(
+    async (target) => {
+      const plan = await calculateProductionPlan(
         [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
         items,
         recipes,
@@ -1644,8 +1649,8 @@ describe("Xircon bin-fusion integrity (real data)", () => {
 
   test.each(XIRCON_TARGETS)(
     "target=%i: total Xircon production meets target",
-    (target) => {
-      const plan = calculateProductionPlan(
+    async (target) => {
+      const plan = await calculateProductionPlan(
         [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
         items,
         recipes,
@@ -1666,7 +1671,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
     },
   );
 
-  test("target=57: Xircon-producing bin reports rates aligned with Phase 2 demand", () => {
+  test("target=57: Xircon-producing bin reports rates aligned with Phase 2 demand", async () => {
     // The original "user-reported bug": Phase 2 LP demands `x_X = 1.9`,
     // `x_XE = x_LX = 3.04`, `x_P = 0.76`. Under the old packer, the
     // {LX, XE, X} bin ran at uneven active rates that produced 3 liquid
@@ -1684,7 +1689,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
     //   - The Xircon-producing bin contains the X recipe.
     //   - Total Xircon rate across all bins ≈ target.
     //   - The bin satisfies port caps (covered by assertBinPortCaps).
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -1722,18 +1727,21 @@ describe("Xircon bin-fusion integrity (real data)", () => {
     }
   });
 
-  test("Expanded Crucible building total is monotonic non-decreasing in target", () => {
-    const totals = XIRCON_TARGETS.map((target) => {
-      const plan = calculateProductionPlan(
+  test("Expanded Crucible building total is monotonic non-decreasing in target", async () => {
+    const totals: number[] = [];
+    for (const target of XIRCON_TARGETS) {
+      const plan = await calculateProductionPlan(
         [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
         items,
         recipes,
         facilities,
       );
-      return plan.bins
-        .filter((b) => b.facilityId === FacilityId.MIX_POOL_2)
-        .reduce((s, b) => s + Math.ceil(b.buildingCount), 0);
-    });
+      totals.push(
+        plan.bins
+          .filter((b) => b.facilityId === FacilityId.MIX_POOL_2)
+          .reduce((s, b) => s + Math.ceil(b.buildingCount), 0),
+      );
+    }
     for (let i = 1; i < totals.length; i++) {
       expect(totals[i]).toBeGreaterThanOrEqual(totals[i - 1]);
     }
