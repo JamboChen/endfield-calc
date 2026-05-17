@@ -4,6 +4,7 @@ import type {
   Facility,
   ItemId,
   RecipeId,
+  BinId,
   ProductionNode,
   DetectedCycle,
   InvalidCycleInfo,
@@ -161,7 +162,7 @@ function buildProductionGraph(
   });
 
   // Build bin lookup keyed by allocation entry's binId.
-  const binById = new Map<string, Bin>();
+  const binById = new Map<BinId, Bin>();
   for (const bin of bins) binById.set(bin.id, bin);
 
   /**
@@ -176,7 +177,7 @@ function buildProductionGraph(
   const resolveBinInfo = (
     recipeId: RecipeId,
     fallbackFacility: Facility,
-  ): { facility: Facility; binId: string | undefined; sisters: RecipeId[] } => {
+  ): { facility: Facility; binId: BinId | undefined; sisters: RecipeId[] } => {
     const allocation = recipeBinAllocations.get(recipeId);
     if (!allocation || allocation.perBin.length === 0) {
       if (import.meta.env?.DEV) {

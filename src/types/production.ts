@@ -1,4 +1,4 @@
-import type { Item, Recipe, Facility, ItemId, RecipeId, FacilityId } from "@/types";
+import type { Item, Recipe, Facility, ItemId, RecipeId, FacilityId, BinId } from "@/types";
 
 /**
  * Represents a single step in the production chain.
@@ -26,7 +26,7 @@ export type ProductionNode = {
    * facility (which may differ from `recipe.facilityId` if Phase 3
    * swapped to a twin variant).
    */
-  binId?: string;
+  binId?: BinId;
   /**
    * IDs of sister recipes co-located in the same bin (excluding self).
    * Empty when the bin runs a single recipe.
@@ -97,7 +97,7 @@ export type ProductionGraphNode =
        * after Phase 3 runs; mappers use it to annotate group
        * membership and to look up the bin's facility / sister recipes.
        */
-      binId?: string;
+      binId?: BinId;
       /** IDs of sister recipes co-located in the same bin. */
       binSisterRecipeIds?: RecipeId[];
     };
@@ -180,7 +180,7 @@ export type ProductionDependencyGraph = {
  */
 export type Bin = {
   /** Stable bin identifier, e.g. "bin-mix_pool_2-pool_xirpoly_1-pool_xe_1-pool_lx_1-0". */
-  id: string;
+  id: BinId;
   /** Physical facility hosting every building of this bin. */
   facilityId: FacilityId;
   /**
@@ -234,5 +234,5 @@ export type RecipeBinAllocation = {
    * this recipe equals `slots`, since each building provides 1 slot of
    * each constituent recipe.
    */
-  perBin: Array<{ binId: string; slots: number }>;
+  perBin: Array<{ binId: BinId; slots: number }>;
 };

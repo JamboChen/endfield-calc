@@ -3,6 +3,7 @@ import type {
   ProductionGraphNode,
   ProductionNode,
   Bin,
+  BinId,
   Facility,
   FacilityId,
   ItemId,
@@ -89,8 +90,8 @@ export type BinAggregates = {
  */
 export function buildBinActivitySums(
   plan: ProductionDependencyGraph,
-): Map<string, number> {
-  const sumByBin = new Map<string, number>();
+): Map<BinId, number> {
+  const sumByBin = new Map<BinId, number>();
   for (const alloc of plan.recipeBinAllocations.values()) {
     for (const entry of alloc.perBin) {
       sumByBin.set(

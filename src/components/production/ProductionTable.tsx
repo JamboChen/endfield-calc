@@ -20,7 +20,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
-import type { Item, Recipe, Facility, ItemId, RecipeId } from "@/types";
+import type { Item, Recipe, Facility, ItemId, RecipeId, BinId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName, getRecipeName } from "@/lib/i18n-helpers";
 import { getTransportCountWithFacilities, getPickupPointCount, formatCount, formatNumber } from "@/lib/utils";
@@ -42,7 +42,7 @@ export type ProductionLineData = {
    * Bin id when this recipe is hosted in a multi-formula bin (Phase 3).
    * Always set for non-raw-material recipes after Phase 3 runs.
    */
-  binId?: string;
+  binId?: BinId;
   /** Sister recipes in the same bin (excluding self). */
   binSisterRecipeIds?: RecipeId[];
   /**
@@ -65,7 +65,7 @@ export type ProductionLineData = {
    * split allocations (one recipe spanning multiple bin shapes) can be
    * surfaced in the UI tooltip.
    */
-  binSpanningInfo?: Array<{ binId: string; buildingCount: number; slots: number }>;
+  binSpanningInfo?: Array<{ binId: BinId; buildingCount: number; slots: number }>;
 };
 
 /**

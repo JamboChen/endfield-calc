@@ -86,6 +86,7 @@ import type {
   ItemId,
   RecipeId,
   FacilityId,
+  BinId,
   Bin,
   RecipeBinAllocation,
 } from "@/types";
@@ -704,7 +705,7 @@ const makeBinId = (
   facilityId: FacilityId,
   recipeIds: RecipeId[],
   index: number,
-): string => `bin-${facilityId}-${recipeIds.join("-")}-${index}`;
+): BinId => `bin-${facilityId}-${recipeIds.join("-")}-${index}` as BinId;
 
 /**
  * Solve the LP that packs slot demands into variant-defined bins.

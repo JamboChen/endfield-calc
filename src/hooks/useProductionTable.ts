@@ -4,6 +4,7 @@ import type {
   ProductionGraphNode,
   ItemId,
   RecipeId,
+  BinId,
   Recipe,
   Facility,
 } from "@/types";
@@ -243,12 +244,12 @@ export function useProductionTable(
       // `bin.recipeIds` are demand recipe ids (Phase 2's pick), so plain
       // equality with `node.recipeId` resolves correctly even when Phase 3
       // swapped the physical variant.
-      let binId: string | undefined;
+      let binId: BinId | undefined;
       let binSisterRecipeIds: RecipeId[] | undefined;
       let binBuildingCount: number | undefined;
       let isBinPrimary = true; // default for non-grouped: own row owns power
       let binSpanningInfo:
-        | Array<{ binId: string; buildingCount: number; slots: number }>
+        | Array<{ binId: BinId; buildingCount: number; slots: number }>
         | undefined;
       if (recipeNode?.binId) {
         const bin = binById.get(recipeNode.binId);

@@ -28,6 +28,7 @@ import {
 } from "./fixtures/test-data";
 import type {
   Bin,
+  BinId,
   Item,
   Recipe,
   ItemId as ItemIdType,
@@ -61,7 +62,7 @@ describe("pickBinHeadlineOutput", () => {
     const recipeA = mkRecipe("ra", [], [{ itemId: "a", amount: 1 }]);
     const recipeB = mkRecipe("rb", [], [{ itemId: "b", amount: 1 }]);
     const bin: Bin = {
-      id: "bin-test",
+      id: "bin-test" as BinId,
       facilityId: "fac" as never,
       recipeIds: ["ra", "rb"] as never[],
       buildingCount: 1,
@@ -90,7 +91,7 @@ describe("pickBinHeadlineOutput", () => {
     const recipeA = mkRecipe("ra", [], [{ itemId: "a", amount: 1 }]);
     const recipeB = mkRecipe("rb", [], [{ itemId: "b", amount: 1 }]);
     const bin: Bin = {
-      id: "bin-test",
+      id: "bin-test" as BinId,
       facilityId: "fac" as never,
       recipeIds: ["ra", "rb"] as never[],
       buildingCount: 1,
@@ -114,7 +115,7 @@ describe("pickBinHeadlineOutput", () => {
     const recipeS = mkRecipe("rs", [], [{ itemId: "solid", amount: 1 }]);
     const recipeL = mkRecipe("rl", [], [{ itemId: "liquid", amount: 1 }]);
     const bin: Bin = {
-      id: "bin-test",
+      id: "bin-test" as BinId,
       facilityId: "fac" as never,
       recipeIds: ["rs", "rl"] as never[],
       buildingCount: 1,
@@ -138,7 +139,7 @@ describe("pickBinHeadlineOutput", () => {
     const recipeB = mkRecipe("rb", [], [{ itemId: "b", amount: 1 }]);
     const recipeA = mkRecipe("ra", [], [{ itemId: "a", amount: 1 }]);
     const bin: Bin = {
-      id: "bin-test",
+      id: "bin-test" as BinId,
       facilityId: "fac" as never,
       recipeIds: ["ra", "rb"] as never[],
       buildingCount: 1,
@@ -158,7 +159,7 @@ describe("pickBinHeadlineOutput", () => {
 
   test("returns null for bin with no external outputs", () => {
     const bin: Bin = {
-      id: "bin-test",
+      id: "bin-test" as BinId,
       facilityId: "fac" as never,
       recipeIds: [] as never[],
       buildingCount: 1,
@@ -199,7 +200,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     const productionNodes = flow.nodes.filter(
       (n) =>
         n.type === "productionNode" &&
-        productionBinIds.has(n.id),
+        productionBinIds.has(n.id as BinId),
     );
     expect(productionNodes.length).toBe(productionBinIds.size);
     expect(productionNodes.length).toBeGreaterThan(0);

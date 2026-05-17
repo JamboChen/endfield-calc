@@ -497,9 +497,28 @@ const FacilityId = {
 } as const;
 type FacilityId = (typeof FacilityId)[keyof typeof FacilityId];
 
+/**
+ * Opaque brand for multi-formula bin identifiers.
+ *
+ * Unlike ItemId / RecipeId / FacilityId (which are literal-string unions of
+ * the closed game-data enum), bin IDs are constructed dynamically by Phase 3
+ * (`makeBinId` in `multi-formula-packing.ts`) and follow the format
+ * `bin-<facilityId>-<recipeId...>-<emitIdx>`. Brand intersection gives
+ * nominal typing without imposing a closed set: a plain `string` cannot be
+ * passed where a `BinId` is expected, but `"bin-..." as BinId` works at
+ * known-good construction sites (the packer and test fixtures).
+ *
+ * Distinct from synthetic IDs used by mapper sinks (e.g.
+ * `disposal-<recipeId>`, `<binId>-bldg<idx>`, target-sink IDs) — those
+ * remain plain `string` because they're union-typed mixtures of bin and
+ * non-bin IDs at the consumer.
+ */
+type BinId = string & { readonly __brand: "BinId" };
+
 export { ItemId, RecipeId, FacilityId };
 export type {
   ItemId as ItemIdType,
   RecipeId as RecipeIdType,
   FacilityId as FacilityIdType,
+  BinId,
 };

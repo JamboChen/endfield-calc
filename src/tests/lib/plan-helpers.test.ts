@@ -14,6 +14,7 @@ import type {
   Facility,
   ProductionNode,
   Bin,
+  BinId,
   ItemId,
   RecipeId,
   FacilityId,
@@ -316,7 +317,7 @@ describe("computeNodeByproducts", () => {
     // Bin shape {LX, XE, X} where Sewage and Xiranite are internal, and
     // Lowpoly is the only external byproduct (beyond the headline Xircon).
     const groupedBin: Bin = {
-      id: "bin-grouped" as string,
+      id: "bin-grouped" as BinId,
       facilityId: facility.id,
       recipeIds: [
         "pool_liquid_liquid_xiranite_1" as RecipeId,
@@ -387,7 +388,7 @@ describe("computeNodeByproducts", () => {
       // === undefined. The function falls through to the recipe path.
       const node: ProductionNode = {
         ...baseNode(),
-        binId: "bin-singleton",
+        binId: "bin-singleton" as BinId,
         bin: undefined,
         binExtraOutputs: undefined,
       };
@@ -404,7 +405,7 @@ describe("computeNodeByproducts", () => {
       const node: ProductionNode = {
         ...baseNode(),
         bin: {
-          id: "bin-not-grouped",
+          id: "bin-not-grouped" as BinId,
           facilityId: facility.id,
           recipeIds: [xRecipe.id],
           buildingCount: 2,
@@ -428,7 +429,7 @@ describe("computeNodeByproducts", () => {
       // Defensive: bin-fused-mapper filters headline out of binExtraOutputs,
       // but the function should also dedupe defensively.
       const groupedBin: Bin = {
-        id: "bin-dedupe",
+        id: "bin-dedupe" as BinId,
         facilityId: facility.id,
         recipeIds: [xRecipe.id, "sister_1" as RecipeId],
         buildingCount: 1,
@@ -461,7 +462,7 @@ describe("computeNodeByproducts", () => {
       const node: ProductionNode = {
         ...baseNode(),
         bin: {
-          id: "bin-missing-items",
+          id: "bin-missing-items" as BinId,
           facilityId: facility.id,
           recipeIds: [xRecipe.id, "sister_1" as RecipeId],
           buildingCount: 1,
@@ -729,7 +730,7 @@ describe("aggregateBinTotals (real data)", () => {
       invalidCycles: [],
       bins: [
         {
-          id: "bin-orphan",
+          id: "bin-orphan" as BinId,
           facilityId: "not_a_real_facility" as FacilityId,
           recipeIds: [],
           buildingCount: 1,

@@ -25,6 +25,7 @@ import type {
   Facility,
   ProductionDependencyGraph,
   Bin,
+  BinId,
   FlowProductionNode,
   FlowTargetNode,
   FlowDisposalNode,
@@ -110,8 +111,11 @@ export function mapPlanToFlowBinFused(
   // disposal of the primary output). The stricter rule keeps disposal
   // edges intact — a disposal sink consuming the primary would dangle
   // if we skipped the bin.
-  const singletonTerminalBinIds = new Set<string>();
-  const sinkByBinId = new Map<string, string>();
+  const singletonTerminalBinIds = new Set<BinId>();
+  // Maps bin.id -> sink id. Sink ids are not BinIds (they're synthetic
+  // mapper-side identifiers built from target item ids), so values stay
+  // plain string.
+  const sinkByBinId = new Map<BinId, string>();
   const singletonTerminalBinByTargetItem = new Map<ItemId, Bin>();
   for (const bin of productionBins) {
     if (bin.recipeIds.length !== 1) continue;
@@ -164,6 +168,11 @@ export function mapPlanToFlowBinFused(
   // terminal-recipe edge rerouting into map construction time so the
   // greedy allocator and edge emission don't need to know about the
   // skip.
+  //
+  // `binId` here is a node-id union — either a real `BinId` (for active
+  // production bins) or a synthetic sink id (`createTargetSinkId(...)`
+  // for target sinks, `disposal-<recipeId>` for disposal sinks). Stays
+  // plain `string` because the consumer side mixes both kinds.
   type ProducerEntry = { binId: string; rate: number };
   type ConsumerEntry = { binId: string; rate: number };
   const producersByItem = new Map<ItemId, ProducerEntry[]>();
@@ -552,7 +561,9 @@ export function mapPlanToFlowBinFusedSeparated(
   // Building instance id: `${bin.id}-bldg${idx}`. We avoid the existing
   // `${recipeId}-f${idx}` convention because bin-instance != recipe-instance
   // and we don't want flow-utils' position-based regex to misinterpret.
-  const buildingInstanceId = (binId: string, idx: number): string =>
+  // Output stays plain `string` — the instance id is a derived synthetic
+  // ID, not itself a BinId.
+  const buildingInstanceId = (binId: BinId, idx: number): string =>
     `${binId}-bldg${idx}`;
 
   // Cycle-pair set for backward-edge tagging. Built from
@@ -582,17 +593,19 @@ export function mapPlanToFlowBinFusedSeparated(
 
   // Extract bin id from a per-building instance id ("bin-xxx-bldg0"
   // → "bin-xxx") or from a target/disposal sink id (no match — returns
-  // null and the caller treats the id as not-a-building).
-  const binIdFromInstanceId = (instanceId: string): string | null => {
+  // null and the caller treats the id as not-a-building). The matched
+  // prefix is always a real `BinId` because instance IDs are constructed
+  // from real bin IDs in `buildingInstanceId` above.
+  const binIdFromInstanceId = (instanceId: string): BinId | null => {
     const m = instanceId.match(/^(.+)-bldg\d+$/);
-    return m ? m[1] : null;
+    return m ? (m[1] as BinId) : null;
   };
 
   // Determine if an edge between two building-instances crosses a
   // detected-cycle boundary. Either direction of an SCC pair counts as
   // backward (symmetric — both directions of a 2-recipe cycle get the
   // tag, ELK's GREEDY strategy picks which to reverse).
-  const binsById = new Map<string, Bin>();
+  const binsById = new Map<BinId, Bin>();
   for (const bin of plan.bins) binsById.set(bin.id, bin);
   const isCycleEdge = (
     producerInstanceId: string,
