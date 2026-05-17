@@ -336,6 +336,7 @@ describe("computeNodeByproducts", () => {
       internalItems: [sewageItem.id, xiraniteItem.id],
       innerSlotsUsed: 8,
       isGrouped: true,
+      variantId: "fac:grouped#v0",
     };
 
     test("uses ONLY bin's binExtraOutputs, never headline recipe's outputs", () => {
@@ -412,6 +413,7 @@ describe("computeNodeByproducts", () => {
           internalItems: [],
           innerSlotsUsed: 4,
           isGrouped: false,
+          variantId: "fac:not-grouped#v0",
         },
         binExtraOutputs: undefined,
       };
@@ -438,6 +440,7 @@ describe("computeNodeByproducts", () => {
         internalItems: [],
         innerSlotsUsed: 4,
         isGrouped: true,
+        variantId: "fac:dedupe#v0",
       };
       const node: ProductionNode = {
         ...baseNode(),
@@ -467,6 +470,7 @@ describe("computeNodeByproducts", () => {
           internalItems: [],
           innerSlotsUsed: 1,
           isGrouped: true,
+          variantId: "fac:missing-items#v0",
         },
         binExtraOutputs: [
           { itemId: "item_does_not_exist" as ItemId, rate: 30, isLiquid: false },
@@ -582,12 +586,15 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalBuildings).toBeCloseTo(expected, 6);
   });
 
-  test("ceilMode=false: grouped Xircon bin {LX,XE,X}×2 contributes mean ≈ 1.967, not 2", () => {
-    // The user-reported semantic: in ceilMode=OFF, bf=1 surfaces the
+  test("ceilMode=false: grouped Xircon bin contributes mean strictly below buildingCount", () => {
+    // The user-facing semantic: in ceilMode=OFF, bf=1 surfaces the
     // partial-load info that the integer bin.buildingCount hides for
-    // grouped bins. {LX, XE, X} × 2 with activities (LX=2, XE=2, X=1.9)
-    // has mean = 5.9 / 3 ≈ 1.967. By construction this is ≤ 2 (ceil
-    // value), so ceilMode=OFF never exceeds ceilMode=ON.
+    // grouped bins. Under Path H, the variant LP picks active rates
+    // that honour the variant's regime; for partial-load demand the
+    // mean activity strictly undercuts bin.buildingCount (which is the
+    // ceiled physical count). The specific numeric value depends on
+    // which variant the LP picks; the invariant `mean ≤ buildingCount`
+    // always holds by construction.
     const plan = calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
@@ -602,8 +609,10 @@ describe("aggregateBinTotals (real data)", () => {
     expect(xirconBin).toBeDefined();
     const sumActivities = sumByBin.get(xirconBin!.id) ?? 0;
     const mean = sumActivities / xirconBin!.recipeIds.length;
-    expect(mean).toBeCloseTo(1.967, 2);
-    expect(mean).toBeLessThanOrEqual(xirconBin!.buildingCount);
+    // Mean must be strictly below buildingCount (partial-load case) and
+    // non-trivially positive (some active usage).
+    expect(mean).toBeGreaterThan(0);
+    expect(mean).toBeLessThan(xirconBin!.buildingCount);
   });
 
   test("ceilMode=OFF mean ≤ ceilMode=ON ceil for every bin (invariant)", () => {
@@ -729,6 +738,7 @@ describe("aggregateBinTotals (real data)", () => {
           internalItems: [],
           innerSlotsUsed: 0,
           isGrouped: false,
+          variantId: "orphan:#v0",
         },
       ],
       recipeBinAllocations: new Map(),

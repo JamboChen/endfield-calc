@@ -9,29 +9,76 @@
  * each building of that bin provides 1 slot of each constituent recipe
  * per cycle.
  *
- * Algorithm:
- *   1. Group recipes by facility. Per facility, enumerate all valid
- *      bin shapes (subsets of recipes with that facilityId or its
- *      twin variants — see `findRecipeAlternatives`) using DFS with
- *      cap-violation pruning.
+ * Path-H algorithm — shape variant enumeration with strict-equality
+ * demand matching:
+ *
+ *   1. Group recipes by facility. Per facility, enumerate every valid
+ *      bin **shape** (subset of recipes hostable on that facility).
+ *      For each shape, enumerate every cap-feasible **variant** — one
+ *      per possible internal/external/in/out classification of items
+ *      that are both produced AND consumed within the shape (the
+ *      "borderline" items). Each variant has a fixed canonical
+ *      rate-direction vector derived from the null space of its
+ *      internal-item equality matrix.
+ *
+ *      Variants whose port count exceeds facility caps are rejected at
+ *      enumeration time and never reach the LP — port safety is by
+ *      construction.
+ *
  *   2. For each pool of recipes that share equivalent I/O across
  *      facilities (e.g. `MIX_POOL_1` ↔ `MIX_POOL_2` byte-identical
- *      twins), expose all variants to the ILP so it can pick whichever
+ *      twins), expose all variants to the LP so it can pick whichever
  *      facility best amortizes power and building cost.
- *   3. Solve a lex two-pass MIP:
- *        - Pass 1: minimise total buildings (Σ x_t).
+ *
+ *   3. Solve a lex three-pass MIP over variants:
+ *        - Pass 1: minimise total buildings (Σ x_v).
  *        - Pass 2: minimise total power subject to pass-1 optimum.
- *   4. Emit `Bin[]` with per-bin net I/O metadata, plus a
- *      per-recipe `RecipeBinAllocation` distributing slot demand across
- *      the chosen bins.
+ *        - Pass 3: minimise total shape-size sum (compactness tiebreak)
+ *          subject to pass-1 + pass-2 optima.
+ *
+ *      Variables: integer `x_v ≥ 0` per variant (building count) +
+ *      continuous `u_v ≥ 0` per variant (scale factor for the variant's
+ *      canonical rate direction). Active rates: `y_r = u_v ×
+ *      rateDirection[r]`. Capacity: `u_v ≤ x_v`.
+ *
+ *      Demand coverage uses **strict equality**: `Σ_v u_v × dir_v[r] =
+ *      demand_r`. This guarantees the LP produces a plan whose recipe
+ *      rates EXACTLY match Phase 2's demand — no over-production, no
+ *      under-production. The variant combination required to meet
+ *      this may use more buildings than a slack-tolerant alternative,
+ *      but every emitted building physically runs at the rate Phase 2
+ *      provisioned.
+ *
+ *   4. Emit `Bin[]` directly from LP output (`x_v`, `u_v`).
+ *      Externals/internals are determined by the variant's classification;
+ *      rates are computed from the actual `u_v × rateDirection[r]` values.
  *
  * Recipes hosted by single-formula facilities (no `cacheSlots`) produce
  * a trivial singleton bin per recipe so downstream consumers always see
  * a uniform data shape.
+ *
+ * **Equality-LP infeasibility:** if Phase 2's demand ratios fall outside
+ * the conic hull of cap-feasible variant directions, the LP returns
+ * infeasible. In test mode this throws (it shouldn't happen on current
+ * game data); in production we fall back to `emitSingletonBins` for
+ * every recipe, which is always exact-match feasible.
+ *
+ * See `docs/path-h-design.md` for the full design rationale, the
+ * trade-offs (continuous-LP hybrid, sub-visible-variant filter), the
+ * rocky implementation history, and future-work directions.
+ *
+ * TODO(future): Path G (big-M indicator constraints in the MIP for
+ * per-variant port-cap enforcement) was considered but rejected for
+ * solver fragility on `javascript-lp-solver`. Path H trades a few extra
+ * variables for guaranteed LP-clean correctness. If empirical evidence
+ * later shows Path H's enumeration cost is a bottleneck for game data
+ * with many borderline items per shape, Path G remains a viable
+ * alternative.
  */
 
 import solver from "javascript-lp-solver";
 import { calcRate } from "@/lib/utils";
+import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import type {
   Item,
   Recipe,
@@ -46,7 +93,7 @@ import type {
 /** Numerical tolerance below which net flow is treated as zero (fully internal). */
 const NET_FLOW_EPSILON = 1e-9;
 
-/** Tolerance for treating slot demands as zero. Mirrors `LP_EPSILON` in lp-solver. */
+/** Tolerance for treating slot demands / active slot counts as zero. */
 const SLOT_DEMAND_EPSILON = 1e-9;
 
 /** Building-count slack added to lex pass 2's cap to absorb LP noise. */
@@ -60,6 +107,15 @@ const LEX_BUILDINGS_TOLERANCE = 1e-6;
  * swap a higher-power facility tier under the cap.
  */
 const LEX_POWER_TOLERANCE = 1e-3;
+
+/**
+ * Threshold for emitting a dev-console warning when a single shape
+ * produces an excessive number of variants. Signals that game data has
+ * grown beyond the original assumption (k ≤ 4 borderline items per
+ * shape, 3^k ≤ 81 regimes); if hit, consider tightening enumeration
+ * pruning.
+ */
+const VARIANT_COUNT_WARN_THRESHOLD = 100;
 
 export type PackingInput = {
   /** Per-recipe slot demands from Phase 2. */
@@ -88,16 +144,67 @@ export type PackingResult = {
   warnings: string[];
 };
 
-/** Bin "shape": a recipe subset hosted by one facility type. */
-type BinShape = {
+/**
+ * Classification of an item in a variant's regime.
+ *
+ * - `internal`: produced AND consumed inside the bin at exactly equal
+ *   rates; no port used. The LP adds an equality constraint on the
+ *   active slot variables.
+ * - `external-in`: net consumption > production; takes one liquid-in
+ *   (or belt-in) port slot. The LP adds a `≤ 0` inequality.
+ * - `external-out`: net production > consumption; takes one liquid-out
+ *   (or belt-out) port slot. The LP adds a `≥ 0` inequality.
+ */
+type ItemClassification = "internal" | "external-in" | "external-out";
+
+/**
+ * Shape variant: a recipe subset on a particular facility with a
+ * specific regime (per-item internal/external classification) AND a
+ * fixed rate-direction vector that the LP scales linearly.
+ *
+ * Each shape (recipe set + facility) may yield multiple variants. The
+ * LP picks among cap-feasible variants via per-variant scale variables
+ * `u_v ≥ 0` (one continuous per variant). Active recipe rates are
+ * `y_r = u_v × rateDirection[r]`.
+ *
+ * `rateDirection[r]` is the per-slot active-rate of recipe `r` per unit
+ * scale `u_v`. Computed at enumeration time from the null space of the
+ * variant's internal-item equality constraints. Always non-negative;
+ * normalised so the maximum component equals 1 (so the capacity
+ * constraint `u_v ≤ x_v` is in units of "max-utilisation building").
+ */
+type BinShapeVariant = {
+  /** Stable identifier: `${facilityId}:${recipeIds.join(",")}#v${idx}`. */
+  variantId: string;
   facility: Facility;
   /** Sorted recipe IDs (deterministic). */
   recipeIds: RecipeId[];
-  /** Cached net I/O at 1-slot-per-recipe rates. */
-  netInputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }>;
-  netOutputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }>;
-  internalItems: ItemId[];
+  /**
+   * Normalised rate-direction vector (one entry per recipe in order of
+   * `recipeIds`). The LP picks a scalar `u_v ≥ 0` and active rates are
+   * `y_r = rateDirection[r] * u_v`. Normalised so `max(rateDirection) = 1`
+   * → capacity constraint becomes simply `u_v ≤ x_v`.
+   */
+  rateDirection: number[];
+  /** Distinct item count occupying inner slots (shape-invariant). */
   innerSlotsUsed: number;
+};
+
+/**
+ * Stable signature for a recipe: sorted I/O lines plus crafting time.
+ * Excludes `id` and `facilityId` so byte-identical twins on different
+ * facilities collapse to the same signature.
+ */
+const recipeSignature = (r: Recipe): string => {
+  const ins = r.inputs
+    .map((i) => `${i.itemId}:${i.amount}`)
+    .sort()
+    .join(",");
+  const outs = r.outputs
+    .map((o) => `${o.itemId}:${o.amount}`)
+    .sort()
+    .join(",");
+  return `in:${ins}|out:${outs}|t:${r.craftingTime}`;
 };
 
 /**
@@ -119,139 +226,402 @@ const findRecipeAlternatives = (
 };
 
 /**
- * Stable signature for a recipe: sorted I/O lines plus crafting time.
- * Excludes `id` and `facilityId` so byte-identical twins on different
- * facilities collapse to the same signature.
- */
-const recipeSignature = (r: Recipe): string => {
-  const ins = r.inputs
-    .map((i) => `${i.itemId}:${i.amount}`)
-    .sort()
-    .join(",");
-  const outs = r.outputs
-    .map((o) => `${o.itemId}:${o.amount}`)
-    .sort()
-    .join(",");
-  return `in:${ins}|out:${outs}|t:${r.craftingTime}`;
-};
-
-/**
- * Compute the net per-slot I/O of a candidate recipe set, treating each
- * recipe as contributing exactly 1 slot. Returns `null` if the
- * combination violates the facility's inner-slot or port budget.
+ * Compute the per-item-per-recipe coefficient matrix for a recipe set.
+ * Coefficient = output_rate − input_rate at 1 active slot per recipe.
  *
- * Distinct-item port caps are derived from buffer counts:
- *   - liquid-in  = `buffersIn.pipe.length`
- *   - liquid-out = `buffersOut.pipe.length`
- *   - belt-out   = `buffersOut.belt.length`
- *
- * Belt-input variety is intentionally uncapped wrt bin packing; throughput
- * is validated separately during post-pass.
+ * Returns `null` if the recipe set's distinct item count exceeds the
+ * facility's inner-slot budget (shape-level invariant).
  */
-const buildBinShape = (
+const buildItemCoefficients = (
   recipes: Recipe[],
   facility: Facility,
-  itemMap: Map<ItemId, Item>,
-): BinShape | null => {
+): {
+  coeffs: Map<ItemId, Map<RecipeId, number>>;
+  itemsTouched: Set<ItemId>;
+} | null => {
   const innerSlots = facility.cacheSlots;
   if (innerSlots == null) return null;
 
-  // Per-item net rate at 1 slot per recipe.
-  const netRates = new Map<ItemId, number>();
-  const itemTouched = new Set<ItemId>();
+  const coeffs = new Map<ItemId, Map<RecipeId, number>>();
+  const itemsTouched = new Set<ItemId>();
+
+  const addCoeff = (itemId: ItemId, recipeId: RecipeId, delta: number) => {
+    let row = coeffs.get(itemId);
+    if (!row) {
+      row = new Map();
+      coeffs.set(itemId, row);
+    }
+    row.set(recipeId, (row.get(recipeId) ?? 0) + delta);
+  };
+
   for (const r of recipes) {
     for (const inp of r.inputs) {
-      itemTouched.add(inp.itemId);
-      netRates.set(
-        inp.itemId,
-        (netRates.get(inp.itemId) ?? 0) - calcRate(inp.amount, r.craftingTime),
-      );
+      itemsTouched.add(inp.itemId);
+      addCoeff(inp.itemId, r.id, -calcRate(inp.amount, r.craftingTime));
     }
     for (const out of r.outputs) {
-      itemTouched.add(out.itemId);
-      netRates.set(
-        out.itemId,
-        (netRates.get(out.itemId) ?? 0) + calcRate(out.amount, r.craftingTime),
-      );
+      itemsTouched.add(out.itemId);
+      addCoeff(out.itemId, r.id, calcRate(out.amount, r.craftingTime));
     }
   }
 
-  if (itemTouched.size > innerSlots) return null;
-
-  const netInputs: BinShape["netInputs"] = [];
-  const netOutputs: BinShape["netOutputs"] = [];
-  const internalItems: ItemId[] = [];
-
-  let liquidIn = 0;
-  let liquidOut = 0;
-  let beltOut = 0;
-
-  for (const itemId of itemTouched) {
-    const net = netRates.get(itemId) ?? 0;
-    const item = itemMap.get(itemId);
-    const isLiquid = item?.isLiquid ?? false;
-
-    if (Math.abs(net) <= NET_FLOW_EPSILON) {
-      internalItems.push(itemId);
-      continue;
-    }
-    if (net < 0) {
-      const rate = -net;
-      netInputs.push({ itemId, rate, isLiquid });
-      if (isLiquid) liquidIn += 1;
-    } else {
-      netOutputs.push({ itemId, rate: net, isLiquid });
-      if (isLiquid) liquidOut += 1;
-      else beltOut += 1;
-    }
-  }
-
-  if (liquidIn > facility.buffersIn.pipe.length) return null;
-  if (liquidOut > facility.buffersOut.pipe.length) return null;
-  if (beltOut > facility.buffersOut.belt.length) return null;
-
-  // Sort for deterministic output.
-  const byItemId = (
-    a: { itemId: ItemId },
-    b: { itemId: ItemId },
-  ) => (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0);
-  netInputs.sort(byItemId);
-  netOutputs.sort(byItemId);
-  internalItems.sort();
-
-  return {
-    facility,
-    recipeIds: recipes.map((r) => r.id).sort(),
-    netInputs,
-    netOutputs,
-    internalItems,
-    innerSlotsUsed: itemTouched.size,
-  };
+  if (itemsTouched.size > innerSlots) return null;
+  return { coeffs, itemsTouched };
 };
 
 /**
- * DFS subset enumeration with cap-violation pruning. Yields every valid
- * `BinShape` (size 1..|R|) that fits within the facility's inner-slot
- * and port budget.
+ * Classify items into three pools based on their participation in the
+ * recipe set's I/O:
  *
- * Pruning: at each step we extend the current subset by adding a recipe
- * whose index is greater than the last (combinations, not permutations)
- * AND whose addition keeps `union of items ≤ cacheSlots`. We always
- * verify port caps via `buildBinShape` since net I/O can only be
- * computed once the full set is known (item production and consumption
- * across recipes can cancel).
+ *   - `alwaysIn`: only consumed (no producer in this shape) → always
+ *     external IN. No regime choice.
+ *   - `alwaysOut`: only produced (no consumer in this shape) → always
+ *     external OUT. No regime choice.
+ *   - `borderline`: both produced AND consumed → classification depends
+ *     on relative active rates. Enumerated as `internal` / `external-in`
+ *     / `external-out` per variant.
  */
-const enumerateBinShapes = (
+const classifyItems = (
+  coeffs: Map<ItemId, Map<RecipeId, number>>,
+): {
+  alwaysIn: ItemId[];
+  alwaysOut: ItemId[];
+  borderline: ItemId[];
+} => {
+  const alwaysIn: ItemId[] = [];
+  const alwaysOut: ItemId[] = [];
+  const borderline: ItemId[] = [];
+
+  for (const [itemId, row] of coeffs.entries()) {
+    let hasProducer = false;
+    let hasConsumer = false;
+    for (const c of row.values()) {
+      if (c > NET_FLOW_EPSILON) hasProducer = true;
+      else if (c < -NET_FLOW_EPSILON) hasConsumer = true;
+    }
+    if (hasProducer && hasConsumer) borderline.push(itemId);
+    else if (hasConsumer) alwaysIn.push(itemId);
+    else if (hasProducer) alwaysOut.push(itemId);
+    // Else: item appears with coefficient zero (defensive; should be unreachable).
+  }
+
+  // Deterministic order matters for variant id stability.
+  alwaysIn.sort();
+  alwaysOut.sort();
+  borderline.sort();
+  return { alwaysIn, alwaysOut, borderline };
+};
+
+/**
+ * Compute a canonical rate-direction vector for a candidate variant
+ * (the ratios at which the variant's recipes co-run), OR return `null`
+ * if the variant is parametrically infeasible (no positive solution
+ * satisfies the regime constraints).
+ *
+ * Method:
+ *   1. Build the equality constraint matrix `A` from the variant's
+ *      internal-item classifications: each internal item gives one row.
+ *   2. Compute the null space of `A` via Gaussian elimination with back-
+ *      substitution. The null space is the set of rate-vectors that
+ *      respect all internal-item equalities.
+ *   3. If the null space is 0-dimensional → `rank(A) = n` → only `y=0`
+ *      satisfies → reject.
+ *   4. If non-empty: pick the first basis vector. If it has a negative
+ *      component, negate it (we need a non-negative direction). If after
+ *      sign-fixing some component remains negative, the variant has no
+ *      strictly-positive ray → reject.
+ *   5. Normalise so `max(component) = 1` for clean capacity scaling.
+ *
+ * Variants with rank < n − 1 (multiple free directions) get the FIRST
+ * basis vector. This collapses each variant to a single ray; some
+ * theoretically-better allocations within the variant's cone may be
+ * unreachable, but in practice the LP can still combine variants to
+ * cover any demand.
+ */
+const computeVariantRateDirection = (
+  recipes: RecipeId[],
+  coeffs: Map<ItemId, Map<RecipeId, number>>,
+  classification: Map<ItemId, ItemClassification>,
+): number[] | null => {
+  const n = recipes.length;
+  if (n === 0) return null;
+
+  // Collect rows: one per internal item, indexed by recipe order.
+  const rowsRaw: number[][] = [];
+  for (const [itemId, kind] of classification.entries()) {
+    if (kind !== "internal") continue;
+    const coeffRow = coeffs.get(itemId);
+    if (!coeffRow) continue;
+    const row = new Array<number>(n).fill(0);
+    let nonZero = false;
+    recipes.forEach((rid, i) => {
+      const c = coeffRow.get(rid) ?? 0;
+      row[i] = c;
+      if (Math.abs(c) > NET_FLOW_EPSILON) nonZero = true;
+    });
+    if (nonZero) rowsRaw.push(row);
+  }
+
+  // No equality constraints → all-positive direction is feasible.
+  // Default: equal weights for all recipes.
+  if (rowsRaw.length === 0) {
+    return new Array<number>(n).fill(1);
+  }
+
+  // Gaussian elimination to row-echelon form, tracking pivot columns.
+  const k = rowsRaw.length;
+  const m = new Array<number[]>(k);
+  for (let i = 0; i < k; i++) m[i] = rowsRaw[i].slice();
+
+  const pivotCols: number[] = [];
+  let row = 0;
+  let col = 0;
+  while (row < k && col < n) {
+    // Find pivot.
+    let pivot = row;
+    let pivotAbs = Math.abs(m[pivot][col]);
+    for (let r = row + 1; r < k; r++) {
+      const v = Math.abs(m[r][col]);
+      if (v > pivotAbs) {
+        pivot = r;
+        pivotAbs = v;
+      }
+    }
+    if (pivotAbs <= NET_FLOW_EPSILON) {
+      col += 1;
+      continue;
+    }
+    if (pivot !== row) {
+      const tmp = m[row];
+      m[row] = m[pivot];
+      m[pivot] = tmp;
+    }
+    // Eliminate above and below to get reduced row-echelon form.
+    for (let r = 0; r < k; r++) {
+      if (r === row) continue;
+      const factor = m[r][col] / m[row][col];
+      if (Math.abs(factor) <= NET_FLOW_EPSILON) continue;
+      for (let c = col; c < n; c++) {
+        m[r][c] -= factor * m[row][c];
+      }
+    }
+    pivotCols.push(col);
+    row += 1;
+    col += 1;
+  }
+
+  const rank = pivotCols.length;
+  if (rank >= n) return null; // Only zero solution.
+
+  // Identify free columns (non-pivot columns).
+  const isPivot = new Set(pivotCols);
+  const freeCols: number[] = [];
+  for (let c = 0; c < n; c++) if (!isPivot.has(c)) freeCols.push(c);
+
+  // Build the first null-space basis vector: set the first free column
+  // to 1, other free columns to 0, then back-substitute for pivot columns.
+  const direction = new Array<number>(n).fill(0);
+  direction[freeCols[0]] = 1;
+  // For each pivot row, the pivot column variable is determined by the
+  // free column choices. m[row][pivotCol] * x_pivot + sum(m[row][c] * x_c
+  // for c in free) = 0 → x_pivot = -sum(...) / m[row][pivotCol].
+  for (let r = 0; r < rank; r++) {
+    const pivotCol = pivotCols[r];
+    let sum = 0;
+    for (const fc of freeCols) {
+      sum += m[r][fc] * direction[fc];
+    }
+    direction[pivotCol] = -sum / m[r][pivotCol];
+  }
+
+  // Sign-fix: if all non-zero components share a sign, normalise to
+  // positive. If mixed signs, the variant has no strictly-positive ray
+  // → reject.
+  let hasPos = false;
+  let hasNeg = false;
+  for (const v of direction) {
+    if (v > NET_FLOW_EPSILON) hasPos = true;
+    else if (v < -NET_FLOW_EPSILON) hasNeg = true;
+  }
+  if (hasPos && hasNeg) return null;
+  if (hasNeg) {
+    for (let i = 0; i < n; i++) direction[i] = -direction[i];
+  }
+
+  // Normalise so max component = 1.
+  let maxAbs = 0;
+  for (const v of direction) if (v > maxAbs) maxAbs = v;
+  if (maxAbs <= NET_FLOW_EPSILON) return null;
+  for (let i = 0; i < n; i++) direction[i] /= maxAbs;
+
+  // Clamp tiny negatives to zero (FP noise).
+  for (let i = 0; i < n; i++) {
+    if (direction[i] < 0) direction[i] = 0;
+  }
+
+  // Verify the direction respects the variant's classifications.
+  // For each item: net flow at the canonical direction must match the
+  // declared regime (internal = 0, external-in < 0, external-out > 0).
+  // Catches cases where the picked null-space basis vector implies
+  // flows inconsistent with the regime (e.g., a free dimension chose
+  // y_LX=1, y_XE=0 but the variant declared "liq_xiranite external-in"
+  // which requires LX < XE).
+  for (const [itemId, kind] of classification.entries()) {
+    const row = coeffs.get(itemId);
+    if (!row) continue;
+    let net = 0;
+    recipes.forEach((rid, i) => {
+      const c = row.get(rid) ?? 0;
+      net += c * direction[i];
+    });
+    if (kind === "internal") {
+      if (Math.abs(net) > NET_FLOW_EPSILON) return null;
+    } else if (kind === "external-in") {
+      if (net > -NET_FLOW_EPSILON) return null;
+    } else {
+      if (net < NET_FLOW_EPSILON) return null;
+    }
+  }
+
+  return direction;
+};
+
+/**
+ * Enumerate every cap-feasible variant for a given (recipes, facility)
+ * combination. Returns an empty array if the shape itself doesn't fit
+ * the inner-slot budget, or if no regime satisfies the port caps.
+ */
+const buildBinShapeVariants = (
   recipes: Recipe[],
   facility: Facility,
   itemMap: Map<ItemId, Item>,
-): BinShape[] => {
+): BinShapeVariant[] => {
+  const coeffsResult = buildItemCoefficients(recipes, facility);
+  if (!coeffsResult) return [];
+  const { coeffs, itemsTouched } = coeffsResult;
+  const { alwaysIn, alwaysOut, borderline } = classifyItems(coeffs);
+
+  // Fixed port costs from always-external items.
+  let fixedLiqIn = 0;
+  let fixedBeltIn = 0;
+  let fixedLiqOut = 0;
+  let fixedBeltOut = 0;
+  for (const id of alwaysIn) {
+    const isLiq = itemMap.get(id)?.isLiquid ?? false;
+    if (isLiq) fixedLiqIn += 1;
+    else fixedBeltIn += 1;
+  }
+  for (const id of alwaysOut) {
+    const isLiq = itemMap.get(id)?.isLiquid ?? false;
+    if (isLiq) fixedLiqOut += 1;
+    else fixedBeltOut += 1;
+  }
+  void fixedBeltIn; // Belt-input variety is uncapped.
+
+  // Quick reject: always-external items alone exceed caps.
+  if (fixedLiqIn > facility.buffersIn.pipe.length) return [];
+  if (fixedLiqOut > facility.buffersOut.pipe.length) return [];
+  if (fixedBeltOut > facility.buffersOut.belt.length) return [];
+
+  const sortedRecipeIds = recipes.map((r) => r.id).sort();
+  const shapeIdPrefix = `${facility.id}:${sortedRecipeIds.join(",")}`;
+
+  // Each borderline item has 3 choices: internal / external-in / external-out.
+  // Total regimes: 3^k. For typical k ≤ 4 in real game data, that's ≤ 81.
+  // Enumerate via DFS with cap-violation pruning to avoid useless work.
+  const variants: BinShapeVariant[] = [];
+  let nextVariantIdx = 0;
+
+  const options: ItemClassification[] = ["internal", "external-in", "external-out"];
+
+  const dfs = (
+    pos: number,
+    classification: Map<ItemId, ItemClassification>,
+    liqIn: number,
+    liqOut: number,
+    beltOut: number,
+  ) => {
+    if (pos === borderline.length) {
+      // Leaf: assemble variant if regime is parametrically feasible.
+      // Build full classification map (always-* + borderline choices).
+      const fullClass = new Map<ItemId, ItemClassification>(classification);
+      for (const id of alwaysIn) fullClass.set(id, "external-in");
+      for (const id of alwaysOut) fullClass.set(id, "external-out");
+
+      const direction = computeVariantRateDirection(
+        sortedRecipeIds,
+        coeffs,
+        fullClass,
+      );
+      if (!direction) return;
+
+      const variantId = `${shapeIdPrefix}#v${nextVariantIdx++}`;
+      variants.push({
+        variantId,
+        facility,
+        recipeIds: sortedRecipeIds,
+        rateDirection: direction,
+        innerSlotsUsed: itemsTouched.size,
+      });
+      return;
+    }
+
+    const itemId = borderline[pos];
+    const isLiq = itemMap.get(itemId)?.isLiquid ?? false;
+    for (const opt of options) {
+      let newLiqIn = liqIn;
+      let newLiqOut = liqOut;
+      let newBeltOut = beltOut;
+      if (opt === "external-in") {
+        if (isLiq) newLiqIn += 1;
+        // Belt-in not capped.
+      } else if (opt === "external-out") {
+        if (isLiq) newLiqOut += 1;
+        else newBeltOut += 1;
+      }
+      // Prune on cap violation.
+      if (newLiqIn > facility.buffersIn.pipe.length) continue;
+      if (newLiqOut > facility.buffersOut.pipe.length) continue;
+      if (newBeltOut > facility.buffersOut.belt.length) continue;
+
+      classification.set(itemId, opt);
+      dfs(pos + 1, classification, newLiqIn, newLiqOut, newBeltOut);
+      classification.delete(itemId);
+    }
+  };
+
+  dfs(0, new Map(), fixedLiqIn, fixedLiqOut, fixedBeltOut);
+
+  if (variants.length > VARIANT_COUNT_WARN_THRESHOLD && import.meta.env?.DEV) {
+    console.warn(
+      `[BIN_PACKING] Shape ${shapeIdPrefix} produced ${variants.length} variants ` +
+        `(threshold ${VARIANT_COUNT_WARN_THRESHOLD}). Consider tightening enumeration.`,
+    );
+  }
+
+  return variants;
+};
+
+/**
+ * Enumerate every (shape, variant) pair across every (subset, facility)
+ * combination. Uses DFS with inner-slot pruning to enumerate subsets,
+ * and `buildBinShapeVariants` to enumerate regimes per subset.
+ */
+const enumerateAllVariants = (
+  recipes: Recipe[],
+  facility: Facility,
+  itemMap: Map<ItemId, Item>,
+): BinShapeVariant[] => {
   const innerSlots = facility.cacheSlots;
   if (innerSlots == null || recipes.length === 0) return [];
 
-  const shapes: BinShape[] = [];
+  const allVariants: BinShapeVariant[] = [];
   const itemsTouchedBy = recipes.map(
-    (r) => new Set([...r.inputs.map((i) => i.itemId), ...r.outputs.map((o) => o.itemId)]),
+    (r) =>
+      new Set([
+        ...r.inputs.map((i) => i.itemId),
+        ...r.outputs.map((o) => o.itemId),
+      ]),
   );
 
   const dfs = (
@@ -260,12 +630,9 @@ const enumerateBinShapes = (
     unionItems: Set<ItemId>,
   ) => {
     if (chosen.length > 0) {
-      const shape = buildBinShape(
-        chosen.map((i) => recipes[i]),
-        facility,
-        itemMap,
-      );
-      if (shape) shapes.push(shape);
+      const subset = chosen.map((i) => recipes[i]);
+      const variants = buildBinShapeVariants(subset, facility, itemMap);
+      allVariants.push(...variants);
     }
 
     for (let i = startIdx; i < recipes.length; i++) {
@@ -279,7 +646,7 @@ const enumerateBinShapes = (
   };
 
   dfs(0, [], new Set());
-  return shapes;
+  return allVariants;
 };
 
 /**
@@ -292,26 +659,22 @@ const enumerateBinShapes = (
  * Phase 3 should consider both `_1` and `_2` so it can pack into
  * the larger variant when beneficial.
  */
-const buildEquivalenceClasses = (
-  recipeSlotDemands: Map<RecipeId, number>,
-  recipeMap: Map<RecipeId, Recipe>,
-): Array<{
+type EquivalenceClass = {
   slotDemand: number;
   alternatives: Recipe[];
   canonicalRecipe: Recipe;
-  /** Per-original-demand-recipe slot count, used by allocator to key
-   * allocations by Phase 2's recipe id (not the physical twin chosen
-   * by the ILP). */
+  /** Per-original-demand-recipe slot count, used to key allocations
+   * by Phase 2's recipe id (not the physical twin chosen by the ILP). */
   demandByRecipeId: Map<RecipeId, number>;
-}> => {
+};
+
+const buildEquivalenceClasses = (
+  recipeSlotDemands: Map<RecipeId, number>,
+  recipeMap: Map<RecipeId, Recipe>,
+): EquivalenceClass[] => {
   const allRecipes = Array.from(recipeMap.values());
-  const visitedSignatures = new Map<string, number>(); // sig → class index
-  const classes: Array<{
-    slotDemand: number;
-    alternatives: Recipe[];
-    canonicalRecipe: Recipe;
-    demandByRecipeId: Map<RecipeId, number>;
-  }> = [];
+  const visitedSignatures = new Map<string, number>();
+  const classes: EquivalenceClass[] = [];
 
   for (const [recipeId, slotDemand] of recipeSlotDemands.entries()) {
     if (slotDemand <= SLOT_DEMAND_EPSILON) continue;
@@ -344,71 +707,172 @@ const makeBinId = (
 ): string => `bin-${facilityId}-${recipeIds.join("-")}-${index}`;
 
 /**
- * Solve the integer LP that packs slot demands into bins.
+ * Solve the LP that packs slot demands into variant-defined bins.
  *
- * Variables: one integer `x_t ≥ 0` per `BinShape`.
- * Constraints: for each equivalence class (set of substitutable recipes),
- *   `Σ_{t containing any class member} x_t ≥ totalSlotDemand`.
- * Lex pass 1 minimises total buildings. Pass 2 minimises power among
- * building-optimal solutions.
+ * Variables:
+ *   - `x_v ∈ ℤ≥0` per variant: number of buildings of this variant.
+ *   - `u_v ∈ ℝ≥0` per variant: scale factor for the variant's canonical
+ *     rate direction. Active recipe rates are `u_v × rateDirection[r]`.
+ *
+ * Constraints:
+ *   - Capacity: `u_v ≤ x_v` (capacity in units of "max-utilisation
+ *     building"; the `rateDirection` is normalised so `max = 1`).
+ *   - Demand coverage: for each equivalence class and each pinned
+ *     demand-recipe, `Σ_v u_v × rateDirection[r] = demand_r` (strict
+ *     equality). The LP must find a non-negative combination of
+ *     variant directions whose weighted sum exactly matches Phase 2's
+ *     demand vector — no over-production, no under-production.
+ *
+ * No explicit regime constraints are needed: each variant's rate
+ * direction already respects its internal/external classification by
+ * construction (computed from the null space of the equality matrix).
+ *
+ * Lex passes: minimise buildings → power → shape-size sum. No Pass 4
+ * for over-provisioning: with strict equality, `Σ_v u_v × dir_v[r] =
+ * demand_r` is binding and y is fully determined.
+ *
+ * **IMPORTANT — strict equality is maintained MODULO sub-visible
+ * variants.** The emission loop filters variants whose max recipe
+ * rate falls below `MIN_VISIBLE_RATE_PER_MIN` (see filter rationale
+ * below). Dropped variants leave the actual emitted bin total at
+ * `demand_r − ε_drop` rather than exactly `demand_r`. The drift per
+ * dropped variant is < `0.001/min`; cumulative drift across a plan
+ * has been < `0.005/min` in all observed cases. Below user-visible
+ * granularity, but technically a deviation from the LP's equality
+ * contract. See `docs/path-h-design.md` for the full rationale and
+ * known future-work directions.
  */
 type SolveOutput = {
-  shapeCounts: Map<BinShape, number>;
+  buildingCounts: Map<BinShapeVariant, number>;
+  /** Per (variant, recipe) active slot count from the LP solution. */
+  activeSlots: Map<BinShapeVariant, Map<RecipeId, number>>;
   totalBuildings: number;
   totalPower: number;
 };
 
 const solvePacking = (
-  shapes: BinShape[],
-  classes: Array<{
-    slotDemand: number;
-    alternatives: Recipe[];
-    canonicalRecipe: Recipe;
-    demandByRecipeId: Map<RecipeId, number>;
-  }>,
+  variants: BinShapeVariant[],
+  classes: EquivalenceClass[],
   recipeOverrides: Map<ItemId, RecipeId> | undefined,
+  recipeMap: Map<RecipeId, Recipe>,
 ): SolveOutput | null => {
-  if (shapes.length === 0 || classes.length === 0) {
-    return { shapeCounts: new Map(), totalBuildings: 0, totalPower: 0 };
+  if (variants.length === 0 || classes.length === 0) {
+    return {
+      buildingCounts: new Map(),
+      activeSlots: new Map(),
+      totalBuildings: 0,
+      totalPower: 0,
+    };
   }
 
-  // Map var-name → BinShape (order-stable).
-  const shapeByVar = new Map<string, BinShape>();
-  shapes.forEach((s, i) => shapeByVar.set(`x_${i}`, s));
+  // Variable naming: x_<varIdx> (integer building count), u_<varIdx>
+  // (continuous scale factor for variant's rate direction).
+  const xVarByVariant = new Map<BinShapeVariant, string>();
+  const uVarByVariant = new Map<BinShapeVariant, string>();
+  variants.forEach((v, vi) => {
+    xVarByVariant.set(v, `x_${vi}`);
+    uVarByVariant.set(v, `u_${vi}`);
+  });
 
-  // Build LP constraints per equivalence class. The formulation has two
-  // levels of constraints per class:
-  //
-  //   1. **Per-pin restricted** (one per pinned demand-recipe in the
-  //      class): `Σ_{shapes containing pin} x_t ≥ pin_demand`. Forces
-  //      the ILP to build enough facility-restricted shapes to cover
-  //      the demand attributable to each user-pinned variant.
-  //   2. **Class-wide total** (one per class): `Σ_{any class shape} x_t
-  //      ≥ Σ_demands_in_class`. Ensures the total slot supply across
-  //      the class meets total demand. Shapes serving a pin also count
-  //      toward the total — the LP can pack pinned-only or
-  //      pinned+substitute as it prefers (subject to lex passes).
-  //
-  // The split honours per-pin user intent (e.g. "tier-1 facility for
-  // item_a, tier-2 facility for item_b" when items share an equivalence
-  // class) instead of collapsing all demand onto the last-iterated pin,
-  // while preserving free substitution among non-pinned demand for the
-  // common no-conflict case.
-  //
-  // A demand-recipe is "pinned" iff some `recipeOverrides` entry's
-  // recipe id equals it. The override key (which item the user pinned)
-  // doesn't matter — only the chosen recipe variant.
-  const classMembership: Array<{
-    name: string;
-    rhs: number;
-    shapeIdxs: number[];
-    classIdx: number;
-  }> = [];
+  type Model = {
+    optimize: string;
+    opType: "min";
+    constraints: Record<string, { min?: number; max?: number; equal?: number }>;
+    variables: Record<string, Record<string, number>>;
+    /**
+     * Variables to treat as integer. Populated with x_v entries when
+     * the variant count is small enough for the integer MIP to solve
+     * quickly (see `USE_INTEGER_LP` threshold). For very large variant
+     * sets we drop integer constraints and round x_v up post-hoc to
+     * avoid pathological B&B runtimes.
+     */
+    ints: Record<string, 1>;
+  };
 
-  classes.forEach((cls, classIdx) => {
+  const variables: Model["variables"] = {};
+  const constraints: Model["constraints"] = {};
+  const ints: Model["ints"] = {};
+
+  // Initialise variable coefficient blocks. x carries the building/
+  // power/shape-size weights; u has no objective contribution.
+  //
+  // Integer x is the structurally-correct formulation (buildings are
+  // physical). We solve as integer MIP when the variant count is
+  // tractable; for very large problems (40+ variants and complex
+  // demand structure) we fall back to continuous-relaxation + round-
+  // up below.
+  for (const v of variants) {
+    const xName = xVarByVariant.get(v)!;
+    variables[xName] = {
+      buildings: 1,
+      power: v.facility.powerConsumption,
+      shape_size: v.recipeIds.length,
+    };
+    ints[xName] = 1;
+    const uName = uVarByVariant.get(v)!;
+    variables[uName] = {};
+  }
+
+  // Decide between integer MIP and continuous-LP-relaxation paths.
+  //
+  // Branch-and-bound on `javascript-lp-solver` scales poorly along
+  // two dimensions:
+  //   1. **Variant count**: each additional integer variable doubles
+  //      worst-case search depth. At ~35+ variants under strict
+  //      equality, B&B can take 90+ seconds.
+  //   2. **Max class demand**: each `x_v` can range from 0 to
+  //      `ceil(max_class_demand)`. Plans with high demand (e.g.,
+  //      30+ slots for some recipe) have integer search spaces
+  //      thousands of times wider than low-demand plans, even with
+  //      few variants.
+  //
+  // For typical 1-3 target plans both metrics are small (≤ 15
+  // variants, max demand ≤ 5). Integer MIP is fast and gives
+  // optimal building counts.
+  //
+  // For complex plans (many targets, or high-rate single targets),
+  // either metric can explode. The continuous relaxation + round-up
+  // path is much faster but may over-provision by ≤ 1 building per
+  // fractional variant — acceptable given the alternative is 90+
+  // second solves.
+  //
+  // Thresholds are empirical. If you tune them: lower → safer for
+  // perf, higher → tighter building-count optimality.
+  let maxClassDemand = 0;
+  for (const cls of classes) {
+    if (cls.slotDemand > maxClassDemand) maxClassDemand = cls.slotDemand;
+  }
+  const USE_INTEGER_LP = variants.length < 30 && maxClassDemand < 10;
+  const lpInts: Model["ints"] = USE_INTEGER_LP ? ints : {};
+
+  let cIdx = 0;
+
+  // Capacity: u_v ≤ x_v. Since rate direction is normalised so
+  // max = 1, this bounds active rates by the building count.
+  for (const v of variants) {
+    const xName = xVarByVariant.get(v)!;
+    const uName = uVarByVariant.get(v)!;
+    const cName = `cap_${cIdx++}`;
+    constraints[cName] = { max: 0 };
+    variables[uName][cName] = 1;
+    variables[xName][cName] = -1;
+  }
+
+  // Demand coverage. Per equivalence class:
+  //
+  //   1. Per-pin restricted: for each pinned demand recipe, sum across
+  //      variants containing that pin of `u_v × rateDirection[pin]`
+  //      must be ≥ the pin's demand.
+  //   2. Class-wide total: sum across all (variant, class-member)
+  //      pairs of `u_v × rateDirection[r]` must be ≥ class's total
+  //      slot demand.
+  //
+  // If any class or pin has no available variants, the LP is structurally
+  // infeasible — fall back early.
+  for (let classIdx = 0; classIdx < classes.length; classIdx++) {
+    const cls = classes[classIdx];
     const classRecipeIds = new Set<RecipeId>(cls.alternatives.map((r) => r.id));
 
-    // Identify demand-recipes that are pinned by any user override.
     const pinnedDemandIds = new Set<RecipeId>();
     if (recipeOverrides) {
       for (const overrideRecipeId of recipeOverrides.values()) {
@@ -418,75 +882,55 @@ const solvePacking = (
       }
     }
 
-    // Per-pin restricted constraint.
+    // Per-pin restricted.
     for (const pinId of pinnedDemandIds) {
       const pinDemand = cls.demandByRecipeId.get(pinId) ?? 0;
       if (pinDemand <= SLOT_DEMAND_EPSILON) continue;
-      const shapeIdxs: number[] = [];
-      shapes.forEach((shape, idx) => {
-        if (shape.recipeIds.includes(pinId)) shapeIdxs.push(idx);
-      });
-      classMembership.push({
-        name: `cls_${classIdx}_pin_${pinId}`,
-        rhs: pinDemand,
-        shapeIdxs,
-        classIdx,
-      });
-    }
-
-    // Class-wide total constraint.
-    const totalShapeIdxs: number[] = [];
-    shapes.forEach((shape, idx) => {
-      for (const rid of shape.recipeIds) {
-        if (classRecipeIds.has(rid)) {
-          totalShapeIdxs.push(idx);
-          return;
+      let hasAnyVar = false;
+      for (const v of variants) {
+        if (v.recipeIds.includes(pinId)) {
+          hasAnyVar = true;
+          break;
         }
       }
-    });
-    classMembership.push({
-      name: `cls_${classIdx}_total`,
-      rhs: cls.slotDemand,
-      shapeIdxs: totalShapeIdxs,
-      classIdx,
-    });
-  });
+      if (!hasAnyVar) return null;
 
-  // If any constraint has no shapes (e.g. a pin restricts to a recipe
-  // with no valid shape on its facility, or a class has no shapes at
-  // all), packing is infeasible.
-  for (const cm of classMembership) {
-    if (cm.shapeIdxs.length === 0) return null;
-  }
-
-  type Model = {
-    optimize: string;
-    opType: "min";
-    constraints: Record<string, { min?: number; max?: number; equal?: number }>;
-    variables: Record<string, Record<string, number>>;
-    ints: Record<string, 1>;
-  };
-
-  const variables: Model["variables"] = {};
-  const ints: Model["ints"] = {};
-  shapes.forEach((shape, idx) => {
-    const varName = `x_${idx}`;
-    const coefs: Record<string, number> = {
-      buildings: 1,
-      power: shape.facility.powerConsumption,
-    };
-    variables[varName] = coefs;
-    ints[varName] = 1;
-  });
-  for (const cm of classMembership) {
-    for (const idx of cm.shapeIdxs) {
-      variables[`x_${idx}`][cm.name] = 1;
+      const cName = `cls_${classIdx}_pin_${pinId}`;
+      constraints[cName] = { equal: pinDemand };
+      for (const v of variants) {
+        const recipeIdx = v.recipeIds.indexOf(pinId);
+        if (recipeIdx < 0) continue;
+        const coeff = v.rateDirection[recipeIdx];
+        if (coeff <= NET_FLOW_EPSILON) continue;
+        const uName = uVarByVariant.get(v)!;
+        variables[uName][cName] = (variables[uName][cName] ?? 0) + coeff;
+      }
     }
-  }
 
-  const constraints: Model["constraints"] = {};
-  for (const cm of classMembership) {
-    constraints[cm.name] = { min: cm.rhs };
+    // Class-wide total.
+    let hasAnyClassVar = false;
+    for (const v of variants) {
+      for (const rid of v.recipeIds) {
+        if (classRecipeIds.has(rid)) {
+          hasAnyClassVar = true;
+          break;
+        }
+      }
+      if (hasAnyClassVar) break;
+    }
+    if (!hasAnyClassVar) return null;
+
+    const cName = `cls_${classIdx}_total`;
+    constraints[cName] = { equal: cls.slotDemand };
+    for (const v of variants) {
+      const uName = uVarByVariant.get(v)!;
+      v.recipeIds.forEach((rid, ri) => {
+        if (!classRecipeIds.has(rid)) return;
+        const coeff = v.rateDirection[ri];
+        if (coeff <= NET_FLOW_EPSILON) return;
+        variables[uName][cName] = (variables[uName][cName] ?? 0) + coeff;
+      });
+    }
   }
 
   // Pass 1: minimise total buildings.
@@ -495,7 +939,7 @@ const solvePacking = (
     opType: "min",
     constraints,
     variables,
-    ints,
+    ints: lpInts,
   };
   let r1: Record<string, number | boolean | undefined>;
   try {
@@ -506,7 +950,38 @@ const solvePacking = (
     }
     return null;
   }
-  if (r1.feasible !== true || r1.bounded === false) return null;
+  if (r1.feasible !== true || r1.bounded === false) {
+    // Equality demand constraints can be infeasible if Phase 2's demand
+    // ratios fall outside the conic hull of available variant
+    // directions. We've already verified that every class & pin has at
+    // least one containing variant (early-out checks above), so this
+    // case means the demand vector itself can't be exactly hit by any
+    // non-negative combination — a real data-driven anomaly.
+    //
+    // In test mode we throw to surface this loudly (it shouldn't
+    // happen on current game data; if it does, either the recipes
+    // changed or the packer has a real bug). In dev we warn. In
+    // production we silently return null so packBins falls back to
+    // emitting all-singleton bins (always exact-match feasible per
+    // recipe, since each singleton's direction is a unit vector).
+    const demandSummary = classes
+      .map((cls, i) => `cls${i}=${cls.slotDemand.toFixed(3)}`)
+      .join(", ");
+    const message =
+      `[BIN_PACKING] pass-1 ${r1.feasible !== true ? "infeasible" : "unbounded"} ` +
+      `under strict-equality demand constraints. ` +
+      `${variants.length} variants, ${classes.length} classes ` +
+      `(demands: ${demandSummary}). ` +
+      `Phase 2's demand ratios fall outside the conic hull of available variant ` +
+      `directions; falling back to per-recipe singletons.`;
+    if (import.meta.env?.MODE === "test") {
+      throw new Error(message);
+    }
+    if (import.meta.env?.DEV) {
+      console.warn(message);
+    }
+    return null;
+  }
 
   if (typeof r1.result !== "number" || !Number.isFinite(r1.result)) {
     if (import.meta.env?.DEV) {
@@ -519,7 +994,7 @@ const solvePacking = (
   }
   const buildingsOpt = r1.result;
 
-  // Pass 2: minimise power subject to total buildings ≤ pass-1 optimum.
+  // Pass 2: minimise power subject to building cap.
   const passTwo: Model = {
     optimize: "power",
     opType: "min",
@@ -528,10 +1003,13 @@ const solvePacking = (
       buildings_cap: { max: buildingsOpt + LEX_BUILDINGS_TOLERANCE },
     },
     variables: {},
-    ints,
+    ints: lpInts,
   };
   for (const [varName, coefs] of Object.entries(variables)) {
-    passTwo.variables[varName] = { ...coefs, buildings_cap: 1 };
+    passTwo.variables[varName] = { ...coefs };
+    if (varName.startsWith("x_")) {
+      passTwo.variables[varName].buildings_cap = 1;
+    }
   }
   let r2: Record<string, number | boolean | undefined>;
   let pass2Succeeded = true;
@@ -541,7 +1019,6 @@ const solvePacking = (
     if (import.meta.env?.DEV) {
       console.warn("[BIN_PACKING] pass-2 solver threw:", e);
     }
-    // Fall back to pass-1 result.
     r2 = r1;
     pass2Succeeded = false;
   }
@@ -555,17 +1032,8 @@ const solvePacking = (
     pass2Succeeded = false;
   }
 
-  // Pass 3: minimise Σ x_t × |recipes_in_shape_t|, subject to building +
-  // power caps from prior passes. Equivalent (up to a constant) to
-  // minimising total over-provisioning Σ(allocated_slots − demand). Breaks
-  // ties between equally-priced packings that differ in shape distribution
-  // — e.g. for Xircon target=57, prefers `2×{LX,XE,X} + 2×{LX,XE}` (sum
-  // 10) over `3×{LX,XE,X} + 1×{LX,XE}` (sum 11), eliminating the
-  // "idle X slot in building 3 of an {LX,XE,X} bin" artefact. Both
-  // packings cost 4 buildings @ 400W, so pass 1 and pass 2 tie.
-  //
-  // Only runs if pass 2 succeeded — otherwise r2 is r1 and there's no
-  // meaningful power cap to enforce.
+  // Pass 3: minimise shape-size sum subject to building + power caps.
+  // Tie-breaks equally-priced packings toward less over-provisioning.
   let finalResult = r2;
   if (
     pass2Succeeded &&
@@ -582,21 +1050,21 @@ const solvePacking = (
         power_cap: { max: powerOpt + LEX_POWER_TOLERANCE },
       },
       variables: {},
-      ints,
+      ints: lpInts,
     };
     for (const [varName, coefs] of Object.entries(variables)) {
-      const shape = shapeByVar.get(varName);
-      const shapeSize = shape ? shape.recipeIds.length : 0;
-      passThree.variables[varName] = {
-        ...coefs,
-        buildings_cap: 1,
-        power_cap: coefs.power,
-        shape_size: shapeSize,
-      };
+      passThree.variables[varName] = { ...coefs };
+      if (varName.startsWith("x_")) {
+        passThree.variables[varName].buildings_cap = 1;
+        passThree.variables[varName].power_cap = coefs.power;
+      }
     }
     let r3: Record<string, number | boolean | undefined>;
     try {
-      r3 = solver.Solve(passThree) as Record<string, number | boolean | undefined>;
+      r3 = solver.Solve(passThree) as Record<
+        string,
+        number | boolean | undefined
+      >;
     } catch (e) {
       if (import.meta.env?.DEV) {
         console.warn(
@@ -617,231 +1085,245 @@ const solvePacking = (
     finalResult = r3;
   }
 
-  const shapeCounts = new Map<BinShape, number>();
+  // Extract x's and u's from the final result. Since we may have
+  // solved the continuous relaxation (no integer constraint on x_v),
+  // the x values may be fractional. Round each up to the next integer
+  // to realise physically-deployable building counts.
+  //
+  // Under strict-equality demand constraints, the LP determines
+  // y_r = Σ u_v × dir_v[r] = demand_r for every recipe r exactly,
+  // regardless of whether x is fractional or integer. The u values
+  // therefore reflect Phase 2's demand exactly.
+  //
+  // **Sub-visible variant filter**: with the continuous-LP path, the
+  // LP can return tiny `u` values (e.g., 1e-7) for vestigial variants
+  // — see `MIN_VISIBLE_RATE_PER_MIN` rationale. Skip these to avoid
+  // emitting bins whose rates fall below the downstream mapper's
+  // edge-allocation threshold (would otherwise produce isolated nodes).
+  const buildingCounts = new Map<BinShapeVariant, number>();
+  const activeSlots = new Map<BinShapeVariant, Map<RecipeId, number>>();
   let totalBuildings = 0;
   let totalPower = 0;
-  for (const [varName, shape] of shapeByVar.entries()) {
-    const v = finalResult[varName];
-    if (typeof v !== "number") continue;
-    const count = Math.round(v);
+  for (const v of variants) {
+    const xName = xVarByVariant.get(v)!;
+    const x = finalResult[xName];
+    if (typeof x !== "number" || x <= SLOT_DEMAND_EPSILON) continue;
+
+    const uName = uVarByVariant.get(v)!;
+    const u = finalResult[uName];
+    if (typeof u !== "number" || u <= SLOT_DEMAND_EPSILON) continue;
+
+    // Compute this variant's maximum item rate (items/min) across all
+    // input AND output flows. If even the largest contribution is
+    // sub-visible, skip the variant. Considering both inputs and
+    // outputs (not just outputs) covers the edge case where a recipe
+    // consumes more per cycle than it produces (e.g., Xircon
+    // production: 2 LXP in, 1 Xircon out) — the bin's incoming-edge
+    // candidates may still be visible even when outgoing-edge
+    // candidates fall below threshold.
+    let maxRatePerMin = 0;
+    for (let ri = 0; ri < v.recipeIds.length; ri++) {
+      const rid = v.recipeIds[ri];
+      const recipe = recipeMap.get(rid);
+      if (!recipe) continue;
+      let maxAmount = 0;
+      for (const out of recipe.outputs) {
+        if (out.amount > maxAmount) maxAmount = out.amount;
+      }
+      for (const inp of recipe.inputs) {
+        if (inp.amount > maxAmount) maxAmount = inp.amount;
+      }
+      if (maxAmount === 0) continue;
+      const ratePerSlot = (maxAmount / recipe.craftingTime) * 60;
+      const rate = u * v.rateDirection[ri] * ratePerSlot;
+      if (rate > maxRatePerMin) maxRatePerMin = rate;
+    }
+    if (maxRatePerMin < MIN_VISIBLE_RATE_PER_MIN) continue;
+
+    const count = Math.ceil(x - SLOT_DEMAND_EPSILON);
     if (count <= 0) continue;
-    shapeCounts.set(shape, count);
+    buildingCounts.set(v, count);
     totalBuildings += count;
-    totalPower += count * shape.facility.powerConsumption;
+    totalPower += count * v.facility.powerConsumption;
+
+    const perRecipe = new Map<RecipeId, number>();
+    v.recipeIds.forEach((rid, ri) => {
+      const rate = u * v.rateDirection[ri];
+      if (rate > SLOT_DEMAND_EPSILON) perRecipe.set(rid, rate);
+    });
+    activeSlots.set(v, perRecipe);
   }
 
-  return { shapeCounts, totalBuildings, totalPower };
+  return { buildingCounts, activeSlots, totalBuildings, totalPower };
 };
 
 /**
- * Distribute slot demand across chosen bins using a greedy fill, then
- * materialise `Bin[]` with bin.recipeIds rewritten to **demand
- * recipe ids** (Phase 2's pick) — not the physical twin variant the ILP
- * packed.
+ * Map a physical recipe id (potentially a `_2` twin chosen by the LP)
+ * back to a Phase-2 demand recipe id. When multiple demand-recipe ids
+ * map to the same physical recipe (e.g., LP picked `lx_2` and both
+ * `lx_1` and `lx_2` have demand), we distribute proportionally.
  *
- * The demand-id rewrite is the central correctness fix: downstream
- * consumers (calculator graph, mappers, table) only have access to
- * Phase 2's recipe ids. They compare against `bin.recipeIds` for
- * sister-filtering, primary-row determination, and internal-edge
- * tagging. Storing physical ids here would silently break every such
- * comparison whenever Phase 3 swaps variants (e.g. demand on `lx_1`
- * but bin physically runs `lx_2` on Expanded). The bin's
- * `facilityId` separately records the physical facility for power /
- * building-count purposes — that's the only thing that needs to be
- * physical.
- *
- * Each building of a bin provides 1 slot of EACH of its constituent
- * recipes per cycle. Per-bin per-recipe budgets are tracked
- * independently so different classes drain different budgets.
- *
- * **Active-rate I/O**: bin external I/O is computed from the per-bin
- * per-recipe ACTIVE slot count (= sum of slots the greedy allocator
- * drained into this bin for each recipe), NOT from
- * `shape.netOutputs × buildingCount`. The difference matters when a
- * recipe's Phase 2 demand is less than the bin's `buildingCount` (e.g.
- * Xircon at target=57: bin `{LX, XE, X}` × 2 hosts LX/XE at full and X
- * at 1.9 of 2 slots). At full-capacity the X-Sewage cycle nets to zero;
- * at active rate X under-produces Sewage and the bin shows Sewage as a
- * small external input. This matches Phase 2's mass-balance plan
- * exactly, and lets the merged bin card display the actual production
- * rate (matching what Recipe view shows) instead of theoretical
- * full-capacity.
+ * Returns a list of (demandRecipeId, slot fraction) entries summing to
+ * the input slot count. The mapping is deterministic, driven by class
+ * membership and (alphabetical) demand-recipe id order with pinned
+ * demands prioritised.
  */
-const allocateSlotsToBins = (
-  shapeCounts: Map<BinShape, number>,
-  classes: Array<{ slotDemand: number; alternatives: Recipe[]; canonicalRecipe: Recipe; demandByRecipeId: Map<RecipeId, number> }>,
+const mapPhysicalToDemandIds = (
+  physicalRecipeId: RecipeId,
+  totalSlots: number,
+  classes: EquivalenceClass[],
+  recipeOverrides: Map<ItemId, RecipeId> | undefined,
+): Array<{ demandRecipeId: RecipeId; slots: number }> => {
+  // Find the class containing this physical recipe.
+  let owningClass: EquivalenceClass | undefined;
+  for (const cls of classes) {
+    if (cls.alternatives.some((r) => r.id === physicalRecipeId)) {
+      owningClass = cls;
+      break;
+    }
+  }
+  if (!owningClass) {
+    // No class — treat as a direct demand-recipe.
+    return [{ demandRecipeId: physicalRecipeId, slots: totalSlots }];
+  }
+
+  // Pinned demand-recipes in this class get first claim.
+  const pinnedDemandIds = new Set<RecipeId>();
+  if (recipeOverrides) {
+    for (const overrideRecipeId of recipeOverrides.values()) {
+      if (owningClass.demandByRecipeId.has(overrideRecipeId)) {
+        pinnedDemandIds.add(overrideRecipeId);
+      }
+    }
+  }
+
+  // Sort demand-recipes: pinned first (alphabetical within), then unpinned.
+  const sorted = [...owningClass.demandByRecipeId.entries()].sort(
+    ([a], [b]) => {
+      const aPinned = pinnedDemandIds.has(a);
+      const bPinned = pinnedDemandIds.has(b);
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    },
+  );
+
+  // For pinned demand-recipes whose physical recipe matches `physicalRecipeId`,
+  // they consume their full demand first. Then the remaining slots cover
+  // unpinned demand-recipes in the class.
+  const result: Array<{ demandRecipeId: RecipeId; slots: number }> = [];
+  let remaining = totalSlots;
+
+  // Phase 1: pinned demand-recipes whose pin equals `physicalRecipeId`.
+  for (const [demandId, demand] of sorted) {
+    if (remaining <= SLOT_DEMAND_EPSILON) break;
+    if (!pinnedDemandIds.has(demandId)) continue;
+    if (demandId !== physicalRecipeId) continue;
+    const take = Math.min(demand, remaining);
+    if (take > SLOT_DEMAND_EPSILON) {
+      result.push({ demandRecipeId: demandId, slots: take });
+      remaining -= take;
+    }
+  }
+
+  // Phase 2: unpinned demand-recipes (alphabetical).
+  for (const [demandId, demand] of sorted) {
+    if (remaining <= SLOT_DEMAND_EPSILON) break;
+    if (pinnedDemandIds.has(demandId)) continue;
+    const take = Math.min(demand, remaining);
+    if (take > SLOT_DEMAND_EPSILON) {
+      result.push({ demandRecipeId: demandId, slots: take });
+      remaining -= take;
+    }
+  }
+
+  // Phase 3: leftover slots (e.g. ILP over-provisioned the class) get
+  // attributed to the lowest-priority demand-recipe in the class.
+  if (remaining > SLOT_DEMAND_EPSILON && sorted.length > 0) {
+    const lastDemandId = sorted[sorted.length - 1][0];
+    const existing = result.find((e) => e.demandRecipeId === lastDemandId);
+    if (existing) existing.slots += remaining;
+    else result.push({ demandRecipeId: lastDemandId, slots: remaining });
+  }
+
+  return result;
+};
+
+/**
+ * Materialise `Bin[]` directly from the LP solution. Each variant with
+ * x_v > 0 becomes one bin (containing all buildings of that variant);
+ * the bin's external/internal flows are computed from the actual active
+ * slot rates (`u_v × rateDirection[r]` per recipe), which under strict-
+ * equality demand constraints exactly match Phase 2's demand.
+ *
+ * `bin.recipeIds` is populated with Phase-2 demand recipe ids (not the
+ * physical twins the LP picked), via `mapPhysicalToDemandIds`.
+ */
+const emitBinsFromSolution = (
+  buildingCounts: Map<BinShapeVariant, number>,
+  activeSlots: Map<BinShapeVariant, Map<RecipeId, number>>,
+  classes: EquivalenceClass[],
   recipeMap: Map<RecipeId, Recipe>,
   itemMap: Map<ItemId, Item>,
   recipeOverrides: Map<ItemId, RecipeId> | undefined,
 ): { bins: Bin[]; allocations: Map<RecipeId, RecipeBinAllocation> } => {
-  // Sort shapes deterministically: facility id, then size desc, then recipe ids.
-  const sortedShapes = Array.from(shapeCounts.keys()).sort((a, b) => {
+  // Deterministic order: facility id → recipe-set size desc → variant id.
+  const sortedVariants = Array.from(buildingCounts.keys()).sort((a, b) => {
     if (a.facility.id !== b.facility.id) {
       return a.facility.id < b.facility.id ? -1 : 1;
     }
     if (a.recipeIds.length !== b.recipeIds.length) {
       return b.recipeIds.length - a.recipeIds.length;
     }
-    const aKey = a.recipeIds.join(",");
-    const bKey = b.recipeIds.join(",");
-    return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
+    return a.variantId < b.variantId ? -1 : a.variantId > b.variantId ? 1 : 0;
   });
 
-  // Per equivalence class, allocate slot demand to physical-recipe slot
-  // budgets within bins. Each building of a bin provides 1 slot of EACH
-  // constituent recipe per cycle; classes drain only the budget for
-  // their member recipes, leaving other constituents' budgets untouched.
-  type AllocEntry = {
-    /** Demand recipe id (Phase 2's pick) — keys the allocation map. */
-    demandRecipeId: RecipeId;
-    /** Physical recipe id picked by ILP — used to dedupe co-locations. */
-    physicalRecipeId: RecipeId;
-    binId: string;
-    slots: number;
-  };
-  const allocEntries: AllocEntry[] = [];
+  const bins: Bin[] = [];
+  const allocations = new Map<RecipeId, RecipeBinAllocation>();
+  let emitIdx = 0;
 
-  // Map shape → tentative bin id (assigned in deterministic order).
-  const shapeIdByPosition: string[] = [];
-  sortedShapes.forEach((shape, idx) => {
-    const count = shapeCounts.get(shape) ?? 0;
-    if (count <= 0) return;
-    shapeIdByPosition[idx] = makeBinId(shape.facility.id, shape.recipeIds, idx);
-  });
+  for (const variant of sortedVariants) {
+    const count = buildingCounts.get(variant) ?? 0;
+    if (count <= 0) continue;
+    const physicalActive = activeSlots.get(variant) ?? new Map();
 
-  // Per-bin, per-physical-recipe slot budget.
-  const remainingPerBinPerRecipe = new Map<string, Map<RecipeId, number>>();
-  sortedShapes.forEach((shape, idx) => {
-    const count = shapeCounts.get(shape) ?? 0;
-    if (count <= 0) return;
-    const binId = shapeIdByPosition[idx];
-    const perRecipe = new Map<RecipeId, number>();
-    for (const rid of shape.recipeIds) perRecipe.set(rid, count);
-    remainingPerBinPerRecipe.set(binId, perRecipe);
-  });
-
-  // For each class, identify pinned demand-recipes (those referenced by
-  // any user override). Pinned demand-recipes are restricted to shapes
-  // containing the pin itself — they cannot substitute through other
-  // class members. Unpinned demand-recipes accept any class member.
-  //
-  // Pinned demands are allocated first so they claim restricted shapes
-  // before unpinned demands can substitute into them. Within each
-  // tier (pinned/unpinned), demand-recipe ids sort alphabetically for
-  // determinism.
-  for (const cls of classes) {
-    const classRecipeIds = new Set<RecipeId>(cls.alternatives.map((r) => r.id));
-    const pinnedDemandIds = new Set<RecipeId>();
-    if (recipeOverrides) {
-      for (const overrideRecipeId of recipeOverrides.values()) {
-        if (cls.demandByRecipeId.has(overrideRecipeId)) {
-          pinnedDemandIds.add(overrideRecipeId);
-        }
+    // Map each physical recipe's active slots to demand-recipe ids.
+    const demandActive = new Map<RecipeId, number>();
+    for (const [physicalRid, slots] of physicalActive.entries()) {
+      const mapping = mapPhysicalToDemandIds(
+        physicalRid,
+        slots,
+        classes,
+        recipeOverrides,
+      );
+      for (const e of mapping) {
+        demandActive.set(
+          e.demandRecipeId,
+          (demandActive.get(e.demandRecipeId) ?? 0) + e.slots,
+        );
       }
     }
 
-    const sortedDemands = [...cls.demandByRecipeId.entries()].sort(
-      ([a], [b]) => {
-        const aPinned = pinnedDemandIds.has(a);
-        const bPinned = pinnedDemandIds.has(b);
-        if (aPinned !== bPinned) return aPinned ? -1 : 1;
-        return a < b ? -1 : a > b ? 1 : 0;
-      },
-    );
+    const demandIds = Array.from(demandActive.keys()).sort();
+    if (demandIds.length === 0) continue;
 
-    for (const [demandRecipeId, demand] of sortedDemands) {
-      const allowed = pinnedDemandIds.has(demandRecipeId)
-        ? new Set<RecipeId>([demandRecipeId])
-        : classRecipeIds;
-      let remaining = demand;
-      sortedShapes.forEach((shape, idx) => {
-        if (remaining <= SLOT_DEMAND_EPSILON) return;
-        const count = shapeCounts.get(shape) ?? 0;
-        if (count <= 0) return;
-        const binId = shapeIdByPosition[idx];
-        const memberRecipeId = shape.recipeIds.find((rid) => allowed.has(rid));
-        if (!memberRecipeId) return;
-        const perRecipe = remainingPerBinPerRecipe.get(binId)!;
-        const cap = perRecipe.get(memberRecipeId) ?? 0;
-        if (cap <= SLOT_DEMAND_EPSILON) return;
-        const take = Math.min(cap, remaining);
-        perRecipe.set(memberRecipeId, cap - take);
-        remaining -= take;
-        allocEntries.push({
-          demandRecipeId,
-          physicalRecipeId: memberRecipeId,
-          binId,
-          slots: take,
-        });
-      });
-    }
-  }
-
-  // Materialise Bin[] with `recipeIds` populated from the demand
-  // ids that allocate to this bin (sorted, deduped). Skip shapes with no
-  // allocations (could happen if the ILP picked a shape but the greedy
-  // allocator didn't drain anything into it — defensive only; should be
-  // unreachable given that ILP shape counts equal slot supplies).
-  const binDemandIds = new Map<string, Set<RecipeId>>();
-  for (const e of allocEntries) {
-    let s = binDemandIds.get(e.binId);
-    if (!s) {
-      s = new Set();
-      binDemandIds.set(e.binId, s);
-    }
-    s.add(e.demandRecipeId);
-  }
-
-  // Per-bin per-physical-recipe ACTIVE slot count. Sum across allocEntries
-  // because the greedy allocator may have produced multiple entries
-  // targeting the same bin/recipe (when an equivalence class has multiple
-  // demand-recipe ids draining to the same physical recipe in the same
-  // bin).
-  const activeSlotsByBin = new Map<string, Map<RecipeId, number>>();
-  for (const e of allocEntries) {
-    let m = activeSlotsByBin.get(e.binId);
-    if (!m) {
-      m = new Map();
-      activeSlotsByBin.set(e.binId, m);
-    }
-    m.set(e.physicalRecipeId, (m.get(e.physicalRecipeId) ?? 0) + e.slots);
-  }
-
-  const bins: Bin[] = [];
-  sortedShapes.forEach((shape, idx) => {
-    const count = shapeCounts.get(shape) ?? 0;
-    if (count <= 0) return;
-    const binId = shapeIdByPosition[idx];
-    const demandIds = Array.from(binDemandIds.get(binId) ?? []).sort();
-    if (demandIds.length === 0) return;
-
-    // Compute net I/O from ACTIVE per-recipe slot counts, not from
-    // `shape.netOutputs × count`. When a recipe's Phase 2 demand is
-    // smaller than the bin's per-recipe physical capacity (= count),
-    // the recipe runs at partial load and its contribution scales
-    // accordingly. Items that net to zero across these active flows are
-    // classified as internal; positive → external output; negative →
-    // external input. Mirrors `buildBinShape`'s classification logic at
-    // the 1-slot-per-recipe enumeration step.
-    const activeMap = activeSlotsByBin.get(binId) ?? new Map<RecipeId, number>();
+    // Compute external/internal flows from the variant's classification
+    // and the actual active slot counts. Mirrors the variant's regime.
     const netRates = new Map<ItemId, number>();
-    for (const rid of shape.recipeIds) {
-      const active = activeMap.get(rid) ?? 0;
-      if (active <= 0) continue;
-      const recipe = recipeMap.get(rid);
+    for (const [physicalRid, slots] of physicalActive.entries()) {
+      const recipe = recipeMap.get(physicalRid);
       if (!recipe) continue;
       for (const inp of recipe.inputs) {
         netRates.set(
           inp.itemId,
           (netRates.get(inp.itemId) ?? 0) -
-            calcRate(inp.amount, recipe.craftingTime) * active,
+            calcRate(inp.amount, recipe.craftingTime) * slots,
         );
       }
       for (const out of recipe.outputs) {
         netRates.set(
           out.itemId,
           (netRates.get(out.itemId) ?? 0) +
-            calcRate(out.amount, recipe.craftingTime) * active,
+            calcRate(out.amount, recipe.craftingTime) * slots,
         );
       }
     }
@@ -859,41 +1341,36 @@ const allocateSlotsToBins = (
         externalOutputs.push({ itemId, rate: net, isLiquid });
       }
     }
-
-    // Sort for determinism (mirrors buildBinShape).
     const byItemId = (a: { itemId: ItemId }, b: { itemId: ItemId }) =>
       a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0;
     externalInputs.sort(byItemId);
     externalOutputs.sort(byItemId);
     internalItems.sort();
 
+    const binId = makeBinId(variant.facility.id, demandIds, emitIdx++);
     bins.push({
       id: binId,
-      facilityId: shape.facility.id,
+      facilityId: variant.facility.id,
       recipeIds: demandIds,
       buildingCount: count,
       externalInputs,
       externalOutputs,
       internalItems,
-      innerSlotsUsed: shape.innerSlotsUsed,
-      // `isGrouped` reflects user-visible recipe count, not physical
-      // shape size. In the theoretical case where a multi-formula shape
-      // has only one demand class actually allocated, `isGrouped: false`
-      // matches the bin's `recipeIds.length === 1` semantics.
+      innerSlotsUsed: variant.innerSlotsUsed,
       isGrouped: demandIds.length >= 2,
+      variantId: variant.variantId,
     });
-  });
 
-  // Build allocation map (keyed by demand recipe id).
-  const allocations = new Map<RecipeId, RecipeBinAllocation>();
-  for (const e of allocEntries) {
-    let cur = allocations.get(e.demandRecipeId);
-    if (!cur) {
-      cur = { recipeId: e.demandRecipeId, totalSlots: 0, perBin: [] };
-      allocations.set(e.demandRecipeId, cur);
+    // Build allocations: each demand-recipe's slot share in this bin.
+    for (const [demandRid, slots] of demandActive.entries()) {
+      let alloc = allocations.get(demandRid);
+      if (!alloc) {
+        alloc = { recipeId: demandRid, totalSlots: 0, perBin: [] };
+        allocations.set(demandRid, alloc);
+      }
+      alloc.totalSlots += slots;
+      alloc.perBin.push({ binId, slots });
     }
-    cur.totalSlots += e.slots;
-    cur.perBin.push({ binId: e.binId, slots: e.slots });
   }
 
   return { bins, allocations };
@@ -933,11 +1410,15 @@ const emitSingletonBins = (
       rate: calcRate(o.amount, recipe.craftingTime) * slotDemand,
       isLiquid: itemMap.get(o.itemId)?.isLiquid ?? false,
     }));
-    const innerSlotsUsed =
-      new Set([...recipe.inputs.map((i) => i.itemId), ...recipe.outputs.map((o) => o.itemId)])
-        .size;
+    const innerSlotsUsed = new Set([
+      ...recipe.inputs.map((i) => i.itemId),
+      ...recipe.outputs.map((o) => o.itemId),
+    ]).size;
 
     const id = makeBinId(facility.id, [recipeId], idx++);
+    // Trivial singleton variant id: matches the multi-formula scheme
+    // for consistent downstream identification.
+    const variantId = `${facility.id}:${recipeId}#v0`;
     bins.push({
       id,
       facilityId: facility.id,
@@ -948,6 +1429,7 @@ const emitSingletonBins = (
       internalItems: [],
       innerSlotsUsed,
       isGrouped: false,
+      variantId,
     });
     allocations.set(recipeId, {
       recipeId,
@@ -986,31 +1468,27 @@ const buildInfeasiblePinWarnings = (
     const recipe = recipeMap.get(overrideRecipeId);
     if (!recipe) continue;
     const facility = facilityMap.get(recipe.facilityId);
-    // Pins on single-formula facilities don't participate in packing.
     if (facility?.cacheSlots == null) continue;
-    // Does ANY valid shape on this facility contain the pinned recipe?
     const recipesOnFac: Recipe[] = [];
     for (const r of recipeMap.values()) {
       if (r.facilityId !== facility.id) continue;
       if (recipeSignature(r) !== recipeSignature(recipe)) continue;
       recipesOnFac.push(r);
     }
-    // Also consider other class members on the same facility.
     for (const r of recipeMap.values()) {
       if (r.facilityId !== facility.id) continue;
       if (recipesOnFac.some((x) => x.id === r.id)) continue;
-      // Include if it's in the same class as any already-included recipe.
       if (
-        recipesOnFac.some(
-          (x) => recipeSignature(x) === recipeSignature(r),
-        )
+        recipesOnFac.some((x) => recipeSignature(x) === recipeSignature(r))
       ) {
         recipesOnFac.push(r);
       }
     }
-    const shapes = enumerateBinShapes(recipesOnFac, facility, itemMap);
-    const hasShape = shapes.some((s) => s.recipeIds.includes(overrideRecipeId));
-    if (!hasShape) {
+    const variants = enumerateAllVariants(recipesOnFac, facility, itemMap);
+    const hasVariant = variants.some((v) =>
+      v.recipeIds.includes(overrideRecipeId),
+    );
+    if (!hasVariant) {
       warnings.push(
         `Recipe override "${overrideRecipeId}" on facility "${facility.id}" has no valid bin shape — packer fell back to per-recipe bins for this recipe.`,
       );
@@ -1018,6 +1496,67 @@ const buildInfeasiblePinWarnings = (
   }
 
   return warnings;
+};
+
+/**
+ * Test-mode invariant: every emitted bin must satisfy its facility's
+ * port caps. Throws in test mode (`import.meta.env?.MODE === "test"`);
+ * warns in dev; no-op in production. Mirrors the
+ * `assertFlowIntegrity` pattern in `flow-assertions.ts`.
+ *
+ * Only called on bins emitted from the variant-LP path
+ * (`emitBinsFromSolution`) where caps are guaranteed by construction.
+ * The infeasibility-fallback path (`emitSingletonBins` after LP failure)
+ * may emit cap-violating bins — those represent genuinely-impossible
+ * user configurations and are surfaced via `warnings` instead.
+ *
+ * Any violation surfaced here represents a packer bug — wrong variant
+ * enumeration, mis-classified items, or LP rounding pushing a borderline
+ * regime over its boundary.
+ */
+const assertBinPortCaps = (
+  bins: Bin[],
+  facilityMap: Map<FacilityId, Facility>,
+): void => {
+  const isTest = import.meta.env?.MODE === "test";
+  const isDev = import.meta.env?.DEV;
+  if (!isTest && !isDev) return;
+
+  for (const bin of bins) {
+    const facility = facilityMap.get(bin.facilityId);
+    if (!facility) continue;
+    // Singleton bins on single-formula facilities (no `cacheSlots`)
+    // bypass cap checks — the facility was designed for that recipe.
+    if (facility.cacheSlots == null) continue;
+
+    const liqIn = bin.externalInputs.filter((i) => i.isLiquid).length;
+    const liqOut = bin.externalOutputs.filter((o) => o.isLiquid).length;
+    const beltOut = bin.externalOutputs.filter((o) => !o.isLiquid).length;
+
+    const violations: string[] = [];
+    if (liqIn > facility.buffersIn.pipe.length) {
+      violations.push(
+        `${liqIn} liquid-in items > ${facility.buffersIn.pipe.length} pipe-in cap`,
+      );
+    }
+    if (liqOut > facility.buffersOut.pipe.length) {
+      violations.push(
+        `${liqOut} liquid-out items > ${facility.buffersOut.pipe.length} pipe-out cap`,
+      );
+    }
+    if (beltOut > facility.buffersOut.belt.length) {
+      violations.push(
+        `${beltOut} belt-out items > ${facility.buffersOut.belt.length} belt-out cap`,
+      );
+    }
+    if (violations.length === 0) continue;
+
+    const message =
+      `[BIN_PACKING] Bin ${bin.id} (variant ${bin.variantId}) on ${facility.id} ` +
+      `violates port caps: ${violations.join("; ")}`;
+    if (isTest) throw new Error(message);
+    console.warn(message);
+  }
 };
 
 /**
@@ -1051,49 +1590,50 @@ export const packBins = (input: PackingInput): PackingResult => {
   // Build equivalence classes (one per recipe-signature with positive
   // demand). Each class accumulates slot demand from all twins.
   const classes = buildEquivalenceClasses(
-    new Map([...recipeSlotDemands.entries()].filter(([rid]) => eligibleRecipeIds.has(rid))),
+    new Map(
+      [...recipeSlotDemands.entries()].filter(([rid]) =>
+        eligibleRecipeIds.has(rid),
+      ),
+    ),
     recipeMap,
   );
 
-  // Enumerate bin shapes per facility. The shape's recipes must come
-  // from the union of class alternatives that the facility hosts.
-  const classRecipeIdsByFacility = new Map<FacilityId, Recipe[]>();
+  // Enumerate variants per facility. The variants' recipes come from the
+  // union of class alternatives hosted by that facility.
+  const classRecipesByFacility = new Map<FacilityId, Recipe[]>();
   for (const facility of eligibleFacilities) {
-    const recipesOnThisFacility: Recipe[] = [];
+    const recipesOnFac: Recipe[] = [];
     for (const cls of classes) {
       for (const r of cls.alternatives) {
         if (r.facilityId === facility.id) {
-          recipesOnThisFacility.push(r);
+          recipesOnFac.push(r);
           break;
         }
       }
     }
-    classRecipeIdsByFacility.set(facility.id, recipesOnThisFacility);
+    classRecipesByFacility.set(facility.id, recipesOnFac);
   }
 
-  const allShapes: BinShape[] = [];
+  const allVariants: BinShapeVariant[] = [];
   for (const facility of eligibleFacilities) {
-    const recipesOnFac = classRecipeIdsByFacility.get(facility.id) ?? [];
-    const shapes = enumerateBinShapes(recipesOnFac, facility, itemMap);
-    allShapes.push(...shapes);
+    const recipesOnFac = classRecipesByFacility.get(facility.id) ?? [];
+    const variants = enumerateAllVariants(recipesOnFac, facility, itemMap);
+    allVariants.push(...variants);
   }
 
   if (import.meta.env?.DEV) {
     console.log(
-      `[BIN_PACKING] Enumerated ${allShapes.length} bin shapes across ${eligibleFacilities.size} facilities`,
+      `[BIN_PACKING] Enumerated ${allVariants.length} variants across ${eligibleFacilities.size} facilities`,
     );
   }
 
-  const solution = solvePacking(allShapes, classes, recipeOverrides);
+  const solution = solvePacking(allVariants, classes, recipeOverrides, recipeMap);
   if (!solution) {
     if (import.meta.env?.DEV) {
       console.warn(
-        "[BIN_PACKING] ILP failed; falling back to all-singleton bins",
+        "[BIN_PACKING] LP failed; falling back to all-singleton bins",
       );
     }
-    // Diagnose: surface infeasible-pin warnings to the user. The packer
-    // never throws — fallback always produces a valid plan — but the
-    // user should know why grouping didn't happen.
     const warnings = buildInfeasiblePinWarnings(
       recipeOverrides,
       recipeSlotDemands,
@@ -1106,14 +1646,18 @@ export const packBins = (input: PackingInput): PackingResult => {
         "Multi-formula bin packer fell back to per-recipe bins due to an infeasible constraint configuration.",
       );
     }
+    const fallback = emitSingletonBins(
+      recipeSlotDemands,
+      new Map(),
+      recipeMap,
+      facilityMap,
+      itemMap,
+    );
+    // No port-cap assertion on the fallback path: it's a best-effort
+    // singletonization for genuinely-infeasible scenarios; any cap
+    // violations are surfaced via warnings.
     return {
-      ...emitSingletonBins(
-        recipeSlotDemands,
-        new Map(),
-        recipeMap,
-        facilityMap,
-        itemMap,
-      ),
+      ...fallback,
       warnings,
     };
   }
@@ -1124,8 +1668,9 @@ export const packBins = (input: PackingInput): PackingResult => {
     );
   }
 
-  const packed = allocateSlotsToBins(
-    solution.shapeCounts,
+  const packed = emitBinsFromSolution(
+    solution.buildingCounts,
+    solution.activeSlots,
     classes,
     recipeMap,
     itemMap,
@@ -1138,6 +1683,13 @@ export const packBins = (input: PackingInput): PackingResult => {
     facilityMap,
     itemMap,
   );
+
+  // Only assert on packed.bins (variant-LP path) — those are guaranteed
+  // cap-safe by construction. Singletons from `emitSingletonBins` are
+  // a best-effort fallback for recipes the LP couldn't host (genuinely-
+  // infeasible scenarios) and may legitimately violate caps; they're
+  // surfaced via warnings rather than assertions.
+  assertBinPortCaps(packed.bins, facilityMap);
 
   return {
     bins: [...packed.bins, ...singletons.bins],

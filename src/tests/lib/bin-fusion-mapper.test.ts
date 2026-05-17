@@ -73,6 +73,7 @@ describe("pickBinHeadlineOutput", () => {
       internalItems: [],
       innerSlotsUsed: 2,
       isGrouped: true,
+      variantId: "fac:ra,rb#v0",
     };
     const result = pickBinHeadlineOutput(
       bin,
@@ -101,6 +102,7 @@ describe("pickBinHeadlineOutput", () => {
       internalItems: [],
       innerSlotsUsed: 2,
       isGrouped: true,
+      variantId: "fac:ra,rb#v0",
     };
     const result = pickBinHeadlineOutput(bin, [itemA, itemB], [recipeA, recipeB], new Set());
     expect(result?.itemId).toBe("b"); // tier 5 beats tier 1.
@@ -124,6 +126,7 @@ describe("pickBinHeadlineOutput", () => {
       internalItems: [],
       innerSlotsUsed: 2,
       isGrouped: true,
+      variantId: "fac:rs,rl#v0",
     };
     const result = pickBinHeadlineOutput(bin, [itemSolid, itemLiquid], [recipeS, recipeL], new Set());
     expect(result?.itemId).toBe("solid");
@@ -147,6 +150,7 @@ describe("pickBinHeadlineOutput", () => {
       internalItems: [],
       innerSlotsUsed: 2,
       isGrouped: true,
+      variantId: "fac:ra,rb#v0",
     };
     const result = pickBinHeadlineOutput(bin, [itemA, itemB], [recipeA, recipeB], new Set());
     expect(result?.itemId).toBe("a"); // alphabetical first.
@@ -163,6 +167,7 @@ describe("pickBinHeadlineOutput", () => {
       internalItems: [],
       innerSlotsUsed: 0,
       isGrouped: false,
+      variantId: "fac:#v0",
     };
     const result = pickBinHeadlineOutput(bin, [], [], new Set());
     expect(result).toBeNull();
@@ -420,12 +425,17 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       productionNode?: { facilityCount: number };
     }).productionNode!.facilityCount;
 
-    // ceilMode=OFF: mean activity ≈ 1.967.
-    expect(offFacilityCount).toBeCloseTo(1.967, 2);
-    // ceilMode=ON: physical buildingCount = 2.
-    expect(onFacilityCount).toBe(2);
-    // Invariant: OFF ≤ ON.
-    expect(offFacilityCount).toBeLessThanOrEqual(onFacilityCount);
+    // ceilMode=OFF: mean activity is strictly below the integer
+    // buildingCount when the bin has partial-load recipes. Under Path
+    // H the active rates honour the variant's regime (e.g., V3 forces
+    // y_LX = 2·y_X, so X allocation is tighter than the old packer's
+    // unbounded post-hoc allocation produced). The exact value depends
+    // on which variant the LP selects; the invariant is OFF < ON.
+    expect(offFacilityCount).toBeGreaterThan(0);
+    expect(offFacilityCount).toBeLessThan(onFacilityCount);
+    // ceilMode=ON: physical buildingCount = ceil(x_V) for the chosen
+    // variant, at least 1.
+    expect(onFacilityCount).toBeGreaterThanOrEqual(1);
   });
 
   test("ceilMode=OFF: singleton bin card facilityCount = bin.buildingCount (no change)", () => {
@@ -1249,5 +1259,86 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       // Self's recipe id must NOT be in the sister list.
       expect(pn.binSisterRecipeIds).not.toContain(pn.recipe!.id);
     }
+  });
+
+  test("3-target plan (Hetonite Part + SC Wuling Battery + Yazhen Syringe) produces no isolated bins", () => {
+    // Regression test for the "vestigial 2-recipe variant" bug.
+    //
+    // Background: with strict-equality demand in `solvePacking` and the
+    // continuous-LP relaxation path (≥30 variants), the LP could return
+    // tiny u values (~1e-7) for 2-recipe variants combining unrelated
+    // chemistries (e.g., `{pool_copper_enr, pool_liquid_plant_grass_2}`).
+    // These variants are vestigial — singletons of the same recipes
+    // cover demand at meaningful rates — but FP residue from simplex
+    // pivots left them with non-zero u just above SLOT_DEMAND_EPSILON.
+    //
+    // When rounded to x=1, such bins emitted external rates of ~3e-5
+    // /min, far below the bin-fused mapper's 0.001/min edge-allocation
+    // threshold. The mapper skipped all incident edges, leaving the
+    // bin as an isolated node → `assertFlowIntegrity` failure.
+    //
+    // The 3-target combination below reliably triggered this on
+    // real game data. The fix (`MIN_VISIBLE_RATE_PER_MIN` filter in
+    // `solvePacking` emission) drops sub-visible variants before they
+    // reach the mapper. If `assertFlowIntegrity` ever fires for this
+    // scenario again, either the filter regressed or game data has
+    // shifted in a way that exposes a new corner case.
+    const plan = calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_COPPER_ENR_CMPT, rate: 6 },
+        { itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 6 },
+        { itemId: ItemId.ITEM_BOTTLED_REC_HP_5, rate: 6 },
+      ],
+      items,
+      recipes,
+      facilities,
+    );
+
+    // Helper to verify no isolated nodes in a mapper's output.
+    // `assertFlowIntegrity` (run inside each mapper) throws on any
+    // violation in test mode, so reaching the check below already
+    // means no isolated bins. The explicit isolation check is a
+    // defensive duplicate in case the assertion drifts from the
+    // mapper's actual emitted graph.
+    const assertNoIsolatedNodes = (
+      flow: { nodes: { id: string }[]; edges: { source: string; target: string }[] },
+      label: string,
+    ): void => {
+      const referenced = new Set<string>();
+      for (const edge of flow.edges) {
+        referenced.add(edge.source);
+        referenced.add(edge.target);
+      }
+      const isolated =
+        flow.nodes.length > 1
+          ? flow.nodes.filter((n) => !referenced.has(n.id))
+          : [];
+      expect(isolated, `${label}: isolated nodes`).toEqual([]);
+    };
+
+    // Recipe View (bin-fused merged).
+    const flowMerged = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map(),
+      false,
+    );
+    assertNoIsolatedNodes(flowMerged, "Recipe View");
+
+    // Facility View (bin-fused separated). Same packer output, but
+    // the mapper emits one node per physical building instead of one
+    // per bin. The sub-visible-variant bug surfaces identically here
+    // because the same source bins drive both mappers.
+    const flowSeparated = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map(),
+      false,
+    );
+    assertNoIsolatedNodes(flowSeparated, "Facility View");
   });
 });

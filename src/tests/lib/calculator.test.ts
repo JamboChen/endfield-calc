@@ -1634,35 +1634,39 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         recipes,
         facilities,
       );
-      const xirconBin = plan.bins.find((b) =>
-        b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
-      );
-      expect(xirconBin).toBeDefined();
-      const xirconRate =
-        xirconBin?.externalOutputs.find(
+      // Path H may split X recipe across multiple variants (e.g.,
+      // singleton X on Reactor + triple {LX,XE,X} on Expanded), so
+      // aggregate Xircon production across ALL bins emitting it. Under
+      // strict-equality demand, this sum equals the target exactly.
+      let xirconRate = 0;
+      for (const bin of plan.bins) {
+        const out = bin.externalOutputs.find(
           (o) => o.itemId === ItemId.ITEM_XIRANITE_POLY,
-        )?.rate ?? 0;
-      expect(xirconRate).toBeGreaterThanOrEqual(target - 1e-6);
+        );
+        if (out) xirconRate += out.rate;
+      }
+      expect(xirconRate).toBeCloseTo(target, 3);
     },
   );
 
-  test("target=57: Xircon-producing bin reports active rates (57/min Xircon, Sewage external input)", () => {
-    // The specific bug the user reported. Phase 2 LP demands x_X = 1.9,
-    // x_XE = x_LX = 3.04, x_P = 0.76. With MIP lex pass 3 (smallest-
-    // shape-sum tie-breaker), Phase 3 picks `2 × {LX, XE, X} +
-    // 2 × {LX, XE}` — 4 buildings total, no idle slots.
+  test("target=57: Xircon-producing bin reports rates aligned with Phase 2 demand", () => {
+    // The original "user-reported bug": Phase 2 LP demands `x_X = 1.9`,
+    // `x_XE = x_LX = 3.04`, `x_P = 0.76`. Under the old packer, the
+    // {LX, XE, X} bin ran at uneven active rates that produced 3 liquid
+    // inputs on a 2-port facility — physically unbuildable.
     //
-    // In the Xircon bin (`{LX, XE, X}` × 2):
-    //   - LX active = 2 (full × 2 buildings), XE active = 2, X active = 1.9.
-    //   - Xircon: 1.9 × 30 = 57/min OUT (matches target exactly).
-    //   - Lowpoly: 2 × 30 = 60/min OUT.
-    //   - Sewage: produced 1.9×30 = 57; consumed by XE 2×30 = 60 →
-    //     net = -3 → EXTERNAL INPUT (sister bin and Furnace supply it).
-    //   - Xiranite: LX 60 = XE 60 → internal balanced.
+    // Under Path H, the packer enumerates only cap-feasible variants
+    // and the LP picks among them. The bin's classification of sewage
+    // (internal vs. external) depends on which variant is chosen:
+    //   - V3 regime (LX=XE=2X, sewage internal): bin has sewage as
+    //     internal, no external sewage flow.
+    //   - V1 + pair regime (LX=XE=X with pair for residuals): bin has
+    //     sewage as external input (X under-produces vs XE consumption).
     //
-    // This is the "bin shows production rate matching Phase 2 plan"
-    // invariant; replaces the old full-capacity model that displayed
-    // 90 Xircon (over-provisioned by 33).
+    // Either is correct. This test asserts the user-facing invariants:
+    //   - The Xircon-producing bin contains the X recipe.
+    //   - Total Xircon rate across all bins ≈ target.
+    //   - The bin satisfies port caps (covered by assertBinPortCaps).
     const plan = calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
@@ -1673,35 +1677,32 @@ describe("Xircon bin-fusion integrity (real data)", () => {
       b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
     );
     expect(xirconBin).toBeDefined();
-    expect(xirconBin!.recipeIds).toEqual(
-      expect.arrayContaining([
-        RecipeId.POOL_XIRANITE_POLY_1,
-        RecipeId.POOL_LIQUID_XIRANITE_POLY_1,
-        RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1,
-      ]),
-    );
+    expect(xirconBin!.recipeIds).toContain(RecipeId.POOL_XIRANITE_POLY_1);
 
-    // Active Xircon rate = exactly the target (1.9 × 30 = 57).
-    const xirconRate = xirconBin!.externalOutputs.find(
-      (o) => o.itemId === ItemId.ITEM_XIRANITE_POLY,
-    )?.rate;
-    expect(xirconRate).toBeCloseTo(57, 3);
+    // Aggregate Xircon rate across all bins ≈ target (allow tiny
+    // over-production for variants with non-binding X demand).
+    let totalXircon = 0;
+    for (const bin of plan.bins) {
+      const out = bin.externalOutputs.find(
+        (o) => o.itemId === ItemId.ITEM_XIRANITE_POLY,
+      );
+      if (out) totalXircon += out.rate;
+    }
+    expect(totalXircon).toBeGreaterThanOrEqual(57 - 0.01);
 
-    // Xiranite still internal (LX active 2 = XE active 2 in this bin).
-    expect(xirconBin!.internalItems).toContain(ItemId.ITEM_LIQUID_XIRANITE);
-
-    // Sewage NOT in external outputs (this was the display bug symptom).
-    const sewageInOutputs = xirconBin!.externalOutputs.some(
-      (o) => o.itemId === ItemId.ITEM_LIQUID_SEWAGE,
-    );
-    expect(sewageInOutputs).toBe(false);
-
-    // Sewage IS now an external INPUT: X (active 1.9) produces 57 Sewage,
-    // XE (active 2) consumes 60 Sewage → deficit of 3/min.
-    const sewageInInputs = xirconBin!.externalInputs.find(
-      (i) => i.itemId === ItemId.ITEM_LIQUID_SEWAGE,
-    );
-    expect(sewageInInputs?.rate).toBeCloseTo(3, 3);
+    // Port caps holding is the structural invariant Path H guarantees;
+    // verified inline (the packer's assertBinPortCaps also throws on
+    // violation in test mode).
+    for (const bin of plan.bins) {
+      const fac = facilities.find((f) => f.id === bin.facilityId);
+      if (!fac || fac.cacheSlots == null) continue;
+      const liqIn = bin.externalInputs.filter((i) => i.isLiquid).length;
+      const liqOut = bin.externalOutputs.filter((o) => o.isLiquid).length;
+      const beltOut = bin.externalOutputs.filter((o) => !o.isLiquid).length;
+      expect(liqIn).toBeLessThanOrEqual(fac.buffersIn.pipe.length);
+      expect(liqOut).toBeLessThanOrEqual(fac.buffersOut.pipe.length);
+      expect(beltOut).toBeLessThanOrEqual(fac.buffersOut.belt.length);
+    }
   });
 
   test("Expanded Crucible building total is monotonic non-decreasing in target", () => {

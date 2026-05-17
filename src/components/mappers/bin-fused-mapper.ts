@@ -37,6 +37,7 @@ import {
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate, getTransportCapacity } from "@/lib/utils";
+import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import { buildBinActivitySums, pickBinHeadlineOutput } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
 
@@ -200,7 +201,7 @@ export function mapPlanToFlowBinFused(
     if (node.type !== "item") return;
     if (!node.isTarget || node.isRawMaterial) return;
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
-    if (userTargetRate <= 0.001) return;
+    if (userTargetRate <= MIN_VISIBLE_RATE_PER_MIN) return;
     const arr = consumersByItem.get(node.itemId as ItemId) ?? [];
     arr.push({ binId: createTargetSinkId(nodeId), rate: userTargetRate });
     consumersByItem.set(node.itemId as ItemId, arr);
@@ -246,9 +247,9 @@ export function mapPlanToFlowBinFused(
     for (const consumer of consumers) {
       let need = consumer.rate;
       for (const producer of sortedProducers) {
-        if (need <= 0.001) break;
+        if (need <= MIN_VISIBLE_RATE_PER_MIN) break;
         const avail = remaining.get(producer.binId) ?? 0;
-        if (avail <= 0.001) continue;
+        if (avail <= MIN_VISIBLE_RATE_PER_MIN) continue;
         const take = Math.min(avail, need);
         remaining.set(producer.binId, avail - take);
         need -= take;
@@ -381,7 +382,7 @@ export function mapPlanToFlowBinFused(
     // Mirror the consumer-registration guard above: zero-rate targets
     // have no incoming edges, so emitting a sink for them produces an
     // isolated node that trips assertFlowIntegrity in dev mode.
-    if (userTargetRate <= 0.001) return;
+    if (userTargetRate <= MIN_VISIBLE_RATE_PER_MIN) return;
 
     // Embed recipe info when this target's producer is a singleton-
     // terminal bin — i.e. one we excluded from `producersByItem` and
@@ -432,7 +433,7 @@ export function mapPlanToFlowBinFused(
     if (!consumedItem) continue;
     const disposalRate =
       calcRate(inp.amount, recipe.craftingTime) * bin.buildingCount;
-    if (disposalRate <= 0.001) continue;
+    if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
     disposalSinkNodes.push(
       createDisposalSinkNode(
         `disposal-${bin.recipeIds[0]}`,
@@ -457,7 +458,7 @@ export function mapPlanToFlowBinFused(
   for (const [itemId, edges] of allocated.entries()) {
     const sourceItem = itemById.get(itemId);
     for (const edge of edges) {
-      if (edge.rate <= 0.001) continue;
+      if (edge.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       if (!emittedNodeIds.has(edge.producerId)) continue;
       if (!emittedNodeIds.has(edge.consumerId)) continue;
       flowEdges.push(
@@ -484,7 +485,7 @@ export function mapPlanToFlowBinFused(
     const sourceItem = itemById.get(itemId);
     const rawNodeId = ensureRawMaterialNode(itemId);
     for (const consumer of consumers) {
-      if (consumer.rate <= 0.001) continue;
+      if (consumer.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       if (!emittedNodeIds.has(consumer.binId)) continue;
       flowEdges.push(
         createEdge(
@@ -739,7 +740,7 @@ export function mapPlanToFlowBinFusedSeparated(
   for (const inst of productionInstances) {
     const id = buildingInstanceId(inst.bin.id, inst.instanceIdx);
     for (const out of inst.perBuildingOutputs) {
-      if (out.rate <= 0.001) continue;
+      if (out.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       const outNode = plan.nodes.get(out.itemId);
       if (outNode?.type === "item" && outNode.isRawMaterial) continue;
       const arr = producersByItem.get(out.itemId) ?? [];
@@ -747,7 +748,7 @@ export function mapPlanToFlowBinFusedSeparated(
       producersByItem.set(out.itemId, arr);
     }
     for (const inp of inst.perBuildingInputs) {
-      if (inp.rate <= 0.001) continue;
+      if (inp.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       const arr = consumersByItem.get(inp.itemId) ?? [];
       arr.push({ instanceId: id, rate: inp.rate });
       consumersByItem.set(inp.itemId, arr);
@@ -762,7 +763,7 @@ export function mapPlanToFlowBinFusedSeparated(
     const sinkId = sinkByBinId.get(bin.id);
     if (!sinkId) continue;
     for (const inp of bin.externalInputs) {
-      if (inp.rate <= 0.001) continue;
+      if (inp.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       const arr = consumersByItem.get(inp.itemId) ?? [];
       arr.push({ instanceId: sinkId, rate: inp.rate });
       consumersByItem.set(inp.itemId, arr);
@@ -775,7 +776,7 @@ export function mapPlanToFlowBinFusedSeparated(
     if (node.type !== "item") return;
     if (!node.isTarget || node.isRawMaterial) return;
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
-    if (userTargetRate <= 0.001) return;
+    if (userTargetRate <= MIN_VISIBLE_RATE_PER_MIN) return;
     const arr = consumersByItem.get(node.itemId as ItemId) ?? [];
     arr.push({ instanceId: createTargetSinkId(nodeId), rate: userTargetRate });
     consumersByItem.set(node.itemId as ItemId, arr);
@@ -806,9 +807,9 @@ export function mapPlanToFlowBinFusedSeparated(
     for (const consumer of consumers) {
       let need = consumer.rate;
       for (const producer of sortedProducers) {
-        if (need <= 0.001) break;
+        if (need <= MIN_VISIBLE_RATE_PER_MIN) break;
         const avail = remaining.get(producer.instanceId) ?? 0;
-        if (avail <= 0.001) continue;
+        if (avail <= MIN_VISIBLE_RATE_PER_MIN) continue;
         const take = Math.min(avail, need);
         remaining.set(producer.instanceId, avail - take);
         need -= take;
@@ -900,11 +901,17 @@ export function mapPlanToFlowBinFusedSeparated(
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item" || !node.isRawMaterial) continue;
     const totalDemand = consumers.reduce((s, c) => s + c.rate, 0);
-    if (totalDemand <= 0.001) continue;
+    if (totalDemand <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const item = itemById.get(itemId);
     if (!item) continue;
     const transportCap = getTransportCapacity(item);
-    const pickupCount = Math.max(1, Math.ceil(totalDemand / transportCap));
+    // Subtract MIN_VISIBLE_RATE_PER_MIN before ceiling to avoid
+    // emitting an extra empty pickup node from FP noise on totalDemand
+    // (see allocator-side comment for the full rationale).
+    const pickupCount = Math.max(
+      1,
+      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / transportCap),
+    );
     for (let i = 0; i < pickupCount; i++) {
       const pickupId = `${createRawMaterialId(itemId)}-p${i}`;
       if (emittedRawNodes.has(pickupId)) continue;
@@ -947,7 +954,7 @@ export function mapPlanToFlowBinFusedSeparated(
     // Mirror the consumer-registration guard: zero-rate targets have no
     // incoming edges; emitting a sink for them produces an isolated
     // node that trips assertFlowIntegrity in dev mode.
-    if (userTargetRate <= 0.001) return;
+    if (userTargetRate <= MIN_VISIBLE_RATE_PER_MIN) return;
 
     // Embed recipe info when this target's producer is a singleton-
     // terminal bin — i.e. one we excluded from productionInstances
@@ -998,7 +1005,7 @@ export function mapPlanToFlowBinFusedSeparated(
     if (!consumedItem) continue;
     const disposalRate =
       calcRate(inp.amount, recipe.craftingTime) * bin.buildingCount;
-    if (disposalRate <= 0.001) continue;
+    if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
     disposalSinkNodes.push(
       createDisposalSinkNode(
         `disposal-${bin.recipeIds[0]}`,
@@ -1027,7 +1034,7 @@ export function mapPlanToFlowBinFusedSeparated(
   for (const [itemId, edges] of allocated.entries()) {
     const sourceItem = itemById.get(itemId);
     for (const edge of edges) {
-      if (edge.rate <= 0.001) continue;
+      if (edge.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       if (!emittedNodeIds.has(edge.producerId)) continue;
       if (!emittedNodeIds.has(edge.consumerId)) continue;
       const direction = isCycleEdge(edge.producerId, edge.consumerId)
@@ -1058,7 +1065,16 @@ export function mapPlanToFlowBinFusedSeparated(
     const transportCap = getTransportCapacity(item);
     // Track remaining capacity per pickup point.
     const totalDemand = consumers.reduce((s, c) => s + c.rate, 0);
-    const pickupCount = Math.max(1, Math.ceil(totalDemand / transportCap));
+    // Subtract MIN_VISIBLE_RATE_PER_MIN from totalDemand before ceiling
+    // to avoid emitting an extra empty pickup node when totalDemand is
+    // an exact multiple of transportCap plus FP noise (e.g.,
+    // 480.0000001 / 120 rounds up to 5 instead of 4). The downstream
+    // allocator skips pickups with capacity below this same threshold,
+    // so any such sub-visible "p_N" would be isolated.
+    const pickupCount = Math.max(
+      1,
+      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / transportCap),
+    );
     const pickupRemaining: number[] = [];
     for (let i = 0; i < pickupCount; i++) {
       pickupRemaining.push(
@@ -1067,12 +1083,12 @@ export function mapPlanToFlowBinFusedSeparated(
     }
     let pickupIdx = 0;
     for (const consumer of consumers) {
-      if (consumer.rate <= 0.001) continue;
+      if (consumer.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       if (!emittedNodeIds.has(consumer.instanceId)) continue;
       let need = consumer.rate;
-      while (need > 0.001 && pickupIdx < pickupCount) {
+      while (need > MIN_VISIBLE_RATE_PER_MIN && pickupIdx < pickupCount) {
         const avail = pickupRemaining[pickupIdx];
-        if (avail <= 0.001) {
+        if (avail <= MIN_VISIBLE_RATE_PER_MIN) {
           pickupIdx += 1;
           continue;
         }
@@ -1091,7 +1107,7 @@ export function mapPlanToFlowBinFusedSeparated(
             ceilMode,
           ),
         );
-        if (avail - take <= 0.001) pickupIdx += 1;
+        if (avail - take <= MIN_VISIBLE_RATE_PER_MIN) pickupIdx += 1;
       }
     }
   }

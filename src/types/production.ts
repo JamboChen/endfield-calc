@@ -167,6 +167,16 @@ export type ProductionDependencyGraph = {
  * `facilityId` separately records the physical facility (e.g. the
  * smaller vs larger variant in a multi-formula family) so power and
  * building-count cost are always accurate.
+ *
+ * **Variant semantics**: Phase 3 enumerates one or more "variants" per
+ * (facility, recipeIds) combination, each variant locking in a specific
+ * internal/external/in/out classification of every borderline item. The
+ * variant is chosen by the LP so that the resulting external port count
+ * is provably within facility caps under any feasible demand. The bin's
+ * `variantId` records which variant was chosen — used purely for
+ * debugging visibility; UI consumers should rely on
+ * `externalInputs`/`externalOutputs`/`internalItems` which are derived
+ * from the variant.
  */
 export type Bin = {
   /** Stable bin identifier, e.g. "bin-mix_pool_2-pool_xirpoly_1-pool_xe_1-pool_lx_1-0". */
@@ -199,6 +209,15 @@ export type Bin = {
   innerSlotsUsed: number;
   /** True when this bin shape groups ≥ 2 distinct recipes per building. */
   isGrouped: boolean;
+  /**
+   * Variant identifier chosen by the Phase 3 packer. Multi-formula bins
+   * have one variant per feasible internal/external classification of
+   * borderline items (`${shapeId}#v${index}`). Singleton bins carry a
+   * trivial `${shapeId}#v0`. Used for debug logging and packer tests;
+   * UI consumers should read `externalInputs`/`externalOutputs`/
+   * `internalItems` instead.
+   */
+  variantId: string;
 };
 
 /**
