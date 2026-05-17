@@ -33,6 +33,7 @@ import type {
   Recipe,
   ItemId as ItemIdType,
   RecipeId as RecipeIdType,
+  FacilityId as FacilityIdType,
 } from "@/types";
 
 const mkItem = (id: string, opts: Partial<Item> = {}): Item => ({
@@ -51,7 +52,7 @@ const mkRecipe = (
     itemId: o.itemId as ItemIdType,
     amount: o.amount,
   })),
-  facilityId: "fac" as never,
+  facilityId: "fac" as unknown as FacilityIdType,
   craftingTime: 2,
 });
 
@@ -63,8 +64,8 @@ describe("pickBinHeadlineOutput", () => {
     const recipeB = mkRecipe("rb", [], [{ itemId: "b", amount: 1 }]);
     const bin: Bin = {
       id: "bin-test" as BinId,
-      facilityId: "fac" as never,
-      recipeIds: ["ra", "rb"] as never[],
+      facilityId: "fac" as unknown as FacilityIdType,
+      recipeIds: ["ra", "rb"] as unknown as RecipeIdType[],
       buildingCount: 1,
       externalInputs: [],
       externalOutputs: [
@@ -92,8 +93,8 @@ describe("pickBinHeadlineOutput", () => {
     const recipeB = mkRecipe("rb", [], [{ itemId: "b", amount: 1 }]);
     const bin: Bin = {
       id: "bin-test" as BinId,
-      facilityId: "fac" as never,
-      recipeIds: ["ra", "rb"] as never[],
+      facilityId: "fac" as unknown as FacilityIdType,
+      recipeIds: ["ra", "rb"] as unknown as RecipeIdType[],
       buildingCount: 1,
       externalInputs: [],
       externalOutputs: [
@@ -116,8 +117,8 @@ describe("pickBinHeadlineOutput", () => {
     const recipeL = mkRecipe("rl", [], [{ itemId: "liquid", amount: 1 }]);
     const bin: Bin = {
       id: "bin-test" as BinId,
-      facilityId: "fac" as never,
-      recipeIds: ["rs", "rl"] as never[],
+      facilityId: "fac" as unknown as FacilityIdType,
+      recipeIds: ["rs", "rl"] as unknown as RecipeIdType[],
       buildingCount: 1,
       externalInputs: [],
       externalOutputs: [
@@ -140,8 +141,8 @@ describe("pickBinHeadlineOutput", () => {
     const recipeA = mkRecipe("ra", [], [{ itemId: "a", amount: 1 }]);
     const bin: Bin = {
       id: "bin-test" as BinId,
-      facilityId: "fac" as never,
-      recipeIds: ["ra", "rb"] as never[],
+      facilityId: "fac" as unknown as FacilityIdType,
+      recipeIds: ["ra", "rb"] as unknown as RecipeIdType[],
       buildingCount: 1,
       externalInputs: [],
       externalOutputs: [
@@ -160,8 +161,8 @@ describe("pickBinHeadlineOutput", () => {
   test("returns null for bin with no external outputs", () => {
     const bin: Bin = {
       id: "bin-test" as BinId,
-      facilityId: "fac" as never,
-      recipeIds: [] as never[],
+      facilityId: "fac" as unknown as FacilityIdType,
+      recipeIds: [] as unknown as RecipeIdType[],
       buildingCount: 1,
       externalInputs: [],
       externalOutputs: [],
@@ -346,7 +347,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
 
     // (b) No water-bearing edge originates from the Liquid Purifier bin.
     const purifierBin = plan.bins.find((b) =>
-      b.facilityId === ("liquid_purifier_1" as never),
+      b.facilityId === ("liquid_purifier_1" as FacilityIdType),
     );
     expect(purifierBin).toBeDefined();
     const waterEdgesFromPurifier = flow.edges.filter(
@@ -461,7 +462,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     const purifierBin = plan.bins.find(
       (b) =>
         b.recipeIds.length === 1 &&
-        b.facilityId === ("liquid_purifier_1" as never),
+        b.facilityId === ("liquid_purifier_1" as FacilityIdType),
     );
     expect(purifierBin).toBeDefined();
     const node = flowOff.nodes.find((n) => n.id === purifierBin!.id);
