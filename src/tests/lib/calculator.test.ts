@@ -1594,7 +1594,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
   );
 
   test.each(XIRCON_TARGETS)(
-    "target=%i: Phase 3 allocation ≥ Phase 2 slot demand for every recipe",
+    "target=%i: Phase 3 allocation matches Phase 2 slot demand (strict equality)",
     (target) => {
       const plan = calculateProductionPlan(
         [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
@@ -1614,13 +1614,30 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         const phase2 = node.facilityCount;
         if (phase2 <= 1e-9) continue;
 
-        const allocated = plan.bins.reduce(
+        // Aggregate allocation across bins must match Phase 2's slot
+        // demand under strict-equality demand constraints — sum of
+        // `alloc.perBin.slots` across bins is the actual allocation
+        // (active slot count). `bin.buildingCount` is the integer
+        // building count (≥ slots/recipe for partial-load bins).
+        const alloc = plan.recipeBinAllocations.get(rid);
+        const allocatedSlots = alloc
+          ? alloc.perBin.reduce((s, e) => s + e.slots, 0)
+          : 0;
+        // Strict equality with a 0.005-slot tolerance covering the
+        // documented sub-visible-variant rate drift (< 0.005/min
+        // cumulative). Lower bound catches under-allocation; upper
+        // bound catches the over-production regression that motivated
+        // Path H + strict-equality demand.
+        expect(allocatedSlots).toBeGreaterThanOrEqual(phase2 - 0.005);
+        expect(allocatedSlots).toBeLessThanOrEqual(phase2 + 0.005);
+
+        // Building count is a separate physical bound: must cover the
+        // allocated slot count but may exceed it for partial-load bins.
+        const buildings = plan.bins.reduce(
           (sum, b) => sum + (b.recipeIds.includes(rid) ? b.buildingCount : 0),
           0,
         );
-        // Phase 3 must provide at least Phase 2's demand (with a tiny
-        // float tolerance) and at most Phase 2's ceil + 1 (sanity bound).
-        expect(allocated).toBeGreaterThanOrEqual(phase2 - 1e-6);
+        expect(buildings).toBeGreaterThanOrEqual(phase2 - 1e-6);
       }
     },
   );

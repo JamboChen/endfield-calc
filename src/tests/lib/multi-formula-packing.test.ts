@@ -216,9 +216,12 @@ describe("packBins", () => {
           );
         }
       }
-      expect(slotsByRecipe.get("lx_1") ?? 0).toBeGreaterThanOrEqual(4);
-      expect(slotsByRecipe.get("xe_1") ?? 0).toBeGreaterThanOrEqual(4);
-      expect(slotsByRecipe.get("x_1") ?? 0).toBeGreaterThanOrEqual(2);
+      // Strict-equality demand: integer-demand allocations must match
+      // exactly. Catches over-provisioning regressions (the original
+      // user-reported Xircon bug) and under-allocation regressions.
+      expect(slotsByRecipe.get("lx_1") ?? 0).toBeCloseTo(4, 2);
+      expect(slotsByRecipe.get("xe_1") ?? 0).toBeCloseTo(4, 2);
+      expect(slotsByRecipe.get("x_1") ?? 0).toBeCloseTo(2, 2);
     });
 
     test("fractional demand at target=57: cap-safe packing, Xircon rate met", () => {
@@ -259,9 +262,14 @@ describe("packBins", () => {
           );
         }
       }
-      expect(slotsByRecipe.get("lx_1") ?? 0).toBeGreaterThanOrEqual(3.04 - 1e-6);
-      expect(slotsByRecipe.get("xe_1") ?? 0).toBeGreaterThanOrEqual(3.04 - 1e-6);
-      expect(slotsByRecipe.get("x_1") ?? 0).toBeGreaterThanOrEqual(1.9 - 1e-6);
+      // Strict-equality demand: allocations must equal demand exactly,
+      // modulo the documented sub-visible-variant drift (<0.005/min
+      // rate-level cumulative, which is well below 0.005 slots for any
+      // recipe in the test set). `toBeCloseTo(target, 2)` gives ±0.005
+      // tolerance — catches both under- and over-allocation regressions.
+      expect(slotsByRecipe.get("lx_1") ?? 0).toBeCloseTo(3.04, 2);
+      expect(slotsByRecipe.get("xe_1") ?? 0).toBeCloseTo(3.04, 2);
+      expect(slotsByRecipe.get("x_1") ?? 0).toBeCloseTo(1.9, 2);
 
       // Aggregate Xircon external output rate = 1.9 × 30 = 57/min.
       let xirconRate = 0;
@@ -713,6 +721,63 @@ describe("packBins", () => {
         ...buildMaps(items, [r1, r2], [fac]),
       });
       expect(a.bins.map((x) => x.id)).toEqual(b.bins.map((x) => x.id));
+    });
+
+    test("bin.recipeIds is sorted ascending across every emitted bin", () => {
+      // Contract relied on by `useProductionTable.ts:263`
+      // (`primaryRecipeId = bin.recipeIds[0]` = alphabetically-first id)
+      // for the "primary row owns the power" heuristic. A future packer
+      // refactor that re-orders (e.g., deterministic-by-rate to make
+      // headlines stable across rerenders) would silently break the
+      // primary-row attribution; this test pins the contract.
+      //
+      // Tested across both grouped (multi-recipe) and singleton (1-recipe)
+      // bins; singleton bins have a single element, trivially sorted.
+      const items = [
+        item("a"), item("b"), item("c"),
+        item("water", { isLiquid: true }),
+        item("out_a", { isLiquid: true }),
+        item("out_b", { isLiquid: true }),
+      ];
+      const fac = facility("fac", {
+        powerConsumption: 50,
+        cacheSlots: 5,
+        buffersIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }] },
+        buffersOut: { belt: [], pipe: [{ ports: 1 }, { ports: 1 }] },
+      });
+      const r1 = recipe("z_recipe",
+        [{ itemId: "a", amount: 1 }, { itemId: "water", amount: 1 }],
+        [{ itemId: "out_a", amount: 1 }],
+        "fac",
+      );
+      const r2 = recipe("a_recipe",
+        [{ itemId: "b", amount: 1 }, { itemId: "water", amount: 1 }],
+        [{ itemId: "out_b", amount: 1 }],
+        "fac",
+      );
+      const slotDemands = new Map<RecipeId, number>([
+        ["z_recipe" as RecipeId, 1],
+        ["a_recipe" as RecipeId, 1],
+      ]);
+      const r = packBins({
+        recipeSlotDemands: slotDemands,
+        ...buildMaps(items, [r1, r2], [fac]),
+      });
+      for (const bin of r.bins) {
+        for (let i = 1; i < bin.recipeIds.length; i++) {
+          expect(
+            bin.recipeIds[i - 1] < bin.recipeIds[i],
+            `bin ${bin.id} recipeIds not ascending: ${bin.recipeIds.join(", ")}`,
+          ).toBe(true);
+        }
+      }
+      // At least one grouped bin in this scenario must place "a_recipe"
+      // before "z_recipe" (alphabetical), proving the contract is
+      // active not vacuously satisfied.
+      const groupedBin = r.bins.find((b) => b.recipeIds.length > 1);
+      if (groupedBin) {
+        expect(groupedBin.recipeIds[0]).toBe("a_recipe");
+      }
     });
   });
 

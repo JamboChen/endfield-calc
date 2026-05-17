@@ -787,7 +787,23 @@ const solvePacking = (
      * avoid pathological B&B runtimes.
      */
     ints: Record<string, 1>;
+    /**
+     * Hard runtime cap (ms) — MIP only. Defense in depth against any
+     * pathological problem where branch-and-bound stalls past the
+     * `USE_INTEGER_LP` size threshold's expectations. `javascript-lp-
+     * solver` returns the best integer solution found so far (or
+     * `feasible: false` if none), at which point our try/catch /
+     * fallback chain takes over. Unreachable on typical workloads
+     * given the variant-count threshold below.
+     */
+    options?: { timeout?: number };
   };
+
+  /**
+   * Solver runtime cap applied to every lex pass. 30s matches vitest's
+   * `testTimeout` in `vite.config.ts`; any longer would break CI.
+   */
+  const SOLVER_TIMEOUT_MS = 30000;
 
   const variables: Model["variables"] = {};
   const constraints: Model["constraints"] = {};
@@ -940,6 +956,7 @@ const solvePacking = (
     constraints,
     variables,
     ints: lpInts,
+    options: { timeout: SOLVER_TIMEOUT_MS },
   };
   let r1: Record<string, number | boolean | undefined>;
   try {
@@ -1004,6 +1021,7 @@ const solvePacking = (
     },
     variables: {},
     ints: lpInts,
+    options: { timeout: SOLVER_TIMEOUT_MS },
   };
   for (const [varName, coefs] of Object.entries(variables)) {
     passTwo.variables[varName] = { ...coefs };
@@ -1051,6 +1069,7 @@ const solvePacking = (
       },
       variables: {},
       ints: lpInts,
+      options: { timeout: SOLVER_TIMEOUT_MS },
     };
     for (const [varName, coefs] of Object.entries(variables)) {
       passThree.variables[varName] = { ...coefs };
