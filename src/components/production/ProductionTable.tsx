@@ -81,9 +81,15 @@ export type ProductionTableTotals = {
 
 type ProductionTableProps = {
   data: ProductionLineData[];
-  totals?: ProductionTableTotals;
+  /**
+   * Plan-level totals from `aggregateBinTotals` (via `useProductionTable`).
+   * Required because the table footer must always reflect the bin-aware
+   * single source of truth — recomputing totals from row data here would
+   * undercount whenever the ILP splits a recipe across bins. See
+   * `aggregateBinTotals` for the rounding semantics tied to `ceilMode`.
+   */
+  totals: ProductionTableTotals;
   items: Item[];
-  facilities: Facility[];
   onRecipeChange: (itemId: ItemId, recipeId: RecipeId) => void;
   onToggleRawMaterial: (itemId: ItemId) => void;
   ceilMode?: boolean;
@@ -293,47 +299,6 @@ const ProductionTable = memo(function ProductionTable({
     [items],
   );
 
-  // Plan-level totals come from the upstream hook (computed from
-  // `plan.bins` directly, which is split-allocation-safe). When
-  // the caller doesn't supply totals (e.g. ad-hoc consumers), fall back
-  // to a row-derived approximation. This fallback is accurate when no
-  // recipe is split across multiple bins, which holds for any plan
-  // where the ILP doesn't split — i.e. nearly all plans in practice.
-  const effectiveTotals = useMemo(() => {
-    if (totals) return totals;
-    let totalBuildings = 0;
-    let totalPower = 0;
-    let groupedSavings = 0;
-    const seenBins = new Set<string>();
-    for (const line of data) {
-      if (line.isRawMaterial || line.isManualRawMaterial) continue;
-      const isGrouped =
-        (line.binSisterRecipeIds?.length ?? 0) > 0 &&
-        line.binBuildingCount !== undefined;
-
-      if (isGrouped) {
-        if (line.binId && !seenBins.has(line.binId)) {
-          seenBins.add(line.binId);
-          totalBuildings += Math.ceil(line.binBuildingCount!);
-          if (line.facility?.powerConsumption) {
-            totalPower += line.facility.powerConsumption * line.binBuildingCount!;
-          }
-          groupedSavings += -Math.ceil(line.binBuildingCount!);
-        }
-        groupedSavings += Math.ceil(line.facilityCount);
-      } else {
-        totalBuildings += Math.ceil(line.facilityCount);
-        if (line.facility?.powerConsumption) {
-          totalPower += line.facility.powerConsumption * line.facilityCount;
-        }
-      }
-    }
-    return {
-      totalBuildings,
-      totalPower,
-      groupedSavings: Math.max(0, groupedSavings),
-    };
-  }, [totals, data]);
 
   const highlightedItemIds = useMemo(() => {
     if (!hoveredItemId) return new Set<ItemId>();
@@ -387,7 +352,7 @@ const ProductionTable = memo(function ProductionTable({
           {data.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={9}
+                colSpan={8}
                 className="text-center text-muted-foreground h-32"
               >
                 {t("table.noData")}
@@ -777,13 +742,13 @@ const ProductionTable = memo(function ProductionTable({
               {t("table.totals.buildings", { defaultValue: "Total buildings" })}:
             </span>
             <span className="font-mono font-semibold tabular-nums">
-              {effectiveTotals.totalBuildings}
+              {totals.totalBuildings}
             </span>
-            {effectiveTotals.groupedSavings > 0 && (
+            {totals.groupedSavings > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="text-purple-700 dark:text-purple-400 cursor-help text-[10px]">
-                    (−{effectiveTotals.groupedSavings}{" "}
+                    (−{totals.groupedSavings}{" "}
                     {t("table.totals.viaGrouping", {
                       defaultValue: "via grouping",
                     })}
@@ -806,7 +771,7 @@ const ProductionTable = memo(function ProductionTable({
               {t("table.totals.power", { defaultValue: "Total power" })}:
             </span>
             <span className="font-mono font-semibold tabular-nums">
-              {formatNumber(effectiveTotals.totalPower, 0)}
+              {formatNumber(totals.totalPower, 0)}
             </span>
           </div>
         </div>

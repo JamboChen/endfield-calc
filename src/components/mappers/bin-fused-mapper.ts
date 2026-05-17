@@ -202,9 +202,9 @@ export function mapPlanToFlowBinFused(
     if (!node.isTarget || node.isRawMaterial) return;
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
     if (userTargetRate <= MIN_VISIBLE_RATE_PER_MIN) return;
-    const arr = consumersByItem.get(node.itemId as ItemId) ?? [];
+    const arr = consumersByItem.get(node.itemId) ?? [];
     arr.push({ binId: createTargetSinkId(nodeId), rate: userTargetRate });
-    consumersByItem.set(node.itemId as ItemId, arr);
+    consumersByItem.set(node.itemId, arr);
   });
   // Disposal bins consume items too — register them as consumers so
   // producer bins route surplus to disposal correctly.
@@ -394,9 +394,7 @@ export function mapPlanToFlowBinFused(
       facilityCount: number;
       recipe: Recipe | null;
     } | undefined;
-    const terminalBin = singletonTerminalBinByTargetItem.get(
-      node.itemId as ItemId,
-    );
+    const terminalBin = singletonTerminalBinByTargetItem.get(node.itemId);
     if (terminalBin) {
       const recipe = recipeById.get(terminalBin.recipeIds[0]);
       const facility = facilityById.get(terminalBin.facilityId);
@@ -777,9 +775,9 @@ export function mapPlanToFlowBinFusedSeparated(
     if (!node.isTarget || node.isRawMaterial) return;
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
     if (userTargetRate <= MIN_VISIBLE_RATE_PER_MIN) return;
-    const arr = consumersByItem.get(node.itemId as ItemId) ?? [];
+    const arr = consumersByItem.get(node.itemId) ?? [];
     arr.push({ instanceId: createTargetSinkId(nodeId), rate: userTargetRate });
-    consumersByItem.set(node.itemId as ItemId, arr);
+    consumersByItem.set(node.itemId, arr);
   });
   // Disposal bins consume items; register one disposal-sink consumer
   // per disposal bin (not per building, since disposal sinks aren't
@@ -966,9 +964,7 @@ export function mapPlanToFlowBinFusedSeparated(
       facilityCount: number;
       recipe: Recipe | null;
     } | undefined;
-    const terminalBin = singletonTerminalBinByTargetItem.get(
-      node.itemId as ItemId,
-    );
+    const terminalBin = singletonTerminalBinByTargetItem.get(node.itemId);
     if (terminalBin) {
       const recipe = recipeById.get(terminalBin.recipeIds[0]);
       const facility = facilityById.get(terminalBin.facilityId);

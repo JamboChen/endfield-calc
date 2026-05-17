@@ -11,6 +11,7 @@ import type {
   Recipe,
 } from "@/types";
 import { calcRate } from "@/lib/utils";
+import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 
 /**
  * Bin-level plan aggregates derived from `plan.bins`. Single
@@ -502,9 +503,9 @@ export function computeGreedyAllocation(
   for (const consumer of consumers) {
     let remainingDemand = consumer.demand;
     for (const producer of sorted) {
-      if (remainingDemand <= 0.001) break;
+      if (remainingDemand <= MIN_VISIBLE_RATE_PER_MIN) break;
       const available = remaining.get(producer.recipeId) || 0;
-      if (available <= 0.001) continue;
+      if (available <= MIN_VISIBLE_RATE_PER_MIN) continue;
 
       const allocated = Math.min(available, remainingDemand);
       remaining.set(producer.recipeId, available - allocated);

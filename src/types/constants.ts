@@ -486,6 +486,11 @@ const FacilityId = {
   SEEDCOLLECTOR_1: "seedcollector_1",
   SHAPER_1: "shaper_1",
   THICKENER_1: "thickener_1",
+  // NOTE: "assebling" is a typo from the upstream `FactoryBuildingTable`
+  // game-data dump. Preserved verbatim so the `bun run extract:recipes`
+  // pipeline keeps matching upstream IDs. Do not rename locally — see
+  // `public/images/facilities/tools_assebling_mc_1.png` and the recipe
+  // `facilityId` references in `src/data/recipes.ts`.
   TOOLS_ASSEBLING_MC_1: "tools_assebling_mc_1",
   WINDER_1: "winder_1",
   XIRANITE_OVEN_1: "xiranite_oven_1",

@@ -18,6 +18,7 @@ import {
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate } from "@/lib/utils";
+import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import { getRecipeOutputItemId, getRecipeInputItemId, getItemProducers, isRecipeTerminal, computeGreedyAllocation } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
 
@@ -225,7 +226,7 @@ export function mapPlanToFlowMerged(
         // Multi-producer: use pre-computed greedy allocation
         for (const ae of greedy.consumerEdges) {
           if (ae.consumerId !== edge.to) continue;
-          if (ae.rate <= 0.001) continue;
+          if (ae.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
           flowEdges.push(
             createEdge(
               `e${edgeIdCounter++}`,
@@ -352,7 +353,7 @@ export function mapPlanToFlowMerged(
           // Multi-producer: use pre-computed greedy allocation
           for (const ae of greedy.consumerEdges) {
             if (ae.consumerId !== targetNodeId) continue;
-            if (ae.rate > 0.001) {
+            if (ae.rate > MIN_VISIBLE_RATE_PER_MIN) {
               edgesToCreate.push({ producerRecipeId: ae.producerRecipeId, rate: ae.rate });
             }
           }
@@ -417,7 +418,7 @@ export function mapPlanToFlowMerged(
     // already filters via SURPLUS_EPSILON; this guards against any future
     // path that injects a near-zero disposal recipe and prevents an isolated
     // node from violating flow integrity.
-    if (disposalRate <= 0.001) return;
+    if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) return;
 
     disposalSinkNodes.push(
       createDisposalSinkNode(
@@ -449,7 +450,7 @@ export function mapPlanToFlowMerged(
             : disposalRate;
       }
 
-      if (edgeRate <= 0.001) continue;
+      if (edgeRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
 
       // Compute how many facilities of this producer contribute
       const producerNode = plan.nodes.get(producer.recipeId);

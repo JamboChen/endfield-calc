@@ -185,7 +185,6 @@ export default function ProductionViewTabs({
                   data={tableData.rows}
                   totals={tableData.totals}
                   items={items}
-                  facilities={facilities}
                   onRecipeChange={onRecipeChange}
                   onToggleRawMaterial={onToggleRawMaterial}
                   ceilMode={ceilMode}

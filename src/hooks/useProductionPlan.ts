@@ -213,7 +213,14 @@ export function useProductionPlan() {
     return { plan, error };
   }, [targets, recipeOverrides, manualRawMaterials, t]);
 
-  // Filter zero-rate nodes from the plan for display
+  // Filter zero-rate nodes from the plan for display. Note: `plan.bins`
+  // and `plan.recipeBinAllocations` are intentionally NOT filtered — Phase 3
+  // only emits bins for recipes with positive slot demand (see
+  // `multi-formula-packing.ts` `SLOT_DEMAND_EPSILON` guard), so every
+  // surviving bin has a corresponding surviving recipe node. Downstream
+  // hooks (`useProductionStats`, `useProductionTable`) consume `displayPlan`
+  // for nodes/edges but read `plan.bins` for aggregates via
+  // `aggregateBinTotals`, which is the single source of truth.
   const displayPlan = useMemo(() => {
     if (!plan) return plan;
 
@@ -328,11 +335,11 @@ export function useProductionPlan() {
   );
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
-    setTargets((prev) => {
-      const newTargets = [...prev];
-      newTargets[index].rate = rate;
-      return newTargets;
-    });
+    setTargets((prev) =>
+      // Clone the target object as well as the array so memoized consumers
+      // that compare against `prev[index]` by reference see a new instance.
+      prev.map((t, i) => (i === index ? { ...t, rate } : t)),
+    );
   }, []);
 
   const handleTargetRemove = useCallback((index: number) => {

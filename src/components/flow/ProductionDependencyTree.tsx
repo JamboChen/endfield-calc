@@ -36,6 +36,7 @@ import {
 } from "../mappers/bin-fused-mapper";
 import { applyEdgeStyling } from "./flow-utils";
 import CustomBackwardEdge from "../nodes/CustomBackwardEdge";
+import CustomBezierEdge from "../nodes/CustomBezierEdge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Download } from "lucide-react";
@@ -194,8 +195,6 @@ function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTM
     </>
   );
 }
-
-import CustomBezierEdge from "../nodes/CustomBezierEdge";
 
 type ProductionDependencyTreeProps = {
   plan: ProductionDependencyGraph | null;
