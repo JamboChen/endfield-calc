@@ -228,8 +228,8 @@ describe("packBins", () => {
       // Phase 2 LP demands at target=57 Xircon (real ratios).
       // x_X = 1.9, x_XE = x_LX = 3.04.
       //
-      // Under Path H, the packer enumerates only cap-feasible variants
-      // of each shape. The triple {LX,XE,X} shape has multiple variants;
+      // The packer enumerates only cap-feasible variants of each
+      // shape. The triple {LX,XE,X} shape has multiple variants;
       // demand at non-stoichiometric ratios (XE/X = 1.6 vs natural 2.0)
       // forces the LP to combine variants and/or pair shapes to cover
       // demand while keeping each bin within port caps.
@@ -262,11 +262,11 @@ describe("packBins", () => {
           );
         }
       }
-      // Strict-equality demand: allocations must equal demand exactly,
-      // modulo the documented sub-visible-variant drift (<0.005/min
-      // rate-level cumulative, which is well below 0.005 slots for any
-      // recipe in the test set). `toBeCloseTo(target, 2)` gives ±0.005
-      // tolerance — catches both under- and over-allocation regressions.
+      // Strict-equality demand: allocations must equal demand exactly
+      // (HiGHS holds equality to its 1e-10 feasibility tolerance).
+      // `toBeCloseTo(target, 2)` gives ±0.005 tolerance, conservative
+      // for solver noise; catches both under- and over-allocation
+      // regressions.
       expect(slotsByRecipe.get("lx_1") ?? 0).toBeCloseTo(3.04, 2);
       expect(slotsByRecipe.get("xe_1") ?? 0).toBeCloseTo(3.04, 2);
       expect(slotsByRecipe.get("x_1") ?? 0).toBeCloseTo(1.9, 2);
@@ -1037,13 +1037,13 @@ describe("packBins", () => {
     });
   });
 
-  describe("port-cap invariants (Path H regression coverage)", () => {
+  describe("port-cap invariants", () => {
     // The user-reported "3/2 liq in" bug: at certain target rates and
     // recipe configurations, the old packer emitted a bin with more
     // external liquid inputs than the facility's pipe-in buffer count.
-    // Path H prevents this by enumerating only cap-feasible variants.
-    // These tests act as the smoke screen: every bin must satisfy its
-    // facility's port caps.
+    // The current packer prevents this by enumerating only
+    // cap-feasible variants. These tests act as the smoke screen:
+    // every bin must satisfy its facility's port caps.
 
     // Xircon recipe fixtures (real-data analogues).
     const items = [
@@ -1128,8 +1128,9 @@ describe("packBins", () => {
         ...buildMaps(items, recipes, facilities),
       });
 
-      // Every bin satisfies port caps (the structural invariant Path H
-      // guarantees; assertBinPortCaps would throw otherwise).
+      // Every bin satisfies port caps (structural invariant of the
+      // variant-enumeration architecture; assertBinPortCaps would
+      // throw otherwise).
       for (const bin of r.bins) {
         const fac = facilities.find((f) => f.id === bin.facilityId);
         if (!fac || fac.cacheSlots == null) continue;

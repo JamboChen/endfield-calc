@@ -1266,25 +1266,27 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
   test("3-target plan (Hetonite Part + SC Wuling Battery + Yazhen Syringe) produces no isolated bins", async () => {
     // Regression test for the "vestigial 2-recipe variant" bug.
     //
-    // Background: with strict-equality demand in `solvePacking` and the
-    // continuous-LP relaxation path (≥30 variants), the LP could return
+    // Background: in an earlier solver iteration that solved the LP
+    // as a continuous relaxation, strict-equality demand could leave
     // tiny u values (~1e-7) for 2-recipe variants combining unrelated
     // chemistries (e.g., `{pool_copper_enr, pool_liquid_plant_grass_2}`).
-    // These variants are vestigial — singletons of the same recipes
-    // cover demand at meaningful rates — but FP residue from simplex
-    // pivots left them with non-zero u just above SLOT_DEMAND_EPSILON.
+    // These variants were vestigial: singletons of the same recipes
+    // already covered demand at meaningful rates, but FP residue from
+    // simplex pivots left them with non-zero u just above
+    // SLOT_DEMAND_EPSILON.
     //
     // When rounded to x=1, such bins emitted external rates of ~3e-5
     // /min, far below the bin-fused mapper's 0.001/min edge-allocation
     // threshold. The mapper skipped all incident edges, leaving the
     // bin as an isolated node → `assertFlowIntegrity` failure.
     //
-    // The 3-target combination below reliably triggered this on
-    // real game data. The fix (`MIN_VISIBLE_RATE_PER_MIN` filter in
-    // `solvePacking` emission) drops sub-visible variants before they
-    // reach the mapper. If `assertFlowIntegrity` ever fires for this
-    // scenario again, either the filter regressed or game data has
-    // shifted in a way that exposes a new corner case.
+    // The 3-target combination below was a known failure mode in an
+    // earlier solver iteration: certain LP outputs left bins emitting
+    // at rates below the mapper's edge-allocation threshold,
+    // producing isolated nodes that tripped `assertFlowIntegrity`.
+    // The current solver's 1e-10 feasibility tolerance keeps such
+    // sub-visible outputs from appearing. If `assertFlowIntegrity`
+    // ever fires for this scenario, that invariant regressed.
     const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_COPPER_ENR_CMPT, rate: 6 },
@@ -1331,8 +1333,8 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
 
     // Facility View (bin-fused separated). Same packer output, but
     // the mapper emits one node per physical building instead of one
-    // per bin. The sub-visible-variant bug surfaces identically here
-    // because the same source bins drive both mappers.
+    // per bin. Same bins drive both mappers, so any edge-allocation
+    // failure surfaces in both views identically.
     const flowSeparated = mapPlanToFlowBinFusedSeparated(
       plan,
       items,

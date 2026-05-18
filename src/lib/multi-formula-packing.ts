@@ -63,17 +63,19 @@
  * game data); in production we fall back to `emitSingletonBins` for
  * every recipe, which is always exact-match feasible.
  *
- * See `docs/path-h-design.md` for the full design rationale, the
- * trade-offs (continuous-LP hybrid, sub-visible-variant filter), the
- * rocky implementation history, and future-work directions.
+ * **Architecture**: enumerate every cap-feasible shape-variant up
+ * front, then solve a strict-equality LP/MIP over those variants
+ * for active-slot counts. Port-cap feasibility is guaranteed by
+ * construction rather than by LP constraints, which keeps the LP
+ * clean and the solver fast. Tests under "port-cap invariants"
+ * pin this invariant.
  *
- * TODO(future): Path G (big-M indicator constraints in the MIP for
- * per-variant port-cap enforcement) was considered but rejected for
- * solver fragility on `javascript-lp-solver`. Path H trades a few extra
- * variables for guaranteed LP-clean correctness. If empirical evidence
- * later shows Path H's enumeration cost is a bottleneck for game data
- * with many borderline items per shape, Path G remains a viable
- * alternative.
+ * **Alternative not taken**: encoding per-variant port-cap
+ * enforcement as big-M indicator constraints inside the MIP,
+ * skipping the explicit variant-enumeration step. Fewer variables
+ * but more constraint complexity. Viable if variant enumeration
+ * ever becomes a bottleneck for game data with many borderline
+ * items per shape.
  */
 
 import { calcRate } from "@/lib/utils";
@@ -98,19 +100,15 @@ const SLOT_DEMAND_EPSILON = 1e-9;
 
 /**
  * Building-count slack added to lex pass 2's cap to absorb LP solver
- * noise. HiGHS's own `primal_feasibility_tolerance` (tightened to
- * 1e-10 in the wrapper) keeps simplex output precise enough that we
- * can use a much tighter lex tolerance than was needed under
- * `javascript-lp-solver` (which required 1e-6). The previous
- * threshold survived as a defensive cushion; HiGHS doesn't need it.
+ * noise. HiGHS's `primal_feasibility_tolerance` is configured to
+ * 1e-10 in the wrapper, so 1e-9 is a small defensive cushion.
  */
 const LEX_BUILDINGS_TOLERANCE = 1e-9;
 
 /**
  * Power-budget slack added to lex pass 3's cap to absorb LP solver
  * noise. Same HiGHS-precision justification as
- * `LEX_BUILDINGS_TOLERANCE` above. Previous value `1e-3` was a
- * cushion against jsLPSolver's noise that's no longer required.
+ * `LEX_BUILDINGS_TOLERANCE` above.
  */
 const LEX_POWER_TOLERANCE = 1e-6;
 
@@ -735,18 +733,8 @@ const makeBinId = (
  *
  * Lex passes: minimise buildings → power → shape-size sum. No Pass 4
  * for over-provisioning: with strict equality, `Σ_v u_v × dir_v[r] =
- * demand_r` is binding and y is fully determined.
- *
- * **IMPORTANT — strict equality is maintained MODULO sub-visible
- * variants.** The emission loop filters variants whose max recipe
- * rate falls below `MIN_VISIBLE_RATE_PER_MIN` (see filter rationale
- * below). Dropped variants leave the actual emitted bin total at
- * `demand_r − ε_drop` rather than exactly `demand_r`. The drift per
- * dropped variant is < `0.001/min`; cumulative drift across a plan
- * has been < `0.005/min` in all observed cases. Below user-visible
- * granularity, but technically a deviation from the LP's equality
- * contract. See `docs/path-h-design.md` for the full rationale and
- * known future-work directions.
+ * demand_r` is binding and y is fully determined exactly (modulo
+ * HiGHS's 1e-10 feasibility tolerance).
  */
 type SolveOutput = {
   buildingCounts: Map<BinShapeVariant, number>;
@@ -788,10 +776,8 @@ const solvePacking = async (
     ints: Record<string, 1>;
     /**
      * Hard runtime cap (seconds) passed through to HiGHS as
-     * `time_limit`. Defense in depth against any pathological problem.
-     * HiGHS handles MIPs much faster than `javascript-lp-solver` did,
-     * so this is unreachable on current workloads — but the cap is
-     * cheap insurance against future-data surprises.
+     * `time_limit`. Defense in depth against any pathological
+     * problem; unreachable on current workloads, but cheap insurance.
      */
     options?: { timeLimitSeconds?: number };
   };
@@ -827,13 +813,8 @@ const solvePacking = async (
     variables[uName] = {};
   }
 
-  // Integer MIP always — HiGHS handles MIPs cleanly without the
-  // branch-and-bound runtime cliff that necessitated the
-  // continuous-LP-relaxation hybrid under `javascript-lp-solver`.
-  // The hybrid path and its empirical 30-variant/10-demand threshold
-  // were workarounds for jsLPSolver's slow B&B; both go away post-
-  // migration. See git history (commit c5d157f) for the original
-  // hybrid rationale.
+  // Integer MIP always. HiGHS handles MIPs within budget on our
+  // workloads (typical solves well under 1 s for ~30-variant plans).
   const lpInts: Model["ints"] = ints;
 
   let cIdx = 0;
@@ -1077,15 +1058,10 @@ const solvePacking = async (
   }
 
   // Extract x's and u's from the final result. Under strict-equality
-  // demand constraints and integer MIP (HiGHS), `x_v` is integer and
+  // demand constraints and integer MIP, `x_v` is integer and
   // `y_r = Σ u_v × dir_v[r] = demand_r` exactly for every recipe r.
-  //
-  // The sub-visible-variant filter that used to live here is gone:
-  // HiGHS's tightened `primal_feasibility_tolerance` (1e-10) keeps
-  // simplex output precise enough that vestigial `u ≈ 1e-7` ghosts
-  // from jsLPSolver's pivot residue no longer appear. The Math.ceil
-  // on `x` below is therefore a strict-integer no-op for the MIP
-  // path, retained as a defensive guard.
+  // The Math.ceil on `x` below is a strict-integer no-op kept as
+  // a defensive guard against any 1e-10-scale FP drift.
   const buildingCounts = new Map<BinShapeVariant, number>();
   const activeSlots = new Map<BinShapeVariant, Map<RecipeId, number>>();
   let totalBuildings = 0;

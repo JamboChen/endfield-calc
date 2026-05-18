@@ -349,10 +349,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
     };
   }
 
-  // Pass 1: raw-cost minimization. HiGHS spike — replaces
-  // `javascript-lp-solver`'s `solver.Solve` with the HiGHS WASM
-  // wrapper. Pass 2 below stays on jsLPSolver for now so the spike
-  // isolates one call site at a time.
+  // Pass 1: raw-cost minimization.
   const { model: rawModel, recipeIndexMap, disposalSlackVarMap } =
     buildModel(input, "rawCost");
   let rawResult: Record<string, number | boolean | undefined>;

@@ -1628,11 +1628,12 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         const allocatedSlots = alloc
           ? alloc.perBin.reduce((s, e) => s + e.slots, 0)
           : 0;
-        // Strict equality with a 0.005-slot tolerance covering the
-        // documented sub-visible-variant rate drift (< 0.005/min
-        // cumulative). Lower bound catches under-allocation; upper
-        // bound catches the over-production regression that motivated
-        // Path H + strict-equality demand.
+        // Strict equality with a 0.005-slot tolerance absorbing LP
+        // solver noise (HiGHS holds equality to its 1e-10 feasibility
+        // tolerance; the test tolerance is conservative). Lower bound
+        // catches under-allocation; upper bound catches the
+        // over-production regression that motivated the
+        // variant-enumeration + strict-equality demand design.
         expect(allocatedSlots).toBeGreaterThanOrEqual(phase2 - 0.005);
         expect(allocatedSlots).toBeLessThanOrEqual(phase2 + 0.005);
 
@@ -1656,7 +1657,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         recipes,
         facilities,
       );
-      // Path H may split X recipe across multiple variants (e.g.,
+      // The packer may split X recipe across multiple variants (e.g.,
       // singleton X on Reactor + triple {LX,XE,X} on Expanded), so
       // aggregate Xircon production across ALL bins emitting it. Under
       // strict-equality demand, this sum equals the target exactly.
@@ -1677,9 +1678,9 @@ describe("Xircon bin-fusion integrity (real data)", () => {
     // {LX, XE, X} bin ran at uneven active rates that produced 3 liquid
     // inputs on a 2-port facility — physically unbuildable.
     //
-    // Under Path H, the packer enumerates only cap-feasible variants
-    // and the LP picks among them. The bin's classification of sewage
-    // (internal vs. external) depends on which variant is chosen:
+    // The packer enumerates only cap-feasible variants and the LP
+    // picks among them. The bin's classification of sewage (internal
+    // vs. external) depends on which variant is chosen:
     //   - V3 regime (LX=XE=2X, sewage internal): bin has sewage as
     //     internal, no external sewage flow.
     //   - V1 + pair regime (LX=XE=X with pair for residuals): bin has
@@ -1712,9 +1713,10 @@ describe("Xircon bin-fusion integrity (real data)", () => {
     }
     expect(totalXircon).toBeGreaterThanOrEqual(57 - 0.01);
 
-    // Port caps holding is the structural invariant Path H guarantees;
-    // verified inline (the packer's assertBinPortCaps also throws on
-    // violation in test mode).
+    // Port caps holding is a structural invariant of the
+    // variant-enumeration architecture; verified inline (the
+    // packer's assertBinPortCaps also throws on violation in
+    // test mode).
     for (const bin of plan.bins) {
       const fac = facilities.find((f) => f.id === bin.facilityId);
       if (!fac || fac.cacheSlots == null) continue;

@@ -81,9 +81,8 @@ export default defineConfig({
   test: {
     // Default 5 s vitest timeout is OK for unit tests but some
     // calculator integration tests run multiple plans and need more
-    // headroom. 30 s is generous (typical plans solve in <100ms with
-    // the continuous-LP-relaxation packer) but catches genuinely-stuck
-    // tests.
+    // headroom. 30 s is generous (typical plans solve well under 1 s)
+    // but catches genuinely-stuck tests.
     testTimeout: 30000,
     // Pre-load HiGHS WASM once per worker so solver call sites can run
     // synchronously inside tests. See `src/tests/setup.ts`.

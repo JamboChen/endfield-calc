@@ -590,8 +590,8 @@ describe("aggregateBinTotals (real data)", () => {
   test("ceilMode=false: grouped Xircon bin contributes mean strictly below buildingCount", async () => {
     // The user-facing semantic: in ceilMode=OFF, bf=1 surfaces the
     // partial-load info that the integer bin.buildingCount hides for
-    // grouped bins. Under Path H, the variant LP picks active rates
-    // that honour the variant's regime; for partial-load demand the
+    // grouped bins. The variant LP picks active rates that honour
+    // the variant's regime; for partial-load demand the
     // mean activity strictly undercuts bin.buildingCount (which is the
     // ceiled physical count). The specific numeric value depends on
     // which variant the LP picks; the invariant `mean ≤ buildingCount`
