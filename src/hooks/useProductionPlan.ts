@@ -205,8 +205,10 @@ export function useProductionPlan() {
       })
       .catch((e) => {
         if (cancelled) return;
-        // Surface init failure as a calculation-level error so the
-        // user sees something. Extremely rare (WASM compile failure).
+        // Log only; the "Loading solver…" pill remains visible.
+        // Reaching here means the WASM compile failed (near-zero
+        // probability in modern browsers); a richer error UI is
+        // not worth the surface area until real reports surface.
         console.error("[HIGHS] init failed:", e);
       });
     return () => {

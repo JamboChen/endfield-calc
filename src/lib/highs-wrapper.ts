@@ -78,6 +78,14 @@ export type LPResult = Record<string, number | boolean | undefined> & {
  * structurally-identical LP file, so HiGHS picks the same solution
  * across runs (modulo HiGHS's internal nondeterminism, controlled by
  * the `random_seed: 0` default).
+ *
+ * NOT concurrent-safe: relies on sequential callers. The shared
+ * HiGHS instance is mutated by `setParam` and `parse`, and the
+ * subsequent `solve` reads that state. Current callers are all
+ * `await`-chained (sequential). If concurrent solves ever become
+ * necessary (e.g., a vitest test marked `test.concurrent`), add
+ * an internal mutex or switch to instance-per-call (with `free()`
+ * afterwards).
  */
 export async function solve(model: LPModel): Promise<LPResult> {
   const lpFile = buildLpFileString(model);
