@@ -7,6 +7,9 @@
     "pipes": "труб",
     "tooltip": "Необходимые выходные трубы (вместимость {{pipe_rate}} предметов/мин)"
   },
+  "transport": {
+    "internal": "внутренний"
+  },
   "recipe": {
     "inputs": "Входы",
     "outputs": "Выходы",
@@ -29,7 +32,22 @@
     "noData": "Нет данных",
     "noRecipe": "Нет рецепта",
     "rawMaterial": "Сырье",
-    "unmarkRawMaterial": "Снять отметку"
+    "unmarkRawMaterial": "Снять отметку",
+    "bin": {
+      "slots": "{{slots}} слотов",
+      "slotsRaw": "слотов",
+      "buildings": "зданий",
+      "buildingsExplain": "{{n}} зданий объединяют {{m}} формул",
+      "grouped": "сгруппировано",
+      "powerSharedExplain": "Энергия учитывается только в основной строке группы.",
+      "spanning": "Рецепт распределён по {{count}} вариантам групп:"
+    },
+    "totals": {
+      "buildings": "Всего зданий",
+      "power": "Всего энергии",
+      "viaGrouping": "за счёт группировки",
+      "savingsExplain": "Здания, сэкономленные за счёт упаковки рецептов в общие многоформульные здания."
+    }
   },
   "tree": {
     "alsoTarget": "Также является целью",
@@ -56,6 +74,14 @@
     "exportImage": "Экспорт изображения",
     "exportFormat": "Формат",
     "exportScale": "Масштаб",
-    "exportConfirm": "Экспорт"
+    "exportConfirm": "Экспорт",
+    "multiFormulaGroup": "Многоформульное здание",
+    "runningWith": "Работает совместно с",
+    "groupedBuilding": "Совместное здание",
+    "formulas": "формул",
+    "formulasInBin": "Формулы в этом здании",
+    "internalItems": "Внутренние предметы (циркулируют)",
+    "innerSlotsUsed": "Внутренние слоты: {{used}}",
+    "portUtilization": "Порты: {{liqIn}}/{{liqInCap}} жидк. вх · {{liqOut}}/{{liqOutCap}} жидк. вых · {{beltOut}}/{{beltOutCap}} лент. вых"
   }
 }

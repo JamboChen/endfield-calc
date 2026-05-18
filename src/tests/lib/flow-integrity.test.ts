@@ -1,7 +1,10 @@
 import { describe, test, expect, beforeAll } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
 import { mapPlanToFlowMerged } from "@/components/mappers/merged-mapper";
-import { mapPlanToFlowSeparated } from "@/components/mappers/separated-mapper";
+import {
+  mapPlanToFlowBinFused,
+  mapPlanToFlowBinFusedSeparated,
+} from "@/components/mappers/bin-fused-mapper";
 import { items, recipes, facilities } from "@/data";
 import type { ItemId, ProductionDependencyGraph } from "@/types";
 import type { Edge, Node } from "@xyflow/react";
@@ -42,7 +45,7 @@ describe("flow mapper integrity", () => {
   });
 
   for (const c of cases) {
-    test(`${c.name}: merged has no dangling edges or isolated nodes`, () => {
+    test(`${c.name}: merged (legacy bf=0) has no dangling edges or isolated nodes`, () => {
       const { plan, targetRates } = plans.get(c.name)!;
       const flow = mapPlanToFlowMerged(plan, items, facilities, targetRates);
       const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
@@ -50,12 +53,47 @@ describe("flow mapper integrity", () => {
       expect(isolated).toEqual([]);
     });
 
-    test(`${c.name}: separated has no dangling edges or isolated nodes`, () => {
+    test(`${c.name}: bin-fused Recipe View has no dangling edges or isolated nodes`, () => {
       const { plan, targetRates } = plans.get(c.name)!;
-      const flow = mapPlanToFlowSeparated(plan, items, facilities, targetRates);
+      const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, targetRates);
+      const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
+      expect(dangling).toEqual([]);
+      expect(isolated).toEqual([]);
+    });
+
+    test(`${c.name}: bin-fused Facility View has no dangling edges or isolated nodes`, () => {
+      const { plan, targetRates } = plans.get(c.name)!;
+      const flow = mapPlanToFlowBinFusedSeparated(
+        plan,
+        items,
+        recipes,
+        facilities,
+        targetRates,
+      );
       const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
       expect(dangling).toEqual([]);
       expect(isolated).toEqual([]);
     });
   }
+});
+
+describe("Phase 3 bin-aware integrity", () => {
+  test("xircon plan: every recipe node has a binId after Phase 3", () => {
+    // Phase 3 should annotate every active recipe in the plan with a
+    // binId (singleton or grouped). Recipes lacking a binId would render
+    // as if Phase 3 didn't run, which breaks downstream amortization
+    // logic in the production table and node tooltips.
+    const plan = calculateProductionPlan(
+      [{ itemId: "item_xiranite_poly" as ItemId, rate: 5 }],
+      items,
+      recipes,
+      facilities,
+    );
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "recipe") continue;
+      if (node.isDisposal) continue;
+      if (node.facilityCount <= 1e-9) continue;
+      expect(node.binId).toBeDefined();
+    }
+  });
 });

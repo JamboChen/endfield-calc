@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import path from "path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -32,6 +32,14 @@ export default defineConfig({
   define: {
     // Inject version and build info as global constants
     __APP_VERSION__: JSON.stringify(getVersion()),
+  },
+  test: {
+    // Default 5 s vitest timeout is OK for unit tests but some
+    // calculator integration tests run multiple plans and need more
+    // headroom. 30 s is generous (typical plans solve in <100ms with
+    // the continuous-LP-relaxation packer) but catches genuinely-stuck
+    // tests.
+    testTimeout: 30000,
   },
 });
 

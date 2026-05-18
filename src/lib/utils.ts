@@ -13,10 +13,10 @@ export function cn(...inputs: ClassValue[]) {
 export const calcRate = (amount: number, craftingTime: number): number =>
   (amount * 60) / craftingTime;
 
-import type { Item, ItemId, Recipe } from "@/types";
+import type { Item, ItemId } from "@/types";
 
-export const TRANSPORT_BELT_CAPACITY = 30;
-export const TRANSPORT_PIPE_CAPACITY = 120;
+const TRANSPORT_BELT_CAPACITY = 30;
+const TRANSPORT_PIPE_CAPACITY = 120;
 
 export const getTransportCapacity = (item?: Item): number =>
   item?.isLiquid ? TRANSPORT_PIPE_CAPACITY : TRANSPORT_BELT_CAPACITY;
@@ -76,32 +76,4 @@ export const formatNumber = (num: number, decimals = 2): string =>
 export const getItemById = (items: Item[], itemId: ItemId): Item | undefined =>
   items.find((i) => i.id === itemId);
 
-/**
- * Gets the output amount for a specific item from a recipe.
- * Falls back to the first output's amount if the item is not found.
- */
-export const getOutputAmount = (recipe: Recipe, itemId: ItemId): number =>
-  recipe.outputs.find((o) => o.itemId === itemId)?.amount ??
-  recipe.outputs[0]?.amount ??
-  1;
 
-/**
- * Computes the byproduct rate for a facility instance based on the
- * primary output's actual rate and the recipe's output amounts.
- */
-export const calcByproductRate = (
-  recipe: Recipe,
-  byproductItemId: ItemId,
-  facilityOutputRate: number,
-): number => {
-  const primaryOutput = recipe.outputs[0];
-  const byproductOutput = recipe.outputs.find(
-    (o) => o.itemId === byproductItemId,
-  );
-  if (!primaryOutput || !byproductOutput) return 0;
-  return (
-    calcRate(byproductOutput.amount, recipe.craftingTime) *
-    (facilityOutputRate /
-      calcRate(primaryOutput.amount, recipe.craftingTime))
-  );
-};

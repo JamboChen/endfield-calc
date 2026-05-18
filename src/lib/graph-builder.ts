@@ -38,15 +38,13 @@ const selectRecipe = (recipes: Recipe[], visitedPath: Set<ItemId>): Recipe => {
   return pool[0];
 };
 
-export { selectRecipe, isDismantleRecipe };
+export { selectRecipe };
 
 const getOrThrow = <K, V>(map: Map<K, V>, key: K, type: string): V => {
   const value = map.get(key);
   if (!value) throw new Error(`${type} not found: ${key}`);
   return value;
 };
-
-export { getOrThrow };
 
 export function buildBipartiteGraph(
   targets: Array<{ itemId: ItemId; rate: number }>,

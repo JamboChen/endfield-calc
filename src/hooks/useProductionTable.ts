@@ -4,11 +4,13 @@ import type {
   ProductionGraphNode,
   ItemId,
   RecipeId,
+  BinId,
   Recipe,
+  Facility,
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
 import { calcRate } from "@/lib/utils";
-import { getRecipeInputItemId } from "@/lib/plan-helpers";
+import { aggregateBinTotals, getRecipeInputItemId } from "@/lib/plan-helpers";
 
 type MergedItemNode = {
   itemId: ItemId;
@@ -161,6 +163,31 @@ function sortNodes(
 }
 
 /**
+ * Plan-level totals for the production-table footer. Computed from
+ * `plan.bins` directly so split allocations (one recipe spanning
+ * multiple bin shapes) are counted correctly. Deriving totals from the
+ * row list would undercount whenever the ILP splits a recipe across
+ * bins, since each row only carries its first-bin association.
+ */
+export type PlanTotals = {
+  /** Sum of integer building counts across every active bin. */
+  totalBuildings: number;
+  /** Sum of facility power × buildingCount across every active bin. */
+  totalPower: number;
+  /**
+   * Buildings saved relative to a Reactor-singleton baseline (no
+   * grouping). Computed as Σ ceil(slot demand) − Σ bin building count
+   * for multi-formula-capable bins. Zero when no grouping happens.
+   */
+  groupedSavings: number;
+};
+
+export type ProductionTableData = {
+  rows: ProductionLineData[];
+  totals: PlanTotals;
+};
+
+/**
  * Hook to generate table data from the production plan.
  */
 export function useProductionTable(
@@ -168,16 +195,24 @@ export function useProductionTable(
   recipes: Recipe[],
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
+  facilities: Facility[] = [],
   invalidCycleItemIds: Set<ItemId> = new Set(),
-): ProductionLineData[] {
+  ceilMode: boolean = false,
+): ProductionTableData {
   return useMemo(() => {
     if (!plan || plan.nodes.size === 0) {
-      return [];
+      return {
+        rows: [],
+        totals: { totalBuildings: 0, totalPower: 0, groupedSavings: 0 },
+      };
     }
 
     const mergedNodes = mergeItemNodes(plan, recipeOverrides);
     calculateLevels(mergedNodes);
     const sortedNodes = sortNodes(mergedNodes, plan);
+
+    // Per-bin lookup for bin-aware power amortisation.
+    const binById = new Map(plan.bins.map((b) => [b.id, b]));
 
     const itemRows: ProductionLineData[] = sortedNodes.map((node) => {
       const itemNode = plan.nodes.get(node.itemId) as Extract<
@@ -202,6 +237,57 @@ export function useProductionTable(
             | undefined)
         : undefined;
 
+      // Bin metadata: when the recipe lives in a multi-formula bin, surface
+      // the bin's building count (not raw slots) and mark the alphabetically
+      // first recipe of the bin as "primary" — that row displays the bin's
+      // full power total; other rows show "grouped" and zero power.
+      // `bin.recipeIds` are demand recipe ids (Phase 2's pick), so plain
+      // equality with `node.recipeId` resolves correctly even when Phase 3
+      // swapped the physical variant.
+      let binId: BinId | undefined;
+      let binSisterRecipeIds: RecipeId[] | undefined;
+      let binBuildingCount: number | undefined;
+      let isBinPrimary = true; // default for non-grouped: own row owns power
+      let binSpanningInfo:
+        | Array<{ binId: BinId; buildingCount: number; slots: number }>
+        | undefined;
+      if (recipeNode?.binId) {
+        const bin = binById.get(recipeNode.binId);
+        if (bin) {
+          binId = bin.id;
+          binSisterRecipeIds = bin.recipeIds.filter(
+            (rid) => rid !== node.recipeId,
+          );
+          if (bin.isGrouped) {
+            binBuildingCount = bin.buildingCount;
+            // bin.recipeIds is already sorted ascending (per packer contract).
+            const primaryRecipeId = bin.recipeIds[0];
+            isBinPrimary = node.recipeId === primaryRecipeId;
+          }
+          // Build spanning info from the recipe's allocation across bins.
+          // For most plans this is a single-entry array; populated for all
+          // grouped recipes so the tooltip can list every bin the recipe
+          // is hosted in (handles split allocations).
+          if (node.recipeId) {
+            const alloc = plan.recipeBinAllocations.get(node.recipeId);
+            if (alloc) {
+              binSpanningInfo = alloc.perBin
+                .map((entry) => {
+                  const b = binById.get(entry.binId);
+                  return b
+                    ? {
+                        binId: entry.binId,
+                        buildingCount: b.buildingCount,
+                        slots: entry.slots,
+                      }
+                    : null;
+                })
+                .filter((x): x is NonNullable<typeof x> => x !== null);
+            }
+          }
+        }
+      }
+
       return {
         item: itemNode.item,
         outputRate: node.totalProductionRate,
@@ -214,6 +300,11 @@ export function useProductionTable(
         isManualRawMaterial: manualRawMaterials.has(node.itemId),
         isInvalidCycle: invalidCycleItemIds.has(node.itemId),
         directDependencyItemIds: node.dependencies,
+        binId,
+        binSisterRecipeIds,
+        binBuildingCount,
+        isBinPrimary,
+        binSpanningInfo,
       };
     });
 
@@ -246,6 +337,24 @@ export function useProductionTable(
       });
     });
 
-    return [...itemRows, ...disposalRows];
-  }, [plan, recipes, recipeOverrides, manualRawMaterials, invalidCycleItemIds]);
+    // Plan-level totals come from the shared `aggregateBinTotals` helper
+    // in plan-helpers.ts — same numbers `useProductionStats` consumes,
+    // so the table footer and stats panel cannot drift. `ceilMode`
+    // controls physical-vs-theoretical building/power accounting.
+    const aggregates = aggregateBinTotals(plan, facilities, { ceilMode });
+    const groupedSavings = Math.max(
+      0,
+      aggregates.multiFormulaBaselineBuildings -
+        aggregates.multiFormulaActualBuildings,
+    );
+
+    return {
+      rows: [...itemRows, ...disposalRows],
+      totals: {
+        totalBuildings: aggregates.totalBuildings,
+        totalPower: aggregates.totalPower,
+        groupedSavings,
+      },
+    };
+  }, [plan, recipes, recipeOverrides, manualRawMaterials, facilities, invalidCycleItemIds, ceilMode]);
 }

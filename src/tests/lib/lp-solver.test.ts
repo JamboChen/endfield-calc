@@ -5,13 +5,25 @@ import { ItemId, RecipeId, FacilityId } from "@/types/constants";
 
 const FAC: Facility = {
   id: "fac_test" as FacilityId,
+  numId: 0,
   powerConsumption: 10,
   tier: 1,
+  category: 0,
+  buffersIn: { belt: [], pipe: [] },
+  buffersOut: { belt: [], pipe: [] },
+  domains: [],
+  cap: null,
 };
 const FAC_HEAVY: Facility = {
   id: "fac_heavy" as FacilityId,
+  numId: 0,
   powerConsumption: 50,
   tier: 1,
+  category: 0,
+  buffersIn: { belt: [], pipe: [] },
+  buffersOut: { belt: [], pipe: [] },
+  domains: [],
+  cap: null,
 };
 const facMap = new Map<FacilityId, Facility>([
   [FAC.id, FAC],

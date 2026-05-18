@@ -4,16 +4,20 @@ import type {
   Facility,
   ItemId,
   RecipeId,
+  BinId,
   ProductionNode,
   DetectedCycle,
   InvalidCycleInfo,
   ProductionDependencyGraph,
   ProductionGraphNode,
+  Bin,
+  RecipeBinAllocation,
 } from "@/types";
 import { forcedDisposalItems } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { buildBipartiteGraph, detectSCCs, buildCondensedDAGAndSort } from "./graph-builder";
 import { calculateFlows } from "./flow-solver";
+import { packBins } from "./multi-formula-packing";
 import type {
   ProductionMaps,
   BipartiteGraph,
@@ -120,6 +124,9 @@ function buildProductionGraph(
   maps: ProductionMaps,
   invalidSCCs: InvalidSCCInfo[] = [],
   recipeOverrides?: Map<ItemId, RecipeId>,
+  bins: Bin[] = [],
+  recipeBinAllocations: Map<RecipeId, RecipeBinAllocation> = new Map(),
+  warnings: string[] = [],
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
@@ -154,14 +161,66 @@ function buildProductionGraph(
     });
   });
 
+  // Build bin lookup keyed by allocation entry's binId.
+  const binById = new Map<BinId, Bin>();
+  for (const bin of bins) binById.set(bin.id, bin);
+
+  /**
+   * Resolve the bin metadata for a given recipe. Returns the recipe's
+   * physical facility (the bin's facility, which may differ from the
+   * recipe's nominal `facilityId` when Phase 3 swapped variants), the
+   * primary bin id, and sister recipe ids (other recipes co-located in
+   * the same bin). When the recipe has no allocation (rare — only
+   * happens before Phase 3 runs successfully), falls back to the
+   * recipe's nominal facility.
+   */
+  const resolveBinInfo = (
+    recipeId: RecipeId,
+    fallbackFacility: Facility,
+  ): { facility: Facility; binId: BinId | undefined; sisters: RecipeId[] } => {
+    const allocation = recipeBinAllocations.get(recipeId);
+    if (!allocation || allocation.perBin.length === 0) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[resolveBinInfo] recipe ${recipeId} has no bin allocation; using fallback facility`,
+        );
+      }
+      return { facility: fallbackFacility, binId: undefined, sisters: [] };
+    }
+    // Use the first bin entry as the primary association. Recipes split
+    // across multiple bin types share the same facility type because
+    // Phase 3 picks one facility per equivalence class.
+    const bin = binById.get(allocation.perBin[0].binId);
+    if (!bin) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[resolveBinInfo] recipe ${recipeId} references missing bin ${allocation.perBin[0].binId}`,
+        );
+      }
+      return { facility: fallbackFacility, binId: undefined, sisters: [] };
+    }
+    const fac = maps.facilityMap.get(bin.facilityId);
+    return {
+      facility: fac ?? fallbackFacility,
+      binId: bin.id,
+      sisters: bin.recipeIds.filter((rid) => rid !== recipeId),
+    };
+  };
+
   graph.recipeNodes.forEach((recipeData, recipeId) => {
+    const { facility, binId, sisters } = resolveBinInfo(
+      recipeId,
+      recipeData.facility,
+    );
     nodes.set(recipeId, {
       type: "recipe",
       recipeId,
       recipe: recipeData.recipe,
-      facility: recipeData.facility,
+      facility,
       facilityCount: flowData.recipeFacilityCounts.get(recipeId) || 0,
       isDisposal: recipeData.recipe.outputs.length === 0,
+      binId,
+      binSisterRecipeIds: sisters,
     });
   });
 
@@ -184,6 +243,10 @@ function buildProductionGraph(
         const recipeData = graph.recipeNodes.get(recipeId)!;
         const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
         const outputs = recipeData.recipe.outputs;
+        const { facility, binId, sisters } = resolveBinInfo(
+          recipeId,
+          recipeData.facility,
+        );
 
         return outputs.map((out) => ({
           item: graph.itemNodes.get(out.itemId)!.item,
@@ -191,11 +254,13 @@ function buildProductionGraph(
             calcRate(out.amount, recipeData.recipe.craftingTime) *
             facilityCount,
           recipe: recipeData.recipe,
-          facility: recipeData.facility,
+          facility,
           facilityCount,
           isRawMaterial: false,
           isTarget: false,
           dependencies: [],
+          binId,
+          binSisterRecipeIds: sisters,
         }));
       },
     );
@@ -227,6 +292,9 @@ function buildProductionGraph(
     targets: graph.targets,
     detectedCycles,
     invalidCycles,
+    bins,
+    recipeBinAllocations,
+    warnings,
   };
 }
 
@@ -341,6 +409,13 @@ export function calculateProductionPlan(
         `[SUCCESS] Valid production plan found in ${iteration} iteration(s)`,
       );
       injectDisposalRecipes(graph, flowData, maps, targets);
+      const packing = packBins({
+        recipeSlotDemands: flowData.recipeFacilityCounts,
+        recipeMap: maps.recipeMap,
+        itemMap: maps.itemMap,
+        facilityMap: maps.facilityMap,
+        recipeOverrides,
+      });
       return buildProductionGraph(
         graph,
         flowData,
@@ -348,6 +423,9 @@ export function calculateProductionPlan(
         maps,
         [],
         recipeOverrides,
+        packing.bins,
+        packing.allocations,
+        packing.warnings,
       );
     }
 
@@ -367,6 +445,13 @@ export function calculateProductionPlan(
           `Returning best-effort result with ${invalidSCCs.length} invalid cycle(s).`,
       );
       injectDisposalRecipes(graph, flowData, maps, targets);
+      const packing = packBins({
+        recipeSlotDemands: flowData.recipeFacilityCounts,
+        recipeMap: maps.recipeMap,
+        itemMap: maps.itemMap,
+        facilityMap: maps.facilityMap,
+        recipeOverrides,
+      });
       return buildProductionGraph(
         graph,
         flowData,
@@ -374,6 +459,9 @@ export function calculateProductionPlan(
         maps,
         invalidSCCs,
         recipeOverrides,
+        packing.bins,
+        packing.allocations,
+        packing.warnings,
       );
     }
 

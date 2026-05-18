@@ -9,20 +9,7 @@ import type {
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
-import { getTransportLabel } from "@/lib/i18n-helpers";
-
-/**
- * Aggregated production node data.
- * Combines multiple occurrences of the same production step.
- */
-export type AggregatedProductionNodeData = {
-  /** Representative ProductionNode (from first encounter) */
-  node: ProductionNode;
-  /** Total production rate across all branches */
-  totalRate: number;
-  /** Total facility count across all branches */
-  totalFacilityCount: number;
-};
+import { getTransportLabel, getInternalFlowLabel } from "@/lib/i18n-helpers";
 
 /**
  * Creates a standardized edge for React Flow with optional pre-computed direction.
@@ -65,13 +52,18 @@ export function createEdge(
     transportStr = `${throughputStr} ${transportLabel}`;
   }
 
+  // Internal flows (co-located in same multi-formula building) skip the
+  // transport label entirely — there's no pipe/belt to count.
+  const labelTransport =
+    direction === "internal" ? getInternalFlowLabel() : transportStr;
+
   return {
     id,
     source,
     target,
     sourceHandle: item?.id,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
-    label: `${flowRate.toFixed(2)} /min\n${transportStr}`,
+    label: `${flowRate.toFixed(2)} /min\n${labelTransport}`,
     data: {
       flowRate,
       direction,
@@ -113,7 +105,9 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
   const maxFlowRate = Math.max(...flowRates, 1);
 
   return edges.map((edge) => {
-    const data = edge.data as { flowRate?: number } | undefined;
+    const data = edge.data as
+      | { flowRate?: number; direction?: EdgeDirection }
+      | undefined;
 
     if (!data || typeof data.flowRate !== "number") {
       return edge;
@@ -135,6 +129,44 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
     const animationDuration =
       maxDuration * Math.pow(1 - normalizedRate, 1.5) +
       minDuration * Math.pow(normalizedRate, 0.5);
+
+    // Internal flows (producer & consumer co-located in the same
+    // multi-formula building) get a distinct visual: dashed stroke and
+    // muted color, no animation. Internal flows traverse no transport,
+    // so the user shouldn't read them as belt/pipe lines.
+    const isInternal = data.direction === "internal";
+
+    if (isInternal) {
+      return {
+        ...edge,
+        type: "simplebezier",
+        animated: false,
+        style: {
+          strokeWidth: 1.5,
+          stroke: "var(--muted-foreground)",
+          strokeDasharray: "4 3",
+          opacity: 0.7,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: "var(--muted-foreground)",
+          width: 16,
+          height: 16,
+        },
+        labelBgPadding: [6, 3] as [number, number],
+        labelBgBorderRadius: 4,
+        labelBgStyle: {
+          fill: "var(--card)",
+          fillOpacity: 0.9,
+        },
+        labelStyle: {
+          fontSize: 11,
+          fill: "var(--muted-foreground)",
+          color: "var(--muted-foreground)",
+          fontStyle: "italic",
+        },
+      };
+    }
 
     // Detect backward edge based on actual node positions
     // If source X > target X, it's a backward edge (goes right to left)

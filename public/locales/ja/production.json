@@ -7,6 +7,9 @@
     "pipes": "パイプ",
     "tooltip": "必要な出力パイプ（{{pipe_rate}}アイテム/分の容量）"
   },
+  "transport": {
+    "internal": "内部流通"
+  },
   "recipe": {
     "inputs": "入力",
     "outputs": "出力",
@@ -29,7 +32,22 @@
     "noData": "データなし",
     "noRecipe": "レシピなし",
     "rawMaterial": "原材料",
-    "unmarkRawMaterial": "マークを解除"
+    "unmarkRawMaterial": "マークを解除",
+    "bin": {
+      "slots": "{{slots}} スロット",
+      "slotsRaw": "スロット",
+      "buildings": "棟",
+      "buildingsExplain": "{{n}} 棟が {{m}} 種のレシピを共有",
+      "grouped": "グループ化",
+      "powerSharedExplain": "電力はグループの主行のみで集計されます。",
+      "spanning": "レシピは {{count}} 種のグループに分散："
+    },
+    "totals": {
+      "buildings": "建物総数",
+      "power": "総電力",
+      "viaGrouping": "グループ化による節約",
+      "savingsExplain": "複数レシピを同一の建物にパックすることで節約した建物数。"
+    }
   },
   "tree": {
     "alsoTarget": "ターゲットでもあります",
@@ -56,6 +74,14 @@
     "exportImage": "画像をエクスポート",
     "exportFormat": "形式",
     "exportScale": "スケール",
-    "exportConfirm": "エクスポート"
+    "exportConfirm": "エクスポート",
+    "multiFormulaGroup": "マルチレシピ建物",
+    "runningWith": "同時実行中",
+    "groupedBuilding": "共有施設",
+    "formulas": "種のレシピ",
+    "formulasInBin": "この建物内のレシピ",
+    "internalItems": "内部アイテム（循環）",
+    "innerSlotsUsed": "内部スロット：{{used}}",
+    "portUtilization": "ポート：液入 {{liqIn}}/{{liqInCap}} · 液出 {{liqOut}}/{{liqOutCap}} · ベルト出 {{beltOut}}/{{beltOutCap}}"
   }
 }

@@ -12,16 +12,18 @@ import type {
   ItemId,
   RecipeId,
   Item,
+  Recipe,
   Facility,
   ProductionDependencyGraph,
   VisualizationMode,
 } from "@/types";
-import type { ProductionLineData } from "./ProductionTable";
+import type { ProductionTableData } from "@/hooks/useProductionTable";
 
 interface ProductionViewTabsProps {
   plan: ProductionDependencyGraph | null;
-  tableData: ProductionLineData[];
+  tableData: ProductionTableData;
   items: Item[];
+  recipes: Recipe[];
   facilities: Facility[];
   activeTab: "table" | "tree";
   onTabChange: (tab: "table" | "tree") => void;
@@ -30,6 +32,9 @@ interface ProductionViewTabsProps {
   targetRates?: Map<ItemId, number>;
   ceilMode: boolean;
   onCeilModeChange: (value: boolean) => void;
+  /** Bin-fusion toggle for Recipe View. Persisted in URL hash via the parent. */
+  binFusion: boolean;
+  onBinFusionChange: (value: boolean) => void;
   warnings: string[];
 }
 
@@ -37,6 +42,7 @@ export default function ProductionViewTabs({
   plan,
   tableData,
   items,
+  recipes,
   facilities,
   activeTab,
   onTabChange,
@@ -45,12 +51,20 @@ export default function ProductionViewTabs({
   targetRates,
   ceilMode,
   onCeilModeChange,
+  binFusion,
+  onBinFusionChange,
   warnings,
 }: ProductionViewTabsProps) {
   const { t } = useTranslation("app");
   const [visualizationMode, setVisualizationMode] =
     useState<VisualizationMode>("merged");
   const [twoEndAlignment, setTwoEndAlignment] = useState(false);
+
+  // The bin-fusion toggle only has visible effect when at least one bin
+  // packs ≥2 demand recipes; for singleton / non-multi-formula plans the
+  // ON / OFF outputs are identical, so we hide the control entirely.
+  const hasGroupableRecipes =
+    plan?.bins.some((bin) => bin.isGrouped) ?? false;
 
   return (
     <div className="flex-1 min-w-0">
@@ -104,6 +118,28 @@ export default function ProductionViewTabs({
               </div>
             )}
 
+            {/* Bin-fusion toggle: shows only in Recipe View (merged) AND
+                only when the current plan contains at least one grouped
+                bin. Facility View (separated) is always bin-fused. */}
+            {activeTab === "tree" &&
+              visualizationMode === "merged" &&
+              hasGroupableRecipes && (
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="bin-fusion"
+                    checked={binFusion}
+                    onCheckedChange={onBinFusionChange}
+                  />
+                  <Label
+                    htmlFor="bin-fusion"
+                    title={t("binFusionTooltip")}
+                    className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
+                  >
+                    {t("binFusion")}
+                  </Label>
+                </div>
+              )}
+
             {activeTab === "tree" && (
               <ToggleGroup
                 type="single"
@@ -146,9 +182,9 @@ export default function ProductionViewTabs({
               )}
               <div className="h-full overflow-auto">
                 <ProductionTable
-                  data={tableData}
+                  data={tableData.rows}
+                  totals={tableData.totals}
                   items={items}
-                  facilities={facilities}
                   onRecipeChange={onRecipeChange}
                   onToggleRawMaterial={onToggleRawMaterial}
                   ceilMode={ceilMode}
@@ -174,11 +210,13 @@ export default function ProductionViewTabs({
                   <ProductionDependencyTree
                     plan={plan}
                     items={items}
+                    recipes={recipes}
                     facilities={facilities}
                     visualizationMode={visualizationMode}
                     targetRates={targetRates}
                     twoEndAlignment={twoEndAlignment}
                     ceilMode={ceilMode}
+                    binFusion={binFusion}
                   />
                 </div>
               </div>

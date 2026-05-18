@@ -20,6 +20,12 @@ interface SavedPlan {
   recipeOverrides: Record<string, string>;
   manualRawMaterials: string[];
   ceilMode: boolean;
+  /**
+   * Optional. When absent (legacy saves predating bin-fusion), the
+   * loader defaults to `true` (bin-fusion on) — matching the
+   * `parseHash` default.
+   */
+  binFusion?: boolean;
 }
 
 interface ParsedHashState {
@@ -27,6 +33,7 @@ interface ParsedHashState {
   recipeOverrides: Map<ItemId, RecipeId>;
   manualRawMaterials: Set<ItemId>;
   ceilMode: boolean;
+  binFusion: boolean;
 }
 
 function parseHash(): ParsedHashState {
@@ -35,6 +42,9 @@ function parseHash(): ParsedHashState {
     recipeOverrides: new Map(),
     manualRawMaterials: new Set(),
     ceilMode: false,
+    // binFusion defaults to ON. The hash key `bf=0` opts out;
+    // omitting `bf` (or setting `bf=1`) keeps the default ON.
+    binFusion: true,
   };
 
   try {
@@ -91,11 +101,16 @@ function parseHash(): ParsedHashState {
     const ceilRaw = params.get("c");
     const parsedCeilMode = ceilRaw === "1";
 
+    // Parse binFusion: bf=0 disables (default on).
+    const binFusionRaw = params.get("bf");
+    const parsedBinFusion = binFusionRaw !== "0";
+
     return {
       targets: parsedTargets,
       recipeOverrides: parsedRecipeOverrides,
       manualRawMaterials: parsedManualRawMaterials,
       ceilMode: parsedCeilMode,
+      binFusion: parsedBinFusion,
     };
   } catch {
     return defaultState;
@@ -107,6 +122,7 @@ function serializeHash(
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
   ceilMode: boolean,
+  binFusion: boolean,
 ): string {
   const params = new URLSearchParams();
 
@@ -131,6 +147,12 @@ function serializeHash(
     params.set("c", "1");
   }
 
+  // Only emit `bf=0` when the user disabled bin-fusion. The default
+  // (on) keeps the hash short.
+  if (!binFusion) {
+    params.set("bf", "0");
+  }
+
   return params.toString();
 }
 
@@ -152,6 +174,7 @@ export function useProductionPlan() {
     initialState.manualRawMaterials,
   );
   const [ceilMode, setCeilMode] = useState(initialState.ceilMode);
+  const [binFusion, setBinFusion] = useState(initialState.binFusion);
 
   useEffect(() => {
     const hash = serializeHash(
@@ -159,12 +182,13 @@ export function useProductionPlan() {
       recipeOverrides,
       manualRawMaterials,
       ceilMode,
+      binFusion,
     );
     const newUrl = hash
       ? `${window.location.pathname}${window.location.search}#${hash}`
       : window.location.pathname + window.location.search;
     history.replaceState(null, "", newUrl);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion]);
 
   // Core calculation: only returns dependency tree and cycles
   const { plan, error } = useMemo(() => {
@@ -189,7 +213,14 @@ export function useProductionPlan() {
     return { plan, error };
   }, [targets, recipeOverrides, manualRawMaterials, t]);
 
-  // Filter zero-rate nodes from the plan for display
+  // Filter zero-rate nodes from the plan for display. Note: `plan.bins`
+  // and `plan.recipeBinAllocations` are intentionally NOT filtered — Phase 3
+  // only emits bins for recipes with positive slot demand (see
+  // `multi-formula-packing.ts` `SLOT_DEMAND_EPSILON` guard), so every
+  // surviving bin has a corresponding surviving recipe node. Downstream
+  // hooks (`useProductionStats`, `useProductionTable`) consume `displayPlan`
+  // for nodes/edges but read `plan.bins` for aggregates via
+  // `aggregateBinTotals`, which is the single source of truth.
   const displayPlan = useMemo(() => {
     if (!plan) return plan;
 
@@ -216,12 +247,14 @@ export function useProductionPlan() {
     return { ...plan, nodes: activeNodes, edges: activeEdges } as ProductionDependencyGraph;
   }, [plan]);
 
-  // Derive warning messages from invalid cycles (with translated item names).
-  // Only cycles caused by user recipe overrides generate warnings — pre-existing
+  // Derive warning messages from invalid cycles (with translated item names)
+  // plus any non-fatal warnings the calculator surfaced (e.g. packer
+  // fallback warnings from `multi-formula-packing`). Cycle warnings only
+  // fire for cycles caused by user recipe overrides — pre-existing
   // unsolvable cycles in the game data are not actionable and are skipped.
   const warnings: string[] = useMemo(() => {
-    if (!plan || plan.invalidCycles.length === 0) return [];
-    return plan.invalidCycles
+    if (!plan) return [];
+    const cycleWarnings = plan.invalidCycles
       .filter((ic) => ic.overriddenItemIds.length > 0)
       .map((ic) => {
         const overriddenSet = new Set(ic.overriddenItemIds);
@@ -266,6 +299,8 @@ export function useProductionPlan() {
           overriddenItems: overriddenLabels,
         });
       });
+
+    return [...cycleWarnings, ...(plan.warnings ?? [])];
   }, [plan, recipeOverrides, t]);
 
   // Collect overridden item IDs from invalid cycles for table row styling.
@@ -282,21 +317,29 @@ export function useProductionPlan() {
   }, [plan]);
 
   // View-specific data: computed in view layer hooks
-  const stats = useProductionStats(displayPlan, manualRawMaterials, ceilMode, items);
+  const stats = useProductionStats(
+    displayPlan,
+    manualRawMaterials,
+    facilities,
+    items,
+    ceilMode,
+  );
   const tableData = useProductionTable(
     displayPlan,
     recipes,
     recipeOverrides,
     manualRawMaterials,
+    facilities,
     invalidCycleItemIds,
+    ceilMode,
   );
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
-    setTargets((prev) => {
-      const newTargets = [...prev];
-      newTargets[index].rate = rate;
-      return newTargets;
-    });
+    setTargets((prev) =>
+      // Clone the target object as well as the array so memoized consumers
+      // that compare against `prev[index]` by reference see a new instance.
+      prev.map((t, i) => (i === index ? { ...t, rate } : t)),
+    );
   }, []);
 
   const handleTargetRemove = useCallback((index: number) => {
@@ -350,6 +393,7 @@ export function useProductionPlan() {
       recipeOverrides: Object.fromEntries(recipeOverrides),
       manualRawMaterials: Array.from(manualRawMaterials),
       ceilMode,
+      binFusion,
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -361,7 +405,7 @@ export function useProductionPlan() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion]);
 
   const handleOpenPlan = useCallback(() => {
     if (!fileInputRef.current) {
@@ -389,6 +433,9 @@ export function useProductionPlan() {
             );
             setManualRawMaterials(new Set(data.manualRawMaterials as ItemId[]));
             setCeilMode(data.ceilMode);
+            // Legacy saves (pre-bin-fusion) omit `binFusion`; default to on
+            // to match `parseHash` and the in-app default.
+            setBinFusion(data.binFusion ?? true);
           } catch {
             // ignore invalid files
           }
@@ -417,6 +464,8 @@ export function useProductionPlan() {
     warnings,
     ceilMode,
     setCeilMode,
+    binFusion,
+    setBinFusion,
     handleTargetChange,
     handleTargetRemove,
     handleBatchAddTargets,

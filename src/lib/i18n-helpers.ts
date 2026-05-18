@@ -1,19 +1,32 @@
 import i18next from "@/i18n";
-import type { Item, Facility, Recipe } from "@/types";
+import type { Item, Facility, Recipe, RecipeId } from "@/types";
 import { getTransportCapacity } from "./utils";
 
 export const getItemName = (item: Item) => {
   return i18next.t(item.id, { ns: "item", defaultValue: item.id });
 };
 
-export const getRecipeName = (recipe: Recipe) => {
-  return i18next.t(recipe.id, { ns: "recipe", defaultValue: recipe.id });
+export const getRecipeName = (recipeOrId: Recipe | RecipeId) => {
+  const id = typeof recipeOrId === "string" ? recipeOrId : recipeOrId.id;
+  return i18next.t(id, { ns: "recipe", defaultValue: id });
 };
 
 export const getTransportLabel = (item?: Item) => {
   return item?.isLiquid
     ? i18next.t("pipe.pipes", { ns: "production" })
     : i18next.t("belt.belts", { ns: "production" });
+};
+
+/**
+ * Label for an "internal" flow edge (producer and consumer co-located
+ * in the same multi-formula building). Replaces the belt/pipe count
+ * since no transport is needed.
+ */
+export const getInternalFlowLabel = () => {
+  return i18next.t("transport.internal", {
+    ns: "production",
+    defaultValue: "internal",
+  });
 };
 
 export const getTransportTooltip = (item?: Item) => {

@@ -1,6 +1,8 @@
 {
   "ceilMode": "Redondear instalaciones",
   "twoEndAlignment": "Alinear entradas/salidas",
+  "binFusion": "Agrupar recetas",
+  "binFusionTooltip": "Combina las recetas que comparten un edificio en una sola tarjeta.",
   "calculationError": "Ocurrió un error durante el cálculo del plan de producción. Por favor, revisa tus objetivos y las configuraciones de recetas.",
   "cycleWarning": "La receta seleccionada para {{overriddenItems}} crea un ciclo de producción que no puede mantener la producción requerida. Elementos afectados: {{affectedItems}}.",
   "cycleWarningNoAffected": "La receta seleccionada para {{overriddenItems}} crea un ciclo de producción que no puede mantener la producción requerida.",

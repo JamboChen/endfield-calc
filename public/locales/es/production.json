@@ -7,6 +7,9 @@
     "pipes": "tuberías",
     "tooltip": "Tuberías de salida requeridas (capacidad de {{pipe_rate}} artículos/min)"
   },
+  "transport": {
+    "internal": "interno"
+  },
   "recipe": {
     "inputs": "Entradas",
     "outputs": "Salidas",
@@ -29,7 +32,22 @@
     "noData": "Sin datos",
     "noRecipe": "Sin receta",
     "rawMaterial": "Materia Prima",
-    "unmarkRawMaterial": "Desmarcar"
+    "unmarkRawMaterial": "Desmarcar",
+    "bin": {
+      "slots": "{{slots}} ranuras",
+      "slotsRaw": "ranuras",
+      "buildings": "edificios",
+      "buildingsExplain": "{{n}} edificios comparten {{m}} fórmulas",
+      "grouped": "agrupado",
+      "powerSharedExplain": "La energía se cuenta sólo en la fila principal del grupo.",
+      "spanning": "Receta dividida en {{count}} formas de grupo:"
+    },
+    "totals": {
+      "buildings": "Edificios totales",
+      "power": "Energía total",
+      "viaGrouping": "ahorrados al agrupar",
+      "savingsExplain": "Edificios ahorrados al empacar recetas en edificios multifórmula compartidos."
+    }
   },
   "tree": {
     "alsoTarget": "También es un objetivo",
@@ -56,6 +74,14 @@
     "exportImage": "Exportar imagen",
     "exportFormat": "Formato",
     "exportScale": "Escala",
-    "exportConfirm": "Exportar"
+    "exportConfirm": "Exportar",
+    "multiFormulaGroup": "Edificio multifórmula",
+    "runningWith": "Funcionando junto a",
+    "groupedBuilding": "Edificio compartido",
+    "formulas": "fórmulas",
+    "formulasInBin": "Fórmulas en este edificio",
+    "internalItems": "Elementos internos (en circulación)",
+    "innerSlotsUsed": "Ranuras internas: {{used}}",
+    "portUtilization": "Puertos: {{liqIn}}/{{liqInCap}} líq ent · {{liqOut}}/{{liqOutCap}} líq sal · {{beltOut}}/{{beltOutCap}} cinta sal"
   }
 }

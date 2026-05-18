@@ -1,21 +1,23 @@
 import { Handle, type NodeProps, type Node, Position } from "@xyflow/react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Factory, Zap, Star, ArrowDownToLine } from "lucide-react";
+import { Factory, Zap, Star, ArrowDownToLine, Boxes, Repeat } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
-import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-helpers";
+import { getItemName, getFacilityName, getRecipeName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type {
   FlowNodeData,
   FlowNodeDataSeparated,
   FlowNodeDataSeparatedWithTarget,
   FlowNodeDataWithTarget,
+  RecipeId,
 } from "@/types";
-import { getTransportCountWithFacilities, getPickupPointCount, formatCount, calcRate, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
+import { getTransportCountWithFacilities, getPickupPointCount, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
+import { computeNodeByproducts } from "@/lib/plan-helpers";
 
 /**
  * Type alias for a React Flow node containing production data.
@@ -69,23 +71,22 @@ export default function CustomProductionNode({
   const isTarget = hasTargetInfo(data);
   const targetRate = isTarget ? data.directTargetRate : undefined;
 
-  // Compute byproduct outputs (secondary outputs of multi-output recipes)
-  const byproducts = node.recipe && node.recipe.outputs.length > 1
-    ? node.recipe.outputs
-        .filter((o) => o.itemId !== node.item.id)
-        .map((o) => {
-          const primaryOutput = node.recipe!.outputs.find(
-            (p) => p.itemId === node.item.id,
-          );
-          const rate = primaryOutput
-            ? (o.amount / primaryOutput.amount) * node.targetRate
-            : calcRate(o.amount, node.recipe!.craftingTime) * node.facilityCount;
-          return { item: getItemById(items, o.itemId), amount: o.amount, rate };
-        })
-        .filter((b) => b.item != null)
-    : [];
+  // Bin grouping info: when this recipe is co-located with sisters in a
+  // multi-formula building, the facility chip (Zone 2) gains a `Boxes` icon
+  // and a `· N formulas` suffix, and — when the bin has internal recycle —
+  // a dashed-bordered Zone 1.5 row surfaces those internal items as muted
+  // mini-icons. Detailed per-formula breakdown stays in the tooltip.
+  const sisterRecipeIds = node.binSisterRecipeIds ?? [];
+  const isGroupedBuilding = sisterRecipeIds.length > 0;
 
-  const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item!.id)];
+  // Compute byproducts. For grouped bins (multi-formula buildings), this
+  // relies on `bin.externalOutputs` which correctly excludes items that
+  // are internally balanced (e.g. Sewage in the Xircon `{LX, XE, X}` bin);
+  // for singletons / per-recipe view, it uses the headline recipe's
+  // outputs. See `computeNodeByproducts` for the full rationale.
+  const byproducts = computeNodeByproducts(node, items);
+
+  const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item.id)];
 
   // Adjust border/rate colors based on node type for better visual distinction
   let borderClasses = "border-2";
@@ -156,6 +157,85 @@ export default function CustomProductionNode({
               )}
             </div>
           )}
+          {isGroupedBuilding && (
+            <div className="mt-2 pt-2 border-t">
+              <div className="font-semibold text-purple-700 dark:text-purple-400">
+                {t("tree.multiFormulaGroup", { defaultValue: "Multi-Formula Building" })}
+              </div>
+              {/* Per-formula breakdown: each constituent recipe with its
+                * I/O at slot rate. When `node.bin` is provided (bin-fused
+                * mapper path), iterate bin.recipeIds and look up the
+                * recipe via items metadata. Otherwise fall back to a
+                * name-only sister list (per-recipe / unfused path). */}
+              {node.bin ? (
+                <>
+                  <div className="text-muted-foreground mt-1 mb-0.5">
+                    {t("tree.formulasInBin", {
+                      defaultValue: "Formulas in this building",
+                    })}
+                    :
+                  </div>
+                  <ul className="ml-3 text-muted-foreground list-disc space-y-0.5">
+                    {node.bin.recipeIds.map((rid: RecipeId) => (
+                      <li key={rid}>{getRecipeName(rid)}</li>
+                    ))}
+                  </ul>
+                  {node.bin.internalItems.length > 0 && (
+                    <>
+                      <div className="text-muted-foreground mt-2 mb-0.5">
+                        {t("tree.internalItems", {
+                          defaultValue: "Internal items (circulating)",
+                        })}
+                        :
+                      </div>
+                      <ul className="ml-3 text-muted-foreground list-disc">
+                        {node.bin.internalItems.map((iid) => {
+                          const it = getItemById(items, iid);
+                          return (
+                            <li key={iid}>
+                              {it ? getItemName(it) : iid}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
+                  <div className="text-muted-foreground mt-2">
+                    {t("tree.innerSlotsUsed", {
+                      defaultValue: "Inner slots: {{used}}",
+                      used: node.bin.innerSlotsUsed,
+                    })}
+                  </div>
+                  {facility?.cacheSlots != null && (
+                    <div className="text-muted-foreground">
+                      {t("tree.portUtilization", {
+                        defaultValue:
+                          "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out",
+                        liqIn: node.bin.externalInputs.filter((io) => io.isLiquid).length,
+                        liqInCap: facility.buffersIn.pipe.length,
+                        liqOut: node.bin.externalOutputs.filter((io) => io.isLiquid).length,
+                        liqOutCap: facility.buffersOut.pipe.length,
+                        beltOut: node.bin.externalOutputs.filter((io) => !io.isLiquid).length,
+                        beltOutCap: facility.buffersOut.belt.length,
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="text-muted-foreground mt-0.5">
+                    {t("tree.runningWith", { defaultValue: "Running alongside" })}
+                    :
+                  </div>
+                  <ul className="ml-3 text-muted-foreground list-disc">
+                    {sisterRecipeIds.map((rid: RecipeId) => (
+                      <li key={rid}>{getRecipeName(rid)}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
         </>
       ) : null}
     </div>
@@ -217,13 +297,13 @@ export default function CustomProductionNode({
               )}
             </div>
 
-            {/* Co-outputs (byproducts) */}
+            {/* Co-outputs (byproducts) — items the building exports alongside the primary output */}
             {byproducts.map((bp) => (
-              <div key={bp.item!.id} className="flex items-start gap-1.5 mt-1.5 ml-1">
-                <ItemIcon item={bp.item!} size="sm" />
+              <div key={bp.item.id} className="flex items-start gap-1.5 mt-1.5 ml-1">
+                <ItemIcon item={bp.item} size="sm" />
                 <div className="flex-1 min-w-0">
                   <div className="text-[11px] text-muted-foreground truncate leading-tight">
-                    {getItemName(bp.item!)}
+                    {getItemName(bp.item)}
                   </div>
                   <div className="flex items-baseline gap-1">
                     <span className="font-mono text-[10px]">
@@ -232,37 +312,90 @@ export default function CustomProductionNode({
                     <span className="text-[9px] text-muted-foreground">/min</span>
                     <span className="text-[9px] text-muted-foreground/50">·</span>
                     <span className="text-[9px] text-muted-foreground tabular-nums">
-                      {formatCount(getTransportCountWithFacilities(bp.rate, bp.item!, ceilMode, node.facilityCount), ceilMode)} {getTransportLabel(bp.item!)}
+                      {formatCount(getTransportCountWithFacilities(bp.rate, bp.item, ceilMode, node.facilityCount), ceilMode)} {getTransportLabel(bp.item)}
                     </span>
                   </div>
                 </div>
               </div>
             ))}
 
+            {/* === Zone 1.5: Internal recycle ===
+              * Items produced AND consumed inside this grouped bin — they
+              * never leave the building, so they have no edges and no
+              * transport cost. Shown as a muted, dashed-bordered icon row
+              * to clearly distinguish them from the bright Zone 1 exports
+              * above. Singletons have empty internalItems; bf=0 / per-recipe
+              * nodes have no `bin` reference and so skip this row entirely.
+              */}
+            {node.bin && node.bin.internalItems.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-dashed border-muted-foreground/25">
+                <Repeat className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+                <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                  {t("tree.internal", { defaultValue: "Internal" })}
+                </span>
+                <div className="flex items-center gap-1 flex-wrap min-w-0">
+                  {node.bin.internalItems.map((iid) => {
+                    const it = getItemById(items, iid);
+                    if (!it) return null;
+                    return (
+                      <Tooltip key={iid}>
+                        <TooltipTrigger asChild>
+                          <div className="opacity-60 hover:opacity-100 transition-opacity cursor-help">
+                            <ItemIcon item={it} size="sm" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <p className="text-xs">{getItemName(it)}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* === Zone 2: Facility / Source === */}
 
-            {/* Facility details (produced items) */}
+            {/* Facility details (produced items)
+              * Line 1 (always): facility icon + name + count.
+              * Line 2 (grouped bins only): Boxes icon + "N formulas".
+              * Two-line form keeps Line 1 identical to the singleton chip
+              * so the facility name has the full chip width and never
+              * truncates the grouping suffix. */}
             {!node.isRawMaterial && facility && (
-              <div className="flex items-center justify-between mt-2 bg-blue-100/50 dark:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 rounded-sm px-2 py-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  {facility.iconUrl ? (
-                    <img
-                      src={facility.iconUrl}
-                      alt={facilityName}
-                      className="h-4 w-4 object-contain shrink-0"
-                    />
-                  ) : (
-                    <Factory className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                  )}
-                  <span className="text-[10px] text-muted-foreground truncate">
-                    {facilityName}
+              <div className="mt-2 bg-blue-100/50 dark:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 rounded-sm px-2 py-1">
+                {/* Line 1: facility identity + count */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {facility.iconUrl ? (
+                      <img
+                        src={facility.iconUrl}
+                        alt={facilityName}
+                        className="h-4 w-4 object-contain shrink-0"
+                      />
+                    ) : (
+                      <Factory className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    )}
+                    <span className="text-[10px] text-muted-foreground truncate">
+                      {facilityName}
+                    </span>
+                  </div>
+                  <span className="font-mono font-semibold text-xs shrink-0 ml-2">
+                    {isSeparated
+                      ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
+                      : `×${formatCount(node.facilityCount, ceilMode)}`}
                   </span>
                 </div>
-                <span className="font-mono font-semibold text-xs shrink-0 ml-2">
-                  {isSeparated
-                    ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
-                    : `×${formatCount(node.facilityCount, ceilMode)}`}
-                </span>
+                {/* Line 2: grouping signal (multi-formula building) */}
+                {isGroupedBuilding && (
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <Boxes className="h-4 w-4 text-blue-600/80 dark:text-blue-400/80 shrink-0" />
+                    <span className="text-[10px] text-muted-foreground/70">
+                      {sisterRecipeIds.length + 1}{" "}
+                      {t("tree.formulas", { defaultValue: "formulas" })}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
             {/* Pickup point (raw materials) */}

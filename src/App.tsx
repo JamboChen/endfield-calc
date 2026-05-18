@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { items, facilities } from "./data";
+import { items, recipes, facilities } from "./data";
 import { useProductionPlan } from "./hooks/useProductionPlan";
 import { usePortrait } from "./hooks/usePortrait";
 import AppHeader from "./components/layout/AppHeader";
@@ -36,6 +36,8 @@ export default function App() {
     setActiveTab,
     ceilMode,
     setCeilMode,
+    binFusion,
+    setBinFusion,
     handleSavePlan,
     handleOpenPlan,
   } = useProductionPlan();
@@ -80,6 +82,7 @@ export default function App() {
               plan={plan}
               tableData={tableData}
               items={items}
+              recipes={recipes}
               facilities={facilities}
               activeTab={activeTab}
               onTabChange={setActiveTab}
@@ -88,6 +91,8 @@ export default function App() {
               targetRates={targetRates}
               ceilMode={ceilMode}
               onCeilModeChange={setCeilMode}
+              binFusion={binFusion}
+              onBinFusionChange={setBinFusion}
               warnings={warnings}
             />
           </div>

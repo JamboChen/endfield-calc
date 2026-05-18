@@ -18,6 +18,7 @@ import { toPng, toSvg } from "html-to-image";
 import type {
   Item,
   ItemId,
+  Recipe,
   Facility,
   FlowProductionNode,
   VisualizationMode,
@@ -29,9 +30,13 @@ import CustomDisposalNode from "../nodes/CustomDisposalNode";
 import { useTranslation } from "react-i18next";
 import { getLayoutedElements } from "@/lib/layout";
 import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
-import { mapPlanToFlowSeparated } from "../mappers/separated-mapper";
+import {
+  mapPlanToFlowBinFused,
+  mapPlanToFlowBinFusedSeparated,
+} from "../mappers/bin-fused-mapper";
 import { applyEdgeStyling } from "./flow-utils";
 import CustomBackwardEdge from "../nodes/CustomBackwardEdge";
+import CustomBezierEdge from "../nodes/CustomBezierEdge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Download } from "lucide-react";
@@ -191,16 +196,27 @@ function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTM
   );
 }
 
-import CustomBezierEdge from "../nodes/CustomBezierEdge";
-
 type ProductionDependencyTreeProps = {
   plan: ProductionDependencyGraph | null;
   items: Item[];
+  /**
+   * All recipes — required when `binFusion` is on and the bin-fused
+   * merged mapper is used; the mapper looks up bin-constituent recipe
+   * objects to render headline / sister metadata.
+   */
+  recipes: Recipe[];
   facilities: Facility[];
   visualizationMode?: VisualizationMode;
   targetRates?: Map<ItemId, number>;
   twoEndAlignment?: boolean;
   ceilMode?: boolean;
+  /**
+   * When true (default), the merged Recipe View fuses each multi-formula
+   * bin into a single building card. When false, falls back to the
+   * per-recipe layout (one card per recipe). Has no effect on Facility
+   * View, which is always bin-fused.
+   */
+  binFusion?: boolean;
 };
 
 /**
@@ -219,11 +235,13 @@ type ProductionDependencyTreeProps = {
 export default function ProductionDependencyTree({
   plan,
   items,
+  recipes,
   facilities,
   visualizationMode = "separated",
   targetRates,
   twoEndAlignment = false,
   ceilMode = false,
+  binFusion = true,
 }: ProductionDependencyTreeProps) {
   const { t } = useTranslation("production");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -242,11 +260,28 @@ export default function ProductionDependencyTree({
         return;
       }
 
-      // Select mapper - now passes DAG structure instead of tree
+      // Select mapper:
+      //   - Facility View (separated) is ALWAYS bin-fused per the
+      //     documented invariant; the Recipe-View toggle has no UI
+      //     affordance in this mode and must not leak through when the
+      //     user persisted bf=0 in the URL hash.
+      //   - Recipe View (merged) with binFusion ON (default): one card
+      //     per bin via the bin-fused merged mapper.
+      //   - Recipe View (merged) with binFusion OFF: per-recipe via
+      //     the original merged mapper (chain-debugging mode).
       const flowData =
         visualizationMode === "separated"
-          ? mapPlanToFlowSeparated(plan, items, facilities, targetRates, ceilMode)
-          : mapPlanToFlowMerged(plan, items, facilities, targetRates, ceilMode);
+          ? mapPlanToFlowBinFusedSeparated(
+              plan,
+              items,
+              recipes,
+              facilities,
+              targetRates,
+              ceilMode,
+            )
+          : binFusion
+            ? mapPlanToFlowBinFused(plan, items, recipes, facilities, targetRates, ceilMode)
+            : mapPlanToFlowMerged(plan, items, facilities, targetRates, ceilMode);
 
       const { nodes: layoutedNodes, edges: layoutedEdges } =
         await getLayoutedElements(
@@ -269,7 +304,7 @@ export default function ProductionDependencyTree({
     return () => {
       isMounted = false;
     };
-  }, [plan, items, facilities, visualizationMode, targetRates, twoEndAlignment, ceilMode, setNodes, setEdges]);
+  }, [plan, items, recipes, facilities, visualizationMode, targetRates, twoEndAlignment, ceilMode, binFusion, setNodes, setEdges]);
 
   const nodeTypes: NodeTypes = useMemo(
     () => ({

@@ -470,28 +470,55 @@ const RecipeId = {
 type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
 
 const FacilityId = {
-  ITEM_PORT_CMPT_MC_1: "item_port_cmpt_mc_1",
-  ITEM_PORT_DISMANTLER_1: "item_port_dismantler_1",
-  ITEM_PORT_FILLING_PD_MC_1: "item_port_filling_pd_mc_1",
-  ITEM_PORT_FURNANCE_1: "item_port_furnance_1",
-  ITEM_PORT_GRINDER_1: "item_port_grinder_1",
-  ITEM_PORT_LIQUID_CLEANER_1: "item_port_liquid_cleaner_1",
-  ITEM_PORT_LIQUID_PURIFIER_1: "item_port_liquid_purifier_1",
-  ITEM_PORT_MIX_POOL_1: "item_port_mix_pool_1",
-  ITEM_PORT_MIX_POOL_2: "item_port_mix_pool_2",
-  ITEM_PORT_PLANTER_1: "item_port_planter_1",
-  ITEM_PORT_SEEDCOL_1: "item_port_seedcol_1",
-  ITEM_PORT_SHAPER_1: "item_port_shaper_1",
-  ITEM_PORT_THICKENER_1: "item_port_thickener_1",
-  ITEM_PORT_TOOLS_ASM_MC_1: "item_port_tools_asm_mc_1",
-  ITEM_PORT_WINDER_1: "item_port_winder_1",
-  ITEM_PORT_XIRANITE_OVEN_1: "item_port_xiranite_oven_1",
+  COMPONENT_MC_1: "component_mc_1",
+  DISMANTLER_1: "dismantler_1",
+  FILLING_POWDER_MC_1: "filling_powder_mc_1",
+  FURNANCE_1: "furnance_1",
+  GRINDER_1: "grinder_1",
+  LIQUID_CLEANER_1: "liquid_cleaner_1",
+  LIQUID_PURIFIER_1: "liquid_purifier_1",
+  LOADER_1: "loader_1",
+  MIX_POOL_1: "mix_pool_1",
+  MIX_POOL_2: "mix_pool_2",
+  PLANTER_1: "planter_1",
+  PUMP_1: "pump_1",
+  PUMP_2: "pump_2",
+  SEEDCOLLECTOR_1: "seedcollector_1",
+  SHAPER_1: "shaper_1",
+  THICKENER_1: "thickener_1",
+  // NOTE: "assebling" is a typo from the upstream `FactoryBuildingTable`
+  // game-data dump. Preserved verbatim so the `bun run extract:recipes`
+  // pipeline keeps matching upstream IDs. Do not rename locally — see
+  // `public/images/facilities/tools_assebling_mc_1.png` and the recipe
+  // `facilityId` references in `src/data/recipes.ts`.
+  TOOLS_ASSEBLING_MC_1: "tools_assebling_mc_1",
+  WINDER_1: "winder_1",
+  XIRANITE_OVEN_1: "xiranite_oven_1",
 } as const;
 type FacilityId = (typeof FacilityId)[keyof typeof FacilityId];
+
+/**
+ * Opaque brand for multi-formula bin identifiers.
+ *
+ * Unlike ItemId / RecipeId / FacilityId (which are literal-string unions of
+ * the closed game-data enum), bin IDs are constructed dynamically by Phase 3
+ * (`makeBinId` in `multi-formula-packing.ts`) and follow the format
+ * `bin-<facilityId>-<recipeId...>-<emitIdx>`. Brand intersection gives
+ * nominal typing without imposing a closed set: a plain `string` cannot be
+ * passed where a `BinId` is expected, but `"bin-..." as BinId` works at
+ * known-good construction sites (the packer and test fixtures).
+ *
+ * Distinct from synthetic IDs used by mapper sinks (e.g.
+ * `disposal-<recipeId>`, `<binId>-bldg<idx>`, target-sink IDs) — those
+ * remain plain `string` because they're union-typed mixtures of bin and
+ * non-bin IDs at the consumer.
+ */
+type BinId = string & { readonly __brand: "BinId" };
 
 export { ItemId, RecipeId, FacilityId };
 export type {
   ItemId as ItemIdType,
   RecipeId as RecipeIdType,
   FacilityId as FacilityIdType,
+  BinId,
 };

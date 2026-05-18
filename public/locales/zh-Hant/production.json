@@ -7,6 +7,9 @@
     "pipes": "條管道",
     "tooltip": "所需輸出管道（每分鐘{{pipe_rate}}個物品容量）"
   },
+  "transport": {
+    "internal": "內部流轉"
+  },
   "recipe": {
     "inputs": "輸入",
     "outputs": "產出",
@@ -29,7 +32,22 @@
     "noData": "暫無數據",
     "noRecipe": "無配方",
     "rawMaterial": "原材料",
-    "unmarkRawMaterial": "取消標記"
+    "unmarkRawMaterial": "取消標記",
+    "bin": {
+      "slots": "{{slots}} 槽位",
+      "slotsRaw": "槽位",
+      "buildings": "座建築",
+      "buildingsExplain": "{{n}} 座建築共享 {{m}} 個配方",
+      "grouped": "已組合",
+      "powerSharedExplain": "功耗僅在主列顯示。",
+      "spanning": "配方分佈於 {{count}} 個組合："
+    },
+    "totals": {
+      "buildings": "建築總數",
+      "power": "總功耗",
+      "viaGrouping": "因組合節省",
+      "savingsExplain": "透過將配方打包到多配方建築中節省的建築數量。"
+    }
   },
   "tree": {
     "alsoTarget": "同時也是目標",
@@ -56,6 +74,14 @@
     "exportImage": "匯出圖片",
     "exportFormat": "格式",
     "exportScale": "縮放比例",
-    "exportConfirm": "匯出"
+    "exportConfirm": "匯出",
+    "multiFormulaGroup": "多配方建築",
+    "runningWith": "同時執行",
+    "groupedBuilding": "共享建築",
+    "formulas": "個配方",
+    "formulasInBin": "該建築內的配方",
+    "internalItems": "內部物品（循環）",
+    "innerSlotsUsed": "內部槽位：{{used}}",
+    "portUtilization": "埠：{{liqIn}}/{{liqInCap}} 液入 · {{liqOut}}/{{liqOutCap}} 液出 · {{beltOut}}/{{beltOutCap}} 帶出"
   }
 }

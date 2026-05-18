@@ -12,6 +12,9 @@
     "pipes": "pipes",
     "tooltip": "Required output pipes ({{pipe_rate}} items/min capacity)"
   },
+  "transport": {
+    "internal": "internal"
+  },
   "table": {
     "headers": {
       "belts": "Belts",
@@ -29,7 +32,22 @@
     "noData": "No data",
     "noRecipe": "No recipe",
     "rawMaterial": "Raw Material",
-    "unmarkRawMaterial": "Unmark"
+    "unmarkRawMaterial": "Unmark",
+    "bin": {
+      "slots": "{{slots}} slots",
+      "slotsRaw": "slots",
+      "buildings": "buildings",
+      "buildingsExplain": "{{n}} buildings shared across {{m}} formulas",
+      "grouped": "grouped",
+      "powerSharedExplain": "Power counted on the bin's primary row.",
+      "spanning": "Recipe split across {{count}} bin shapes:"
+    },
+    "totals": {
+      "buildings": "Total buildings",
+      "power": "Total power",
+      "viaGrouping": "via grouping",
+      "savingsExplain": "Buildings saved by packing recipes into shared multi-formula buildings."
+    }
   },
   "tree": {
     "alsoTarget": "Also a target",
@@ -56,6 +74,15 @@
     "exportImage": "Export Image",
     "exportFormat": "Format",
     "exportScale": "Scale",
-    "exportConfirm": "Export"
+    "exportConfirm": "Export",
+    "multiFormulaGroup": "Multi-Formula Building",
+    "runningWith": "Running alongside",
+    "groupedBuilding": "Shared building",
+    "formulas": "formulas",
+    "formulasInBin": "Formulas in this building",
+    "internal": "Internal",
+    "internalItems": "Internal items (circulating)",
+    "innerSlotsUsed": "Inner slots: {{used}}",
+    "portUtilization": "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out"
   }
 }

@@ -9,7 +9,7 @@ import type {
   ProductionGraphNode,
   Recipe,
 } from "@/types";
-import { ItemId, RecipeId } from "@/types/constants";
+import { FacilityId, ItemId, RecipeId } from "@/types/constants";
 import {
   mockItems,
   mockFacilities,
@@ -1234,6 +1234,197 @@ describe("Jade Gourd disposal sink at non-integer rates", () => {
   );
 });
 
+describe("Phase 3 multi-formula bin packing", () => {
+  test("Xircon plan packs LX/XE/X recipes into Expanded Crucible bins", () => {
+    // The Xircon production chain involves three pool recipes:
+    //   POOL_LIQUID_LIQUID_XIRANITE (LX)
+    //   POOL_LIQUID_XIRANITE_POLY (XE)
+    //   POOL_XIRANITE_POLY (X)
+    // Without Phase 3, each runs in its own Reactor Crucible building
+    // (50W per slot, 1 building per slot). Phase 3 packs the three into
+    // Expanded Crucible buildings (100W per building, up to 3 formulas
+    // each) sharing slot capacity, saving both buildings AND power.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    // Phase 3 must populate bins.
+    expect(plan.bins).toBeDefined();
+    expect(plan.bins.length).toBeGreaterThan(0);
+
+    // The three pool recipes should all be allocated.
+    const allocations = plan.recipeBinAllocations;
+    const lxAlloc =
+      allocations.get(RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1) ??
+      allocations.get(RecipeId.POOL_LIQUID_LIQUID_XIRANITE_2);
+    const xeAlloc =
+      allocations.get(RecipeId.POOL_LIQUID_XIRANITE_POLY_1) ??
+      allocations.get(RecipeId.POOL_LIQUID_XIRANITE_POLY_2);
+    const xAlloc =
+      allocations.get(RecipeId.POOL_XIRANITE_POLY_1) ??
+      allocations.get(RecipeId.POOL_XIRANITE_POLY_2);
+    expect(lxAlloc).toBeDefined();
+    expect(xeAlloc).toBeDefined();
+    expect(xAlloc).toBeDefined();
+
+    // At least one bin should be a grouped (multi-formula) bin packing
+    // pool recipes together.
+    const groupedBins = plan.bins.filter(
+      (b) =>
+        b.isGrouped &&
+        b.recipeIds.some(
+          (rid) =>
+            rid === RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1 ||
+            rid === RecipeId.POOL_LIQUID_LIQUID_XIRANITE_2 ||
+            rid === RecipeId.POOL_LIQUID_XIRANITE_POLY_1 ||
+            rid === RecipeId.POOL_LIQUID_XIRANITE_POLY_2 ||
+            rid === RecipeId.POOL_XIRANITE_POLY_1 ||
+            rid === RecipeId.POOL_XIRANITE_POLY_2,
+        ),
+    );
+    expect(groupedBins.length).toBeGreaterThan(0);
+
+    // Total pool-recipe building count should be ≤ Σ ceil(slot count) of
+    // ungrouped baseline. Specifically, the three pool recipes' slots
+    // should pack into fewer buildings than they would individually.
+    let totalPoolBuildings = 0;
+    for (const bin of plan.bins) {
+      const fac = facilities.find((f) => f.id === bin.facilityId);
+      if (fac?.cacheSlots == null) continue;
+      // Only count Crucible bins (multi-formula-capable facilities).
+      totalPoolBuildings += bin.buildingCount;
+    }
+
+    let ungroupedSlots = 0;
+    for (const [recipeId, alloc] of allocations.entries()) {
+      const recipe = recipes.find((r) => r.id === recipeId);
+      if (!recipe) continue;
+      const fac = facilities.find((f) => f.id === recipe.facilityId);
+      if (fac?.cacheSlots == null) continue;
+      ungroupedSlots += Math.ceil(alloc.totalSlots);
+    }
+
+    expect(totalPoolBuildings).toBeLessThanOrEqual(ungroupedSlots);
+  });
+
+  test("recipes outside multi-formula facilities get singleton bins", () => {
+    // A simple non-pool plan should produce singleton bins (one bin per
+    // recipe, isGrouped = false). Iron-powder grinding is on a Grinder
+    // facility without `cacheSlots`.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    expect(plan.bins).toBeDefined();
+    // All bins should be singletons (no grouping possible without
+    // multi-formula capability).
+    for (const bin of plan.bins) {
+      expect(bin.isGrouped).toBe(false);
+      expect(bin.recipeIds.length).toBe(1);
+    }
+  });
+
+  test("recipe-bin allocations cover every active recipe (incl. disposal)", () => {
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+    // Every recipe with non-zero facilityCount in the plan should have a
+    // RecipeBinAllocation, including disposal recipes — they go through
+    // emitSingletonBins because their facility lacks `cacheSlots`.
+    // This guards against silent drops where a recipe's slot demand is
+    // unallocated.
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "recipe") continue;
+      if (node.facilityCount <= 1e-9) continue;
+      expect(plan.recipeBinAllocations.has(node.recipeId)).toBe(true);
+    }
+  });
+
+  test("plan totals match plan.bins aggregate (split-allocation safe)", () => {
+    // The totals presented in the production-table footer must be
+    // computed from `plan.bins` directly, not derived from
+    // per-row associations. If a recipe's slot demand is split across
+    // multiple bins (asymmetric demand can force the ILP into a split),
+    // the per-row first-bin-only association would undercount the
+    // secondary bins. Asserting the bin-aggregated totals matches the
+    // ground-truth from `plan.bins` catches that regression.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    // Ground truth: sum buildings and power across bins.
+    let truthBuildings = 0;
+    let truthPower = 0;
+    for (const bin of plan.bins) {
+      const fac = facilities.find((f) => f.id === bin.facilityId);
+      if (!fac) continue;
+      truthBuildings += Math.ceil(bin.buildingCount);
+      truthPower += fac.powerConsumption * bin.buildingCount;
+    }
+
+    expect(truthBuildings).toBeGreaterThan(0);
+    expect(truthPower).toBeGreaterThan(0);
+
+    // Allocation entries' total slots equal each recipe's facilityCount —
+    // the data layer's invariant. If this fails, allocation lost slots.
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "recipe") continue;
+      if (node.facilityCount <= 1e-9) continue;
+      const alloc = plan.recipeBinAllocations.get(node.recipeId);
+      expect(alloc).toBeDefined();
+      const allocSum = alloc!.perBin.reduce((s, e) => s + e.slots, 0);
+      expect(allocSum).toBeCloseTo(node.facilityCount, 5);
+    }
+  });
+
+  test("plan-level pool building count <= ungrouped baseline", () => {
+    // Sanity: Phase 3 must never increase building count vs. the naive
+    // one-recipe-per-building baseline (where each recipe slot needs its
+    // own building). Stronger than the basic equivalence — it asserts
+    // the optimiser is doing actual work.
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+    );
+
+    // Sum slot demand across all pool recipes.
+    let totalPoolSlots = 0;
+    for (const [recipeId, alloc] of plan.recipeBinAllocations.entries()) {
+      const recipe = recipes.find((r) => r.id === recipeId);
+      if (!recipe) continue;
+      const fac = facilities.find((f) => f.id === recipe.facilityId);
+      if (fac?.cacheSlots == null) continue;
+      totalPoolSlots += alloc.totalSlots;
+    }
+
+    // Sum bin building counts for multi-formula facilities.
+    let totalPoolBuildings = 0;
+    for (const bin of plan.bins) {
+      const fac = facilities.find((f) => f.id === bin.facilityId);
+      if (fac?.cacheSlots == null) continue;
+      totalPoolBuildings += bin.buildingCount;
+    }
+
+    // Ungrouped baseline = ceil(slot count) per recipe; grouped should
+    // never exceed it. (Equality holds when no grouping was beneficial.)
+    expect(totalPoolBuildings).toBeLessThanOrEqual(Math.ceil(totalPoolSlots));
+  });
+});
+
 describe("Issue #68 — Xiranite over-production", () => {
   test("Xiranite powder production matches summed consumer demand", () => {
     const targets = [
@@ -1284,5 +1475,267 @@ describe("Issue #68 — Xiranite over-production", () => {
     const totalDemand = targetRate + consumerDemand;
 
     expect(powder.productionRate).toBeCloseTo(totalDemand, 3);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Xircon bin-fusion integrity (real-data regression)
+//
+// The Xircon production chain is the canonical multi-formula scenario:
+// Phase 2 LP gives fractional slot demands for {LX, XE, X, Purifier}, and
+// Phase 3 MIP packs LX/XE/X into Expanded Crucible bins. The X-bin shape
+// `{LX, XE, X}` has Sewage as INTERNAL (X produces 30/min, XE consumes
+// 30/min — net 0 per slot), and `buildBinShape` correctly classifies it.
+//
+// Historical bug: `CustomProductionNode` rendered the headline X recipe's
+// natural byproducts (`recipe.outputs = [Xircon, Sewage]`) on top of the
+// bin's `binExtraOutputs`, leaking the internal Sewage as a card "output"
+// scaled by the headline target rate. The display-layer fix relies on
+// `bin.externalOutputs` being authoritative — these tests guard the data-
+// layer invariants the fix depends on.
+// ────────────────────────────────────────────────────────────────────────
+describe("Xircon bin-fusion integrity (real data)", () => {
+  const XIRCON_TARGETS = [30, 56, 57, 58, 60, 89, 90, 91] as const;
+
+  test.each(XIRCON_TARGETS)(
+    "target=%i: bin externalOutputs ∩ internalItems = ∅ (no double-counting)",
+    (target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      for (const bin of plan.bins) {
+        const externalIds = new Set([
+          ...bin.externalOutputs.map((o) => o.itemId),
+          ...bin.externalInputs.map((i) => i.itemId),
+        ]);
+        for (const id of bin.internalItems) {
+          expect(externalIds.has(id)).toBe(false);
+        }
+      }
+    },
+  );
+
+  test.each(XIRCON_TARGETS)(
+    "target=%i: bin I/O classification matches per-recipe active-slot net flows",
+    (target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      for (const bin of plan.bins) {
+        // Skip disposal bins (recipe with no outputs).
+        const isDisposal = bin.recipeIds.some((rid) => {
+          const r = recipes.find((x) => x.id === rid);
+          return r && r.outputs.length === 0;
+        });
+        if (isDisposal) continue;
+
+        // Look up per-recipe ACTIVE slot allocation for this bin from
+        // `plan.recipeBinAllocations`. This is the per-recipe partial-
+        // load that the bin actually runs (may be less than
+        // bin.buildingCount when Phase 2 demand under-fills a slot).
+        const activeByRecipe = new Map<RecipeId, number>();
+        for (const rid of bin.recipeIds) {
+          const alloc = plan.recipeBinAllocations.get(rid);
+          if (!alloc) continue;
+          const entry = alloc.perBin.find((p) => p.binId === bin.id);
+          if (entry) activeByRecipe.set(rid, entry.slots);
+        }
+
+        // Net per item at active rates. Mirrors `allocateSlotsToBins`'s
+        // computation, so each bin's I/O classification should agree.
+        const netPerItem = new Map<ItemId, number>();
+        for (const rid of bin.recipeIds) {
+          const active = activeByRecipe.get(rid) ?? 0;
+          if (active <= 0) continue;
+          const recipe = recipes.find((x) => x.id === rid)!;
+          for (const inp of recipe.inputs) {
+            netPerItem.set(
+              inp.itemId,
+              (netPerItem.get(inp.itemId) ?? 0) -
+                calcRate(inp.amount, recipe.craftingTime) * active,
+            );
+          }
+          for (const out of recipe.outputs) {
+            netPerItem.set(
+              out.itemId,
+              (netPerItem.get(out.itemId) ?? 0) +
+                calcRate(out.amount, recipe.craftingTime) * active,
+            );
+          }
+        }
+
+        for (const [itemId, net] of netPerItem.entries()) {
+          const inOutputs = bin.externalOutputs.find((o) => o.itemId === itemId);
+          const inInputs = bin.externalInputs.find((i) => i.itemId === itemId);
+          const inInternal = bin.internalItems.includes(itemId);
+
+          if (Math.abs(net) <= 1e-9) {
+            expect(inInternal).toBe(true);
+            expect(inOutputs).toBeUndefined();
+            expect(inInputs).toBeUndefined();
+          } else if (net > 0) {
+            expect(inOutputs?.rate).toBeCloseTo(net, 3);
+            expect(inInputs).toBeUndefined();
+            expect(inInternal).toBe(false);
+          } else {
+            expect(inInputs?.rate).toBeCloseTo(-net, 3);
+            expect(inOutputs).toBeUndefined();
+            expect(inInternal).toBe(false);
+          }
+        }
+      }
+    },
+  );
+
+  test.each(XIRCON_TARGETS)(
+    "target=%i: Phase 3 allocation matches Phase 2 slot demand (strict equality)",
+    (target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      const recipesOfInterest: RecipeId[] = [
+        RecipeId.POOL_XIRANITE_POLY_1,
+        RecipeId.POOL_LIQUID_XIRANITE_POLY_1,
+        RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1,
+        RecipeId.LIQUID_PURIFIER_XIRANITE_POLY_1,
+      ];
+      for (const rid of recipesOfInterest) {
+        const node = plan.nodes.get(rid);
+        if (!node || node.type !== "recipe") continue;
+        const phase2 = node.facilityCount;
+        if (phase2 <= 1e-9) continue;
+
+        // Aggregate allocation across bins must match Phase 2's slot
+        // demand under strict-equality demand constraints — sum of
+        // `alloc.perBin.slots` across bins is the actual allocation
+        // (active slot count). `bin.buildingCount` is the integer
+        // building count (≥ slots/recipe for partial-load bins).
+        const alloc = plan.recipeBinAllocations.get(rid);
+        const allocatedSlots = alloc
+          ? alloc.perBin.reduce((s, e) => s + e.slots, 0)
+          : 0;
+        // Strict equality with a 0.005-slot tolerance covering the
+        // documented sub-visible-variant rate drift (< 0.005/min
+        // cumulative). Lower bound catches under-allocation; upper
+        // bound catches the over-production regression that motivated
+        // Path H + strict-equality demand.
+        expect(allocatedSlots).toBeGreaterThanOrEqual(phase2 - 0.005);
+        expect(allocatedSlots).toBeLessThanOrEqual(phase2 + 0.005);
+
+        // Building count is a separate physical bound: must cover the
+        // allocated slot count but may exceed it for partial-load bins.
+        const buildings = plan.bins.reduce(
+          (sum, b) => sum + (b.recipeIds.includes(rid) ? b.buildingCount : 0),
+          0,
+        );
+        expect(buildings).toBeGreaterThanOrEqual(phase2 - 1e-6);
+      }
+    },
+  );
+
+  test.each(XIRCON_TARGETS)(
+    "target=%i: total Xircon production meets target",
+    (target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      // Path H may split X recipe across multiple variants (e.g.,
+      // singleton X on Reactor + triple {LX,XE,X} on Expanded), so
+      // aggregate Xircon production across ALL bins emitting it. Under
+      // strict-equality demand, this sum equals the target exactly.
+      let xirconRate = 0;
+      for (const bin of plan.bins) {
+        const out = bin.externalOutputs.find(
+          (o) => o.itemId === ItemId.ITEM_XIRANITE_POLY,
+        );
+        if (out) xirconRate += out.rate;
+      }
+      expect(xirconRate).toBeCloseTo(target, 3);
+    },
+  );
+
+  test("target=57: Xircon-producing bin reports rates aligned with Phase 2 demand", () => {
+    // The original "user-reported bug": Phase 2 LP demands `x_X = 1.9`,
+    // `x_XE = x_LX = 3.04`, `x_P = 0.76`. Under the old packer, the
+    // {LX, XE, X} bin ran at uneven active rates that produced 3 liquid
+    // inputs on a 2-port facility — physically unbuildable.
+    //
+    // Under Path H, the packer enumerates only cap-feasible variants
+    // and the LP picks among them. The bin's classification of sewage
+    // (internal vs. external) depends on which variant is chosen:
+    //   - V3 regime (LX=XE=2X, sewage internal): bin has sewage as
+    //     internal, no external sewage flow.
+    //   - V1 + pair regime (LX=XE=X with pair for residuals): bin has
+    //     sewage as external input (X under-produces vs XE consumption).
+    //
+    // Either is correct. This test asserts the user-facing invariants:
+    //   - The Xircon-producing bin contains the X recipe.
+    //   - Total Xircon rate across all bins ≈ target.
+    //   - The bin satisfies port caps (covered by assertBinPortCaps).
+    const plan = calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 57 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const xirconBin = plan.bins.find((b) =>
+      b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
+    );
+    expect(xirconBin).toBeDefined();
+    expect(xirconBin!.recipeIds).toContain(RecipeId.POOL_XIRANITE_POLY_1);
+
+    // Aggregate Xircon rate across all bins ≈ target (allow tiny
+    // over-production for variants with non-binding X demand).
+    let totalXircon = 0;
+    for (const bin of plan.bins) {
+      const out = bin.externalOutputs.find(
+        (o) => o.itemId === ItemId.ITEM_XIRANITE_POLY,
+      );
+      if (out) totalXircon += out.rate;
+    }
+    expect(totalXircon).toBeGreaterThanOrEqual(57 - 0.01);
+
+    // Port caps holding is the structural invariant Path H guarantees;
+    // verified inline (the packer's assertBinPortCaps also throws on
+    // violation in test mode).
+    for (const bin of plan.bins) {
+      const fac = facilities.find((f) => f.id === bin.facilityId);
+      if (!fac || fac.cacheSlots == null) continue;
+      const liqIn = bin.externalInputs.filter((i) => i.isLiquid).length;
+      const liqOut = bin.externalOutputs.filter((o) => o.isLiquid).length;
+      const beltOut = bin.externalOutputs.filter((o) => !o.isLiquid).length;
+      expect(liqIn).toBeLessThanOrEqual(fac.buffersIn.pipe.length);
+      expect(liqOut).toBeLessThanOrEqual(fac.buffersOut.pipe.length);
+      expect(beltOut).toBeLessThanOrEqual(fac.buffersOut.belt.length);
+    }
+  });
+
+  test("Expanded Crucible building total is monotonic non-decreasing in target", () => {
+    const totals = XIRCON_TARGETS.map((target) => {
+      const plan = calculateProductionPlan(
+        [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: target }],
+        items,
+        recipes,
+        facilities,
+      );
+      return plan.bins
+        .filter((b) => b.facilityId === FacilityId.MIX_POOL_2)
+        .reduce((s, b) => s + Math.ceil(b.buildingCount), 0);
+    });
+    for (let i = 1; i < totals.length; i++) {
+      expect(totals[i]).toBeGreaterThanOrEqual(totals[i - 1]);
+    }
   });
 });

@@ -1,6 +1,8 @@
 {
   "ceilMode": "設施數向上取整",
   "twoEndAlignment": "兩端對齊",
+  "binFusion": "配方分組",
+  "binFusionTooltip": "將共用一個建築的配方合併為一張卡片。",
   "calculationError": "計算生產計畫時發生錯誤。請檢查您的目標產出和配方覆蓋設定。",
   "cycleWarning": "{{overriddenItems}} 所選配方形成了無法維持所需產量的生產循環。受影響物品：{{affectedItems}}。",
   "cycleWarningNoAffected": "{{overriddenItems}} 所選配方形成了無法維持所需產量的生產循環。",
