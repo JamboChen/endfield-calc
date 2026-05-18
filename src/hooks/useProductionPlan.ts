@@ -205,10 +205,11 @@ export function useProductionPlan() {
       })
       .catch((e) => {
         if (cancelled) return;
-        // Log only; the "Loading solver…" pill remains visible.
-        // Reaching here means the WASM compile failed (near-zero
-        // probability in modern browsers); a richer error UI is
-        // not worth the surface area until real reports surface.
+        // Log only. The solver-loading overlay over the production
+        // area remains visible. Reaching here means the WASM
+        // compile failed (near-zero probability in modern browsers);
+        // a richer error UI is not worth the surface area until
+        // real reports surface.
         console.error("[HIGHS] init failed:", e);
       });
     return () => {
@@ -222,15 +223,21 @@ export function useProductionPlan() {
   // memoisation isn't a standard React pattern.
   const [plan, setPlan] = useState<ProductionDependencyGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Raw "calculation in flight" signal. `showLoadingOverlay` below
+  // debounces this to avoid flashing the overlay on routine fast
+  // recalcs.
+  const [isCalculating, setIsCalculating] = useState(false);
   useEffect(() => {
     if (!solverReady) return;
     if (targets.length === 0) {
       setPlan(null);
       setError(null);
+      setIsCalculating(false);
       return;
     }
     let cancelled = false;
     setError(null);
+    setIsCalculating(true);
     calculateProductionPlan(
       targets,
       items,
@@ -240,18 +247,51 @@ export function useProductionPlan() {
       manualRawMaterials,
     )
       .then((result) => {
+        // Cancelled means a newer calc has started (or unmount). Leave
+        // `isCalculating` true so the debounced overlay state doesn't
+        // restart its timer between back-to-back recalcs.
         if (cancelled) return;
         setPlan(result);
+        setIsCalculating(false);
       })
       .catch((e) => {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : t("calculationError"));
         setPlan(null);
+        setIsCalculating(false);
       });
     return () => {
       cancelled = true;
     };
   }, [solverReady, targets, recipeOverrides, manualRawMaterials, t]);
+
+  // Debounced overlay visibility: only flip true if `isCalculating`
+  // stays true for >300ms. Sub-300ms calcs (the common case at
+  // 65-230ms) resolve before the timer fires, so the overlay never
+  // flashes for routine recalcs.
+  const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
+  useEffect(() => {
+    if (!isCalculating) {
+      setShowLoadingOverlay(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowLoadingOverlay(true), 300);
+    return () => clearTimeout(timer);
+  }, [isCalculating]);
+
+  // Combined "solver busy" signal consumed by the loading overlay.
+  // True while any of:
+  //   - WASM is still loading.
+  //   - A calc is in flight and we have no plan to show underneath
+  //     (typically the first calc after WASM ready). Skipping the
+  //     debounce here avoids a blank gap between WASM-ready and the
+  //     overlay re-engaging for users opening a saved plan on a
+  //     slow connection.
+  //   - A calc has exceeded the 300ms debounce threshold.
+  const isLoading =
+    !solverReady ||
+    (isCalculating && plan === null) ||
+    showLoadingOverlay;
 
   // Filter zero-rate nodes from the plan for display. Note: `plan.bins`
   // and `plan.recipeBinAllocations` are intentionally NOT filtered — Phase 3
@@ -514,6 +554,6 @@ export function useProductionPlan() {
     handleAddClick,
     handleSavePlan,
     handleOpenPlan,
-    solverReady,
+    isLoading,
   };
 }
