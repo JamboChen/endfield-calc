@@ -106,8 +106,7 @@ export async function solve(model: LPModel): Promise<LPResult> {
   if (model.options?.timeLimitSeconds !== undefined) {
     highs.setParam("time_limit", model.options.timeLimitSeconds);
   }
-  // `parse()` loads the model into the persistent HiGHS instance.
-  // Each call replaces whatever model was loaded previously.
+  // Each parse() replaces the previously-loaded model on the shared instance.
   await highs.parse(lpFile, "lp");
   const solution = await highs.solve();
   return parseHighsSolution(solution);
@@ -133,18 +132,12 @@ function buildLpFileString(model: LPModel): string {
   lines.push("");
 
   // === Constraints ===
-  // A constraint with no nonzero variable coefficients reduces to a
-  // statement about a constant (e.g. `0 = 30`). CPLEX LP format
-  // requires at least one term per constraint, so we cannot emit
-  // such constraints to HiGHS — but silently dropping them would
-  // mask structural infeasibility (the entire model becomes
-  // feasible at all-zeros). Track these cases and fail fast.
-  //
-  // Background: this used to bite the SCC cycle-resolution flow
-  // where a target item's balance constraint `prod - cons = demand`
-  // collapses to `0 = demand` when every in-cycle recipe both
-  // produces and consumes the item in equal amounts (e.g. FBOTTLE
-  // in the FILLING/DISMANTLER cycle).
+  // CPLEX LP format requires at least one term per constraint. For
+  // zero-coefficient rows we drop the constraint, but if the bound
+  // is non-satisfiable (e.g. `0 = 30`, which can arise from SCC
+  // cycle cancellation collapsing `prod − cons = demand` to
+  // `0 = demand`), we flag a sentinel below that `solve()` maps to
+  // `{ feasible: false }`.
   let structurallyInfeasible = false;
   lines.push("Subject To");
   for (const [cName, bounds] of Object.entries(model.constraints)) {

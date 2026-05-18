@@ -17,13 +17,11 @@
  *      `solve()` are async, so glue code in `highs-wrapper.ts` is also
  *      async. The init step is what blocks the UI from running
  *      calculations before HiGHS is ready (see `useProductionPlan`'s
- *      solverReady gate).
+ *      `isLoading` state).
  *
- * In the test environment, `await initHighs()` is invoked once in
- * vitest's globalSetup so every test file sees a ready solver.
- *
- * License: MIT (this project's wrapper), MIT (HiGHS itself), MIT
- * (@bubblyworld/highs-ts).
+ * In the test environment, `await initHighs()` is invoked once via
+ * vitest's `test.setupFiles` (per worker) so every test file sees a
+ * ready solver.
  */
 import { HiGHS } from "@bubblyworld/highs-ts";
 
