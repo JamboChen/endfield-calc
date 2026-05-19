@@ -9,10 +9,13 @@
   "mix_pool_1": "反应池",
   "mix_pool_2": "扩容反应池",
   "planter_1": "种植机",
+  "pump_1": "水泵",
+  "pump_2": "二型耐酸水泵",
   "seedcollector_1": "采种机",
   "shaper_1": "塑形机",
   "thickener_1": "研磨机",
   "tools_assebling_mc_1": "封装机",
+  "unloader_1": "仓库取货口",
   "winder_1": "装备原件机",
   "xiranite_oven_1": "天有洪炉"
 }

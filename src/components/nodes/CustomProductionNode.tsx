@@ -16,7 +16,7 @@ import type {
   FlowNodeDataWithTarget,
   RecipeId,
 } from "@/types";
-import { getTransportCountWithFacilities, getPickupPointCount, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
+import { getTransportCountWithFacilities, getPickupPointCount, getRawSourceRate, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
 import { computeNodeByproducts } from "@/lib/plan-helpers";
 
 /**
@@ -117,7 +117,7 @@ export default function CustomProductionNode({
           <div className="mt-1 text-muted-foreground">
             {t("tree.pickupPoint")}: {isSeparated
               ? `${data.facilityIndex! + 1} / ${data.totalFacilities}`
-              : `×${getPickupPointCount(node.targetRate, node.item)}`}
+              : `×${getPickupPointCount(node.targetRate, getRawSourceRate(node.item.id, node.item))}`}
           </div>
         </div>
       ) : node.recipe ? (
@@ -410,7 +410,7 @@ export default function CustomProductionNode({
                 <span className="font-mono font-semibold text-xs shrink-0 ml-2">
                   {isSeparated
                     ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
-                    : `×${getPickupPointCount(node.targetRate, node.item)}`}
+                    : `×${getPickupPointCount(node.targetRate, getRawSourceRate(node.item.id, node.item))}`}
                 </span>
               </div>
             )}

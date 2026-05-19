@@ -8,8 +8,12 @@ import { FacilityId } from "../types/constants";
  * bin-packing solver are derived at consumption time from buffer counts —
  * see `src/types/core.ts` for the mapping.
  *
- * `loader_1`, `pump_1`, and `pump_2` are present for forward compatibility
- * with future transport-aware planning; no recipe references them today.
+ * Source-direction facilities (`unloader_1`, `pump_1`, `pump_2`) are
+ * referenced by `rawMaterialSources` in `src/data/index.ts`: each raw
+ * material is sourced by exactly one of these and contributes its power
+ * cost × pickup-point count to the plan total via `aggregateBinTotals`.
+ * `loader_1` is present for forward compatibility (solid-disposal sink,
+ * Phase 4 work); no recipe references it today.
  */
 export const facilities: Facility[] = [
   {
@@ -220,6 +224,20 @@ export const facilities: Facility[] = [
     powerConsumption: 50,
     buffersIn: { belt: [{ ports: 6 }], pipe: [] },
     buffersOut: { belt: [{ ports: 6 }], pipe: [] },
+    domains: [],
+    cap: null,
+  },
+  {
+    // Depot Unloader — solid-raw pickup point. Game data: type 11
+    // (unloader-class), 0 power, 1 belt output port, no inputs.
+    // Throughput: 30/min per facility (matches belt capacity).
+    id: FacilityId.UNLOADER_1,
+    numId: -1, // entity-ids.json not in this data dump
+    tier: 3, // rarity 3 from ItemTable (item_port_unloader_1)
+    category: 11,
+    powerConsumption: 0,
+    buffersIn: { belt: [], pipe: [] },
+    buffersOut: { belt: [{ ports: 1 }], pipe: [] },
     domains: [],
     cap: null,
   },

@@ -7,7 +7,7 @@ import type {
   ProductionDependencyGraph,
 } from "@/types";
 import { aggregateBinTotals } from "@/lib/plan-helpers";
-import { getItemById, getPickupPointCount } from "@/lib/utils";
+import { getItemById, getPickupPointCount, getRawSourceRate } from "@/lib/utils";
 
 export type ProductionStats = {
   totalPowerConsumption: number;
@@ -51,15 +51,18 @@ function collectStats(
     }
   });
 
-  const { totalPower, perFacility } = aggregateBinTotals(plan, facilities, {
-    ceilMode,
-  });
+  const { totalPower, perFacility } = aggregateBinTotals(
+    plan,
+    facilities,
+    items,
+    { ceilMode },
+  );
 
   const rawMaterialPickupPoints = new Map<ItemId, number>();
   let totalPickupPoints = 0;
   rawMaterials.forEach((rate, itemId) => {
     const item = getItemById(items, itemId);
-    const count = getPickupPointCount(rate, item);
+    const count = getPickupPointCount(rate, getRawSourceRate(itemId, item));
     rawMaterialPickupPoints.set(itemId, count);
     totalPickupPoints += count;
   });

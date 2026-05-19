@@ -37,7 +37,8 @@ import {
   createDisposalSinkNode,
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
-import { calcRate, getTransportCapacity } from "@/lib/utils";
+import { calcRate, getRawSourceRate } from "@/lib/utils";
+import { rawMaterialSources } from "@/data";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import { buildBinActivitySums, pickBinHeadlineOutput } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
@@ -352,7 +353,11 @@ export function mapPlanToFlowBinFused(
     );
   }
 
-  // Emit raw-material pickup nodes (one per distinct raw item).
+  // Emit raw-material pickup nodes (one per distinct raw item). Each
+  // node aggregates the raw's total demand and surfaces its source
+  // facility (unloader_1 / pump_1 / pump_2) so the card shows the
+  // correct icon + pickup count. Power for these facilities is
+  // accumulated by `aggregateBinTotals`, not by re-summing here.
   const emittedRawMaterials = new Set<ItemId>();
   const ensureRawMaterialNode = (itemId: ItemId): string => {
     const rawNodeId = createRawMaterialId(itemId);
@@ -360,15 +365,23 @@ export function mapPlanToFlowBinFused(
     emittedRawMaterials.add(itemId);
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item") return rawNodeId;
+    const totalDemand = rawMaterialDemand.get(itemId) ?? node.productionRate;
+    const cfg = rawMaterialSources.get(itemId);
+    const sourceFacility = cfg
+      ? (facilityById.get(cfg.sourceFacility) ?? null)
+      : null;
+    const perFacilityRate = getRawSourceRate(itemId, node.item);
+    const pickupCount =
+      perFacilityRate > 0 ? Math.ceil(totalDemand / perFacilityRate) : 0;
     flowNodes.push(
       createProductionFlowNode(
         rawNodeId,
         {
           item: node.item,
-          targetRate: rawMaterialDemand.get(itemId) ?? node.productionRate,
+          targetRate: totalDemand,
           recipe: null,
-          facility: null,
-          facilityCount: 0,
+          facility: sourceFacility,
+          facilityCount: pickupCount,
           isRawMaterial: true,
           isTarget: false,
           dependencies: [],
@@ -905,7 +918,11 @@ export function mapPlanToFlowBinFusedSeparated(
     );
   }
 
-  // Emit pickup nodes for raw materials (transport-capacity-sized).
+  // Emit pickup nodes for raw materials (one per source-facility instance).
+  // Each pickup node represents ONE physical unloader_1 (30/min, solid) or
+  // ONE pump_1/pump_2 (60/min, liquid). For liquids the source rate is
+  // half pipe capacity, so liquid raws emit ~2× as many pickup nodes as
+  // the previous transport-capacity-based math implied.
   const emittedRawNodes = new Set<string>();
   for (const [itemId, consumers] of consumersByItem.entries()) {
     if (producersByItem.has(itemId)) continue;
@@ -915,20 +932,25 @@ export function mapPlanToFlowBinFusedSeparated(
     if (totalDemand <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const item = itemById.get(itemId);
     if (!item) continue;
-    const transportCap = getTransportCapacity(item);
+    const sourceRate = getRawSourceRate(itemId, item);
+    if (sourceRate <= 0) continue;
+    const cfg = rawMaterialSources.get(itemId);
+    const sourceFacility = cfg
+      ? (facilityById.get(cfg.sourceFacility) ?? null)
+      : null;
     // Subtract MIN_VISIBLE_RATE_PER_MIN before ceiling to avoid
     // emitting an extra empty pickup node from FP noise on totalDemand
     // (see allocator-side comment for the full rationale).
     const pickupCount = Math.max(
       1,
-      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / transportCap),
+      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / sourceRate),
     );
     for (let i = 0; i < pickupCount; i++) {
       const pickupId = `${createRawMaterialId(itemId)}-p${i}`;
       if (emittedRawNodes.has(pickupId)) continue;
       emittedRawNodes.add(pickupId);
-      const capacity = Math.min(transportCap, totalDemand - i * transportCap);
-      const isPartialLoad = capacity < transportCap * 0.999;
+      const capacity = Math.min(sourceRate, totalDemand - i * sourceRate);
+      const isPartialLoad = capacity < sourceRate * 0.999;
       flowNodes.push(
         createProductionFlowNode(
           pickupId,
@@ -936,8 +958,8 @@ export function mapPlanToFlowBinFusedSeparated(
             item,
             targetRate: capacity,
             recipe: null,
-            facility: null,
-            facilityCount: 0,
+            facility: sourceFacility,
+            facilityCount: 1,
             isRawMaterial: true,
             isTarget: false,
             dependencies: [],
@@ -1064,30 +1086,34 @@ export function mapPlanToFlowBinFusedSeparated(
   }
 
   // Raw-material → consumer edges (one per consumer-instance, drawn
-  // from sequential pickup-point capacity).
+  // from sequential pickup-point capacity). Per-pickup capacity here is
+  // the SOURCE-FACILITY rate (30/min unloader / 60/min pump), not pipe
+  // capacity — keeps the pickup-count math identical to the emission
+  // loop above. Edge labels downstream still use transport capacity for
+  // belt/pipe counts via getTransportCount.
   for (const [itemId, consumers] of consumersByItem.entries()) {
     if (producersByItem.has(itemId)) continue;
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item" || !node.isRawMaterial) continue;
     const item = itemById.get(itemId);
     if (!item) continue;
-    const transportCap = getTransportCapacity(item);
+    const sourceRate = getRawSourceRate(itemId, item);
+    if (sourceRate <= 0) continue;
     // Track remaining capacity per pickup point.
     const totalDemand = consumers.reduce((s, c) => s + c.rate, 0);
     // Subtract MIN_VISIBLE_RATE_PER_MIN from totalDemand before ceiling
     // to avoid emitting an extra empty pickup node when totalDemand is
-    // an exact multiple of transportCap plus FP noise (e.g.,
-    // 480.0000001 / 120 rounds up to 5 instead of 4). The downstream
+    // an exact multiple of sourceRate plus FP noise. The downstream
     // allocator skips pickups with capacity below this same threshold,
     // so any such sub-visible "p_N" would be isolated.
     const pickupCount = Math.max(
       1,
-      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / transportCap),
+      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / sourceRate),
     );
     const pickupRemaining: number[] = [];
     for (let i = 0; i < pickupCount; i++) {
       pickupRemaining.push(
-        Math.min(transportCap, totalDemand - i * transportCap),
+        Math.min(sourceRate, totalDemand - i * sourceRate),
       );
     }
     let pickupIdx = 0;

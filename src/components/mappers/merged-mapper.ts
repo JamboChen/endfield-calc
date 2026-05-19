@@ -17,7 +17,8 @@ import {
   createDisposalSinkNode,
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
-import { calcRate } from "@/lib/utils";
+import { calcRate, getRawSourceRate } from "@/lib/utils";
+import { rawMaterialSources } from "@/data";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import { getRecipeOutputItemId, getRecipeInputItemId, getItemProducers, isRecipeTerminal, computeGreedyAllocation } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
@@ -253,10 +254,26 @@ export function mapPlanToFlowMerged(
           ),
         );
       } else if (sourceNode.isRawMaterial) {
-        // Raw material → Recipe: create node for raw material
+        // Raw material → Recipe: create node for raw material, tagged
+        // with its source facility (unloader_1 / pump_1 / pump_2) and
+        // the number of pickup-point instances needed for the demand
+        // rate. Power for these facilities is summed by
+        // `aggregateBinTotals`; this just surfaces them visually.
         const rawMaterialNodeId = createRawMaterialId(sourceNode.itemId);
 
         if (!flowNodes.find((n) => n.id === rawMaterialNodeId)) {
+          const cfg = rawMaterialSources.get(sourceNode.itemId);
+          const sourceFacility = cfg
+            ? (facilities.find((f) => f.id === cfg.sourceFacility) ?? null)
+            : null;
+          const perFacilityRate = getRawSourceRate(
+            sourceNode.itemId,
+            sourceNode.item,
+          );
+          const pickupCount =
+            perFacilityRate > 0
+              ? Math.ceil(sourceNode.productionRate / perFacilityRate)
+              : 0;
           flowNodes.push(
             createProductionFlowNode(
               rawMaterialNodeId,
@@ -264,8 +281,8 @@ export function mapPlanToFlowMerged(
                 item: sourceNode.item,
                 targetRate: sourceNode.productionRate,
                 recipe: null,
-                facility: null,
-                facilityCount: 0,
+                facility: sourceFacility,
+                facilityCount: pickupCount,
                 isRawMaterial: true,
                 isTarget: false,
                 dependencies: [],

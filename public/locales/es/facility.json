@@ -9,10 +9,13 @@
   "mix_pool_1": "Crisol del reactor",
   "mix_pool_2": "Crisol expandido",
   "planter_1": "Unidad de cultivo",
+  "pump_1": "Bomba de fluido",
+  "pump_2": "Bomba resistente al ácido Mk II",
   "seedcollector_1": "Unidad recogesemillas",
   "shaper_1": "Unidad de moldeado",
   "thickener_1": "Unidad pulverizadora",
   "tools_assebling_mc_1": "Unidad de empaquetado",
+  "unloader_1": "Descargador del depósito",
   "winder_1": "Unidad de engranajes",
   "xiranite_oven_1": "Forja del cielo"
 }

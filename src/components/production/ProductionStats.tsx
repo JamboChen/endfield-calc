@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import type { Facility, Item, ItemId } from "@/types";
 import { getFacilityName, getItemName } from "@/lib/i18n-helpers";
 import { getItemById } from "@/lib/utils";
+import { rawMaterialSources } from "@/data";
 
 type ProductionStatsProps = {
   totalPowerConsumption: number;
@@ -153,35 +154,46 @@ const ProductionStats = memo(function ProductionStats({
                   </CollapsibleTrigger>
                   <CollapsibleContent>
                     <div className="grid grid-cols-2 gap-2 pt-2">
-                      {rawMaterialList.map(({ item, rate }) => (
-                        <div
-                          key={item.id}
-                          className="space-y-0.5 p-2 border border-border/50 bg-card"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            {item.iconUrl && (
-                              <img
-                                src={item.iconUrl}
-                                alt={getItemName(item)}
-                                className="w-4 h-4 object-contain"
-                              />
-                            )}
-                            <div className="text-xs text-muted-foreground truncate flex-1">
-                              {getItemName(item)}
+                      {rawMaterialList.map(({ item, rate }) => {
+                        const cfg = rawMaterialSources.get(item.id);
+                        const sourceFacility = cfg
+                          ? facilities.find(
+                              (f) => f.id === cfg.sourceFacility,
+                            )
+                          : undefined;
+                        const sourceLabel = sourceFacility
+                          ? getFacilityName(sourceFacility)
+                          : t("pickupPoints");
+                        return (
+                          <div
+                            key={item.id}
+                            className="space-y-0.5 p-2 border border-border/50 bg-card"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              {item.iconUrl && (
+                                <img
+                                  src={item.iconUrl}
+                                  alt={getItemName(item)}
+                                  className="w-4 h-4 object-contain"
+                                />
+                              )}
+                              <div className="text-xs text-muted-foreground truncate flex-1">
+                                {getItemName(item)}
+                              </div>
+                            </div>
+                            <div className="text-sm font-semibold font-mono">
+                              {rate.toFixed(1)}
+                              <span className="text-xs font-normal text-muted-foreground ml-1">
+                                /min
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground font-mono">
+                              ×{rawMaterialPickupPoints.get(item.id) ?? 0}
+                              <span className="ml-1">{sourceLabel}</span>
                             </div>
                           </div>
-                          <div className="text-sm font-semibold font-mono">
-                            {rate.toFixed(1)}
-                            <span className="text-xs font-normal text-muted-foreground ml-1">
-                              /min
-                            </span>
-                          </div>
-                          <div className="text-xs text-muted-foreground font-mono">
-                            ×{rawMaterialPickupPoints.get(item.id) ?? 0}
-                            <span className="ml-1">{t("pickupPoints")}</span>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </CollapsibleContent>
                 </Collapsible>

@@ -23,7 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import type { Item, Recipe, Facility, ItemId, RecipeId, BinId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName, getRecipeName } from "@/lib/i18n-helpers";
-import { getTransportCountWithFacilities, getPickupPointCount, formatCount, formatNumber } from "@/lib/utils";
+import { getTransportCountWithFacilities, getPickupPointCount, getRawSourceRate, formatCount, formatNumber } from "@/lib/utils";
 
 export type ProductionLineData = {
   item: Item;
@@ -512,7 +512,7 @@ const ProductionTable = memo(function ProductionTable({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className="text-green-600 dark:text-green-400 cursor-help">
-                            {getPickupPointCount(line.outputRate, line.item)}
+                            {getPickupPointCount(line.outputRate, getRawSourceRate(line.item.id, line.item))}
                           </span>
                         </TooltipTrigger>
                         <TooltipContent>
