@@ -312,19 +312,19 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(dangling).toEqual([]);
   });
 
-  test("raw water pickup is emitted even when Liquid Purifier produces water as byproduct", async () => {
-    // Regression: bin-fused-mapper used to skip raw-pickup emission for
-    // items that had any bin producer. The Liquid Purifier produces
-    // Liquid Water as a byproduct (1 Water per cycle alongside the Poly
-    // output), so Water was incorrectly treated as "supplied" and the
-    // raw pickup vanished — leaving LX consumers' water demand unsourced.
+  test("raw water byproduct from Purifier IS routed as edges; pickup absorbs the residual", async () => {
+    // Routing semantic (post Issue-3 refactor): the Liquid Purifier
+    // produces Liquid Water as a byproduct (1 Water per cycle alongside
+    // the Poly output). The mapper now treats raw byproducts as valid
+    // producers — the greedy allocator drains byproduct supply into
+    // water consumers first, and the pickup node absorbs only the
+    // residual demand (`node.productionRate`, the LP-computed net
+    // external supply after byproduct netting via
+    // `propagateRawMaterialDeficit`).
     //
-    // Expected behaviour (matches bf=0 / merged-mapper via
-    // `getItemProducers` returning [] for raw items):
-    //   - Pickup node emitted with rate = total LX water demand.
-    //   - No water edge originates from the Purifier bin (its byproduct
-    //     is shown on the bin card via `binExtraOutputs` but not routed).
-    //   - Edges from the pickup feed each consumer bin's water input.
+    // This keeps the pickup's `targetRate` consistent with the side
+    // panel's NET water demand: pumps × 60/min = node.productionRate,
+    // not the gross consumer sum.
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 56 }],
       items,
@@ -340,12 +340,13 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       false,
     );
 
-    // (a) Raw water pickup node exists.
+    // (a) Raw water pickup node exists (residual external demand > 0).
     const waterPickupId = createRawMaterialId(ItemId.ITEM_LIQUID_WATER);
     const waterPickup = flow.nodes.find((n) => n.id === waterPickupId);
     expect(waterPickup).toBeDefined();
 
-    // (b) No water-bearing edge originates from the Liquid Purifier bin.
+    // (b) The Purifier bin DOES emit at least one water edge — the
+    // byproduct now routes to a consumer instead of dangling.
     const purifierBin = plan.bins.find((b) =>
       b.facilityId === ("liquid_purifier_1" as FacilityIdType),
     );
@@ -355,23 +356,39 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
         e.source === purifierBin!.id &&
         e.sourceHandle === ItemId.ITEM_LIQUID_WATER,
     );
-    expect(waterEdgesFromPurifier).toHaveLength(0);
+    expect(waterEdgesFromPurifier.length).toBeGreaterThan(0);
 
-    // (c) Edges from the pickup go to at least one consumer bin.
+    // (c) Edges from the pickup still go to at least one consumer bin
+    // (the byproduct doesn't cover all consumers, so pickup carries
+    // the rest).
     const waterEdgesFromPickup = flow.edges.filter(
       (e) => e.source === waterPickupId,
     );
     expect(waterEdgesFromPickup.length).toBeGreaterThan(0);
 
     // (d) The Purifier bin's externalOutputs still includes water — the
-    // data layer is unchanged; only the routing changes. This guards
-    // that `computeNodeByproducts` will still surface Clean Water on
-    // the Purifier bin card.
+    // data layer is unchanged. This guards that `computeNodeByproducts`
+    // will still surface Clean Water on the Purifier bin card.
     const waterOnBin = purifierBin!.externalOutputs.find(
       (o) => o.itemId === ItemId.ITEM_LIQUID_WATER,
     );
     expect(waterOnBin).toBeDefined();
     expect(waterOnBin!.rate).toBeGreaterThan(0);
+
+    // (e) Pickup's targetRate equals plan.nodes[water].productionRate
+    // (the LP-computed NET external demand). Side panel and pickup card
+    // now agree on the same number.
+    const waterNode = plan.nodes.get(ItemId.ITEM_LIQUID_WATER);
+    expect(waterNode?.type).toBe("item");
+    if (waterNode?.type === "item") {
+      const data = waterPickup!.data as {
+        productionNode: { targetRate: number };
+      };
+      expect(data.productionNode.targetRate).toBeCloseTo(
+        waterNode.productionRate,
+        5,
+      );
+    }
   });
 
   test("ceilMode=OFF: grouped bin card shows mean(activities), not integer bin.buildingCount", async () => {

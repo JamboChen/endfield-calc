@@ -256,9 +256,18 @@ export function mapPlanToFlowMerged(
       } else if (sourceNode.isRawMaterial) {
         // Raw material → Recipe: create node for raw material, tagged
         // with its source facility (unloader_1 / pump_1 / pump_2) and
-        // the number of pickup-point instances needed for the demand
-        // rate. Power for these facilities is summed by
-        // `aggregateBinTotals`; this just surfaces them visually.
+        // the fractional pickup count. Downstream rendering applies
+        // `formatCount(value, ceilMode)` to render ceiled vs fractional.
+        // Power for these facilities is summed by `aggregateBinTotals`.
+        //
+        // Note: this legacy (bf=0) view does NOT route raw byproducts
+        // as separate edges. The pickup card's `targetRate` already
+        // shows the LP-computed NET external demand
+        // (`sourceNode.productionRate`), but the sum of pickup→consumer
+        // edges is the GROSS per-consumer demand. Byproduct supply
+        // appears on the producing recipe's card but isn't drawn as an
+        // edge here. See `mapPlanToFlowBinFused` for the byproduct-
+        // routing implementation in the default (bf=1) view.
         const rawMaterialNodeId = createRawMaterialId(sourceNode.itemId);
 
         if (!flowNodes.find((n) => n.id === rawMaterialNodeId)) {
@@ -272,7 +281,7 @@ export function mapPlanToFlowMerged(
           );
           const pickupCount =
             perFacilityRate > 0
-              ? Math.ceil(sourceNode.productionRate / perFacilityRate)
+              ? sourceNode.productionRate / perFacilityRate
               : 0;
           flowNodes.push(
             createProductionFlowNode(

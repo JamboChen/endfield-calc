@@ -115,9 +115,9 @@ export default function CustomProductionNode({
         <div>
           <p className="text-muted-foreground">{t("tree.trueRawMaterial")}</p>
           <div className="mt-1 text-muted-foreground">
-            {t("tree.pickupPoint")}: {isSeparated
+            {facility ? getFacilityName(facility) : t("tree.pickupPoint")}: {isSeparated
               ? `${data.facilityIndex! + 1} / ${data.totalFacilities}`
-              : `×${getPickupPointCount(node.targetRate, getRawSourceRate(node.item.id, node.item))}`}
+              : `×${formatCount(getPickupPointCount(node.targetRate, getRawSourceRate(node.item.id, node.item)), ceilMode)}`}
           </div>
         </div>
       ) : node.recipe ? (
@@ -404,13 +404,13 @@ export default function CustomProductionNode({
                 <div className="flex items-center gap-1.5 min-w-0">
                   <ArrowDownToLine className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
                   <span className="text-[10px] text-muted-foreground truncate">
-                    {t("tree.pickupPoint")}
+                    {facility ? getFacilityName(facility) : t("tree.pickupPoint")}
                   </span>
                 </div>
                 <span className="font-mono font-semibold text-xs shrink-0 ml-2">
                   {isSeparated
                     ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
-                    : `×${getPickupPointCount(node.targetRate, getRawSourceRate(node.item.id, node.item))}`}
+                    : `×${formatCount(getPickupPointCount(node.targetRate, getRawSourceRate(node.item.id, node.item)), ceilMode)}`}
                 </span>
               </div>
             )}

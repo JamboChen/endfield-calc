@@ -173,12 +173,17 @@ export function aggregateBinTotals(
   // Fold pickup-point source facilities (unloader_1, pump_1, pump_2)
   // into the totals so the table footer / stats panel show source-
   // facility counts and power alongside production facilities. Pickup
-  // counts are always ceiled (physical buildings) regardless of
-  // `ceilMode` — there's no "fractional pump" semantic.
+  // counts respect `ceilMode` the same way bin counts do:
+  //   - ceilMode=true  → ceiled physical pickup count (whole pumps),
+  //     each paying full power per built pickup.
+  //   - ceilMode=false → fractional pickup count (theoretical view),
+  //     power scales proportionally with the fractional count. Matches
+  //     the bin-loop semantic above so per-facility entries are
+  //     comparable across both modes.
   for (const node of plan.nodes.values()) {
     if (node.type !== "item") continue;
     if (!node.isRawMaterial) continue;
-    if (node.productionRate <= 0) continue;
+    if (node.productionRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const cfg = rawMaterialSources.get(node.itemId);
     if (!cfg) continue;
     const facility = facilityById.get(cfg.sourceFacility);
@@ -186,12 +191,15 @@ export function aggregateBinTotals(
     const item = itemById.get(node.itemId);
     const perFacilityRate = getRawSourceRate(node.itemId, item);
     if (perFacilityRate <= 0) continue;
-    const pickupCount = Math.ceil(node.productionRate / perFacilityRate);
-    totalBuildings += pickupCount;
-    totalPower += facility.powerConsumption * pickupCount;
+    const fractionalPickups = node.productionRate / perFacilityRate;
+    const effectivePickups = ceilMode
+      ? Math.ceil(fractionalPickups)
+      : fractionalPickups;
+    totalBuildings += effectivePickups;
+    totalPower += facility.powerConsumption * effectivePickups;
     perFacility.set(
       facility.id,
-      (perFacility.get(facility.id) ?? 0) + pickupCount,
+      (perFacility.get(facility.id) ?? 0) + effectivePickups,
     );
   }
 

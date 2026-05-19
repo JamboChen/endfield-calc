@@ -10,7 +10,7 @@ import { AlertCircle, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Facility, Item, ItemId } from "@/types";
 import { getFacilityName, getItemName } from "@/lib/i18n-helpers";
-import { getItemById } from "@/lib/utils";
+import { getItemById, formatCount } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
 
 type ProductionStatsProps = {
@@ -23,6 +23,12 @@ type ProductionStatsProps = {
   facilities: Facility[];
   items: Item[];
   error: string | null;
+  /**
+   * Whether the panel renders the physical (ceiled) view or the
+   * theoretical (fractional) view. Drives `formatCount` for pickup-point
+   * and facility counts so the panel matches the table footer.
+   */
+  ceilMode?: boolean;
 };
 
 const ProductionStats = memo(function ProductionStats({
@@ -35,6 +41,7 @@ const ProductionStats = memo(function ProductionStats({
   facilities,
   items,
   error,
+  ceilMode = false,
 }: ProductionStatsProps) {
   const { t } = useTranslation("stats");
   const [rawMaterialsOpen, setRawMaterialsOpen] = useState(false);
@@ -104,7 +111,7 @@ const ProductionStats = memo(function ProductionStats({
                   {t("pickupPoints")}
                 </div>
                 <div className="text-lg font-bold font-mono">
-                  {totalPickupPoints}
+                  {formatCount(totalPickupPoints, ceilMode)}
                 </div>
               </div>
             </div>
@@ -188,7 +195,7 @@ const ProductionStats = memo(function ProductionStats({
                               </span>
                             </div>
                             <div className="text-xs text-muted-foreground font-mono">
-                              ×{rawMaterialPickupPoints.get(item.id) ?? 0}
+                              ×{formatCount(rawMaterialPickupPoints.get(item.id) ?? 0, ceilMode)}
                               <span className="ml-1">{sourceLabel}</span>
                             </div>
                           </div>

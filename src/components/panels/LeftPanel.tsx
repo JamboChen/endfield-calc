@@ -18,6 +18,7 @@ type LeftPanelProps = {
   totalPickupPoints: number;
   rawMaterialPickupPoints: Map<ItemId, number>;
   error: string | null;
+  ceilMode?: boolean;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
   onAddClick: () => void;
@@ -34,6 +35,7 @@ const LeftPanel = memo(function LeftPanel({
   totalPickupPoints,
   rawMaterialPickupPoints,
   error,
+  ceilMode = false,
   onTargetChange,
   onTargetRemove,
   onAddClick,
@@ -99,6 +101,7 @@ const LeftPanel = memo(function LeftPanel({
         facilities={facilities}
         items={items}
         error={error}
+        ceilMode={ceilMode}
       />
     </div>
   );

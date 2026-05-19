@@ -1357,6 +1357,67 @@ describe("Source-facility refactor (Phase 1)", () => {
     const expectedPickupPower = unloaderCount * 0 + pump1Count * 10;
     expect(totals.totalPower).toBeCloseTo(binPower + expectedPickupPower, 6);
   });
+
+  test("3-target water-byproduct scenario: side-panel and mapper agree on net water demand", async () => {
+    // Regression for the side-panel vs Recipe View mismatch:
+    // - SC Wuling Battery + Yazhen Syringe + Hetonite Part @ 6/min each
+    // - Liquid Purifier produces water as byproduct (≈12/min at this load)
+    // - Gross water consumption ≈ 549/min; net external demand ≈ 537/min
+    // - Pre-fix bug: side panel said 537/min × 9 pumps, Recipe View card
+    //   said 549/min × 10 pickup points.
+    // After Issue 3 fix: both report the LP-computed NET demand
+    // (`node.productionRate`), and the byproduct routes as an edge from
+    // the Purifier bin to a water consumer.
+    const { aggregateBinTotals } = await import("@/lib/plan-helpers");
+    const { mapPlanToFlowBinFused } = await import(
+      "@/components/mappers/bin-fused-mapper"
+    );
+    const { createRawMaterialId } = await import("@/lib/node-keys");
+    const plan = await calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 6 }, // SC Wuling Battery
+        { itemId: ItemId.ITEM_BOTTLED_REC_HP_5, rate: 6 }, // Yazhen Syringe [A]
+        { itemId: ItemId.ITEM_COPPER_ENR_CMPT, rate: 6 }, // Hetonite Part
+      ],
+      items,
+      recipes,
+      facilities,
+    );
+    const waterNode = plan.nodes.get(ItemId.ITEM_LIQUID_WATER);
+    if (waterNode?.type !== "item") return;
+    if (!waterNode.isRawMaterial) return;
+    const netDemand = waterNode.productionRate;
+    expect(netDemand).toBeGreaterThan(0);
+
+    // Side-panel-equivalent totals reflect the net demand.
+    const totals = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: true,
+    });
+    const pumpCount = totals.perFacility.get(FacilityId.PUMP_1) ?? 0;
+    expect(pumpCount).toBe(Math.ceil(netDemand / 60));
+
+    // Recipe View pickup card has the same NET demand.
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map([
+        [ItemId.ITEM_PROC_BATTERY_5, 6],
+        [ItemId.ITEM_BOTTLED_REC_HP_5, 6],
+        [ItemId.ITEM_COPPER_ENR_CMPT, 6],
+      ]),
+      true,
+    );
+    const waterPickup = flow.nodes.find(
+      (n) => n.id === createRawMaterialId(ItemId.ITEM_LIQUID_WATER),
+    );
+    expect(waterPickup).toBeDefined();
+    const data = waterPickup!.data as {
+      productionNode: { targetRate: number };
+    };
+    expect(data.productionNode.targetRate).toBeCloseTo(netDemand, 5);
+  });
 });
 
 describe("Jade Gourd disposal sink at non-integer rates", () => {

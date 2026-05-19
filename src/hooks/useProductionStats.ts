@@ -14,7 +14,16 @@ export type ProductionStats = {
   rawMaterialRequirements: Map<ItemId, number>;
   uniqueProductionSteps: number;
   facilityRequirements: Map<FacilityId, number>;
+  /**
+   * Total pickup-point count summed across all raws. **Fractional** —
+   * apply `formatCount(value, ceilMode)` at the display site to render
+   * either the ceiled physical count or the fractional theoretical view.
+   */
   totalPickupPoints: number;
+  /**
+   * Per-raw fractional pickup count. Display sites format via
+   * `formatCount(value, ceilMode)`.
+   */
   rawMaterialPickupPoints: Map<ItemId, number>;
 };
 

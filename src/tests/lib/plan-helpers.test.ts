@@ -15,8 +15,15 @@ import type { ProductionDependencyGraph } from "@/types";
  * Source-facility (pickup-point) contribution that `aggregateBinTotals`
  * now folds into the totals. Tests that assert bin-only math must add
  * this back when comparing against per-bin reductions.
+ *
+ * `ceilMode=true` uses ceiled pickup count (physical pumps); `ceilMode=false`
+ * uses fractional pickup count (theoretical view). Mirrors the bin-loop
+ * semantic in `aggregateBinTotals`.
  */
-function expectedPickupContribution(plan: ProductionDependencyGraph): {
+function expectedPickupContribution(
+  plan: ProductionDependencyGraph,
+  ceilMode: boolean = true,
+): {
   buildings: number;
   power: number;
 } {
@@ -34,9 +41,10 @@ function expectedPickupContribution(plan: ProductionDependencyGraph): {
     const item = itemById.get(node.itemId);
     const rate = getRawSourceRate(node.itemId, item);
     if (rate <= 0) continue;
-    const count = Math.ceil(node.productionRate / rate);
-    buildings += count;
-    power += fac.powerConsumption * count;
+    const fractional = node.productionRate / rate;
+    const effective = ceilMode ? Math.ceil(fractional) : fractional;
+    buildings += effective;
+    power += fac.powerConsumption * effective;
   }
   return { buildings, power };
 }
@@ -564,8 +572,8 @@ describe("aggregateBinTotals (real data)", () => {
     // In ceilMode=OFF, each bin contributes the mean of its recipe
     // activities (sum_alloc / recipe_count) — not the raw buildingCount.
     // For singletons the mean equals buildingCount; for grouped bins it
-    // is strictly ≤ buildingCount. Pickup-point source facilities are
-    // always counted at integer pickup count regardless of ceilMode.
+    // is strictly ≤ buildingCount. Pickup-point source facilities mirror
+    // the bin-loop semantic: fractional under ceilMode=OFF.
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
@@ -584,7 +592,7 @@ describe("aggregateBinTotals (real data)", () => {
       const sumActivities = sumByBin.get(bin.id) ?? bin.buildingCount;
       binPower += fac.powerConsumption * (sumActivities / recipeCount);
     }
-    const pickup = expectedPickupContribution(plan);
+    const pickup = expectedPickupContribution(plan, false);
     expect(totals.totalPower).toBeCloseTo(binPower + pickup.power, 6);
   });
 
@@ -619,7 +627,7 @@ describe("aggregateBinTotals (real data)", () => {
       const sumActivities = sumByBin.get(b.id) ?? b.buildingCount;
       return s + sumActivities / recipeCount;
     }, 0);
-    const pickup = expectedPickupContribution(plan);
+    const pickup = expectedPickupContribution(plan, false);
     expect(totals.totalBuildings).toBeCloseTo(binTotal + pickup.buildings, 6);
   });
 

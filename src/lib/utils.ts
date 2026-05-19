@@ -63,19 +63,23 @@ export const getRawSourceRate = (
 };
 
 /**
- * Number of source-facility instances (pickup points) needed to supply
- * the demand. `perFacilityRate` is the per-facility throughput from
- * `getRawSourceRate` — DO NOT pass transport capacity directly: pumps
- * (60/min) are slower than pipes (120/min) and unloaders (30/min) match
- * belt capacity, but the source-rate abstraction is the right concept.
+ * Fractional number of source-facility instances (pickup points) needed
+ * to supply the demand. Returns the raw `demand / perFacilityRate` ratio
+ * — callers apply `formatCount(value, ceilMode)` (or similar) to render
+ * either the ceiled physical count (ceilMode=true) or the fractional
+ * theoretical count (ceilMode=false). Mirrors how regular bin facility
+ * counts are formatted.
+ *
+ * `perFacilityRate` is the per-facility throughput from `getRawSourceRate`
+ * — DO NOT pass transport capacity directly: pumps (60/min) are slower
+ * than pipes (120/min) and unloaders (30/min) match belt capacity, but
+ * the source-rate abstraction is the right concept.
  */
 export const getPickupPointCount = (
   demandRate: number,
   perFacilityRate: number,
 ): number =>
-  demandRate > 0 && perFacilityRate > 0
-    ? Math.ceil(demandRate / perFacilityRate)
-    : 0;
+  demandRate > 0 && perFacilityRate > 0 ? demandRate / perFacilityRate : 0;
 
 /**
  * Returns the effective facility count — ceiled when ceilMode is on,
