@@ -324,7 +324,15 @@ export function mapPlanToFlowBinFused(
             (rid) => rid !== headline.recipeId,
           ),
           binExtraOutputs,
-          bin: bin.isGrouped ? bin : undefined,
+          // Always attach the bin; downstream code distinguishes grouped
+          // vs singleton via `bin.isGrouped`. Singleton bins need the
+          // reference so the Prefill chip can render when they're in a
+          // cycle (e.g. moss planter/seedcollector singletons).
+          bin,
+          // bf=1 chip: the bin's full union of prefill items. Mirrors
+          // `bin.prefillCandidates` so `CustomProductionNode` can read
+          // `node.prefillCandidates` uniformly across both mapper paths.
+          prefillCandidates: bin.prefillCandidates,
         },
         items,
         facilities,
@@ -909,7 +917,16 @@ export function mapPlanToFlowBinFusedSeparated(
             (rid) => rid !== headline.recipeId,
           ),
           binExtraOutputs,
-          bin: inst.bin.isGrouped ? inst.bin : undefined,
+          // Always attach the bin; downstream code distinguishes grouped
+          // vs singleton via `bin.isGrouped`. Singleton bins need the
+          // reference so the Prefill chip can render when they're in a
+          // cycle (e.g. moss planter/seedcollector singletons).
+          bin: inst.bin,
+          // Facility View chip: per-building, but the prefill obligation
+          // is per-bin (seeding one building's inner inventory is what
+          // the player must do — they pick whichever instance). Mirror
+          // the bin's union so every per-building card carries the chip.
+          prefillCandidates: inst.bin.prefillCandidates,
         },
         items,
         facilities,

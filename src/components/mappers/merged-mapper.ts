@@ -87,6 +87,11 @@ export function mapPlanToFlowMerged(
               dependencies: [],
               binId: node.binId,
               binSisterRecipeIds: node.binSisterRecipeIds,
+              // bf=0 chip: this recipe's specific prefill items (not the
+              // bin's full union). Empty for recipes that don't sit on
+              // a stuck 2-cycle, which is most of them. See
+              // `propagatePrefillCandidates` in calculator.ts.
+              prefillCandidates: node.prefillCandidates ?? [],
             },
             items,
             facilities,

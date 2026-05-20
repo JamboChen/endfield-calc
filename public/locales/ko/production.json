@@ -82,6 +82,10 @@
     "formulasInBin": "이 건물 내의 레시피",
     "internalItems": "내부 아이템 (순환)",
     "innerSlotsUsed": "내부 슬롯: {{used}}",
-    "portUtilization": "포트: 액입 {{liqIn}}/{{liqInCap}} · 액출 {{liqOut}}/{{liqOutCap}} · 벨트출 {{beltOut}}/{{beltOutCap}}"
+    "portUtilization": "포트: 액입 {{liqIn}}/{{liqInCap}} · 액출 {{liqOut}}/{{liqOutCap}} · 벨트출 {{beltOut}}/{{beltOutCap}}",
+    "prefillZoneLabel": "Prefill",
+    "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
+    "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
+    "prefillCandidates": "Prefill candidates"
   }
 }

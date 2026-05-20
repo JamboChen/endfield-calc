@@ -1291,6 +1291,8 @@ const emitBinsFromSolution = (
       externalInputs,
       externalOutputs,
       internalItems,
+      // Populated post-pack in calculator.ts via SCC propagation.
+      prefillCandidates: [],
       innerSlotsUsed: variant.innerSlotsUsed,
       isGrouped: demandIds.length >= 2,
       variantId: variant.variantId,
@@ -1362,6 +1364,8 @@ const emitSingletonBins = (
       externalInputs: inputs,
       externalOutputs: outputs,
       internalItems: [],
+      // Populated post-pack in calculator.ts via SCC propagation.
+      prefillCandidates: [],
       innerSlotsUsed,
       isGrouped: false,
       variantId,

@@ -13,7 +13,7 @@ import type {
   Bin,
   RecipeBinAllocation,
 } from "@/types";
-import { forcedDisposalItems } from "@/data";
+import { forcedDisposalItems, forcedRawMaterials } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { buildBipartiteGraph, detectSCCs, buildCondensedDAGAndSort } from "./graph-builder";
 import { calculateFlows } from "./flow-solver";
@@ -117,6 +117,322 @@ function injectDisposalRecipes(
   }
 }
 
+/**
+ * Compute the set of items reachable from raw materials via the active
+ * recipe set (those with a positive slot allocation in the LP solution).
+ * Fixpoint: start with `rawMaterials`, then repeatedly add the outputs
+ * of any active recipe whose inputs are all already bootable.
+ *
+ * Used by `propagatePrefillCandidates` to filter 2-cycle items: a cycle
+ * has an external entry whenever at least one of its items is reachable
+ * from raws — the cycle bootstraps from that side without prefill, no
+ * matter where the LP routed the actual flow.
+ *
+ * **Anti-pattern**: do not iterate over ALL recipes in `recipeMap`;
+ * recipes the LP didn't pick aren't actually running and don't contribute
+ * to bootability for THIS plan. Use `activeRecipeIds` (drawn from
+ * `recipeBinAllocations.keys()`).
+ */
+function computeBootableItems(
+  activeRecipeIds: Iterable<RecipeId>,
+  recipeMap: Map<RecipeId, Recipe>,
+  rawMaterials: ReadonlySet<ItemId>,
+): Set<ItemId> {
+  const bootable = new Set<ItemId>(rawMaterials);
+  const activeRecipes: Recipe[] = [];
+  for (const rid of activeRecipeIds) {
+    const recipe = recipeMap.get(rid);
+    if (recipe) activeRecipes.push(recipe);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const recipe of activeRecipes) {
+      if (recipe.outputs.every((o) => bootable.has(o.itemId))) continue;
+      if (recipe.inputs.every((i) => bootable.has(i.itemId))) {
+        for (const o of recipe.outputs) {
+          if (!bootable.has(o.itemId)) {
+            bootable.add(o.itemId);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+  return bootable;
+}
+
+/**
+ * Populate per-(bin, recipe) and per-bin prefill-candidate lists for
+ * every recipe-level **2-cycle** that lacks an external entry point.
+ * Run after `packBins` so we can map SCC recipes back to their
+ * hosting bins via `recipeBinAllocations`.
+ *
+ * **The 2-recipe cycle rule** (key invariant): items become prefill
+ * candidates only when they're part of a TIGHT back-and-forth between
+ * exactly two recipes. Larger cycles (3+ recipes) bootstrap from
+ * nested 2-cycles or via the player's own startup inputs.
+ *
+ * **The dual filter** — for each (A, B) 2-cycle via items I (A→B)
+ * and J (B→A), iterate every pair (binA, binB) where binA hosts A
+ * and binB hosts B:
+ *
+ *   - **Intra-bin case** (binA == binB): the bin's port allocation
+ *     determines whether a cycle item can flow in externally. Flag
+ *     each cycle item that the bin's recipes consume but that is NOT
+ *     in `bin.externalInputs` — the bin has no external port for
+ *     that item, so the inner-inventory cycle can't bootstrap without
+ *     a seed. Example: Xircon Crucible 3-formula bin (LX-Prod +
+ *     Effluent-Prod + Xircon-Prod). Sewage is INTERNAL (Xircon-Prod
+ *     produces, Effluent-Prod consumes; balanced → no port) → flag.
+ *     Xircon Effluent is in externalInputs (LP allocates 60/min from
+ *     other Effluent producers) → skip.
+ *
+ *   - **Inter-bin case** (binA != binB): the cycle spans two bins.
+ *     Apply the bootability filter: flag only when BOTH I and J are
+ *     non-bootable from raws via the active recipe set. If either
+ *     side is bootable, the cycle bootstraps from that side without
+ *     prefill. Example: planter ↔ seedcollector moss cycle — neither
+ *     plant nor seed has a bootable producer, so both bins flag.
+ *     Counter-example: in Xircon-60, when the (Effluent-Prod,
+ *     Xircon-Prod) pair lands in different bins (Bin 1 hosts
+ *     Effluent-Prod, Bin 0 hosts Xircon-Prod), Sewage is bootable
+ *     via Furnace so no chip is emitted on either bin.
+ *
+ * The two cases reflect different physical realities: intra-bin
+ * cycles are constrained by the bin's port allocation (a hard LP
+ * decision), while inter-bin cycles can be resolved by belt routing
+ * if a raws-reachable producer exists anywhere in the plan.
+ *
+ * Mutates `bins` in place (sets `bin.prefillCandidates`). Returns a
+ * per-recipe map (UNION across all hosting bins of a given recipe id)
+ * so `buildProductionGraph` can copy it onto each recipe's
+ * `ProductionGraphNode`, where `merged-mapper` (bf=0) reads it for
+ * the per-recipe chip rendering.
+ */
+function propagatePrefillCandidates(
+  bins: Bin[],
+  sccs: SCCInfo[],
+  recipeBinAllocations: Map<RecipeId, RecipeBinAllocation>,
+  recipeMap: Map<RecipeId, Recipe>,
+): Map<RecipeId, ItemId[]> {
+  const binsById = new Map<string, Bin>();
+  for (const bin of bins) binsById.set(bin.id, bin);
+
+  const bootable = computeBootableItems(
+    recipeBinAllocations.keys(),
+    recipeMap,
+    forcedRawMaterials,
+  );
+
+  if (import.meta.env?.DEV) {
+    console.log(
+      `[PREFILL] bootable from raws (${bootable.size} items): [${Array.from(
+        bootable,
+      )
+        .sort()
+        .join(", ")}]`,
+    );
+  }
+
+  // Per-(bin, recipe) accumulator. The bin-level union and per-recipe
+  // union (across hosting bins) are derived below.
+  type Key = string; // `${binId}::${recipeId}`
+  const perBinRecipe = new Map<Key, Set<ItemId>>();
+  const keyOf = (binId: string, rid: RecipeId): Key => `${binId}::${rid}`;
+  const addToBinRecipe = (
+    binId: string,
+    recipeId: RecipeId,
+    items: ItemId[],
+    label: string,
+  ) => {
+    if (items.length === 0) return;
+    const k = keyOf(binId, recipeId);
+    let bucket = perBinRecipe.get(k);
+    if (!bucket) {
+      bucket = new Set<ItemId>();
+      perBinRecipe.set(k, bucket);
+    }
+    for (const id of items) bucket.add(id);
+    if (import.meta.env?.DEV) {
+      console.log(
+        `[PREFILL]   ${label} bin ${binId} <- recipe ${recipeId}: +[${items.join(", ")}]`,
+      );
+    }
+  };
+
+  for (const scc of sccs) {
+    const sccItemSet = new Set(scc.items);
+
+    // Singleton SCC with a self-loop is a degenerate 1-recipe cycle:
+    // the recipe consumes its own output. Flag only if the looped item
+    // is non-bootable (no external producer reachable from raws).
+    if (scc.recipes.size === 1) {
+      const onlyRid = Array.from(scc.recipes)[0];
+      const recipe = recipeMap.get(onlyRid);
+      if (!recipe) continue;
+      const inputs = new Set(recipe.inputs.map((i) => i.itemId));
+      const selfLoopItems = recipe.outputs
+        .map((o) => o.itemId)
+        .filter(
+          (id) => inputs.has(id) && sccItemSet.has(id) && !bootable.has(id),
+        );
+      if (selfLoopItems.length === 0) continue;
+      if (import.meta.env?.DEV) {
+        console.log(
+          `[PREFILL] SCC ${scc.id}: 1-recipe self-loop on [${selfLoopItems.join(", ")}]`,
+        );
+      }
+      const alloc = recipeBinAllocations.get(onlyRid);
+      if (!alloc) continue;
+      for (const entry of alloc.perBin) {
+        addToBinRecipe(entry.binId, onlyRid, selfLoopItems, "self-loop");
+      }
+      continue;
+    }
+
+    if (import.meta.env?.DEV) {
+      console.log(
+        `[PREFILL] SCC ${scc.id}: ${scc.recipes.size} recipe(s), items=[${Array.from(scc.items).join(", ")}]`,
+      );
+    }
+
+    // Pair-wise 2-recipe cycle detection within the SCC.
+    const recipeIds = Array.from(scc.recipes);
+    for (let i = 0; i < recipeIds.length; i++) {
+      for (let j = i + 1; j < recipeIds.length; j++) {
+        const rA = recipeMap.get(recipeIds[i]);
+        const rB = recipeMap.get(recipeIds[j]);
+        if (!rA || !rB) continue;
+
+        const aInputs = new Set(rA.inputs.map((inp) => inp.itemId));
+        const bInputs = new Set(rB.inputs.map((inp) => inp.itemId));
+
+        // Items A produces that B consumes (and are in SCC).
+        const aToB = rA.outputs
+          .map((o) => o.itemId)
+          .filter((id) => sccItemSet.has(id) && bInputs.has(id));
+        // Items B produces that A consumes (and are in SCC).
+        const bToA = rB.outputs
+          .map((o) => o.itemId)
+          .filter((id) => sccItemSet.has(id) && aInputs.has(id));
+
+        if (aToB.length === 0 || bToA.length === 0) continue;
+
+        if (import.meta.env?.DEV) {
+          console.log(
+            `[PREFILL]   2-cycle (${recipeIds[i]}, ${recipeIds[j]}): A->B=[${aToB.join(", ")}], B->A=[${bToA.join(", ")}]`,
+          );
+        }
+
+        const allocA = recipeBinAllocations.get(recipeIds[i]);
+        const allocB = recipeBinAllocations.get(recipeIds[j]);
+        if (!allocA || !allocB) continue;
+
+        // Iterate every pair (binA hosts A, binB hosts B). Apply the
+        // intra-bin filter when they're the same bin, the inter-bin
+        // bootability filter otherwise.
+        for (const entryA of allocA.perBin) {
+          for (const entryB of allocB.perBin) {
+            if (entryA.binId === entryB.binId) {
+              // Intra-bin: same bin hosts both A and B.
+              const bin = binsById.get(entryA.binId);
+              if (!bin) continue;
+              const externalSet = new Set<ItemId>(
+                bin.externalInputs.map((io) => io.itemId),
+              );
+              // bToA = items A consumes. Flag those not externally
+              // supplied to this bin.
+              const aFlag = bToA.filter((id) => !externalSet.has(id));
+              // aToB = items B consumes. Flag those not externally
+              // supplied to this bin.
+              const bFlag = aToB.filter((id) => !externalSet.has(id));
+              if (aFlag.length === 0 && bFlag.length === 0) {
+                if (import.meta.env?.DEV) {
+                  console.log(
+                    `[PREFILL]   intra-bin ${entryA.binId}: all cycle items externally supplied; skip`,
+                  );
+                }
+                continue;
+              }
+              addToBinRecipe(entryA.binId, recipeIds[i], aFlag, "intra-bin");
+              addToBinRecipe(entryB.binId, recipeIds[j], bFlag, "intra-bin");
+            } else {
+              // Inter-bin: bootability filter (BOTH halves non-bootable).
+              const aToBNonBoot = aToB.filter((id) => !bootable.has(id));
+              const bToANonBoot = bToA.filter((id) => !bootable.has(id));
+              if (aToBNonBoot.length === 0 || bToANonBoot.length === 0) {
+                if (import.meta.env?.DEV) {
+                  const rescuedA = aToB.filter((id) => bootable.has(id));
+                  const rescuedB = bToA.filter((id) => bootable.has(id));
+                  console.log(
+                    `[PREFILL]   inter-bin (${entryA.binId}, ${entryB.binId}) bootable-bypassed: A->B rescued=[${rescuedA.join(", ")}], B->A rescued=[${rescuedB.join(", ")}]`,
+                  );
+                }
+                continue;
+              }
+              addToBinRecipe(
+                entryA.binId,
+                recipeIds[i],
+                bToANonBoot,
+                "inter-bin",
+              );
+              addToBinRecipe(
+                entryB.binId,
+                recipeIds[j],
+                aToBNonBoot,
+                "inter-bin",
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Derive per-bin union from per-(bin, recipe) lists. Each bin's
+  // prefillCandidates = sorted union over its member recipes'
+  // per-bin prefill items, filtered to inputs that some recipe in the
+  // bin actually consumes (defensive).
+  for (const bin of bins) {
+    const merged = new Set<ItemId>();
+    const consumedInBin = new Set<ItemId>();
+    for (const rid of bin.recipeIds) {
+      const recipe = recipeMap.get(rid);
+      if (!recipe) continue;
+      for (const inp of recipe.inputs) consumedInBin.add(inp.itemId);
+    }
+    for (const rid of bin.recipeIds) {
+      const set = perBinRecipe.get(keyOf(bin.id, rid));
+      if (!set) continue;
+      for (const id of set) {
+        if (consumedInBin.has(id)) merged.add(id);
+      }
+    }
+    bin.prefillCandidates = Array.from(merged).sort();
+  }
+
+  // Derive per-recipe union (across ALL hosting bins of the same
+  // recipe id) for the merged-mapper (bf=0) chip. A recipe rendered
+  // as a single per-recipe node in bf=0 should warn if ANY hosting
+  // bin needs prefill (conservative).
+  const recipePrefill = new Map<RecipeId, Set<ItemId>>();
+  for (const [k, set] of perBinRecipe.entries()) {
+    const recipeId = k.slice(k.indexOf("::") + 2) as RecipeId;
+    let bucket = recipePrefill.get(recipeId);
+    if (!bucket) {
+      bucket = new Set<ItemId>();
+      recipePrefill.set(recipeId, bucket);
+    }
+    for (const id of set) bucket.add(id);
+  }
+  const finalRecipePrefill = new Map<RecipeId, ItemId[]>();
+  for (const [rid, set] of recipePrefill.entries()) {
+    finalRecipePrefill.set(rid, Array.from(set).sort());
+  }
+  return finalRecipePrefill;
+}
+
 function buildProductionGraph(
   graph: BipartiteGraph,
   flowData: FlowData,
@@ -127,6 +443,7 @@ function buildProductionGraph(
   bins: Bin[] = [],
   recipeBinAllocations: Map<RecipeId, RecipeBinAllocation> = new Map(),
   warnings: string[] = [],
+  recipePrefill: Map<RecipeId, ItemId[]> = new Map(),
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
@@ -221,6 +538,7 @@ function buildProductionGraph(
       isDisposal: recipeData.recipe.outputs.length === 0,
       binId,
       binSisterRecipeIds: sisters,
+      prefillCandidates: recipePrefill.get(recipeId) ?? [],
     });
   });
 
@@ -416,6 +734,12 @@ export async function calculateProductionPlan(
         facilityMap: maps.facilityMap,
         recipeOverrides,
       });
+      const recipePrefill = propagatePrefillCandidates(
+        packing.bins,
+        sccs,
+        packing.allocations,
+        maps.recipeMap,
+      );
       return buildProductionGraph(
         graph,
         flowData,
@@ -426,6 +750,7 @@ export async function calculateProductionPlan(
         packing.bins,
         packing.allocations,
         packing.warnings,
+        recipePrefill,
       );
     }
 
@@ -452,6 +777,12 @@ export async function calculateProductionPlan(
         facilityMap: maps.facilityMap,
         recipeOverrides,
       });
+      const recipePrefill = propagatePrefillCandidates(
+        packing.bins,
+        sccs,
+        packing.allocations,
+        maps.recipeMap,
+      );
       return buildProductionGraph(
         graph,
         flowData,
@@ -462,6 +793,7 @@ export async function calculateProductionPlan(
         packing.bins,
         packing.allocations,
         packing.warnings,
+        recipePrefill,
       );
     }
 
