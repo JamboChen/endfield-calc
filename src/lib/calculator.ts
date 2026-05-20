@@ -13,7 +13,7 @@ import type {
   Bin,
   RecipeBinAllocation,
 } from "@/types";
-import { forcedDisposalItems, forcedRawMaterials } from "@/data";
+import { forcedDisposalItems } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { buildBipartiteGraph, detectSCCs, buildCondensedDAGAndSort } from "./graph-builder";
 import { calculateFlows } from "./flow-solver";
@@ -127,6 +127,12 @@ function injectDisposalRecipes(
  * has an external entry whenever at least one of its items is reachable
  * from raws — the cycle bootstraps from that side without prefill, no
  * matter where the LP routed the actual flow.
+ *
+ * **Important**: `rawMaterials` MUST be the plan's runtime raw set
+ * (typically `graph.rawMaterials`, the union of `forcedRawMaterials`,
+ * user-supplied `manualRawMaterials`, and any LP-extended SCC feeder
+ * raws). Passing `forcedRawMaterials` alone misses user-marked manual
+ * raws and produces false-positive prefill chips.
  *
  * **Anti-pattern**: do not iterate over ALL recipes in `recipeMap`;
  * recipes the LP didn't pick aren't actually running and don't contribute
@@ -294,12 +300,22 @@ function tarjanScc<T>(
  * hand-crafted topology cases can call this directly with synthetic
  * `Bin` / `RecipeBinAllocation` objects, bypassing the packer. Production
  * code calls it through `calculateProductionPlan` only.
+ *
+ * **`rawMaterials` parameter contract**: production callers pass the
+ * plan's `graph.rawMaterials` (built by `graph-builder` as the union of
+ * `forcedRawMaterials` + `manualRawMaterials` + any LP-extended feeder
+ * raws). This is the single source of truth for "what counts as raw in
+ * THIS plan", and the bootability fixpoint reads it directly — no
+ * import of `forcedRawMaterials` here. Tests pass whatever raw set
+ * matches the synthetic scenario (typically `new Set<ItemId>()` when
+ * the fixture's items aren't game-data raws).
  */
 export function propagatePrefillCandidates(
   bins: Bin[],
   sccs: SCCInfo[],
   recipeBinAllocations: Map<RecipeId, RecipeBinAllocation>,
   recipeMap: Map<RecipeId, Recipe>,
+  rawMaterials: ReadonlySet<ItemId>,
 ): Map<RecipeId, ItemId[]> {
   const binsById = new Map<string, Bin>();
   for (const bin of bins) binsById.set(bin.id, bin);
@@ -307,7 +323,7 @@ export function propagatePrefillCandidates(
   const bootable = computeBootableItems(
     recipeBinAllocations.keys(),
     recipeMap,
-    forcedRawMaterials,
+    rawMaterials,
   );
 
   if (import.meta.env?.DEV) {
@@ -929,6 +945,7 @@ export async function calculateProductionPlan(
         sccs,
         packing.allocations,
         maps.recipeMap,
+        graph.rawMaterials,
       );
       return buildProductionGraph(
         graph,
@@ -972,6 +989,7 @@ export async function calculateProductionPlan(
         sccs,
         packing.allocations,
         maps.recipeMap,
+        graph.rawMaterials,
       );
       return buildProductionGraph(
         graph,

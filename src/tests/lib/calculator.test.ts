@@ -1658,6 +1658,62 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
     }
   });
 
+  test("Xircon-60 with Sewage + Xiranite Powder marked manual raw: no Crucible chip (regression for URL m=...)", async () => {
+    // Regression for the user-reported bug:
+    //   URL: t=item_xiranite_poly:60&m=item_xiranite_powder,item_liquid_sewage
+    // The user marks Sewage as a manual raw → the LP pumps it from the
+    // raw pickup directly, so the Crucible bin's intra-bin cycle has
+    // external entry. But the previous bootability fixpoint read
+    // `forcedRawMaterials` only and missed the manual-raw status, so
+    // Phase 2's inter-bin (Effluent-Prod, Xircon-Prod) pair fired the
+    // BOTH-non-bootable filter and emitted a Sewage chip on whichever
+    // Crucible bin hosts Effluent-Prod alone.
+    //
+    // The fix routes the plan's `graph.rawMaterials` (which includes
+    // manual raws) into `propagatePrefillCandidates`. Bootability now
+    // sees Sewage as raw → cycle bootstraps → no chip.
+    const manualRaws = new Set<ItemId>([
+      ItemId.ITEM_XIRANITE_POWDER,
+      ItemId.ITEM_LIQUID_SEWAGE,
+    ]);
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+      undefined,
+      manualRaws,
+    );
+
+    // No Crucible bin should flag Sewage or Xiranite Powder.
+    const crucibleBins = plan.bins.filter(
+      (b) => b.facilityId === FacilityId.MIX_POOL_2,
+    );
+    expect(crucibleBins.length).toBeGreaterThan(0);
+    for (const bin of crucibleBins) {
+      expect(bin.prefillCandidates).not.toContain(ItemId.ITEM_LIQUID_SEWAGE);
+      expect(bin.prefillCandidates).not.toContain(ItemId.ITEM_XIRANITE_POWDER);
+    }
+
+    // Per-recipe nodes for the pool recipes should not list Sewage
+    // either (would surface in bf=0 rendering otherwise).
+    for (const rid of [
+      RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1,
+      RecipeId.POOL_LIQUID_XIRANITE_POLY_1,
+      RecipeId.POOL_XIRANITE_POLY_1,
+    ]) {
+      const node = plan.nodes.get(rid);
+      if (node?.type === "recipe") {
+        expect(node.prefillCandidates ?? []).not.toContain(
+          ItemId.ITEM_LIQUID_SEWAGE,
+        );
+        expect(node.prefillCandidates ?? []).not.toContain(
+          ItemId.ITEM_XIRANITE_POWDER,
+        );
+      }
+    }
+  });
+
   test("synthetic: tight 2-cycle without bootable Sewage producer flags both halves", async () => {
     // Pins the path where the bootability filter does NOT rescue the
     // cycle. We synthesise a stripped-down setup: Effluent-Prod ↔
@@ -1834,6 +1890,14 @@ describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
    * we can pass `sccs = []` and still exercise Phase 1 fully.
    */
   const noSccs: SCCInfo[] = [];
+  /**
+   * Empty raw-material set for synthetic-fixture tests. The fixtures
+   * use ad-hoc item ids (`itemI`, `rA`, etc.) that aren't game-data
+   * raws, so the bootability fixpoint starts empty. Tests that
+   * specifically exercise the raw-rescue path (manual raws marking a
+   * cycle item as raw) construct a non-empty set inline.
+   */
+  const noRaws: ReadonlySet<ItemId> = new Set<ItemId>();
 
   test("T1: intra-bin 2-cycle with BOTH items internal → flag both per recipe", () => {
     // Build a bin with recipes A and B forming a tight 2-cycle:
@@ -1860,6 +1924,7 @@ describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
       noSccs,
       allocations,
       recipeMap,
+      noRaws,
     );
 
     expect(bin.prefillCandidates.sort()).toEqual(
@@ -1890,6 +1955,7 @@ describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
       noSccs,
       allocations,
       recipeMap,
+      noRaws,
     );
     expect(bin.prefillCandidates).toEqual([]);
     expect(perRecipe.size).toBe(0);
@@ -1926,6 +1992,7 @@ describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
       noSccs,
       allocations,
       recipeMap,
+      noRaws,
     );
 
     expect(bin.prefillCandidates.sort()).toEqual(
@@ -1964,6 +2031,7 @@ describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
       noSccs,
       allocations,
       recipeMap,
+      noRaws,
     );
     expect(bin.prefillCandidates).toEqual([]);
     expect(perRecipe.size).toBe(0);
@@ -2008,6 +2076,7 @@ describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
       noSccs,
       allocations,
       recipeMap,
+      noRaws,
     );
     // rSelf consumes itemX in the self-loop cycle → flagged.
     // rOther doesn't participate in the self-loop.
@@ -2054,9 +2123,101 @@ describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
       noSccs,
       allocations,
       recipeMap,
+      noRaws,
     );
     expect(bin.prefillCandidates).toEqual([]);
     expect(perRecipe.size).toBe(0);
+  });
+
+  test("Manual-raw rescue: cycle item in rawMaterials → no inter-bin chip", () => {
+    // T2 (inter-bin 2-cycle) where cycle item itemJ IS in the raw set
+    // (simulating user `m=itemJ` manual-raw flag). Bootability fixpoint
+    // sees itemJ as raw → Phase 2 BOTH-non-bootable filter fails → skip.
+    //
+    // Pairs with the counter-assertion below to prove the rawMaterials
+    // parameter actually controls bootability (not just a no-op).
+    const recipeA = makeRecipe("rA", [["itemJ", 1]], [["itemI", 1]]);
+    const recipeB = makeRecipe("rB", [["itemI", 1]], [["itemJ", 1]]);
+    const binA = makeBin("binA-raw-rescue", ["rA"], ["itemJ"]);
+    const binB = makeBin("binB-raw-rescue", ["rB"], ["itemI"]);
+    const allocations = new Map<RecipeId, RecipeBinAllocation>([
+      ["rA" as RecipeId, makeAllocation("rA", ["binA-raw-rescue"])],
+      ["rB" as RecipeId, makeAllocation("rB", ["binB-raw-rescue"])],
+    ]);
+    const recipeMap = new Map<RecipeId, Recipe>([
+      ["rA" as RecipeId, recipeA],
+      ["rB" as RecipeId, recipeB],
+    ]);
+    // Synthesise a recipe-graph SCC so Phase 2 has something to iterate.
+    const scc: SCCInfo = {
+      id: "synthetic-scc-rescue",
+      recipes: new Set([
+        "rA" as RecipeId,
+        "rB" as RecipeId,
+      ]),
+      items: new Set([
+        "itemI" as ItemId,
+        "itemJ" as ItemId,
+      ]),
+      externalInputs: new Set(),
+    };
+
+    // With itemJ as raw, the cycle bootstraps via rA (which can run
+    // from raw J alone).
+    const withRaw = propagatePrefillCandidates(
+      [binA, binB],
+      [scc],
+      allocations,
+      recipeMap,
+      new Set<ItemId>(["itemJ" as ItemId]),
+    );
+    expect(binA.prefillCandidates).toEqual([]);
+    expect(binB.prefillCandidates).toEqual([]);
+    expect(withRaw.size).toBe(0);
+  });
+
+  test("Manual-raw counter: empty rawMaterials → inter-bin chip fires", () => {
+    // Counter-assertion: same 2-bin / 2-cycle setup but with empty
+    // raws. Both cycle items non-bootable → flag. Proves the
+    // rawMaterials parameter is the gating factor for the previous
+    // test's skip, not a no-op.
+    const recipeA = makeRecipe("rA", [["itemJ", 1]], [["itemI", 1]]);
+    const recipeB = makeRecipe("rB", [["itemI", 1]], [["itemJ", 1]]);
+    const binA = makeBin("binA-no-rescue", ["rA"], ["itemJ"]);
+    const binB = makeBin("binB-no-rescue", ["rB"], ["itemI"]);
+    const allocations = new Map<RecipeId, RecipeBinAllocation>([
+      ["rA" as RecipeId, makeAllocation("rA", ["binA-no-rescue"])],
+      ["rB" as RecipeId, makeAllocation("rB", ["binB-no-rescue"])],
+    ]);
+    const recipeMap = new Map<RecipeId, Recipe>([
+      ["rA" as RecipeId, recipeA],
+      ["rB" as RecipeId, recipeB],
+    ]);
+    const scc: SCCInfo = {
+      id: "synthetic-scc-no-rescue",
+      recipes: new Set([
+        "rA" as RecipeId,
+        "rB" as RecipeId,
+      ]),
+      items: new Set([
+        "itemI" as ItemId,
+        "itemJ" as ItemId,
+      ]),
+      externalInputs: new Set(),
+    };
+
+    const noRescue = propagatePrefillCandidates(
+      [binA, binB],
+      [scc],
+      allocations,
+      recipeMap,
+      noRaws,
+    );
+    // rA consumes J → flag J on binA. rB consumes I → flag I on binB.
+    expect(binA.prefillCandidates).toEqual(["itemJ"]);
+    expect(binB.prefillCandidates).toEqual(["itemI"]);
+    expect(noRescue.get("rA" as RecipeId)).toEqual(["itemJ"]);
+    expect(noRescue.get("rB" as RecipeId)).toEqual(["itemI"]);
   });
 
   test("Phase 1 ignores acyclic intra-bin chain (LX-Prod → Effluent-Prod style)", () => {
@@ -2095,6 +2256,7 @@ describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
       noSccs,
       allocations,
       recipeMap,
+      noRaws,
     );
     expect(bin.prefillCandidates).toEqual([]);
     expect(perRecipe.size).toBe(0);
