@@ -191,17 +191,14 @@ describe("Prefill chip rendering across views", () => {
     ]);
   });
 
-  test("Xircon-60: 3-formula bin flags [Sewage] in bf=1; 2-formula bin clean; bf=0 follows recipe union", async () => {
-    // Intra-bin filter: 3-formula Crucible bin (LX-Prod + Effluent-Prod
-    // + Xircon-Prod) has Sewage as INTERNAL (Xircon-Prod produces,
-    // Effluent-Prod consumes; balanced). No external Sewage port →
-    // chip emitted. The 2-formula bin has Sewage as externalInput
-    // (Furnace ships 36/min) → no chip.
-    //
-    // bf=0 union: Effluent-Prod is in BOTH bins; the per-recipe union
-    // carries [Sewage] (because Bin 0 needs it). Xircon-Prod is only
-    // in Bin 0 and its cycle-consumed item (Effluent) IS externally
-    // imported → its per-recipe list stays empty.
+  test("Xircon-60: both Crucible bins emit no chip in either view (cycle bootstraps via Xircon Effluent)", async () => {
+    // The 3-formula Crucible bin's intra-bin (Effluent-Prod, Xircon-Prod)
+    // cycle has external entry via Xircon Effluent (in externalInputs).
+    // Phase 1 (intra-bin Tarjan) skips. The 2-formula bin's Sewage is
+    // externalInput from Furnace; the inter-bin (Effluent-Prod,
+    // Xircon-Prod) pair is silenced by Phase 2's bootability filter
+    // because Sewage is bootable via Furnace. Both bins → []. bf=0
+    // and bf=1 must agree.
     const plan = await calculateProductionPlan(
       [{ itemId: "item_xiranite_poly" as ItemId, rate: 60 }],
       items,
@@ -212,24 +209,15 @@ describe("Prefill chip rendering across views", () => {
       ["item_xiranite_poly" as ItemId, 60],
     ]);
 
-    const bin3f = plan.bins.find(
-      (b) =>
-        b.facilityId === ("mix_pool_2" as FacilityId) &&
-        b.recipeIds.includes("pool_xiranite_poly_1" as never),
+    const crucibleBins = plan.bins.filter(
+      (b) => b.facilityId === ("mix_pool_2" as FacilityId),
     );
-    const bin2f = plan.bins.find(
-      (b) =>
-        b.facilityId === ("mix_pool_2" as FacilityId) &&
-        !b.recipeIds.includes("pool_xiranite_poly_1" as never),
-    );
-    expect(bin3f).toBeDefined();
-    expect(bin2f).toBeDefined();
-    expect(bin3f!.prefillCandidates).toEqual([
-      "item_liquid_sewage" as ItemId,
-    ]);
-    expect(bin2f!.prefillCandidates).toEqual([]);
+    expect(crucibleBins.length).toBeGreaterThan(0);
+    for (const bin of crucibleBins) {
+      expect(bin.prefillCandidates).toEqual([]);
+    }
 
-    // bf=1: each bin node carries its bin's chip.
+    // bf=1: each bin node carries its bin's chip (empty here).
     const binFused = mapPlanToFlowBinFused(
       plan,
       items,
@@ -237,47 +225,24 @@ describe("Prefill chip rendering across views", () => {
       facilities,
       targetRates,
     );
-    const bin3fNode = binFused.nodes.find((n) => n.id === bin3f!.id);
-    const bin2fNode = binFused.nodes.find((n) => n.id === bin2f!.id);
-    if (bin3fNode) {
-      const data = bin3fNode.data as NodeData;
-      expect(data.productionNode.prefillCandidates).toEqual([
-        "item_liquid_sewage" as ItemId,
-      ]);
-      expect(data.productionNode.bin?.prefillCandidates).toEqual([
-        "item_liquid_sewage" as ItemId,
-      ]);
-    }
-    if (bin2fNode) {
-      const data = bin2fNode.data as NodeData;
+    for (const bin of crucibleBins) {
+      const node = binFused.nodes.find((n) => n.id === bin.id);
+      if (!node) continue;
+      const data = node.data as NodeData;
       expect(data.productionNode.prefillCandidates ?? []).toEqual([]);
       expect(data.productionNode.bin?.prefillCandidates ?? []).toEqual([]);
     }
 
-    // bf=0: per-recipe nodes carry the recipe-level union across all
-    // hosting bins.
+    // bf=0: per-recipe nodes for the three pool recipes all empty.
     const merged = mapPlanToFlowMerged(plan, items, facilities, targetRates);
-    const effluentNode = merged.nodes.find(
-      (n) => n.id === "pool_liquid_xiranite_poly_1",
-    );
-    if (effluentNode) {
-      const data = effluentNode.data as NodeData;
-      expect(data.productionNode.prefillCandidates).toEqual([
-        "item_liquid_sewage" as ItemId,
-      ]);
-    }
-    const xirconNode = merged.nodes.find(
-      (n) => n.id === "pool_xiranite_poly_1",
-    );
-    if (xirconNode) {
-      const data = xirconNode.data as NodeData;
-      expect(data.productionNode.prefillCandidates ?? []).toEqual([]);
-    }
-    const lxNode = merged.nodes.find(
-      (n) => n.id === "pool_liquid_liquid_xiranite_1",
-    );
-    if (lxNode) {
-      const data = lxNode.data as NodeData;
+    for (const rid of [
+      "pool_liquid_xiranite_poly_1",
+      "pool_xiranite_poly_1",
+      "pool_liquid_liquid_xiranite_1",
+    ]) {
+      const node = merged.nodes.find((n) => n.id === rid);
+      if (!node) continue;
+      const data = node.data as NodeData;
       expect(data.productionNode.prefillCandidates ?? []).toEqual([]);
     }
   });

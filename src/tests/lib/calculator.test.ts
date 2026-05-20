@@ -1,15 +1,22 @@
 import { describe, test, expect } from "vitest";
-import { calculateProductionPlan } from "@/lib/calculator";
+import {
+  calculateProductionPlan,
+  propagatePrefillCandidates,
+} from "@/lib/calculator";
 import { calcRate } from "@/lib/utils";
 import { items } from "@/data/items";
 import { recipes } from "@/data/recipes";
 import { facilities } from "@/data/facilities";
 import type {
+  Bin,
+  BinId,
   ProductionDependencyGraph,
   ProductionGraphNode,
   Recipe,
+  RecipeBinAllocation,
 } from "@/types";
 import { FacilityId, ItemId, RecipeId } from "@/types/constants";
+import type { SCCInfo } from "@/lib/calculator-types";
 import {
   mockItems,
   mockFacilities,
@@ -1467,21 +1474,28 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
     ]);
   });
 
-  test("Xircon-60 Crucible bins: intra-bin 3-formula flags Sewage, 2-formula skips", async () => {
+  test("Xircon-60 Crucible bins emit no chip — intra-bin cycle bootstraps via external Xircon Effluent", async () => {
     // The actual Xircon-60 plan packs the three pool recipes into TWO
     // Crucible bins:
     //   - Bin 0 (3-formula): LX-Prod + Effluent-Prod + Xircon-Prod.
-    //     Sewage is INTERNAL (Xircon-Prod produces, Effluent-Prod
-    //     consumes; net = 0 → no port); Xircon Effluent is in
-    //     externalInputs (LP routes 60/min from Bin 1 + Purifier).
-    //     Hosts an INTRA-BIN (Effluent-Prod, Xircon-Prod) 2-cycle.
-    //     Per the intra-bin filter, Sewage flags (no port) and
-    //     Effluent does NOT (port exists).
+    //     Hosts an INTRA-BIN (Effluent-Prod, Xircon-Prod) cycle via
+    //     Sewage + Xircon Effluent. Sewage is INTERNAL (balanced net
+    //     flow), Xircon Effluent is in externalInputs (LP routes
+    //     60/min from Bin 1 + Purifier).
     //   - Bin 1 (2-formula): LX-Prod + Effluent-Prod. Sewage is
     //     externalInput from Furnace (36/min). The (Effluent-Prod,
-    //     Xircon-Prod) 2-cycle is INTER-BIN here (Xircon-Prod lives
-    //     in Bin 0); the inter-bin bootability filter silences it
-    //     because Sewage is bootable via Furnace.
+    //     Xircon-Prod) pair is INTER-BIN here (Xircon-Prod lives in
+    //     Bin 0).
+    //
+    // Phase 1 (intra-bin Tarjan) on Bin 0: SCC = {Effluent-Prod,
+    // Xircon-Prod}; cycle items = {Sewage, Xircon Effluent}. Xircon
+    // Effluent IS in `bin.externalInputs` → cycle has external entry
+    // (Xircon-Prod runs from external Effluent first, producing Sewage
+    // internally to kick off Effluent-Prod). NO chip on Bin 0.
+    //
+    // Phase 2 (inter-bin 2-cycle, bootability filter) for (Bin 1's
+    // Effluent-Prod, Bin 0's Xircon-Prod): Sewage is bootable via
+    // Furnace (runs from raws) → BOTH-non-bootable fails → no chip.
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
@@ -1505,39 +1519,32 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
     expect(bin3f).toBeDefined();
     expect(bin2f).toBeDefined();
 
-    // 3-formula bin: Sewage internal → flagged. Effluent in externalInputs
-    // → not flagged.
-    expect(bin3f!.prefillCandidates).toEqual([ItemId.ITEM_LIQUID_SEWAGE]);
+    // Both bins clean — cycle has external entry via Xircon Effluent.
+    expect(bin3f!.prefillCandidates).toEqual([]);
+    expect(bin2f!.prefillCandidates).toEqual([]);
+
+    // Sanity-check the underlying bin structure that makes this work:
+    // Bin 0 has Sewage as internal AND Xircon Effluent as externalInput.
     expect(bin3f!.internalItems).toContain(ItemId.ITEM_LIQUID_SEWAGE);
     expect(
       bin3f!.externalInputs.map((io) => io.itemId),
     ).toContain(ItemId.ITEM_LIQUID_XIRANITE_POLY);
-
-    // 2-formula bin: Sewage external → no chip. Confirms the inter-bin
-    // bootability filter rescues the (Effluent-Prod, Xircon-Prod) pair
-    // when they land in different bins.
-    expect(bin2f!.prefillCandidates).toEqual([]);
+    // Bin 1 has Sewage as externalInput.
     expect(
       bin2f!.externalInputs.map((io) => io.itemId),
     ).toContain(ItemId.ITEM_LIQUID_SEWAGE);
 
-    // Per-recipe nodes (read by bf=0): Effluent-Prod is in BOTH bins;
-    // the union flags Sewage (because Bin 0 needs it). Xircon-Prod is
-    // only in Bin 0 (no intra-bin chip for Effluent — it's external).
-    // LX-Prod participates in neither half of the 2-cycle.
-    const effluentProd = plan.nodes.get(RecipeId.POOL_LIQUID_XIRANITE_POLY_1);
-    if (effluentProd?.type === "recipe") {
-      expect(effluentProd.prefillCandidates).toEqual([
-        ItemId.ITEM_LIQUID_SEWAGE,
-      ]);
-    }
-    const xirconProd = plan.nodes.get(RecipeId.POOL_XIRANITE_POLY_1);
-    if (xirconProd?.type === "recipe") {
-      expect(xirconProd.prefillCandidates ?? []).toEqual([]);
-    }
-    const lxProd = plan.nodes.get(RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1);
-    if (lxProd?.type === "recipe") {
-      expect(lxProd.prefillCandidates ?? []).toEqual([]);
+    // Per-recipe nodes (read by bf=0): all pool recipes empty since
+    // none of them belong to a flagged cycle.
+    for (const rid of [
+      RecipeId.POOL_LIQUID_LIQUID_XIRANITE_1,
+      RecipeId.POOL_LIQUID_XIRANITE_POLY_1,
+      RecipeId.POOL_XIRANITE_POLY_1,
+    ]) {
+      const node = plan.nodes.get(rid);
+      if (node?.type === "recipe") {
+        expect(node.prefillCandidates ?? []).toEqual([]);
+      }
     }
 
     // The Furnace itself (Sewage producer) has no cycle to bootstrap.
@@ -1556,7 +1563,7 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
     );
     if (purifierBin) expect(purifierBin.prefillCandidates).toEqual([]);
 
-    // Planter/seedcollector pairs flag via the inter-bin bootability
+    // Planter/seedcollector pairs DO flag via the inter-bin bootability
     // filter — neither plant nor seed has a bootable producer.
     const planters = plan.bins.filter(
       (b) => b.facilityId === FacilityId.PLANTER_1,
@@ -1619,12 +1626,13 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       ItemId.ITEM_XIRANITE_POWDER,
       ItemId.ITEM_CARBON_POWDER,
       ItemId.ITEM_CARBON_ENR_POWDER,
-      // Xircon Effluent has external entry (in externalInputs of the
-      // 3-formula bin); the intra-bin filter skips it. Must not appear.
+      // Sewage and Xircon Effluent: neither should appear on Crucible
+      // bins. Sewage: Bin 1 has it externally from Furnace (no chip);
+      // Bin 0 has it internal BUT the cycle has external entry via
+      // Xircon Effluent (Phase 1 skip). Xircon Effluent: in Bin 0's
+      // externalInputs (Phase 1 skip).
+      ItemId.ITEM_LIQUID_SEWAGE,
       ItemId.ITEM_LIQUID_XIRANITE_POLY,
-      // (Sewage IS expected on the 3-formula Crucible bin, per the
-      // intra-bin filter — internal item without an external port.
-      // Not added to intermediateOnly.)
     ]);
     const plantItems = new Set<ItemId>([
       ItemId.ITEM_PLANT_MOSS_1,
@@ -1742,6 +1750,354 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       // (planter/seedcollector, Xircon-60) already exercises the
       // bootability filter on real data.
     }
+  });
+});
+
+describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
+  // These tests bypass the LP/packer to drive
+  // `propagatePrefillCandidates` directly with hand-crafted Bin and
+  // RecipeBinAllocation objects. Required for topology cases the
+  // packer doesn't naturally produce on current real data:
+  //   - T1: true intra-bin deadlock (both cycle items internal in
+  //     a single bin).
+  //   - T3: 3-recipe intra-bin cycle (Phase 1 Tarjan).
+
+  /**
+   * Helper: build a synthetic recipe with the given inputs/outputs.
+   * `facilityId` and `craftingTime` don't affect prefill detection —
+   * the detection works purely off the recipe's input/output item
+   * sets — so we use a fixed placeholder facility.
+   */
+  function makeRecipe(
+    id: string,
+    inputs: Array<[string, number]>,
+    outputs: Array<[string, number]>,
+  ): Recipe {
+    return {
+      id: id as RecipeId,
+      inputs: inputs.map(([itemId, amount]) => ({
+        itemId: itemId as ItemId,
+        amount,
+      })),
+      outputs: outputs.map(([itemId, amount]) => ({
+        itemId: itemId as ItemId,
+        amount,
+      })),
+      facilityId: FacilityId.MIX_POOL_1,
+      craftingTime: 2,
+    };
+  }
+
+  /**
+   * Helper: build a synthetic Bin. `externalInputs` is the only field
+   * Phase 1 reads beyond `recipeIds`; other fields are placeholders to
+   * satisfy the `Bin` shape.
+   */
+  function makeBin(
+    id: string,
+    recipeIds: string[],
+    externalInputItems: string[],
+  ): Bin {
+    return {
+      id: id as BinId,
+      facilityId: FacilityId.MIX_POOL_1,
+      recipeIds: recipeIds.map((r) => r as RecipeId),
+      buildingCount: 1,
+      externalInputs: externalInputItems.map((iid) => ({
+        itemId: iid as ItemId,
+        rate: 30,
+        isLiquid: false,
+      })),
+      externalOutputs: [],
+      internalItems: [],
+      prefillCandidates: [],
+      innerSlotsUsed: recipeIds.length,
+      isGrouped: recipeIds.length >= 2,
+      variantId: `${id}#v0`,
+    };
+  }
+
+  function makeAllocation(
+    recipeId: string,
+    binIds: string[],
+  ): RecipeBinAllocation {
+    return {
+      recipeId: recipeId as RecipeId,
+      totalSlots: binIds.length,
+      perBin: binIds.map((b) => ({ binId: b as BinId, slots: 1 })),
+    };
+  }
+
+  /**
+   * The current implementation's Phase 1 (intra-bin Tarjan) doesn't
+   * depend on `sccs` — that's Phase 2 territory. For intra-bin tests
+   * we can pass `sccs = []` and still exercise Phase 1 fully.
+   */
+  const noSccs: SCCInfo[] = [];
+
+  test("T1: intra-bin 2-cycle with BOTH items internal → flag both per recipe", () => {
+    // Build a bin with recipes A and B forming a tight 2-cycle:
+    //   A: J → I   (consumes J, produces I)
+    //   B: I → J   (consumes I, produces J)
+    // Neither I nor J is in bin.externalInputs → true deadlock.
+    // Phase 1 Tarjan: SCC = {A, B}, cycle items = {I, J}.
+    // Expected: A's per-recipe list = [J] (what A consumes from cycle);
+    //           B's per-recipe list = [I]; bin's union = [I, J].
+    const recipeA = makeRecipe("rA", [["itemJ", 1]], [["itemI", 1]]);
+    const recipeB = makeRecipe("rB", [["itemI", 1]], [["itemJ", 1]]);
+    const bin = makeBin("bin-intra", ["rA", "rB"], []); // no extIn
+    const allocations = new Map<RecipeId, RecipeBinAllocation>([
+      ["rA" as RecipeId, makeAllocation("rA", ["bin-intra"])],
+      ["rB" as RecipeId, makeAllocation("rB", ["bin-intra"])],
+    ]);
+    const recipeMap = new Map<RecipeId, Recipe>([
+      ["rA" as RecipeId, recipeA],
+      ["rB" as RecipeId, recipeB],
+    ]);
+
+    const perRecipe = propagatePrefillCandidates(
+      [bin],
+      noSccs,
+      allocations,
+      recipeMap,
+    );
+
+    expect(bin.prefillCandidates.sort()).toEqual(
+      ["itemI", "itemJ"].sort(),
+    );
+    expect(perRecipe.get("rA" as RecipeId)).toEqual(["itemJ"]);
+    expect(perRecipe.get("rB" as RecipeId)).toEqual(["itemI"]);
+  });
+
+  test("T1 negative: intra-bin 2-cycle with ONE item in externalInputs → skip", () => {
+    // Same recipes, but the bin imports J externally. Cycle has
+    // external entry via J → B runs first (with external J), produces
+    // I → A runs. No prefill.
+    const recipeA = makeRecipe("rA", [["itemJ", 1]], [["itemI", 1]]);
+    const recipeB = makeRecipe("rB", [["itemI", 1]], [["itemJ", 1]]);
+    const bin = makeBin("bin-intra-rescued", ["rA", "rB"], ["itemJ"]);
+    const allocations = new Map<RecipeId, RecipeBinAllocation>([
+      ["rA" as RecipeId, makeAllocation("rA", ["bin-intra-rescued"])],
+      ["rB" as RecipeId, makeAllocation("rB", ["bin-intra-rescued"])],
+    ]);
+    const recipeMap = new Map<RecipeId, Recipe>([
+      ["rA" as RecipeId, recipeA],
+      ["rB" as RecipeId, recipeB],
+    ]);
+
+    const perRecipe = propagatePrefillCandidates(
+      [bin],
+      noSccs,
+      allocations,
+      recipeMap,
+    );
+    expect(bin.prefillCandidates).toEqual([]);
+    expect(perRecipe.size).toBe(0);
+  });
+
+  test("T3: 3-recipe intra-bin cycle (A→B→C→A) with NO external entry → flag per recipe", () => {
+    // Build a bin with 3 recipes forming a 3-cycle:
+    //   A: itemX → itemI
+    //   B: itemI → itemK
+    //   C: itemK → itemX
+    // None of {itemI, itemK, itemX} in externalInputs → deadlock.
+    // Phase 1 Tarjan: SCC = {A, B, C}; cycle items = {itemI, itemK, itemX}.
+    // Expected: A consumes itemX → flagged; B consumes itemI; C consumes itemK.
+    //
+    // The pair-iteration approach (old) would have MISSED this — none
+    // of (A,B), (B,C), (A,C) form a tight 2-cycle. Tarjan picks it up.
+    const recipeA = makeRecipe("rA", [["itemX", 1]], [["itemI", 1]]);
+    const recipeB = makeRecipe("rB", [["itemI", 1]], [["itemK", 1]]);
+    const recipeC = makeRecipe("rC", [["itemK", 1]], [["itemX", 1]]);
+    const bin = makeBin("bin-3cycle", ["rA", "rB", "rC"], []); // no extIn
+    const allocations = new Map<RecipeId, RecipeBinAllocation>([
+      ["rA" as RecipeId, makeAllocation("rA", ["bin-3cycle"])],
+      ["rB" as RecipeId, makeAllocation("rB", ["bin-3cycle"])],
+      ["rC" as RecipeId, makeAllocation("rC", ["bin-3cycle"])],
+    ]);
+    const recipeMap = new Map<RecipeId, Recipe>([
+      ["rA" as RecipeId, recipeA],
+      ["rB" as RecipeId, recipeB],
+      ["rC" as RecipeId, recipeC],
+    ]);
+
+    const perRecipe = propagatePrefillCandidates(
+      [bin],
+      noSccs,
+      allocations,
+      recipeMap,
+    );
+
+    expect(bin.prefillCandidates.sort()).toEqual(
+      ["itemI", "itemK", "itemX"].sort(),
+    );
+    expect(perRecipe.get("rA" as RecipeId)).toEqual(["itemX"]);
+    expect(perRecipe.get("rB" as RecipeId)).toEqual(["itemI"]);
+    expect(perRecipe.get("rC" as RecipeId)).toEqual(["itemK"]);
+  });
+
+  test("T3 rescued: 3-recipe intra-bin cycle with itemX externally supplied → skip", () => {
+    // Same 3-cycle, but itemX is in externalInputs. Cycle bootstraps:
+    // A runs with external itemX → produces itemI → B runs → itemK →
+    // C runs → itemX (joining external supply).
+    const recipeA = makeRecipe("rA", [["itemX", 1]], [["itemI", 1]]);
+    const recipeB = makeRecipe("rB", [["itemI", 1]], [["itemK", 1]]);
+    const recipeC = makeRecipe("rC", [["itemK", 1]], [["itemX", 1]]);
+    const bin = makeBin(
+      "bin-3cycle-rescued",
+      ["rA", "rB", "rC"],
+      ["itemX"],
+    );
+    const allocations = new Map<RecipeId, RecipeBinAllocation>([
+      ["rA" as RecipeId, makeAllocation("rA", ["bin-3cycle-rescued"])],
+      ["rB" as RecipeId, makeAllocation("rB", ["bin-3cycle-rescued"])],
+      ["rC" as RecipeId, makeAllocation("rC", ["bin-3cycle-rescued"])],
+    ]);
+    const recipeMap = new Map<RecipeId, Recipe>([
+      ["rA" as RecipeId, recipeA],
+      ["rB" as RecipeId, recipeB],
+      ["rC" as RecipeId, recipeC],
+    ]);
+
+    const perRecipe = propagatePrefillCandidates(
+      [bin],
+      noSccs,
+      allocations,
+      recipeMap,
+    );
+    expect(bin.prefillCandidates).toEqual([]);
+    expect(perRecipe.size).toBe(0);
+  });
+
+  test("Phase 1 self-loop: recipe consuming its own output in a multi-recipe bin", () => {
+    // Edge case: recipe rSelf has X as BOTH input and output (a "catalyst
+    // recycle" pattern), co-located in a bin with another recipe rOther.
+    // The recipe-graph SCC may have size > 1 (rSelf paired with rOther
+    // via some other item), so Phase 2's singleton-SCC branch wouldn't
+    // fire. But Phase 1's per-bin Tarjan emits rSelf as a size-1 SCC
+    // WITH a self-loop edge — and the cycle-items collection includes X,
+    // triggering the external-entry check.
+    //
+    // Case A: X is NOT in externalInputs → true intra-bin deadlock → flag.
+    const recipeSelf = makeRecipe(
+      "rSelf",
+      [["itemX", 1], ["raw", 1]],
+      [["itemX", 1], ["product", 1]], // X both in AND out
+    );
+    const recipeOther = makeRecipe(
+      "rOther",
+      [["product", 1]],
+      [["finalOutput", 1]],
+    );
+    const bin = makeBin(
+      "bin-selfloop",
+      ["rSelf", "rOther"],
+      ["raw"], // X NOT externally supplied
+    );
+    const allocations = new Map<RecipeId, RecipeBinAllocation>([
+      ["rSelf" as RecipeId, makeAllocation("rSelf", ["bin-selfloop"])],
+      ["rOther" as RecipeId, makeAllocation("rOther", ["bin-selfloop"])],
+    ]);
+    const recipeMap = new Map<RecipeId, Recipe>([
+      ["rSelf" as RecipeId, recipeSelf],
+      ["rOther" as RecipeId, recipeOther],
+    ]);
+
+    const perRecipe = propagatePrefillCandidates(
+      [bin],
+      noSccs,
+      allocations,
+      recipeMap,
+    );
+    // rSelf consumes itemX in the self-loop cycle → flagged.
+    // rOther doesn't participate in the self-loop.
+    expect(perRecipe.get("rSelf" as RecipeId)).toEqual(["itemX"]);
+    expect(perRecipe.has("rOther" as RecipeId)).toBe(false);
+    expect(bin.prefillCandidates).toEqual(["itemX"]);
+  });
+
+  test("Phase 1 self-loop rescued: X externally supplied → skip", () => {
+    // Same shape as the self-loop test above, but X IS in externalInputs.
+    // The cycle bootstraps via external X flow.
+    const recipeSelf = makeRecipe(
+      "rSelf",
+      [["itemX", 1], ["raw", 1]],
+      [["itemX", 1], ["product", 1]],
+    );
+    const recipeOther = makeRecipe(
+      "rOther",
+      [["product", 1]],
+      [["finalOutput", 1]],
+    );
+    const bin = makeBin(
+      "bin-selfloop-rescued",
+      ["rSelf", "rOther"],
+      ["raw", "itemX"], // X EXTERNALLY SUPPLIED
+    );
+    const allocations = new Map<RecipeId, RecipeBinAllocation>([
+      [
+        "rSelf" as RecipeId,
+        makeAllocation("rSelf", ["bin-selfloop-rescued"]),
+      ],
+      [
+        "rOther" as RecipeId,
+        makeAllocation("rOther", ["bin-selfloop-rescued"]),
+      ],
+    ]);
+    const recipeMap = new Map<RecipeId, Recipe>([
+      ["rSelf" as RecipeId, recipeSelf],
+      ["rOther" as RecipeId, recipeOther],
+    ]);
+
+    const perRecipe = propagatePrefillCandidates(
+      [bin],
+      noSccs,
+      allocations,
+      recipeMap,
+    );
+    expect(bin.prefillCandidates).toEqual([]);
+    expect(perRecipe.size).toBe(0);
+  });
+
+  test("Phase 1 ignores acyclic intra-bin chain (LX-Prod → Effluent-Prod style)", () => {
+    // Bin with a LINEAR intra-bin flow (no cycle). Tarjan SCC will
+    // see two trivial SCCs (size 1 each, no self-loops) — neither
+    // triggers a flag.
+    //   A: water + xPowder → LX  (LX is internal)
+    //   B: LX + sewage    → effluent + lowpoly
+    // sewage and water are in externalInputs.
+    const recipeA = makeRecipe(
+      "rA",
+      [["water", 1], ["xPowder", 1]],
+      [["lx", 1]],
+    );
+    const recipeB = makeRecipe(
+      "rB",
+      [["lx", 1], ["sewage", 1]],
+      [["effluent", 1], ["lowpoly", 1]],
+    );
+    const bin = makeBin(
+      "bin-linear",
+      ["rA", "rB"],
+      ["water", "xPowder", "sewage"],
+    );
+    const allocations = new Map<RecipeId, RecipeBinAllocation>([
+      ["rA" as RecipeId, makeAllocation("rA", ["bin-linear"])],
+      ["rB" as RecipeId, makeAllocation("rB", ["bin-linear"])],
+    ]);
+    const recipeMap = new Map<RecipeId, Recipe>([
+      ["rA" as RecipeId, recipeA],
+      ["rB" as RecipeId, recipeB],
+    ]);
+
+    const perRecipe = propagatePrefillCandidates(
+      [bin],
+      noSccs,
+      allocations,
+      recipeMap,
+    );
+    expect(bin.prefillCandidates).toEqual([]);
+    expect(perRecipe.size).toBe(0);
   });
 });
 
