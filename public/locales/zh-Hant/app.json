@@ -1,4 +1,6 @@
 {
+  "autoPruneSummary_one": "已移除 {{count}} 個當前 AIC 設定無法生產的項目。",
+  "autoPruneSummary_other": "已移除 {{count}} 個當前 AIC 設定無法生產的項目。",
   "ceilMode": "設施數向上取整",
   "twoEndAlignment": "兩端對齊",
   "binFusion": "配方分組",

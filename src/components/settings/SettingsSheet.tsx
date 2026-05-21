@@ -9,7 +9,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useDomainSettings } from "@/hooks/useDomainSettings";
+import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { previewActivationDelta } from "@/lib/aic-cascade";
 import type { AicGroupId, AicLayerId, AicTechId } from "@/types/aic";
 import type { Domain, DomainId } from "@/types/domain";
@@ -25,7 +25,7 @@ interface SettingsSheetProps {
 export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
   const { t } = useTranslation(["settings", "aic", "domain"]);
 
-  const { domains, activeDomains, toggleDomain, aic } = useDomainSettings();
+  const { domains, activeDomains, toggleDomain, aic } = useDomainSettingsContext();
 
   const orderedDomains = useMemo<readonly Domain[]>(
     () => [...domains].sort((a, b) => a.sortId - b.sortId),

@@ -3,8 +3,10 @@ import { describe, test, expect } from "vitest";
 import {
   ALWAYS_UNLOCKED_FACILITIES,
   GATED_FACILITIES,
+  RECIPE_MODE_BY_ID,
   capKey,
   computeEffectiveCaps,
+  computeRecipeAvailability,
   computeUnlockedFacilities,
   computeUnlockedModes,
   isGroupAtDefaults,
@@ -17,6 +19,7 @@ import type {
 } from "@/types/aic";
 import { AicGroupId } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
+import type { Recipe, RecipeId } from "@/types";
 import { FacilityId } from "@/types/constants";
 
 const id = (s: string): AicTechId => s as AicTechId;
@@ -406,6 +409,171 @@ describe("aic-research-helpers", () => {
         [OVEN_BASE_CAP],
       );
       expect(result.get(FacilityId.XIRANITE_OVEN_1)?.get("domain_2" as DomainId)).toBe(1);
+    });
+  });
+
+  describe("RECIPE_MODE_BY_ID", () => {
+    test("recipes under a modeUnlock tech inherit that tech's modeName", () => {
+      // tech_jinlong_2_furnance_mode_1 (modeUnlock kind="liquid") grants
+      // furnance_copper_nugget_1.
+      expect(RECIPE_MODE_BY_ID.get("furnance_copper_nugget_1" as RecipeId)).toBe(
+        "liquid",
+      );
+    });
+
+    test("recipes under an unlock tech are NOT in the map (default to normal at read site)", () => {
+      // tech_jinlong_1_dismantler_1 (unlock kind) — its recipes are
+      // facility-gated but in normal mode. The map only carries
+      // explicit-mode entries; reads use `?? "normal"`.
+      expect(
+        RECIPE_MODE_BY_ID.get("dismantler_copper_acid_1" as RecipeId),
+      ).toBeUndefined();
+    });
+
+    test("recipes not in any tech are absent from the map", () => {
+      // xiranite_oven_xiranite_powder_1 (always-on facility, no AIC gate).
+      // It's not listed in recipesByTech at all.
+      expect(
+        RECIPE_MODE_BY_ID.get("xiranite_oven_xiranite_powder_1" as RecipeId),
+      ).toBeUndefined();
+    });
+
+    test("planter liquid-mode recipes carry 'liquid' (tech_jinlong_1_planter_mode_1)", () => {
+      expect(
+        RECIPE_MODE_BY_ID.get("planter_plant_grass_1_1" as RecipeId),
+      ).toBe("liquid");
+      expect(
+        RECIPE_MODE_BY_ID.get("planter_plant_grass_2_1" as RecipeId),
+      ).toBe("liquid");
+    });
+  });
+
+  describe("computeRecipeAvailability", () => {
+    // Synthetic recipes covering: normal-mode on gated facility, normal-mode
+    // on always-on facility, liquid-mode on gated facility, recipe on locked
+    // facility.
+    const FURNACE_NORMAL: Recipe = {
+      id: "furnance_iron_nugget_1" as RecipeId,
+      inputs: [{ itemId: "item_iron_ore", amount: 1 }],
+      outputs: [{ itemId: "item_iron_nugget", amount: 1 }],
+      facilityId: FacilityId.FURNANCE_1,
+      craftingTime: 1,
+    };
+    const FURNACE_LIQUID: Recipe = {
+      id: "furnance_copper_nugget_1" as RecipeId,
+      inputs: [{ itemId: "item_liquid_copper", amount: 1 }],
+      outputs: [{ itemId: "item_copper_nugget", amount: 1 }],
+      facilityId: FacilityId.FURNANCE_1,
+      craftingTime: 1,
+    };
+    const XIRANITE_NORMAL: Recipe = {
+      id: "xiranite_oven_xiranite_powder_1" as RecipeId,
+      inputs: [{ itemId: "item_xiranite_poly", amount: 1 }],
+      outputs: [{ itemId: "item_xiranite_powder", amount: 1 }],
+      facilityId: FacilityId.XIRANITE_OVEN_1,
+      craftingTime: 1,
+    };
+    const DISMANTLER_NORMAL: Recipe = {
+      id: "dismantler_copper_acid_1" as RecipeId,
+      inputs: [{ itemId: "item_fbottle_copper_acid", amount: 1 }],
+      outputs: [{ itemId: "item_liquid_acid", amount: 1 }],
+      facilityId: FacilityId.DISMANTLER_1,
+      craftingTime: 1,
+    };
+
+    const ALL = [FURNACE_NORMAL, FURNACE_LIQUID, XIRANITE_NORMAL, DISMANTLER_NORMAL];
+
+    test("only recipes on unlocked facilities pass through", () => {
+      // Furnace unlocked, others locked.
+      const unlockedFacilities = new Set([FacilityId.FURNANCE_1]);
+      const unlockedModes = new Map([
+        [FacilityId.FURNANCE_1, new Set(["normal"])],
+      ]);
+      const { availableRecipes, gatedRecipeIds } = computeRecipeAvailability(
+        ALL,
+        unlockedFacilities,
+        unlockedModes,
+      );
+      expect(availableRecipes).toHaveLength(1);
+      expect(availableRecipes[0].id).toBe(FURNACE_NORMAL.id);
+      expect(gatedRecipeIds.has(FURNACE_LIQUID.id)).toBe(true);
+      expect(gatedRecipeIds.has(XIRANITE_NORMAL.id)).toBe(true);
+      expect(gatedRecipeIds.has(DISMANTLER_NORMAL.id)).toBe(true);
+    });
+
+    test("liquid mode is gated even when facility is unlocked", () => {
+      // Furnace unlocked but only normal mode.
+      const unlockedFacilities = new Set([FacilityId.FURNANCE_1]);
+      const unlockedModes = new Map([
+        [FacilityId.FURNANCE_1, new Set(["normal"])],
+      ]);
+      const { availableRecipes, gatedRecipeIds } = computeRecipeAvailability(
+        ALL,
+        unlockedFacilities,
+        unlockedModes,
+      );
+      expect(availableRecipes.some((r) => r.id === FURNACE_NORMAL.id)).toBe(true);
+      expect(availableRecipes.some((r) => r.id === FURNACE_LIQUID.id)).toBe(false);
+      // furnance_copper_nugget_1 IS in RECIPE_MODE_BY_ID with modeName="liquid".
+      expect(gatedRecipeIds.has(FURNACE_LIQUID.id)).toBe(true);
+    });
+
+    test("liquid mode unlocked adds liquid recipes", () => {
+      const unlockedFacilities = new Set([FacilityId.FURNANCE_1]);
+      const unlockedModes = new Map([
+        [FacilityId.FURNANCE_1, new Set(["normal", "liquid"])],
+      ]);
+      const { availableRecipes } = computeRecipeAvailability(
+        ALL,
+        unlockedFacilities,
+        unlockedModes,
+      );
+      expect(availableRecipes.some((r) => r.id === FURNACE_NORMAL.id)).toBe(true);
+      expect(availableRecipes.some((r) => r.id === FURNACE_LIQUID.id)).toBe(true);
+    });
+
+    test("recipe not in RECIPE_MODE_BY_ID defaults to normal mode (passes when normal unlocked)", () => {
+      // xiranite_oven_xiranite_powder_1 is absent from recipesByTech.
+      const unlockedFacilities = new Set([FacilityId.XIRANITE_OVEN_1]);
+      const unlockedModes = new Map([
+        [FacilityId.XIRANITE_OVEN_1, new Set(["normal"])],
+      ]);
+      const { availableRecipes } = computeRecipeAvailability(
+        [XIRANITE_NORMAL],
+        unlockedFacilities,
+        unlockedModes,
+      );
+      expect(availableRecipes).toHaveLength(1);
+    });
+
+    test("empty inputs return empty outputs", () => {
+      const { availableRecipes, gatedRecipeIds } = computeRecipeAvailability(
+        [],
+        new Set(),
+        new Map(),
+      );
+      expect(availableRecipes).toHaveLength(0);
+      expect(gatedRecipeIds.size).toBe(0);
+    });
+
+    test("all facilities + all modes unlocked yields the full input set", () => {
+      const unlockedFacilities = new Set([
+        FacilityId.FURNANCE_1,
+        FacilityId.XIRANITE_OVEN_1,
+        FacilityId.DISMANTLER_1,
+      ]);
+      const unlockedModes = new Map([
+        [FacilityId.FURNANCE_1, new Set(["normal", "liquid"])],
+        [FacilityId.XIRANITE_OVEN_1, new Set(["normal"])],
+        [FacilityId.DISMANTLER_1, new Set(["normal"])],
+      ]);
+      const { availableRecipes, gatedRecipeIds } = computeRecipeAvailability(
+        ALL,
+        unlockedFacilities,
+        unlockedModes,
+      );
+      expect(availableRecipes).toHaveLength(ALL.length);
+      expect(gatedRecipeIds.size).toBe(0);
     });
   });
 });

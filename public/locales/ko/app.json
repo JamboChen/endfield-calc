@@ -1,4 +1,6 @@
 {
+  "autoPruneSummary_one": "현재 AIC 설정으로 생산할 수 없는 항목 {{count}}개를 제거했습니다.",
+  "autoPruneSummary_other": "현재 AIC 설정으로 생산할 수 없는 항목 {{count}}개를 제거했습니다.",
   "ceilMode": "시설 수 올림",
   "twoEndAlignment": "입출력 양끝 정렬",
   "binFusion": "제조법 그룹화",

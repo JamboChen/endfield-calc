@@ -1,4 +1,6 @@
 {
+  "autoPruneSummary_one": "Se eliminó {{count}} elemento que tu configuración actual de AIC ya no puede producir.",
+  "autoPruneSummary_other": "Se eliminaron {{count}} elementos que tu configuración actual de AIC ya no puede producir.",
   "ceilMode": "Redondear instalaciones",
   "twoEndAlignment": "Alinear entradas/salidas",
   "binFusion": "Agrupar recetas",

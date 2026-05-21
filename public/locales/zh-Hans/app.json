@@ -1,4 +1,6 @@
 {
+  "autoPruneSummary_one": "已移除 {{count}} 个当前 AIC 设置无法生产的项。",
+  "autoPruneSummary_other": "已移除 {{count}} 个当前 AIC 设置无法生产的项。",
   "ceilMode": "设施数向上取整",
   "twoEndAlignment": "两端对齐",
   "binFusion": "配方分组",

@@ -13,6 +13,9 @@ import ProductionViewTabs from "./components/production/ProductionViewTabs";
 import AddTargetDialogGrid from "./components/panels/AddTargetDialogGrid";
 import AppFooter from "./components/layout/AppFooter";
 import { ThemeProvider, useTheme } from "./components/ui/theme-provider";
+import { DomainSettingsProvider } from "./contexts/DomainSettingsProvider";
+import { useDomainSettingsContext } from "./contexts/domain-settings-context";
+import { computeRecipeAvailability } from "./lib/aic-research-helpers";
 import type { ItemId } from "./types";
 
 /**
@@ -33,8 +36,46 @@ function ThemedToaster() {
   );
 }
 
-export default function App() {
+/**
+ * Inner App body. Reads domain settings from context and derives the
+ * AIC-filtered recipe set + targetable item list before threading them
+ * into the calc and the picker.
+ *
+ * Separated from `App` so that `useDomainSettingsContext()` can read
+ * the provider's value (the hook errors when called above its provider).
+ */
+function AppContent() {
   const { i18n } = useTranslation("app");
+  const settings = useDomainSettingsContext();
+
+  // AIC-filtered recipe set: drops recipes whose host facility is locked
+  // or whose mode is gated by an unresearched modeUnlock tech. Re-derived
+  // on every research/activation change; the auto-prune effect inside
+  // `useProductionPlan` cleans up targets/overrides/raws that became
+  // unreachable as a result.
+  const availableRecipes = useMemo(
+    () =>
+      computeRecipeAvailability(
+        recipes,
+        settings.aic.unlockedFacilities,
+        settings.aic.unlockedModes,
+      ).availableRecipes,
+    [settings.aic.unlockedFacilities, settings.aic.unlockedModes],
+  );
+
+  // Items the picker may show as targets: those produced by ANY recipe
+  // in `availableRecipes`. Raws (no producer) and `asTarget: false`
+  // items are filtered out here; the dialog further excludes
+  // already-targeted items.
+  const targetableItems = useMemo(() => {
+    const reachable = new Set<ItemId>();
+    for (const r of availableRecipes) {
+      for (const o of r.outputs) reachable.add(o.itemId);
+    }
+    return items.filter(
+      (item) => reachable.has(item.id) && item.asTarget !== false,
+    );
+  }, [availableRecipes]);
 
   const {
     targets,
@@ -60,7 +101,7 @@ export default function App() {
     handleSavePlan,
     handleOpenPlan,
     isLoading,
-  } = useProductionPlan();
+  } = useProductionPlan(availableRecipes);
 
   const targetRates = useMemo(
     () => new Map(targets.map((t) => [t.itemId as ItemId, t.rate])),
@@ -74,82 +115,90 @@ export default function App() {
   };
 
   return (
-    <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-      <TooltipProvider>
-        <div className="h-screen flex flex-col p-4 pb-0 gap-4 overflow-x-hidden [@media(orientation:portrait)]:pb-4">
-          <AppHeader onLanguageChange={handleLanguageChange} onSavePlan={handleSavePlan} onOpenPlan={handleOpenPlan} />
+    <div className="h-screen flex flex-col p-4 pb-0 gap-4 overflow-x-hidden [@media(orientation:portrait)]:pb-4">
+      <AppHeader onLanguageChange={handleLanguageChange} onSavePlan={handleSavePlan} onOpenPlan={handleOpenPlan} />
 
-          <div className="flex-1 flex gap-4 min-h-0">
-            <div className={isPortrait ? "hidden" : "contents"}>
-              <LeftPanel
-                targets={targets}
-                items={items}
-                facilities={facilities}
-                totalPowerConsumption={stats.totalPowerConsumption}
-                productionSteps={stats.uniqueProductionSteps}
-                rawMaterialRequirements={stats.rawMaterialRequirements}
-                facilityRequirements={stats.facilityRequirements}
-                totalPickupPoints={stats.totalPickupPoints}
-                rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
-                error={error}
-                ceilMode={ceilMode}
-                onTargetChange={handleTargetChange}
-                onTargetRemove={handleTargetRemove}
-                onAddClick={handleAddClick}
-              />
-            </div>
-
-            <ProductionViewTabs
-              plan={plan}
-              tableData={tableData}
-              items={items}
-              recipes={recipes}
-              facilities={facilities}
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
-              onRecipeChange={handleRecipeChange}
-              onToggleRawMaterial={handleToggleRawMaterial}
-              targetRates={targetRates}
-              ceilMode={ceilMode}
-              onCeilModeChange={setCeilMode}
-              binFusion={binFusion}
-              onBinFusionChange={setBinFusion}
-              warnings={warnings}
-              loading={isLoading}
-            />
-          </div>
-
-          <div className={isPortrait ? "contents" : "hidden"}>
-            <PortraitDrawer
-              targets={targets}
-              items={items}
-              facilities={facilities}
-              totalPowerConsumption={stats.totalPowerConsumption}
-              productionSteps={stats.uniqueProductionSteps}
-              rawMaterialRequirements={stats.rawMaterialRequirements}
-              facilityRequirements={stats.facilityRequirements}
-              totalPickupPoints={stats.totalPickupPoints}
-              rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
-              error={error}
-              ceilMode={ceilMode}
-              onTargetChange={handleTargetChange}
-              onTargetRemove={handleTargetRemove}
-              onAddClick={handleAddClick}
-            />
-          </div>
-
-          <AddTargetDialogGrid
-            open={dialogOpen}
-            onOpenChange={setDialogOpen}
+      <div className="flex-1 flex gap-4 min-h-0">
+        <div className={isPortrait ? "hidden" : "contents"}>
+          <LeftPanel
+            targets={targets}
             items={items}
-            existingTargetIds={targets.map((t) => t.itemId)}
-            onBatchAddTargets={handleBatchAddTargets}
+            facilities={facilities}
+            totalPowerConsumption={stats.totalPowerConsumption}
+            productionSteps={stats.uniqueProductionSteps}
+            rawMaterialRequirements={stats.rawMaterialRequirements}
+            facilityRequirements={stats.facilityRequirements}
+            totalPickupPoints={stats.totalPickupPoints}
+            rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
+            error={error}
+            ceilMode={ceilMode}
+            onTargetChange={handleTargetChange}
+            onTargetRemove={handleTargetRemove}
+            onAddClick={handleAddClick}
           />
-
-          <AppFooter />
         </div>
-        <ThemedToaster />
-      </TooltipProvider>
+
+        <ProductionViewTabs
+          plan={plan}
+          tableData={tableData}
+          items={items}
+          recipes={recipes}
+          facilities={facilities}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onRecipeChange={handleRecipeChange}
+          onToggleRawMaterial={handleToggleRawMaterial}
+          targetRates={targetRates}
+          ceilMode={ceilMode}
+          onCeilModeChange={setCeilMode}
+          binFusion={binFusion}
+          onBinFusionChange={setBinFusion}
+          warnings={warnings}
+          loading={isLoading}
+        />
+      </div>
+
+      <div className={isPortrait ? "contents" : "hidden"}>
+        <PortraitDrawer
+          targets={targets}
+          items={items}
+          facilities={facilities}
+          totalPowerConsumption={stats.totalPowerConsumption}
+          productionSteps={stats.uniqueProductionSteps}
+          rawMaterialRequirements={stats.rawMaterialRequirements}
+          facilityRequirements={stats.facilityRequirements}
+          totalPickupPoints={stats.totalPickupPoints}
+          rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
+          error={error}
+          ceilMode={ceilMode}
+          onTargetChange={handleTargetChange}
+          onTargetRemove={handleTargetRemove}
+          onAddClick={handleAddClick}
+        />
+      </div>
+
+      <AddTargetDialogGrid
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        items={targetableItems}
+        existingTargetIds={targets.map((t) => t.itemId)}
+        onBatchAddTargets={handleBatchAddTargets}
+      />
+
+      <AppFooter />
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+      <DomainSettingsProvider>
+        <TooltipProvider>
+          <AppContent />
+          <ThemedToaster />
+        </TooltipProvider>
+      </DomainSettingsProvider>
     </ThemeProvider>
   );
 }

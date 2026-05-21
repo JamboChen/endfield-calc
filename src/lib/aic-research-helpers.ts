@@ -7,10 +7,10 @@
  * localStorage I/O.
  */
 
-import { aicGroups, aicNodes, facilityBaseCaps } from "@/data/aic-plans";
+import { aicGroups, aicNodes, facilityBaseCaps, recipesByTech } from "@/data/aic-plans";
 import type { AicGroupId, AicNode, AicTechId, FacilityBaseCap } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
-import type { FacilityId } from "@/types";
+import type { FacilityId, Recipe, RecipeId } from "@/types";
 import { FacilityId as FacilityIdEnum } from "@/types/constants";
 
 /**
@@ -212,4 +212,76 @@ export function computeEffectiveCaps(
   }
 
   return perFacility;
+}
+
+/**
+ * Recipe id → mode name lookup, built once at module load from
+ * `recipesByTech` + `aicNodes[].action.modeName`.
+ *
+ * A recipe listed under a tech whose `action.kind === "modeUnlock"`
+ * inherits that node's `modeName` (today only `"liquid"`). All other
+ * recipes default to `"normal"`. The default applies to:
+ *   - recipes listed under an `unlock` tech (facility-gated but
+ *     always in the facility's normal mode)
+ *   - recipes NOT in `recipesByTech` at all (always available; e.g.
+ *     `xiranite_oven_xiranite_powder_1` whose facility has no unlock
+ *     gate in the AIC tree)
+ *
+ * `RECIPE_MODE_BY_ID.get(recipeId) ?? "normal"` is the read pattern.
+ */
+export const RECIPE_MODE_BY_ID: ReadonlyMap<RecipeId, string> = (() => {
+  const out = new Map<RecipeId, string>();
+  for (const node of aicNodes) {
+    if (node.action.kind !== "modeUnlock") continue;
+    const recipes = recipesByTech.get(node.id);
+    if (!recipes) continue;
+    for (const rid of recipes) out.set(rid, node.action.modeName);
+  }
+  return out;
+})();
+
+/**
+ * Filter the game-data recipe set down to those currently available
+ * given the player's AIC research state.
+ *
+ * A recipe is available iff:
+ *   - its host facility is in `unlockedFacilities`, AND
+ *   - its mode (per `RECIPE_MODE_BY_ID`, defaulting to `"normal"`) is in
+ *     `unlockedModes.get(facilityId)`.
+ *
+ * Returns the filtered list plus a diagnostic `gatedRecipeIds` set
+ * (recipes that exist in `allRecipes` but were filtered out).
+ *
+ * # Why this lives at the App layer
+ *
+ * `calculateProductionPlan` operates on whatever recipe set it's given
+ * — no AIC awareness inside the calc. Filtering at the App layer
+ * (before the calc runs) keeps the algorithm code decoupled from the
+ * settings UI and avoids threading `disabledFacilities` / `disabledModes`
+ * down through `graph-builder` / `flow-solver` / `multi-formula-packing`.
+ */
+export function computeRecipeAvailability(
+  allRecipes: readonly Recipe[],
+  unlockedFacilities: ReadonlySet<FacilityId>,
+  unlockedModes: ReadonlyMap<FacilityId, ReadonlySet<string>>,
+): {
+  availableRecipes: readonly Recipe[];
+  gatedRecipeIds: ReadonlySet<RecipeId>;
+} {
+  const availableRecipes: Recipe[] = [];
+  const gatedRecipeIds = new Set<RecipeId>();
+  for (const r of allRecipes) {
+    if (!unlockedFacilities.has(r.facilityId)) {
+      gatedRecipeIds.add(r.id);
+      continue;
+    }
+    const mode = RECIPE_MODE_BY_ID.get(r.id) ?? "normal";
+    const modesForFacility = unlockedModes.get(r.facilityId);
+    if (!modesForFacility || !modesForFacility.has(mode)) {
+      gatedRecipeIds.add(r.id);
+      continue;
+    }
+    availableRecipes.push(r);
+  }
+  return { availableRecipes, gatedRecipeIds };
 }

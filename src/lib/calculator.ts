@@ -886,9 +886,9 @@ function backtrackRecipeChoices(
 
 export async function calculateProductionPlan(
   targets: Array<{ itemId: ItemId; rate: number }>,
-  items: Item[],
-  recipes: Recipe[],
-  facilities: Facility[],
+  items: readonly Item[],
+  recipes: readonly Recipe[],
+  facilities: readonly Facility[],
   recipeOverrides?: Map<ItemId, RecipeId>,
   manualRawMaterials?: Set<ItemId>,
 ): Promise<ProductionDependencyGraph> {

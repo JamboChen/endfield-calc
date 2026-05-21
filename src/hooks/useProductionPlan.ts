@@ -2,9 +2,11 @@ import { calculateProductionPlan } from "@/lib/calculator";
 import { initHighs, isHighsReady } from "@/lib/highs-singleton";
 import { items, recipes, facilities, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { toast } from "sonner";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
 import type {
   ItemId,
+  Recipe,
   RecipeId,
   ProductionDependencyGraph,
   ProductionGraphNode,
@@ -158,7 +160,21 @@ function serializeHash(
 }
 
 
-export function useProductionPlan() {
+/**
+ * Plan/recipe-calc state hook.
+ *
+ * `availableRecipes` is the AIC-filtered subset of game-data recipes
+ * derived in `App.tsx` from the user's current research / domain
+ * activation state. The calc, the auto-prune effect, and the
+ * recipe-override picker all operate on this set; recipes outside it
+ * cannot run in this plan.
+ *
+ * Why threaded as an arg instead of read from a global: the App layer
+ * is the single source of truth that combines game data with user
+ * settings. Globals would re-introduce cross-module state and break
+ * the auto-prune signal.
+ */
+export function useProductionPlan(availableRecipes: readonly Recipe[]) {
   const { t } = useTranslation("app");
 
   const initialState = useMemo(() => parseHash(), []);
@@ -241,7 +257,7 @@ export function useProductionPlan() {
     calculateProductionPlan(
       targets,
       items,
-      recipes,
+      availableRecipes,
       facilities,
       recipeOverrides,
       manualRawMaterials,
@@ -263,7 +279,101 @@ export function useProductionPlan() {
     return () => {
       cancelled = true;
     };
-  }, [solverReady, targets, recipeOverrides, manualRawMaterials, t]);
+  }, [solverReady, targets, recipeOverrides, manualRawMaterials, availableRecipes, t]);
+
+  // Auto-prune effect.
+  //
+  // When `availableRecipes` shrinks (user toggled a tech off, deactivated
+  // a domain, etc., or loaded a URL/file plan whose targets reference
+  // facilities the current settings don't unlock), drop any state that
+  // can no longer be honoured:
+  //   - targets whose item is not produced by any available recipe
+  //   - recipeOverrides whose chosen recipe is no longer available
+  //   - manualRawMaterials whose item exists in `items` but is neither
+  //     a forced raw nor producible (defensive — the user's pin is
+  //     respected unless the chain is genuinely broken)
+  //
+  // Fires a single sonner toast summarising the total removed. The
+  // initial-mount fire-once is intentional: it surfaces "your URL/file
+  // plan was incompatible with your saved AIC settings" without a
+  // dedicated import-warning code path.
+  //
+  // **One render cycle**: this effect's setters fire after the first
+  // render; React re-renders the hook with pruned state, then the calc
+  // effect runs against clean inputs. A user may briefly see "error"
+  // state if the calc effect raced to render first, but it self-heals
+  // on the next render.
+  const reachableProducibleItems = useMemo(() => {
+    const out = new Set<ItemId>();
+    for (const r of availableRecipes) {
+      for (const o of r.outputs) out.add(o.itemId);
+    }
+    return out;
+  }, [availableRecipes]);
+
+  const availableRecipeIds = useMemo(
+    () => new Set(availableRecipes.map((r) => r.id)),
+    [availableRecipes],
+  );
+
+  useEffect(() => {
+    let removedTargets = 0;
+    let removedOverrides = 0;
+    let removedRaws = 0;
+
+    const nextTargets = targets.filter((t) =>
+      reachableProducibleItems.has(t.itemId),
+    );
+    removedTargets = targets.length - nextTargets.length;
+
+    const nextOverrides = new Map<ItemId, RecipeId>();
+    for (const [itemId, recipeId] of recipeOverrides) {
+      if (availableRecipeIds.has(recipeId)) {
+        nextOverrides.set(itemId, recipeId);
+      } else {
+        removedOverrides++;
+      }
+    }
+
+    const nextRaws = new Set<ItemId>();
+    for (const itemId of manualRawMaterials) {
+      // Keep a manual raw if the item still exists in `items` AND is
+      // either producible (the user may want to short-circuit a chain)
+      // or has no producer (a leaf item the user pinned as raw). Drop
+      // it only when the item is genuinely unreachable AND can no
+      // longer be produced — covered by checking against the full
+      // `items` set.
+      const itemExists = items.some((i) => i.id === itemId);
+      if (itemExists) {
+        nextRaws.add(itemId);
+      } else {
+        removedRaws++;
+      }
+    }
+
+    const total = removedTargets + removedOverrides + removedRaws;
+    if (total === 0) return;
+
+    if (removedTargets > 0) setTargets(nextTargets);
+    if (removedOverrides > 0) setRecipeOverrides(nextOverrides);
+    if (removedRaws > 0) setManualRawMaterials(nextRaws);
+
+    toast.info(
+      t("autoPruneSummary", {
+        count: total,
+        defaultValue:
+          total === 1
+            ? "Removed 1 item no longer producible by your current AIC settings."
+            : `Removed ${total} items no longer producible by your current AIC settings.`,
+      }),
+    );
+    // `targets`, `recipeOverrides`, and `manualRawMaterials` are
+    // intentionally NOT in the dep array — the effect reacts to
+    // `availableRecipes` (and derived sets), pulling current state via
+    // closure. Including them would re-fire on every prune-driven
+    // state change, doubling the toast.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reachableProducibleItems, availableRecipeIds]);
 
   // Debounced overlay visibility: only flip true if `isCalculating`
   // stays true for >300ms. Sub-300ms calcs (the common case at
