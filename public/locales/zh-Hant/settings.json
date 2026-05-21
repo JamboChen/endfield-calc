@@ -1,0 +1,43 @@
+{
+  "title": "設定",
+  "open": "開啟設定",
+  "aic": {
+    "intro": "選擇您已研究的 AIC 科技。在未來版本中，此設定將篩選方案中可用的物品與配方。",
+    "activateAll": "全部啟動",
+    "activateLayer": "啟動該層",
+    "resetDefaults": "恢復預設",
+    "capDeltaLabel": "上限",
+    "row": {
+      "alwaysAvailable": "始終可用（遊戲預設）",
+      "showDescription": "顯示說明",
+      "showRecipes": "顯示解鎖的配方",
+      "unlocksLabel": "解鎖",
+      "ariaResearched": "{{name}}，已研究",
+      "ariaAvailable": "{{name}}，可研究",
+      "ariaLocked": "{{name}}，前置條件未滿足",
+      "ariaAlwaysAvailable": "{{name}}，始終可用"
+    },
+    "facilityLimits": {
+      "title": "設施上限",
+      "gameCap": "遊戲上限",
+      "customCap": "自訂",
+      "effective": "實際",
+      "reset": "重置為遊戲上限"
+    },
+    "domain": {
+      "toggleActivate": "啟動 {{name}}",
+      "toggleDeactivate": "停用 {{name}}"
+    },
+    "toast": {
+      "activatedGroup_zero": "未啟動任何設施",
+      "activatedGroup_one": "已啟動 {{primary}} 項設施",
+      "activatedGroup_other": "已啟動 {{primary}} 項設施",
+      "activatedGroupWithPrereqs": "已啟動 {{primary}} 項設施（含 {{prereqs}} 項前置）",
+      "activatedLayer": "已啟動 {{primary}} 項設施",
+      "activatedLayerWithPrereqs": "已啟動 {{primary}} 項設施（含 {{prereqs}} 項前置）",
+      "resetDefaults": "已恢復遊戲預設",
+      "resetGroup": "已恢復方案預設",
+      "prereqsRequired": "請先研究前置科技。"
+    }
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "groups": {
+    "tech_group_jinlong": {
+      "name": "ПЛАН АПК УЛИНА"
+    },
+    "tech_group_tundra": {
+      "name": "СТАНДАРТНЫЙ ПЛАН АПК"
+    }
+  },
+  "layers": {
+    "tech_group_jinlong_liquid": {
+      "name": "АПК УЛИНА I"
+    },
+    "tech_group_jinlong_copper": {
+      "name": "АПК УЛИНА II"
+    },
+    "tech_group_jinlong_acid": {
+      "name": "АПК Улина III"
+    },
+    "tech_group_tundra_originium": {
+      "name": "Стандартный АПК I"
+    },
+    "tech_group_tundra_quartz": {
+      "name": "Стандартный АПК II"
+    },
+    "tech_group_tundra_iron": {
+      "name": "Стандартный АПК III"
+    }
+  },
+  "nodes": {
+    "tech_jinlong_1_dismantler_1": {
+      "name": "Технология разделения"
+    },
+    "tech_jinlong_1_filling_mode_1": {
+      "name": "Наполнение жидкостью"
+    },
+    "tech_jinlong_1_mix_1": {
+      "name": "Реакция жидкости"
+    },
+    "tech_jinlong_1_planter_mode_1": {
+      "name": "Гидропоника"
+    },
+    "tech_jinlong_1_pump_1": {
+      "name": "Перекачка жидкости"
+    },
+    "tech_jinlong_1_xiranite_oven_amount_1": {
+      "name": "Расширение кузницы I"
+    },
+    "tech_jinlong_2_furnance_mode_1": {
+      "name": "Очистка жидкостью"
+    },
+    "tech_jinlong_2_liquid_cleaner_1": {
+      "name": "Модуль очистки воды"
+    },
+    "tech_jinlong_2_xiranite_oven_amount_2": {
+      "name": "Расширение кузницы II"
+    },
+    "tech_jinlong_3_liquid_purifier_1": {
+      "name": "Рафинирование"
+    },
+    "tech_jinlong_3_mix_2": {
+      "name": "Расширенная реакция"
+    },
+    "tech_jinlong_3_pump_2": {
+      "name": "Кислотостойкость"
+    },
+    "tech_jinlong_3_xiranite_enr_formula": {
+      "name": "Расширение кузницы III"
+    },
+    "tech_jinlong_3_xiranite_oven_amount_3": {
+      "name": "Расширение кузницы IV"
+    },
+    "tech_tundra_1_cmpt_1": {
+      "name": "Штамповка деталей"
+    },
+    "tech_tundra_1_furnance_1": {
+      "name": "Очистка I"
+    },
+    "tech_tundra_1_grinder_1": {
+      "name": "Перемалывание I"
+    },
+    "tech_tundra_1_shaper_1": {
+      "name": "Формовка материала"
+    },
+    "tech_tundra_1_winder_1": {
+      "name": "Технология снаряжения"
+    },
+    "tech_tundra_2_asm_1": {
+      "name": "Технология упаковки"
+    },
+    "tech_tundra_2_field_1": {
+      "name": "Звено склада"
+    },
+    "tech_tundra_2_filling_1": {
+      "name": "Плотное наполнение"
+    },
+    "tech_tundra_2_plant_1": {
+      "name": "Посадка"
+    },
+    "tech_tundra_3_thickener_1": {
+      "name": "Измельчение"
+    }
+  }
+}

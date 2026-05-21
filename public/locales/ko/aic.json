@@ -1,0 +1,104 @@
+{
+  "groups": {
+    "tech_group_jinlong": {
+      "name": "무릉 공업 계획"
+    },
+    "tech_group_tundra": {
+      "name": "기초 공업 계획"
+    }
+  },
+  "layers": {
+    "tech_group_jinlong_liquid": {
+      "name": "무릉 공업 I"
+    },
+    "tech_group_jinlong_copper": {
+      "name": "무릉 공업 II"
+    },
+    "tech_group_jinlong_acid": {
+      "name": "무릉 공업 III"
+    },
+    "tech_group_tundra_originium": {
+      "name": "기초 공업 I"
+    },
+    "tech_group_tundra_quartz": {
+      "name": "기초 공업 II"
+    },
+    "tech_group_tundra_iron": {
+      "name": "기초 공업 III"
+    }
+  },
+  "nodes": {
+    "tech_jinlong_1_dismantler_1": {
+      "name": "분해 기술"
+    },
+    "tech_jinlong_1_filling_mode_1": {
+      "name": "액체 가공"
+    },
+    "tech_jinlong_1_mix_1": {
+      "name": "용해 및 반응"
+    },
+    "tech_jinlong_1_planter_mode_1": {
+      "name": "수경재배"
+    },
+    "tech_jinlong_1_pump_1": {
+      "name": "액체 탐색"
+    },
+    "tech_jinlong_1_xiranite_oven_amount_1": {
+      "name": "화로 확장 I"
+    },
+    "tech_jinlong_2_furnance_mode_1": {
+      "name": "액체 제련"
+    },
+    "tech_jinlong_2_liquid_cleaner_1": {
+      "name": "오염수 처리"
+    },
+    "tech_jinlong_2_xiranite_oven_amount_2": {
+      "name": "화로 확장 II"
+    },
+    "tech_jinlong_3_liquid_purifier_1": {
+      "name": "정제 기술"
+    },
+    "tech_jinlong_3_mix_2": {
+      "name": "확장 반응"
+    },
+    "tech_jinlong_3_pump_2": {
+      "name": "내산성 기술"
+    },
+    "tech_jinlong_3_xiranite_enr_formula": {
+      "name": "화로 확장 III"
+    },
+    "tech_jinlong_3_xiranite_oven_amount_3": {
+      "name": "화로 확장 IV"
+    },
+    "tech_tundra_1_cmpt_1": {
+      "name": "부품 제작"
+    },
+    "tech_tundra_1_furnance_1": {
+      "name": "기본 정련"
+    },
+    "tech_tundra_1_grinder_1": {
+      "name": "기초 분해 가공"
+    },
+    "tech_tundra_1_shaper_1": {
+      "name": "아이템 성형"
+    },
+    "tech_tundra_1_winder_1": {
+      "name": "합성 기술"
+    },
+    "tech_tundra_2_asm_1": {
+      "name": "포장 기술"
+    },
+    "tech_tundra_2_field_1": {
+      "name": "창고 입출력 라인"
+    },
+    "tech_tundra_2_filling_1": {
+      "name": "고체 주입"
+    },
+    "tech_tundra_2_plant_1": {
+      "name": "재배 기술"
+    },
+    "tech_tundra_3_thickener_1": {
+      "name": "연마 기술"
+    }
+  }
+}

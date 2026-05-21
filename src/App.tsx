@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { items, recipes, facilities } from "./data";
@@ -11,8 +12,26 @@ import PortraitDrawer from "./components/panels/PortraitDrawer";
 import ProductionViewTabs from "./components/production/ProductionViewTabs";
 import AddTargetDialogGrid from "./components/panels/AddTargetDialogGrid";
 import AppFooter from "./components/layout/AppFooter";
-import { ThemeProvider } from "./components/ui/theme-provider";
+import { ThemeProvider, useTheme } from "./components/ui/theme-provider";
 import type { ItemId } from "./types";
+
+/**
+ * Theme-aware Sonner toast portal. Lives inside ThemeProvider so it can
+ * read the current theme. Top-right by default to avoid colliding with
+ * the bottom-pinned LeftPanel collapse button and the portrait drawer.
+ */
+function ThemedToaster() {
+  const { theme } = useTheme();
+  return (
+    <Toaster
+      theme={theme === "dark" ? "dark" : "light"}
+      position="top-right"
+      richColors
+      closeButton
+      duration={4000}
+    />
+  );
+}
 
 export default function App() {
   const { i18n } = useTranslation("app");
@@ -129,6 +148,7 @@ export default function App() {
 
           <AppFooter />
         </div>
+        <ThemedToaster />
       </TooltipProvider>
     </ThemeProvider>
   );

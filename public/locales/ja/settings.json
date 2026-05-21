@@ -1,0 +1,43 @@
+{
+  "title": "設定",
+  "open": "設定を開く",
+  "aic": {
+    "intro": "研究済みの AIC テクノロジーを選択します。将来のアップデートでは、この設定によりプランで使用可能なアイテムとレシピが絞り込まれます。",
+    "activateAll": "すべて有効化",
+    "activateLayer": "この層を有効化",
+    "resetDefaults": "デフォルトに戻す",
+    "capDeltaLabel": "上限",
+    "row": {
+      "alwaysAvailable": "常時利用可能（ゲーム既定）",
+      "showDescription": "説明を表示",
+      "showRecipes": "解放されるレシピを表示",
+      "unlocksLabel": "解放",
+      "ariaResearched": "{{name}}、研究済み",
+      "ariaAvailable": "{{name}}、研究可能",
+      "ariaLocked": "{{name}}、前提条件未達成",
+      "ariaAlwaysAvailable": "{{name}}、常時利用可能"
+    },
+    "facilityLimits": {
+      "title": "施設上限",
+      "gameCap": "ゲーム上限",
+      "customCap": "カスタム",
+      "effective": "実効",
+      "reset": "ゲーム上限にリセット"
+    },
+    "domain": {
+      "toggleActivate": "{{name}} を有効化",
+      "toggleDeactivate": "{{name}} を無効化"
+    },
+    "toast": {
+      "activatedGroup_zero": "新たに有効化された施設はありません",
+      "activatedGroup_one": "{{primary}} 個の施設を有効化しました",
+      "activatedGroup_other": "{{primary}} 個の施設を有効化しました",
+      "activatedGroupWithPrereqs": "{{primary}} 個の施設を有効化しました（前提 {{prereqs}} 個含む）",
+      "activatedLayer": "{{primary}} 個の施設を有効化しました",
+      "activatedLayerWithPrereqs": "{{primary}} 個の施設を有効化しました（前提 {{prereqs}} 個含む）",
+      "resetDefaults": "ゲーム既定に戻しました",
+      "resetGroup": "プランをデフォルトに戻しました",
+      "prereqsRequired": "先に前提のテクノロジーを研究してください。"
+    }
+  }
+}

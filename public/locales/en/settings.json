@@ -1,0 +1,43 @@
+{
+  "title": "Settings",
+  "open": "Open settings",
+  "aic": {
+    "intro": "Choose which AIC technologies you've researched. In a future update, this will filter the items and recipes available to your plans.",
+    "activateAll": "Activate all",
+    "activateLayer": "Activate layer",
+    "resetDefaults": "Reset to defaults",
+    "capDeltaLabel": "max",
+    "row": {
+      "alwaysAvailable": "Always available (game default)",
+      "showDescription": "Show description",
+      "showRecipes": "Show unlocked recipes",
+      "unlocksLabel": "Unlocks",
+      "ariaResearched": "{{name}}, researched",
+      "ariaAvailable": "{{name}}, available to research",
+      "ariaLocked": "{{name}}, prerequisites not met",
+      "ariaAlwaysAvailable": "{{name}}, always available"
+    },
+    "facilityLimits": {
+      "title": "Facility limits",
+      "gameCap": "Game cap",
+      "customCap": "Custom",
+      "effective": "Effective",
+      "reset": "Reset to game cap"
+    },
+    "domain": {
+      "toggleActivate": "Activate {{name}}",
+      "toggleDeactivate": "Deactivate {{name}}"
+    },
+    "toast": {
+      "activatedGroup_zero": "No new facilities activated",
+      "activatedGroup_one": "Activated {{primary}} facility",
+      "activatedGroup_other": "Activated {{primary}} facilities",
+      "activatedGroupWithPrereqs": "Activated {{primary}} facilities (+{{prereqs}} prereqs)",
+      "activatedLayer": "Activated {{primary}} facilities",
+      "activatedLayerWithPrereqs": "Activated {{primary}} facilities (+{{prereqs}} prereqs)",
+      "resetDefaults": "Reset to game defaults",
+      "resetGroup": "Reset plan to defaults",
+      "prereqsRequired": "Research the prerequisite tech first."
+    }
+  }
+}

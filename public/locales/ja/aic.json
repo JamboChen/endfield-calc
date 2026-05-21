@@ -1,0 +1,104 @@
+{
+  "groups": {
+    "tech_group_jinlong": {
+      "name": "武陵工業計画"
+    },
+    "tech_group_tundra": {
+      "name": "基礎工業計画"
+    }
+  },
+  "layers": {
+    "tech_group_jinlong_liquid": {
+      "name": "武陵工業Ⅰ"
+    },
+    "tech_group_jinlong_copper": {
+      "name": "武陵工業Ⅱ"
+    },
+    "tech_group_jinlong_acid": {
+      "name": "武陵工業Ⅲ"
+    },
+    "tech_group_tundra_originium": {
+      "name": "基礎工業Ⅰ"
+    },
+    "tech_group_tundra_quartz": {
+      "name": "基礎工業Ⅱ"
+    },
+    "tech_group_tundra_iron": {
+      "name": "基礎工業Ⅲ"
+    }
+  },
+  "nodes": {
+    "tech_jinlong_1_dismantler_1": {
+      "name": "解体技術"
+    },
+    "tech_jinlong_1_filling_mode_1": {
+      "name": "液体充填"
+    },
+    "tech_jinlong_1_mix_1": {
+      "name": "溶解と反応"
+    },
+    "tech_jinlong_1_planter_mode_1": {
+      "name": "水耕栽培"
+    },
+    "tech_jinlong_1_pump_1": {
+      "name": "液体圧送"
+    },
+    "tech_jinlong_1_xiranite_oven_amount_1": {
+      "name": "洪炉拡張Ⅰ"
+    },
+    "tech_jinlong_2_furnance_mode_1": {
+      "name": "液体精錬"
+    },
+    "tech_jinlong_2_liquid_cleaner_1": {
+      "name": "廃水処理"
+    },
+    "tech_jinlong_2_xiranite_oven_amount_2": {
+      "name": "洪炉拡張Ⅱ"
+    },
+    "tech_jinlong_3_liquid_purifier_1": {
+      "name": "精製技術"
+    },
+    "tech_jinlong_3_mix_2": {
+      "name": "大型化学反応炉"
+    },
+    "tech_jinlong_3_pump_2": {
+      "name": "耐酸技術"
+    },
+    "tech_jinlong_3_xiranite_enr_formula": {
+      "name": "洪炉拡張Ⅲ"
+    },
+    "tech_jinlong_3_xiranite_oven_amount_3": {
+      "name": "洪炉拡張Ⅳ"
+    },
+    "tech_tundra_1_cmpt_1": {
+      "name": "部品製造"
+    },
+    "tech_tundra_1_furnance_1": {
+      "name": "基礎精錬"
+    },
+    "tech_tundra_1_grinder_1": {
+      "name": "基礎粉砕"
+    },
+    "tech_tundra_1_shaper_1": {
+      "name": "素材成形"
+    },
+    "tech_tundra_1_winder_1": {
+      "name": "装備加工"
+    },
+    "tech_tundra_2_asm_1": {
+      "name": "包装"
+    },
+    "tech_tundra_2_field_1": {
+      "name": "倉庫連結ハブ"
+    },
+    "tech_tundra_2_filling_1": {
+      "name": "固体充填"
+    },
+    "tech_tundra_2_plant_1": {
+      "name": "栽培"
+    },
+    "tech_tundra_3_thickener_1": {
+      "name": "研磨"
+    }
+  }
+}

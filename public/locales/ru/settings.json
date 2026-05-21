@@ -1,0 +1,45 @@
+{
+  "title": "Настройки",
+  "open": "Открыть настройки",
+  "aic": {
+    "intro": "Выберите технологии АПК, которые вы исследовали. В будущем обновлении это будет фильтровать доступные в планах предметы и рецепты.",
+    "activateAll": "Активировать всё",
+    "activateLayer": "Активировать слой",
+    "resetDefaults": "Сбросить к значениям по умолчанию",
+    "capDeltaLabel": "макс",
+    "row": {
+      "alwaysAvailable": "Всегда доступно (стандарт игры)",
+      "showDescription": "Показать описание",
+      "showRecipes": "Показать разблокированные рецепты",
+      "unlocksLabel": "Разблокирует",
+      "ariaResearched": "{{name}}, исследовано",
+      "ariaAvailable": "{{name}}, доступно для исследования",
+      "ariaLocked": "{{name}}, требования не выполнены",
+      "ariaAlwaysAvailable": "{{name}}, всегда доступно"
+    },
+    "facilityLimits": {
+      "title": "Лимиты сооружений",
+      "gameCap": "Игровой лимит",
+      "customCap": "Свой",
+      "effective": "Действующий",
+      "reset": "Сбросить к игровому лимиту"
+    },
+    "domain": {
+      "toggleActivate": "Активировать {{name}}",
+      "toggleDeactivate": "Деактивировать {{name}}"
+    },
+    "toast": {
+      "activatedGroup_zero": "Новых сооружений не активировано",
+      "activatedGroup_one": "Активировано {{primary}} сооружение",
+      "activatedGroup_few": "Активировано {{primary}} сооружения",
+      "activatedGroup_many": "Активировано {{primary}} сооружений",
+      "activatedGroup_other": "Активировано {{primary}} сооружений",
+      "activatedGroupWithPrereqs": "Активировано {{primary}} сооружений (+{{prereqs}} требований)",
+      "activatedLayer": "Активировано {{primary}} сооружений",
+      "activatedLayerWithPrereqs": "Активировано {{primary}} сооружений (+{{prereqs}} требований)",
+      "resetDefaults": "Сброшено к стандартам игры",
+      "resetGroup": "План сброшен к значениям по умолчанию",
+      "prereqsRequired": "Сначала исследуйте необходимую технологию."
+    }
+  }
+}
