@@ -5,6 +5,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
 import type {
+  FacilityId,
   ItemId,
   Recipe,
   RecipeId,
@@ -169,12 +170,20 @@ function serializeHash(
  * recipe-override picker all operate on this set; recipes outside it
  * cannot run in this plan.
  *
- * Why threaded as an arg instead of read from a global: the App layer
+ * Why threaded as args instead of read from a global: the App layer
  * is the single source of truth that combines game data with user
  * settings. Globals would re-introduce cross-module state and break
  * the auto-prune signal.
+ *
+ * `facilityCaps` is the per-facility aggregated cap (sum across active
+ * domains of `effectiveCaps[facilityId][domainId]`). Passed into
+ * `calculateProductionPlan` → Phase 5 MIP. Optional and undefined when
+ * the user has no caps configured.
  */
-export function useProductionPlan(availableRecipes: readonly Recipe[]) {
+export function useProductionPlan(
+  availableRecipes: readonly Recipe[],
+  facilityCaps?: ReadonlyMap<FacilityId, number>,
+) {
   const { t } = useTranslation("app");
 
   const initialState = useMemo(() => parseHash(), []);
@@ -259,8 +268,7 @@ export function useProductionPlan(availableRecipes: readonly Recipe[]) {
       items,
       availableRecipes,
       facilities,
-      recipeOverrides,
-      manualRawMaterials,
+      { recipeOverrides, manualRawMaterials, facilityCaps },
     )
       .then((result) => {
         // Cancelled means a newer calc has started (or unmount). Leave
@@ -279,7 +287,15 @@ export function useProductionPlan(availableRecipes: readonly Recipe[]) {
     return () => {
       cancelled = true;
     };
-  }, [solverReady, targets, recipeOverrides, manualRawMaterials, availableRecipes, t]);
+  }, [
+    solverReady,
+    targets,
+    recipeOverrides,
+    manualRawMaterials,
+    availableRecipes,
+    facilityCaps,
+    t,
+  ]);
 
   // Auto-prune effect.
   //

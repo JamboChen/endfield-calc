@@ -134,6 +134,18 @@ export type PackingInput = {
    * substitutes for the pinned recipe's slot demand.
    */
   recipeOverrides?: Map<ItemId, RecipeId>;
+  /**
+   * Optional per-facility building-count caps. When set, the MIP adds
+   * `Σ x_v ≤ N_F` for each capped facility `F` (sum over all variants
+   * whose `variant.facility.id === F`). When the cap renders the MIP
+   * infeasible the packer retries without the caps and emits a warning
+   * into `PackingResult.warnings` rather than failing.
+   *
+   * Twin facilities (e.g. MIX_POOL_1 / MIX_POOL_2 sharing recipes) each
+   * carry their own cap; the MIP shifts demand to the cheaper feasible
+   * facility automatically.
+   */
+  facilityCaps?: ReadonlyMap<FacilityId, number>;
 };
 
 export type PackingResult = {
@@ -748,6 +760,7 @@ const solvePacking = async (
   variants: BinShapeVariant[],
   classes: EquivalenceClass[],
   recipeOverrides: Map<ItemId, RecipeId> | undefined,
+  facilityCaps: ReadonlyMap<FacilityId, number> | undefined,
 ): Promise<SolveOutput | null> => {
   if (variants.length === 0 || classes.length === 0) {
     return {
@@ -828,6 +841,38 @@ const solvePacking = async (
     constraints[cName] = { max: 0 };
     variables[uName][cName] = 1;
     variables[xName][cName] = -1;
+  }
+
+  // Facility placement caps: for each capped facility F,
+  // Σ_{v: v.facility.id === F} x_v ≤ N_F. Twin facilities (MIX_POOL_1
+  // / MIX_POOL_2 sharing recipes) each carry their own cap; the MIP
+  // shifts demand to the cheaper feasible facility automatically.
+  //
+  // Only emit a constraint if at least one variant uses the capped
+  // facility — defensive against caps for facilities not present in
+  // the plan.
+  if (facilityCaps && facilityCaps.size > 0) {
+    const variantsByFacility = new Map<FacilityId, BinShapeVariant[]>();
+    for (const v of variants) {
+      const fid = v.facility.id;
+      let bucket = variantsByFacility.get(fid);
+      if (!bucket) {
+        bucket = [];
+        variantsByFacility.set(fid, bucket);
+      }
+      bucket.push(v);
+    }
+    for (const [facilityId, cap] of facilityCaps) {
+      const facilityVariants = variantsByFacility.get(facilityId);
+      if (!facilityVariants || facilityVariants.length === 0) continue;
+      if (!Number.isFinite(cap) || cap < 0) continue;
+      const cName = `facility_cap_${facilityId}`;
+      constraints[cName] = { max: cap };
+      for (const v of facilityVariants) {
+        const xName = xVarByVariant.get(v)!;
+        variables[xName][cName] = 1;
+      }
+    }
   }
 
   // Demand coverage. Per equivalence class:
@@ -1501,9 +1546,44 @@ const assertBinPortCaps = (
 /**
  * Phase 3 entry point. Returns bins + per-recipe allocations + warnings.
  */
+/**
+ * Build over-cap warning strings for a solution computed WITHOUT caps,
+ * when the cap-constrained solve was infeasible. One warning per
+ * facility that exceeds its cap.
+ *
+ * Walks the solution's per-variant building counts, sums by facility,
+ * and compares against the cap map. Capped facilities not present in
+ * the solution (zero usage) are omitted.
+ */
+const buildOverCapWarnings = (
+  solution: SolveOutput,
+  facilityCaps: ReadonlyMap<FacilityId, number>,
+): string[] => {
+  const usedByFacility = new Map<FacilityId, number>();
+  for (const [variant, count] of solution.buildingCounts) {
+    const fid = variant.facility.id;
+    usedByFacility.set(fid, (usedByFacility.get(fid) ?? 0) + count);
+  }
+  const warnings: string[] = [];
+  for (const [facilityId, cap] of facilityCaps) {
+    const used = usedByFacility.get(facilityId) ?? 0;
+    if (used <= cap + 1e-6) continue;
+    warnings.push(
+      `Facility "${facilityId}" placement exceeds cap: plan needs ${Math.ceil(used)} buildings but cap is ${cap}. Raise the cap, restructure the plan, or activate another domain.`,
+    );
+  }
+  return warnings;
+};
+
 export const packBins = async (input: PackingInput): Promise<PackingResult> => {
-  const { recipeSlotDemands, recipeMap, facilityMap, itemMap, recipeOverrides } =
-    input;
+  const {
+    recipeSlotDemands,
+    recipeMap,
+    facilityMap,
+    itemMap,
+    recipeOverrides,
+    facilityCaps,
+  } = input;
 
   // Identify which recipes are eligible for multi-formula packing
   // (their facility has `cacheSlots` defined).
@@ -1566,7 +1646,57 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
     );
   }
 
-  const solution = await solvePacking(allVariants, classes, recipeOverrides);
+  // Try with caps first. If the cap-constrained MIP is infeasible,
+  // retry without caps and emit warnings — the user gets a workable
+  // plan plus a clear signal that their caps are exceeded. If even
+  // the no-caps solve fails, fall through to the existing
+  // singleton-bins fallback.
+  //
+  // Note: `solvePacking` throws in test mode when the pass-1 LP is
+  // infeasible (a defensive check against real packer bugs on demand
+  // ratios outside the conic hull). When caps are provided, the
+  // infeasibility may simply be cap-induced — a legitimate user
+  // configuration, not a bug. We catch and treat as "retry-worthy"
+  // only when `facilityCaps` is non-empty; otherwise the throw
+  // propagates as before.
+  let solution: SolveOutput | null = null;
+  const hasCaps = !!(facilityCaps && facilityCaps.size > 0);
+  try {
+    solution = await solvePacking(
+      allVariants,
+      classes,
+      recipeOverrides,
+      facilityCaps,
+    );
+  } catch (e) {
+    if (!hasCaps) throw e;
+    // Cap-induced infeasibility — fall through to retry without caps.
+    if (import.meta.env?.DEV) {
+      console.warn(
+        "[BIN_PACKING] Cap-constrained MIP threw (treating as cap-induced infeasibility):",
+        e,
+      );
+    }
+    solution = null;
+  }
+  const overCapWarnings: string[] = [];
+  if (!solution && hasCaps) {
+    if (import.meta.env?.DEV) {
+      console.warn(
+        "[BIN_PACKING] Cap-constrained MIP failed; retrying without facility caps",
+      );
+    }
+    solution = await solvePacking(
+      allVariants,
+      classes,
+      recipeOverrides,
+      undefined,
+    );
+    if (solution) {
+      overCapWarnings.push(...buildOverCapWarnings(solution, facilityCaps));
+    }
+  }
+
   if (!solution) {
     if (import.meta.env?.DEV) {
       console.warn(
@@ -1633,6 +1763,6 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
   return {
     bins: [...packed.bins, ...singletons.bins],
     allocations: new Map([...packed.allocations, ...singletons.allocations]),
-    warnings: [],
+    warnings: overCapWarnings,
   };
 };

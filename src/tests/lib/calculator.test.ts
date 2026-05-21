@@ -159,7 +159,6 @@ describe("Multiple Recipe Selection", () => {
       mockItems,
       multiRecipeItems,
       mockFacilities,
-      undefined,
     );
 
     const producer = getProducer(plan, ItemId.ITEM_IRON_NUGGET);
@@ -179,7 +178,9 @@ describe("Multiple Recipe Selection", () => {
       mockItems,
       multiRecipeItems,
       mockFacilities,
-      overrides,
+      {
+        recipeOverrides: overrides,
+      },
     );
 
     const producer = getProducer(plan, ItemId.ITEM_IRON_NUGGET);
@@ -210,7 +211,9 @@ describe("Override Cycle Resolution (Issue #51)", () => {
       mockItems,
       overrideCycleRecipes,
       mockFacilities,
-      overrides,
+      {
+        recipeOverrides: overrides,
+      },
     );
 
     // The plan should be valid — no invalid cycles
@@ -255,7 +258,9 @@ describe("Override Cycle Resolution (Issue #51)", () => {
       mockItems,
       overrideCycleRecipes,
       mockFacilities,
-      overrides,
+      {
+        recipeOverrides: overrides,
+      },
     );
 
     // All three recipes should run at 1 facility each (rate = 30/min per facility)
@@ -286,7 +291,9 @@ describe("Override Cycle Resolution (Issue #51)", () => {
       mockItems,
       overrideCycleRecipes,
       mockFacilities,
-      overrides,
+      {
+        recipeOverrides: overrides,
+      },
     );
 
     // Iron Powder should be in the plan (not silently dropped)
@@ -313,7 +320,9 @@ describe("Override Cycle Resolution (Issue #51)", () => {
       mockItems,
       cycleRecipes,
       mockFacilities,
-      overrides,
+      {
+        recipeOverrides: overrides,
+      },
     );
 
     // Cycle is resolved — no detected or invalid cycles
@@ -348,7 +357,9 @@ describe("Override Cycle Resolution (Issue #51)", () => {
       mockItems,
       minimalCycleRecipes,
       mockFacilities,
-      overrides,
+      {
+        recipeOverrides: overrides,
+      },
     );
 
     // Extension should fail — no feeder recipes available
@@ -432,7 +443,9 @@ describe("Cycle Detection", () => {
       mockItems,
       cycleRecipes,
       mockFacilities,
-      overrides,
+      {
+        recipeOverrides: overrides,
+      },
     );
 
     // Cycle resolved — no invalid cycles
@@ -458,7 +471,9 @@ describe("Cycle Detection", () => {
       mockItems,
       cycleRecipes,
       mockFacilities,
-      overrides,
+      {
+        recipeOverrides: overrides,
+      },
     );
 
     if (plan.detectedCycles.length > 0) {
@@ -479,8 +494,9 @@ describe("Manual Raw Materials", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
-      undefined,
-      manualRaw,
+      {
+        manualRawMaterials: manualRaw,
+      },
     );
 
     const nuggetNode = getItemNode(plan, ItemId.ITEM_IRON_NUGGET);
@@ -496,8 +512,9 @@ describe("Manual Raw Materials", () => {
       mockItems,
       complexRecipes,
       mockFacilities,
-      undefined,
-      manualRaw,
+      {
+        manualRawMaterials: manualRaw,
+      },
     );
 
     const glassNode = getItemNode(plan, ItemId.ITEM_QUARTZ_GLASS);
@@ -1681,8 +1698,9 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       items,
       recipes,
       facilities,
-      undefined,
-      manualRaws,
+      {
+        manualRawMaterials: manualRaws,
+      },
     );
 
     // No Crucible bin should flag Sewage or Xiranite Powder.

@@ -16,7 +16,7 @@ import { ThemeProvider, useTheme } from "./components/ui/theme-provider";
 import { DomainSettingsProvider } from "./contexts/DomainSettingsProvider";
 import { useDomainSettingsContext } from "./contexts/domain-settings-context";
 import { computeRecipeAvailability } from "./lib/aic-research-helpers";
-import type { ItemId } from "./types";
+import type { FacilityId, ItemId } from "./types";
 
 /**
  * Theme-aware Sonner toast portal. Lives inside ThemeProvider so it can
@@ -77,6 +77,27 @@ function AppContent() {
     );
   }, [availableRecipes]);
 
+  // Aggregated per-facility cap = sum over currently-active domains of
+  // each (facility, domain) effective cap. Threaded into the Phase 5
+  // MIP via `useProductionPlan` → `calculateProductionPlan({ facilityCaps })`.
+  // Facilities without entries in `effectiveCaps` are uncapped (omitted
+  // from the map entirely — the packer treats absence as no constraint).
+  const facilityCaps = useMemo(() => {
+    const out = new Map<FacilityId, number>();
+    for (const [facilityId, perDomain] of settings.aic.effectiveCaps) {
+      let total = 0;
+      let anyActive = false;
+      for (const [domainId, cap] of perDomain) {
+        if (settings.activeDomains.has(domainId)) {
+          total += cap;
+          anyActive = true;
+        }
+      }
+      if (anyActive) out.set(facilityId, total);
+    }
+    return out;
+  }, [settings.aic.effectiveCaps, settings.activeDomains]);
+
   const {
     targets,
     dialogOpen,
@@ -101,7 +122,7 @@ function AppContent() {
     handleSavePlan,
     handleOpenPlan,
     isLoading,
-  } = useProductionPlan(availableRecipes);
+  } = useProductionPlan(availableRecipes, facilityCaps);
 
   const targetRates = useMemo(
     () => new Map(targets.map((t) => [t.itemId as ItemId, t.rate])),

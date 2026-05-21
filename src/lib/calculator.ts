@@ -2,6 +2,7 @@ import type {
   Item,
   Recipe,
   Facility,
+  FacilityId,
   ItemId,
   RecipeId,
   BinId,
@@ -884,15 +885,39 @@ function backtrackRecipeChoices(
   return null;
 }
 
+/**
+ * Options bag for `calculateProductionPlan`. Keeps the function signature
+ * stable as new optional concerns are added (e.g. `facilityCaps` in
+ * Step 2 of the AIC Plan feature).
+ *
+ * - `recipeOverrides`: user's per-item recipe choice (e.g. picking
+ *   `pool_xiranite_poly_2` over `pool_xiranite_poly_1`). Item id → recipe id.
+ * - `manualRawMaterials`: items the user explicitly pinned as raw
+ *   (short-circuits a producer chain).
+ * - `facilityCaps`: aggregated per-facility placement caps across active
+ *   domains (cap = Σ active-domains × per-(facility, domain) cap).
+ *   When provided, the Phase 5 MIP gets `Σ x_v ≤ N_F` constraints; when
+ *   the cap is infeasible the packer retries without it and emits a
+ *   warning into `plan.warnings` rather than failing.
+ */
+export interface CalculateProductionPlanOptions {
+  recipeOverrides?: Map<ItemId, RecipeId>;
+  manualRawMaterials?: Set<ItemId>;
+  facilityCaps?: ReadonlyMap<FacilityId, number>;
+}
+
 export async function calculateProductionPlan(
   targets: Array<{ itemId: ItemId; rate: number }>,
   items: readonly Item[],
   recipes: readonly Recipe[],
   facilities: readonly Facility[],
-  recipeOverrides?: Map<ItemId, RecipeId>,
-  manualRawMaterials?: Set<ItemId>,
+  options?: CalculateProductionPlanOptions,
 ): Promise<ProductionDependencyGraph> {
   if (targets.length === 0) throw new Error("No targets specified");
+
+  const recipeOverrides = options?.recipeOverrides;
+  const manualRawMaterials = options?.manualRawMaterials;
+  const facilityCaps = options?.facilityCaps;
 
   const maps: ProductionMaps = {
     itemMap: new Map(items.map((i) => [i.id, i])),
@@ -939,6 +964,7 @@ export async function calculateProductionPlan(
         itemMap: maps.itemMap,
         facilityMap: maps.facilityMap,
         recipeOverrides,
+        facilityCaps,
       });
       const recipePrefill = propagatePrefillCandidates(
         packing.bins,
@@ -983,6 +1009,7 @@ export async function calculateProductionPlan(
         itemMap: maps.itemMap,
         facilityMap: maps.facilityMap,
         recipeOverrides,
+        facilityCaps,
       });
       const recipePrefill = propagatePrefillCandidates(
         packing.bins,

@@ -1185,5 +1185,139 @@ describe("packBins", () => {
         expect(bin.variantId.length).toBeGreaterThan(0);
       }
     });
+
+    describe("facility cap enforcement (Step 2)", () => {
+      test("cap unset (undefined) yields identical output to baseline", async () => {
+        // Regression guard: a no-cap solve must not be affected by the
+        // cap-handling code path.
+        const slotDemands = new Map<RecipeId, number>([
+          ["lx_1" as RecipeId, 4],
+          ["xe_1" as RecipeId, 4],
+          ["x_1" as RecipeId, 2],
+        ]);
+        const baseline = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+        });
+        const withUndefinedCaps = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps: undefined,
+        });
+        const withEmptyCaps = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps: new Map(),
+        });
+
+        // Building totals and bin counts should match exactly.
+        const totalBuildings = (r: { bins: { buildingCount: number }[] }) =>
+          r.bins.reduce((s, b) => s + Math.ceil(b.buildingCount), 0);
+        expect(totalBuildings(withUndefinedCaps)).toBe(totalBuildings(baseline));
+        expect(totalBuildings(withEmptyCaps)).toBe(totalBuildings(baseline));
+        expect(baseline.warnings).toEqual([]);
+        expect(withUndefinedCaps.warnings).toEqual([]);
+        expect(withEmptyCaps.warnings).toEqual([]);
+      });
+
+      test("cap that's already met by the optimal solution does not change the result", async () => {
+        // Baseline picks 4 Expanded buildings (mix_pool_2). Setting the
+        // Expanded cap to 4 is exactly tight; MIP returns the same
+        // solution, no warning.
+        const slotDemands = new Map<RecipeId, number>([
+          ["lx_1" as RecipeId, 4],
+          ["xe_1" as RecipeId, 4],
+          ["x_1" as RecipeId, 2],
+        ]);
+        const facilityCaps = new Map<FacilityId, number>([
+          ["mix_pool_2" as FacilityId, 4],
+        ]);
+        const r = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps,
+        });
+        const expandedCount = r.bins
+          .filter((b) => b.facilityId === ("mix_pool_2" as FacilityId))
+          .reduce((s, b) => s + b.buildingCount, 0);
+        expect(expandedCount).toBeLessThanOrEqual(4);
+        expect(r.warnings).toEqual([]);
+      });
+
+      test("cap on the cheaper facility shifts demand to the twin", async () => {
+        // Baseline: 4 Expanded buildings @ 100W = 400W. Cap Expanded at
+        // 0 → MIP must use Reactor instead. Reactor has 5 inner slots
+        // but the {LX,XE,X} set needs 8 distinct items, so X must be
+        // hosted in its own singleton (Reactor + X → 4 inner items,
+        // fits) — at minimum, Reactor singletons or grouped {LX,XE}
+        // bins are used.
+        //
+        // Key invariant: NO mix_pool_2 buildings in the result, AND
+        // total slot coverage is preserved.
+        const slotDemands = new Map<RecipeId, number>([
+          ["lx_1" as RecipeId, 2],
+          ["xe_1" as RecipeId, 2],
+        ]);
+        const facilityCaps = new Map<FacilityId, number>([
+          ["mix_pool_2" as FacilityId, 0],
+        ]);
+        const r = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps,
+        });
+        // No Expanded usage.
+        const expandedBins = r.bins.filter(
+          (b) => b.facilityId === ("mix_pool_2" as FacilityId),
+        );
+        expect(expandedBins.length).toBe(0);
+        // Slot coverage holds for LX and XE.
+        const slotsByRecipe = new Map<string, number>();
+        for (const bin of r.bins) {
+          for (const rid of bin.recipeIds) {
+            slotsByRecipe.set(
+              rid,
+              (slotsByRecipe.get(rid) ?? 0) + bin.buildingCount,
+            );
+          }
+        }
+        expect(slotsByRecipe.get("lx_1") ?? 0).toBeGreaterThanOrEqual(2);
+        expect(slotsByRecipe.get("xe_1") ?? 0).toBeGreaterThanOrEqual(2);
+        // No warning — twins absorbed the constraint cleanly.
+        expect(r.warnings).toEqual([]);
+      });
+
+      test("cap that's structurally infeasible triggers retry-without-caps + warning", async () => {
+        // Cap BOTH facilities at zero → no way to host the demand.
+        // The cap-constrained MIP fails; the retry without caps solves
+        // (since the demand is fundamentally satisfiable); the result
+        // returns with a warning naming the over-cap facilities.
+        const slotDemands = new Map<RecipeId, number>([
+          ["lx_1" as RecipeId, 2],
+          ["xe_1" as RecipeId, 2],
+          ["x_1" as RecipeId, 1],
+        ]);
+        const facilityCaps = new Map<FacilityId, number>([
+          ["mix_pool_1" as FacilityId, 0],
+          ["mix_pool_2" as FacilityId, 0],
+        ]);
+        const r = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps,
+        });
+        // Bins emitted (no fallback to singleton-failure path).
+        expect(r.bins.length).toBeGreaterThan(0);
+        // Warning fired naming at least one capped facility.
+        expect(r.warnings.length).toBeGreaterThan(0);
+        const allWarnings = r.warnings.join(" ");
+        expect(allWarnings).toMatch(/exceeds cap/i);
+        // At least one of the capped facilities is mentioned.
+        const namesMatched =
+          allWarnings.includes("mix_pool_1") ||
+          allWarnings.includes("mix_pool_2");
+        expect(namesMatched).toBe(true);
+      });
+    });
   });
 });
