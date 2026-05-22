@@ -8,6 +8,10 @@
   "calculationError": "An error occurred during production plan calculation. Please check your targets and recipe overrides.",
   "cycleWarning": "The selected recipe for {{overriddenItems}} creates a production loop that cannot sustain the required output. Affected items: {{affectedItems}}.",
   "cycleWarningNoAffected": "The selected recipe for {{overriddenItems}} creates a production loop that cannot sustain the required output.",
+  "facilityOverCap_one": "Facility {{facility}} placement exceeds cap: plan needs {{displayCount}} building but cap is {{cap}}. Raise the cap, restructure the plan, or activate another domain.",
+  "facilityOverCap_other": "Facility {{facility}} placement exceeds cap: plan needs {{displayCount}} buildings but cap is {{cap}}. Raise the cap, restructure the plan, or activate another domain.",
+  "packerOverrideInfeasible": "Recipe \"{{recipe}}\" on facility \"{{facility}}\" has no valid bin shape — packer fell back to per-recipe bins for this recipe.",
+  "packerFallback": "Multi-formula bin packer fell back to per-recipe bins due to an infeasible constraint configuration.",
   "footer": {
     "feedback": "Feedback & Suggestions:",
     "trademark": "Arknights: Endfield is a trademark of Hypergryph. This tool is not affiliated with or endorsed by Hypergryph.",

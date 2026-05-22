@@ -89,6 +89,7 @@ import type {
   FacilityId,
   BinId,
   Bin,
+  PlanWarning,
   RecipeBinAllocation,
 } from "@/types";
 
@@ -152,12 +153,21 @@ export type PackingResult = {
   bins: Bin[];
   allocations: Map<RecipeId, RecipeBinAllocation>;
   /**
-   * Non-fatal warnings surfaced from packing. Populated when a recipe
-   * override pinned a variant whose facility has no valid bin shape
-   * (forcing the packer to fall back to per-recipe singletons), or
-   * other override-related diagnostics worth surfacing to the user.
+   * Structured non-fatal warnings emitted from packing. See
+   * `PlanWarning` in `src/types/production.ts` for the discriminant
+   * union. Today's emitters:
+   *   - `packer-override-infeasible` — recipe-override pinning a
+   *     variant whose facility has no valid bin shape.
+   *   - `packer-fallback` — generic LP-fallback signal when the MIP
+   *     can't solve the demand under strict equality.
+   *   - `facility-over-cap` — total `buildingCount` for a capped
+   *     facility exceeds the cap (post-packing check, covers both
+   *     MIP-packed and singleton bins).
+   *
+   * Consumer (`useProductionPlan.warnings` memo) formats each kind
+   * with `ceilMode` + i18n before display.
    */
-  warnings: string[];
+  warnings: PlanWarning[];
 };
 
 /**
@@ -1438,9 +1448,9 @@ const buildInfeasiblePinWarnings = (
   recipeMap: Map<RecipeId, Recipe>,
   facilityMap: Map<FacilityId, Facility>,
   itemMap: Map<ItemId, Item>,
-): string[] => {
+): PlanWarning[] => {
   if (!recipeOverrides || recipeOverrides.size === 0) return [];
-  const warnings: string[] = [];
+  const warnings: PlanWarning[] = [];
   const seenPins = new Set<RecipeId>();
 
   for (const overrideRecipeId of recipeOverrides.values()) {
@@ -1473,9 +1483,11 @@ const buildInfeasiblePinWarnings = (
       v.recipeIds.includes(overrideRecipeId),
     );
     if (!hasVariant) {
-      warnings.push(
-        `Recipe override "${overrideRecipeId}" on facility "${facility.id}" has no valid bin shape — packer fell back to per-recipe bins for this recipe.`,
-      );
+      warnings.push({
+        kind: "packer-override-infeasible",
+        recipeId: overrideRecipeId,
+        facilityId: facility.id,
+      });
     }
   }
 
@@ -1547,30 +1559,53 @@ const assertBinPortCaps = (
  * Phase 3 entry point. Returns bins + per-recipe allocations + warnings.
  */
 /**
- * Build over-cap warning strings for a solution computed WITHOUT caps,
- * when the cap-constrained solve was infeasible. One warning per
- * facility that exceeds its cap.
+ * Post-packing per-facility cap check.
  *
- * Walks the solution's per-variant building counts, sums by facility,
- * and compares against the cap map. Capped facilities not present in
- * the solution (zero usage) are omitted.
+ * Walks the FINAL emitted bin set (multi-formula MIP-packed bins PLUS
+ * single-formula singleton bins), sums `buildingCount` per facility,
+ * and emits one structured warning per facility exceeding its cap.
+ *
+ * Why post-packing instead of MIP-internal:
+ *   - The MIP's variant set is restricted to multi-formula facilities
+ *     (`facility.cacheSlots != null`). Single-formula facilities like
+ *     `xiranite_oven_1` go through `emitSingletonBins` and bypass the
+ *     MIP entirely — caps on them must still be checked.
+ *   - One unified detection path beats two parallel ones.
+ *
+ * The MIP's cap constraint inside `solvePacking` is still useful: it
+ * helps the MIP shift demand between twin facilities (e.g. MIX_POOL_1
+ * ↔ MIX_POOL_2) before this warning ever fires. The warning is the
+ * diagnostic when even the MIP can't fit.
+ *
+ * Caps are integers (parseInt-guarded at the UI input); `used` is
+ * float-from-LP. Direct `used > cap + EPSILON` comparison; the
+ * EPSILON absorbs LP solver drift. NO ceil on the comparison — that
+ * would spuriously fire for fractional caps if those ever become
+ * supported.
  */
-const buildOverCapWarnings = (
-  solution: SolveOutput,
+const buildOverCapWarningsFromBins = (
+  bins: readonly Bin[],
   facilityCaps: ReadonlyMap<FacilityId, number>,
-): string[] => {
+): PlanWarning[] => {
   const usedByFacility = new Map<FacilityId, number>();
-  for (const [variant, count] of solution.buildingCounts) {
-    const fid = variant.facility.id;
-    usedByFacility.set(fid, (usedByFacility.get(fid) ?? 0) + count);
-  }
-  const warnings: string[] = [];
-  for (const [facilityId, cap] of facilityCaps) {
-    const used = usedByFacility.get(facilityId) ?? 0;
-    if (used <= cap + 1e-6) continue;
-    warnings.push(
-      `Facility "${facilityId}" placement exceeds cap: plan needs ${Math.ceil(used)} buildings but cap is ${cap}. Raise the cap, restructure the plan, or activate another domain.`,
+  for (const bin of bins) {
+    usedByFacility.set(
+      bin.facilityId,
+      (usedByFacility.get(bin.facilityId) ?? 0) + bin.buildingCount,
     );
+  }
+  const warnings: PlanWarning[] = [];
+  const EPSILON = 1e-9;
+  for (const [facilityId, cap] of facilityCaps) {
+    if (!Number.isFinite(cap) || cap < 0) continue;
+    const used = usedByFacility.get(facilityId) ?? 0;
+    if (used <= cap + EPSILON) continue;
+    warnings.push({
+      kind: "facility-over-cap",
+      facilityId,
+      used,
+      cap,
+    });
   }
   return warnings;
 };
@@ -1659,6 +1694,11 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
   // configuration, not a bug. We catch and treat as "retry-worthy"
   // only when `facilityCaps` is non-empty; otherwise the throw
   // propagates as before.
+  // Try with caps first. If the cap-constrained MIP throws (test-mode
+  // safety net) or returns null AND caps were applied, retry without
+  // caps. The post-packing cap check still fires on the retry's bins.
+  // If even the no-caps solve fails, fall through to the singleton-bins
+  // fallback path (which ALSO gets a post-packing cap check).
   let solution: SolveOutput | null = null;
   const hasCaps = !!(facilityCaps && facilityCaps.size > 0);
   try {
@@ -1679,7 +1719,6 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
     }
     solution = null;
   }
-  const overCapWarnings: string[] = [];
   if (!solution && hasCaps) {
     if (import.meta.env?.DEV) {
       console.warn(
@@ -1692,9 +1731,6 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
       recipeOverrides,
       undefined,
     );
-    if (solution) {
-      overCapWarnings.push(...buildOverCapWarnings(solution, facilityCaps));
-    }
   }
 
   if (!solution) {
@@ -1711,9 +1747,7 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
       itemMap,
     );
     if (warnings.length === 0) {
-      warnings.push(
-        "Multi-formula bin packer fell back to per-recipe bins due to an infeasible constraint configuration.",
-      );
+      warnings.push({ kind: "packer-fallback" });
     }
     const fallback = emitSingletonBins(
       recipeSlotDemands,
@@ -1722,6 +1756,11 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
       facilityMap,
       itemMap,
     );
+    // Cap check on the fallback singleton bins — caps still apply even
+    // when the rest of the packing infrastructure has degraded.
+    if (facilityCaps) {
+      warnings.push(...buildOverCapWarningsFromBins(fallback.bins, facilityCaps));
+    }
     // No port-cap assertion on the fallback path: it's a best-effort
     // singletonization for genuinely-infeasible scenarios; any cap
     // violations are surfaced via warnings.
@@ -1760,9 +1799,19 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
   // surfaced via warnings rather than assertions.
   assertBinPortCaps(packed.bins, facilityMap);
 
+  const combinedBins = [...packed.bins, ...singletons.bins];
+  // Post-packing cap check on the FULL bin set. This catches:
+  //   - Multi-formula facilities where the MIP cap was bypassed via
+  //     retry-without-caps (cap was tight).
+  //   - Single-formula facilities whose recipes flowed through
+  //     `emitSingletonBins` and skipped the MIP entirely.
+  const warnings: PlanWarning[] = facilityCaps
+    ? buildOverCapWarningsFromBins(combinedBins, facilityCaps)
+    : [];
+
   return {
-    bins: [...packed.bins, ...singletons.bins],
+    bins: combinedBins,
     allocations: new Map([...packed.allocations, ...singletons.allocations]),
-    warnings: overCapWarnings,
+    warnings,
   };
 };

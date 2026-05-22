@@ -5,18 +5,25 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
 import type {
+  Facility,
   FacilityId,
   ItemId,
   Recipe,
   RecipeId,
+  PlanWarning,
   ProductionDependencyGraph,
   ProductionGraphNode,
 } from "@/types";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useProductionStats } from "./useProductionStats";
 import { useProductionTable } from "./useProductionTable";
-import { getItemName, getFacilityName } from "@/lib/i18n-helpers";
-import { getItemById } from "@/lib/utils";
+import {
+  getItemName,
+  getFacilityName,
+  getRecipeName,
+} from "@/lib/i18n-helpers";
+import { formatCount, getItemById } from "@/lib/utils";
 
 interface SavedPlan {
   version: string;
@@ -160,6 +167,50 @@ function serializeHash(
   return params.toString();
 }
 
+
+/**
+ * Format one structured `PlanWarning` into a display string.
+ *
+ * The single point where `ceilMode` (UI preference) and i18n strings
+ * are applied to packer/calc-emitted warnings. Keeps the data layer
+ * (`multi-formula-packing.ts`, `calculator.ts`) free of display state.
+ *
+ * Plural rules: i18next uses the `count` param for `_one` / `_other`
+ * (and `_few` / `_many` in Russian). We pass `Math.ceil(used)` as
+ * `count` so plurals classify on the integer physical count regardless
+ * of `ceilMode`; the human-readable `displayCount` (which respects
+ * `ceilMode`) drives the visible number.
+ */
+function formatPlanWarning(
+  w: PlanWarning,
+  ceilMode: boolean,
+  t: TFunction,
+  facilitiesArr: readonly Facility[],
+): string {
+  const lookupFacilityName = (id: FacilityId): string => {
+    const facility = facilitiesArr.find((f) => f.id === id);
+    return facility ? getFacilityName(facility) : id;
+  };
+
+  switch (w.kind) {
+    case "facility-over-cap":
+      // Plural classification uses ceiled count (physical buildings
+      // are integer). Display value respects user's ceilMode toggle.
+      return t("facilityOverCap", {
+        facility: lookupFacilityName(w.facilityId),
+        displayCount: formatCount(w.used, ceilMode),
+        count: Math.ceil(w.used - 1e-9),
+        cap: w.cap,
+      });
+    case "packer-override-infeasible":
+      return t("packerOverrideInfeasible", {
+        recipe: getRecipeName(w.recipeId),
+        facility: lookupFacilityName(w.facilityId),
+      });
+    case "packer-fallback":
+      return t("packerFallback");
+  }
+}
 
 /**
  * Plan/recipe-calc state hook.
@@ -455,9 +506,11 @@ export function useProductionPlan(
 
   // Derive warning messages from invalid cycles (with translated item names)
   // plus any non-fatal warnings the calculator surfaced (e.g. packer
-  // fallback warnings from `multi-formula-packing`). Cycle warnings only
-  // fire for cycles caused by user recipe overrides — pre-existing
-  // unsolvable cycles in the game data are not actionable and are skipped.
+  // fallback / cap-overflow warnings from `multi-formula-packing`).
+  // Cycle warnings only fire for cycles caused by user recipe overrides
+  // — pre-existing unsolvable cycles in the game data are not actionable
+  // and are skipped. Packer warnings are structured `PlanWarning` and
+  // formatted here with `ceilMode` + i18n via `formatPlanWarning`.
   const warnings: string[] = useMemo(() => {
     if (!plan) return [];
     const cycleWarnings = plan.invalidCycles
@@ -506,8 +559,12 @@ export function useProductionPlan(
         });
       });
 
-    return [...cycleWarnings, ...(plan.warnings ?? [])];
-  }, [plan, recipeOverrides, t]);
+    const planWarnings = (plan.warnings ?? []).map((w) =>
+      formatPlanWarning(w, ceilMode, t, facilities),
+    );
+
+    return [...cycleWarnings, ...planWarnings];
+  }, [plan, recipeOverrides, ceilMode, t]);
 
   // Collect overridden item IDs from invalid cycles for table row styling.
   // Only the items whose recipe override caused the cycle get highlighted,

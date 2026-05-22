@@ -9,6 +9,7 @@ import type {
   ProductionNode,
   DetectedCycle,
   InvalidCycleInfo,
+  PlanWarning,
   ProductionDependencyGraph,
   ProductionGraphNode,
   Bin,
@@ -649,7 +650,7 @@ function buildProductionGraph(
   recipeOverrides?: Map<ItemId, RecipeId>,
   bins: Bin[] = [],
   recipeBinAllocations: Map<RecipeId, RecipeBinAllocation> = new Map(),
-  warnings: string[] = [],
+  warnings: PlanWarning[] = [],
   recipePrefill: Map<RecipeId, ItemId[]> = new Map(),
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();

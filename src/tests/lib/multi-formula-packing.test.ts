@@ -639,10 +639,19 @@ describe("packBins", () => {
       });
       // Fallback path: per-recipe singletons.
       expect(r.bins.length).toBeGreaterThan(0);
-      // Warnings populated.
+      // Structured warnings populated.
       expect(r.warnings.length).toBeGreaterThan(0);
-      // Warning mentions the pinned recipe id.
-      expect(r.warnings.some((w) => w.includes("lx_2_no_buf"))).toBe(true);
+      // Warning of kind `packer-override-infeasible` mentions the pinned recipe id.
+      const pinWarnings = r.warnings.filter(
+        (w) => w.kind === "packer-override-infeasible",
+      );
+      expect(
+        pinWarnings.some(
+          (w) =>
+            w.kind === "packer-override-infeasible" &&
+            w.recipeId === ("lx_2_no_buf" as RecipeId),
+        ),
+      ).toBe(true);
     });
   });
 
@@ -1287,11 +1296,12 @@ describe("packBins", () => {
         expect(r.warnings).toEqual([]);
       });
 
-      test("cap that's structurally infeasible triggers retry-without-caps + warning", async () => {
+      test("cap that's structurally infeasible triggers retry-without-caps + structured warning", async () => {
         // Cap BOTH facilities at zero → no way to host the demand.
         // The cap-constrained MIP fails; the retry without caps solves
         // (since the demand is fundamentally satisfiable); the result
-        // returns with a warning naming the over-cap facilities.
+        // returns with a structured `facility-over-cap` warning naming
+        // at least one capped facility.
         const slotDemands = new Map<RecipeId, number>([
           ["lx_1" as RecipeId, 2],
           ["xe_1" as RecipeId, 2],
@@ -1308,15 +1318,61 @@ describe("packBins", () => {
         });
         // Bins emitted (no fallback to singleton-failure path).
         expect(r.bins.length).toBeGreaterThan(0);
-        // Warning fired naming at least one capped facility.
-        expect(r.warnings.length).toBeGreaterThan(0);
-        const allWarnings = r.warnings.join(" ");
-        expect(allWarnings).toMatch(/exceeds cap/i);
-        // At least one of the capped facilities is mentioned.
+        // Structured warning fired naming at least one capped facility.
+        const capWarnings = r.warnings.filter(
+          (w) => w.kind === "facility-over-cap",
+        );
+        expect(capWarnings.length).toBeGreaterThan(0);
+        const violatedIds = new Set(
+          capWarnings
+            .filter((w) => w.kind === "facility-over-cap")
+            .map((w) => (w.kind === "facility-over-cap" ? w.facilityId : "")),
+        );
         const namesMatched =
-          allWarnings.includes("mix_pool_1") ||
-          allWarnings.includes("mix_pool_2");
+          violatedIds.has("mix_pool_1" as FacilityId) ||
+          violatedIds.has("mix_pool_2" as FacilityId);
         expect(namesMatched).toBe(true);
+        // Every cap warning carries `used > cap` by construction.
+        for (const w of capWarnings) {
+          if (w.kind !== "facility-over-cap") continue;
+          expect(w.used).toBeGreaterThan(w.cap);
+        }
+      });
+
+      test("single-formula facility cap is enforced via post-packing warning", async () => {
+        // Pins the user's Forge of the Sky scenario: a facility WITHOUT
+        // cacheSlots — its recipes go through emitSingletonBins and
+        // bypass the MIP entirely. The post-packing cap check must
+        // still flag it.
+        const synthItems = [item("raw"), item("out")];
+        const r1 = recipe(
+          "r1",
+          [{ itemId: "raw", amount: 1 }],
+          [{ itemId: "out", amount: 1 }],
+          "single_fac",
+        );
+        const fac = facility("single_fac", { powerConsumption: 50 }); // no cacheSlots
+        const slotDemands = new Map<RecipeId, number>([
+          ["r1" as RecipeId, 3],
+        ]);
+        const r = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(synthItems, [r1], [fac]),
+          facilityCaps: new Map([["single_fac" as FacilityId, 1]]),
+        });
+        // Singleton emits with the full demand (no truncation).
+        expect(r.bins.length).toBe(1);
+        expect(r.bins[0].buildingCount).toBe(3);
+        // Structured cap warning fired for the synthetic facility.
+        const capWarnings = r.warnings.filter(
+          (w) => w.kind === "facility-over-cap",
+        );
+        expect(capWarnings.length).toBe(1);
+        const w = capWarnings[0];
+        if (w.kind !== "facility-over-cap") throw new Error("kind mismatch");
+        expect(w.facilityId).toBe("single_fac" as FacilityId);
+        expect(w.used).toBe(3);
+        expect(w.cap).toBe(1);
       });
     });
   });
