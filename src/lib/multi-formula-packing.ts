@@ -155,14 +155,18 @@ export type PackingResult = {
   /**
    * Structured non-fatal warnings emitted from packing. See
    * `PlanWarning` in `src/types/production.ts` for the discriminant
-   * union. Today's emitters:
+   * union. Packer-emitted kinds:
    *   - `packer-override-infeasible` — recipe-override pinning a
    *     variant whose facility has no valid bin shape.
    *   - `packer-fallback` — generic LP-fallback signal when the MIP
    *     can't solve the demand under strict equality.
-   *   - `facility-over-cap` — total `buildingCount` for a capped
-   *     facility exceeds the cap (post-packing check, covers both
-   *     MIP-packed and singleton bins).
+   *
+   * `facility-over-cap` is NOT emitted here — it's computed downstream
+   * by `useProductionPlan` via `computeOverCapWarnings` against
+   * `aggregateBinTotals.rawPerFacility`, which uniformly covers
+   * recipe bins AND pickup-point source facilities. The MIP cap
+   * constraint inside `solvePacking` still applies as the first line
+   * of defence, but the diagnostic emission lives at the hook layer.
    *
    * Consumer (`useProductionPlan.warnings` memo) formats each kind
    * with `ceilMode` + i18n before display.
@@ -1557,59 +1561,15 @@ const assertBinPortCaps = (
 
 /**
  * Phase 3 entry point. Returns bins + per-recipe allocations + warnings.
+ *
+ * Cap-overflow detection NO LONGER lives here — `useProductionPlan`
+ * computes facility-cap warnings via `computeOverCapWarnings` against
+ * `aggregateBinTotals.rawPerFacility`, which uniformly covers
+ * recipe bins AND pickup-point source facilities. The MIP cap
+ * constraint inside `solvePacking` is the first line of defence:
+ * it tries to find a packing that respects caps. The downstream
+ * helper handles the diagnostic emission.
  */
-/**
- * Post-packing per-facility cap check.
- *
- * Walks the FINAL emitted bin set (multi-formula MIP-packed bins PLUS
- * single-formula singleton bins), sums `buildingCount` per facility,
- * and emits one structured warning per facility exceeding its cap.
- *
- * Why post-packing instead of MIP-internal:
- *   - The MIP's variant set is restricted to multi-formula facilities
- *     (`facility.cacheSlots != null`). Single-formula facilities like
- *     `xiranite_oven_1` go through `emitSingletonBins` and bypass the
- *     MIP entirely — caps on them must still be checked.
- *   - One unified detection path beats two parallel ones.
- *
- * The MIP's cap constraint inside `solvePacking` is still useful: it
- * helps the MIP shift demand between twin facilities (e.g. MIX_POOL_1
- * ↔ MIX_POOL_2) before this warning ever fires. The warning is the
- * diagnostic when even the MIP can't fit.
- *
- * Caps are integers (parseInt-guarded at the UI input); `used` is
- * float-from-LP. Direct `used > cap + EPSILON` comparison; the
- * EPSILON absorbs LP solver drift. NO ceil on the comparison — that
- * would spuriously fire for fractional caps if those ever become
- * supported.
- */
-const buildOverCapWarningsFromBins = (
-  bins: readonly Bin[],
-  facilityCaps: ReadonlyMap<FacilityId, number>,
-): PlanWarning[] => {
-  const usedByFacility = new Map<FacilityId, number>();
-  for (const bin of bins) {
-    usedByFacility.set(
-      bin.facilityId,
-      (usedByFacility.get(bin.facilityId) ?? 0) + bin.buildingCount,
-    );
-  }
-  const warnings: PlanWarning[] = [];
-  const EPSILON = 1e-9;
-  for (const [facilityId, cap] of facilityCaps) {
-    if (!Number.isFinite(cap) || cap < 0) continue;
-    const used = usedByFacility.get(facilityId) ?? 0;
-    if (used <= cap + EPSILON) continue;
-    warnings.push({
-      kind: "facility-over-cap",
-      facilityId,
-      used,
-      cap,
-    });
-  }
-  return warnings;
-};
-
 export const packBins = async (input: PackingInput): Promise<PackingResult> => {
   const {
     recipeSlotDemands,
@@ -1756,14 +1716,11 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
       facilityMap,
       itemMap,
     );
-    // Cap check on the fallback singleton bins — caps still apply even
-    // when the rest of the packing infrastructure has degraded.
-    if (facilityCaps) {
-      warnings.push(...buildOverCapWarningsFromBins(fallback.bins, facilityCaps));
-    }
     // No port-cap assertion on the fallback path: it's a best-effort
-    // singletonization for genuinely-infeasible scenarios; any cap
-    // violations are surfaced via warnings.
+    // singletonization for genuinely-infeasible scenarios. Cap-overflow
+    // detection happens at the `useProductionPlan` layer via
+    // `computeOverCapWarnings`, which covers these bins + pickup
+    // points uniformly through `aggregateBinTotals.rawPerFacility`.
     return {
       ...fallback,
       warnings,
@@ -1800,18 +1757,14 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
   assertBinPortCaps(packed.bins, facilityMap);
 
   const combinedBins = [...packed.bins, ...singletons.bins];
-  // Post-packing cap check on the FULL bin set. This catches:
-  //   - Multi-formula facilities where the MIP cap was bypassed via
-  //     retry-without-caps (cap was tight).
-  //   - Single-formula facilities whose recipes flowed through
-  //     `emitSingletonBins` and skipped the MIP entirely.
-  const warnings: PlanWarning[] = facilityCaps
-    ? buildOverCapWarningsFromBins(combinedBins, facilityCaps)
-    : [];
-
+  // Cap-overflow warnings are emitted by `useProductionPlan` via
+  // `computeOverCapWarnings`, sourced from
+  // `aggregateBinTotals.rawPerFacility`. That helper uniformly covers
+  // BOTH the bins emitted here AND pickup-point source facilities
+  // (pump_1, pump_2, unloader_1) which are never in `plan.bins`.
   return {
     bins: combinedBins,
     allocations: new Map([...packed.allocations, ...singletons.allocations]),
-    warnings,
+    warnings: [],
   };
 };

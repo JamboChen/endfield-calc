@@ -1195,10 +1195,15 @@ describe("packBins", () => {
       }
     });
 
-    describe("facility cap enforcement (Step 2)", () => {
+    describe("facility cap MIP behavior", () => {
+      // Cap-overflow WARNING emission moved to the
+      // `useProductionPlan` layer via `computeOverCapWarnings` against
+      // `aggregateBinTotals.rawPerFacility` — tested in
+      // `plan-helpers.test.ts`. These tests focus on the MIP
+      // constraint's effect on the packer's actual decisions
+      // (twin-shifting, retry-without-caps fallback, no spurious
+      // warnings).
       test("cap unset (undefined) yields identical output to baseline", async () => {
-        // Regression guard: a no-cap solve must not be affected by the
-        // cap-handling code path.
         const slotDemands = new Map<RecipeId, number>([
           ["lx_1" as RecipeId, 4],
           ["xe_1" as RecipeId, 4],
@@ -1219,11 +1224,11 @@ describe("packBins", () => {
           facilityCaps: new Map(),
         });
 
-        // Building totals and bin counts should match exactly.
         const totalBuildings = (r: { bins: { buildingCount: number }[] }) =>
           r.bins.reduce((s, b) => s + Math.ceil(b.buildingCount), 0);
         expect(totalBuildings(withUndefinedCaps)).toBe(totalBuildings(baseline));
         expect(totalBuildings(withEmptyCaps)).toBe(totalBuildings(baseline));
+        // No packer-level warnings on any of the variants.
         expect(baseline.warnings).toEqual([]);
         expect(withUndefinedCaps.warnings).toEqual([]);
         expect(withEmptyCaps.warnings).toEqual([]);
@@ -1232,7 +1237,7 @@ describe("packBins", () => {
       test("cap that's already met by the optimal solution does not change the result", async () => {
         // Baseline picks 4 Expanded buildings (mix_pool_2). Setting the
         // Expanded cap to 4 is exactly tight; MIP returns the same
-        // solution, no warning.
+        // solution.
         const slotDemands = new Map<RecipeId, number>([
           ["lx_1" as RecipeId, 4],
           ["xe_1" as RecipeId, 4],
@@ -1250,19 +1255,14 @@ describe("packBins", () => {
           .filter((b) => b.facilityId === ("mix_pool_2" as FacilityId))
           .reduce((s, b) => s + b.buildingCount, 0);
         expect(expandedCount).toBeLessThanOrEqual(4);
+        // Packer emits no warnings; cap detection lives downstream.
         expect(r.warnings).toEqual([]);
       });
 
       test("cap on the cheaper facility shifts demand to the twin", async () => {
-        // Baseline: 4 Expanded buildings @ 100W = 400W. Cap Expanded at
-        // 0 → MIP must use Reactor instead. Reactor has 5 inner slots
-        // but the {LX,XE,X} set needs 8 distinct items, so X must be
-        // hosted in its own singleton (Reactor + X → 4 inner items,
-        // fits) — at minimum, Reactor singletons or grouped {LX,XE}
-        // bins are used.
-        //
-        // Key invariant: NO mix_pool_2 buildings in the result, AND
-        // total slot coverage is preserved.
+        // Baseline: Expanded buildings @ 100W. Cap Expanded at 0 → MIP
+        // must use Reactor instead. Twin (Reactor) absorbs the
+        // constraint cleanly; no warning needed.
         const slotDemands = new Map<RecipeId, number>([
           ["lx_1" as RecipeId, 2],
           ["xe_1" as RecipeId, 2],
@@ -1292,16 +1292,14 @@ describe("packBins", () => {
         }
         expect(slotsByRecipe.get("lx_1") ?? 0).toBeGreaterThanOrEqual(2);
         expect(slotsByRecipe.get("xe_1") ?? 0).toBeGreaterThanOrEqual(2);
-        // No warning — twins absorbed the constraint cleanly.
         expect(r.warnings).toEqual([]);
       });
 
-      test("cap that's structurally infeasible triggers retry-without-caps + structured warning", async () => {
-        // Cap BOTH facilities at zero → no way to host the demand.
-        // The cap-constrained MIP fails; the retry without caps solves
-        // (since the demand is fundamentally satisfiable); the result
-        // returns with a structured `facility-over-cap` warning naming
-        // at least one capped facility.
+      test("cap that's structurally infeasible falls back to retry-without-caps without packer-level warning", async () => {
+        // Cap BOTH facilities at zero → MIP-with-caps fails; retry
+        // without caps solves; packer returns the over-cap bins with
+        // NO `facility-over-cap` warning emitted (those live downstream
+        // in `useProductionPlan` now).
         const slotDemands = new Map<RecipeId, number>([
           ["lx_1" as RecipeId, 2],
           ["xe_1" as RecipeId, 2],
@@ -1316,63 +1314,14 @@ describe("packBins", () => {
           ...buildMaps(items, recipes, facilities),
           facilityCaps,
         });
-        // Bins emitted (no fallback to singleton-failure path).
+        // Bins emitted (retry succeeded).
         expect(r.bins.length).toBeGreaterThan(0);
-        // Structured warning fired naming at least one capped facility.
+        // No facility-over-cap warning at the packer level — the
+        // detection now lives at the aggregator layer.
         const capWarnings = r.warnings.filter(
           (w) => w.kind === "facility-over-cap",
         );
-        expect(capWarnings.length).toBeGreaterThan(0);
-        const violatedIds = new Set(
-          capWarnings
-            .filter((w) => w.kind === "facility-over-cap")
-            .map((w) => (w.kind === "facility-over-cap" ? w.facilityId : "")),
-        );
-        const namesMatched =
-          violatedIds.has("mix_pool_1" as FacilityId) ||
-          violatedIds.has("mix_pool_2" as FacilityId);
-        expect(namesMatched).toBe(true);
-        // Every cap warning carries `used > cap` by construction.
-        for (const w of capWarnings) {
-          if (w.kind !== "facility-over-cap") continue;
-          expect(w.used).toBeGreaterThan(w.cap);
-        }
-      });
-
-      test("single-formula facility cap is enforced via post-packing warning", async () => {
-        // Pins the user's Forge of the Sky scenario: a facility WITHOUT
-        // cacheSlots — its recipes go through emitSingletonBins and
-        // bypass the MIP entirely. The post-packing cap check must
-        // still flag it.
-        const synthItems = [item("raw"), item("out")];
-        const r1 = recipe(
-          "r1",
-          [{ itemId: "raw", amount: 1 }],
-          [{ itemId: "out", amount: 1 }],
-          "single_fac",
-        );
-        const fac = facility("single_fac", { powerConsumption: 50 }); // no cacheSlots
-        const slotDemands = new Map<RecipeId, number>([
-          ["r1" as RecipeId, 3],
-        ]);
-        const r = await packBins({
-          recipeSlotDemands: slotDemands,
-          ...buildMaps(synthItems, [r1], [fac]),
-          facilityCaps: new Map([["single_fac" as FacilityId, 1]]),
-        });
-        // Singleton emits with the full demand (no truncation).
-        expect(r.bins.length).toBe(1);
-        expect(r.bins[0].buildingCount).toBe(3);
-        // Structured cap warning fired for the synthetic facility.
-        const capWarnings = r.warnings.filter(
-          (w) => w.kind === "facility-over-cap",
-        );
-        expect(capWarnings.length).toBe(1);
-        const w = capWarnings[0];
-        if (w.kind !== "facility-over-cap") throw new Error("kind mismatch");
-        expect(w.facilityId).toBe("single_fac" as FacilityId);
-        expect(w.used).toBe(3);
-        expect(w.cap).toBe(1);
+        expect(capWarnings.length).toBe(0);
       });
     });
   });

@@ -23,6 +23,10 @@ import {
   getFacilityName,
   getRecipeName,
 } from "@/lib/i18n-helpers";
+import {
+  aggregateBinTotals,
+  computeOverCapWarnings,
+} from "@/lib/plan-helpers";
 import { formatCount, getItemById } from "@/lib/utils";
 
 interface SavedPlan {
@@ -504,13 +508,41 @@ export function useProductionPlan(
     return { ...plan, nodes: activeNodes, edges: activeEdges } as ProductionDependencyGraph;
   }, [plan]);
 
+  // Single canonical `BinAggregates` per plan / ceilMode change. Lifted
+  // here from `useProductionStats` + `useProductionTable` so the heavy
+  // walk runs once per render (was twice — both view hooks called it
+  // independently). Threaded down to both view hooks AND consumed by
+  // the cap-overflow detection below.
+  //
+  // `displayPlan` (post-zero-filter) is intentionally used here so the
+  // aggregates align with what the table/stats render. `plan.bins`
+  // stays the same between `plan` and `displayPlan` (Phase 3 emits
+  // bins only for positive-demand recipes), so the bin-walk is
+  // identical; the pickup-point fold uses `node.productionRate` on
+  // raw nodes which the filter preserves for raws.
+  const aggregates = useMemo(
+    () =>
+      displayPlan
+        ? aggregateBinTotals(displayPlan, facilities, items, { ceilMode })
+        : null,
+    [displayPlan, ceilMode],
+  );
+
   // Derive warning messages from invalid cycles (with translated item names)
   // plus any non-fatal warnings the calculator surfaced (e.g. packer
-  // fallback / cap-overflow warnings from `multi-formula-packing`).
+  // fallback warnings from `multi-formula-packing`) plus facility-cap
+  // overflows detected here at the aggregate layer.
+  //
   // Cycle warnings only fire for cycles caused by user recipe overrides
   // — pre-existing unsolvable cycles in the game data are not actionable
-  // and are skipped. Packer warnings are structured `PlanWarning` and
-  // formatted here with `ceilMode` + i18n via `formatPlanWarning`.
+  // and are skipped. Structured warnings (packer + cap) are formatted
+  // here with `ceilMode` + i18n via `formatPlanWarning`.
+  //
+  // Cap detection uses `aggregates.rawPerFacility` (mode-independent
+  // raw LP counts), so it uniformly covers recipe bins AND pickup-point
+  // source facilities (pump_1, pump_2, unloader_1) — the latter being
+  // absent from `plan.bins` and therefore invisible to the packer's
+  // earlier cap check.
   const warnings: string[] = useMemo(() => {
     if (!plan) return [];
     const cycleWarnings = plan.invalidCycles
@@ -563,8 +595,14 @@ export function useProductionPlan(
       formatPlanWarning(w, ceilMode, t, facilities),
     );
 
-    return [...cycleWarnings, ...planWarnings];
-  }, [plan, recipeOverrides, ceilMode, t]);
+    const capWarnings = aggregates
+      ? computeOverCapWarnings(aggregates.rawPerFacility, facilityCaps).map(
+          (w) => formatPlanWarning(w, ceilMode, t, facilities),
+        )
+      : [];
+
+    return [...cycleWarnings, ...planWarnings, ...capWarnings];
+  }, [plan, aggregates, facilityCaps, recipeOverrides, ceilMode, t]);
 
   // Collect overridden item IDs from invalid cycles for table row styling.
   // Only the items whose recipe override caused the cycle get highlighted,
@@ -579,9 +617,12 @@ export function useProductionPlan(
     return ids;
   }, [plan]);
 
-  // View-specific data: computed in view layer hooks
+  // View-specific data: computed in view layer hooks. Both receive
+  // the shared `aggregates` so the table footer and stats panel
+  // cannot drift — single source of truth, single compute per render.
   const stats = useProductionStats(
     displayPlan,
+    aggregates,
     manualRawMaterials,
     facilities,
     items,
@@ -589,6 +630,7 @@ export function useProductionPlan(
   );
   const tableData = useProductionTable(
     displayPlan,
+    aggregates,
     recipes,
     recipeOverrides,
     manualRawMaterials,

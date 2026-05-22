@@ -6,7 +6,7 @@ import type {
   ItemId,
   ProductionDependencyGraph,
 } from "@/types";
-import { aggregateBinTotals } from "@/lib/plan-helpers";
+import type { BinAggregates } from "@/lib/plan-helpers";
 import { getItemById, getPickupPointCount, getRawSourceRate } from "@/lib/utils";
 
 export type ProductionStats = {
@@ -29,21 +29,20 @@ export type ProductionStats = {
 
 /**
  * Collects statistics from the production graph. Bin-level aggregates
- * (power, per-facility counts) come from `aggregateBinTotals`, the
- * single source of truth shared with `useProductionTable`. Item-level
+ * (power, per-facility counts) come from the shared `BinAggregates`
+ * computed once in `useProductionPlan` and threaded down. Item-level
  * counts (raw materials, unique production steps) are computed locally
  * from `plan.nodes`.
  *
- * `ceilMode` toggles physical (whole buildings + full power per built
- * building) vs theoretical (fractional buildings + proportional power)
- * accounting; passed straight through to `aggregateBinTotals`.
+ * The `aggregates` arg is the single canonical aggregate per render;
+ * it carries both display-adjusted (`perFacility`) and raw
+ * (`rawPerFacility`) per-facility maps. Stats reads the display one.
  */
 function collectStats(
   plan: ProductionDependencyGraph,
+  aggregates: BinAggregates,
   manualRawMaterials: Set<ItemId>,
-  facilities: Facility[],
   items: Item[],
-  ceilMode: boolean,
 ): ProductionStats {
   const rawMaterials = new Map<ItemId, number>();
   let uniqueProductionSteps = 0;
@@ -60,12 +59,7 @@ function collectStats(
     }
   });
 
-  const { totalPower, perFacility } = aggregateBinTotals(
-    plan,
-    facilities,
-    items,
-    { ceilMode },
-  );
+  const { totalPower, perFacility } = aggregates;
 
   const rawMaterialPickupPoints = new Map<ItemId, number>();
   let totalPickupPoints = 0;
@@ -90,22 +84,32 @@ function collectStats(
  * Hook to calculate production statistics from the plan.
  *
  * Bin-level numbers (power, per-facility counts) come from the shared
- * `aggregateBinTotals` helper, so they always agree with the table
- * footer that `useProductionTable` exposes. The previous
- * per-recipe-ceiled aggregation triple-counted shared multi-formula
- * bins (e.g. an Xircon `{LX,XE,X}` bin showing 3 Expanded instead of 1).
+ * `BinAggregates` lifted into `useProductionPlan`, so they always
+ * agree with the table footer that `useProductionTable` exposes. The
+ * previous per-recipe-ceiled aggregation triple-counted shared
+ * multi-formula bins (e.g. an Xircon `{LX,XE,X}` bin showing 3
+ * Expanded instead of 1); the shared aggregate prevents drift.
  *
- * `ceilMode` toggles the rounding semantic — see `aggregateBinTotals`.
+ * `facilities` and `ceilMode` remain in the signature for backwards
+ * compatibility with callers, but the heavy lift is now done once
+ * upstream in `useProductionPlan` and passed via `aggregates`.
  */
 export function useProductionStats(
   plan: ProductionDependencyGraph | null,
+  aggregates: BinAggregates | null,
   manualRawMaterials: Set<ItemId>,
   facilities: Facility[],
   items: Item[],
   ceilMode: boolean,
 ): ProductionStats {
+  // facilities + ceilMode kept on the signature: future stats fields
+  // may need them, and keeping them avoids a churn of call sites if
+  // such fields are added. Reference them here so unused-param lints
+  // don't fire.
+  void facilities;
+  void ceilMode;
   return useMemo(() => {
-    if (!plan || plan.nodes.size === 0) {
+    if (!plan || plan.nodes.size === 0 || !aggregates) {
       return {
         totalPowerConsumption: 0,
         rawMaterialRequirements: new Map(),
@@ -116,6 +120,6 @@ export function useProductionStats(
       };
     }
 
-    return collectStats(plan, manualRawMaterials, facilities, items, ceilMode);
-  }, [plan, manualRawMaterials, facilities, items, ceilMode]);
+    return collectStats(plan, aggregates, manualRawMaterials, items);
+  }, [plan, aggregates, manualRawMaterials, items]);
 }

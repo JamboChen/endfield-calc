@@ -11,7 +11,8 @@ import type {
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
 import { calcRate } from "@/lib/utils";
-import { aggregateBinTotals, getRecipeInputItemId } from "@/lib/plan-helpers";
+import type { BinAggregates } from "@/lib/plan-helpers";
+import { getRecipeInputItemId } from "@/lib/plan-helpers";
 
 type MergedItemNode = {
   itemId: ItemId;
@@ -190,9 +191,17 @@ export type ProductionTableData = {
 
 /**
  * Hook to generate table data from the production plan.
+ *
+ * `aggregates` is the shared `BinAggregates` computed once in
+ * `useProductionPlan` and passed down — eliminates the duplicate
+ * `aggregateBinTotals` call this hook used to do. `facilities` /
+ * `items` / `ceilMode` remain on the signature for backwards
+ * compatibility; the table-row construction logic doesn't need them
+ * directly anymore, but call sites pass them through anyway.
  */
 export function useProductionTable(
   plan: ProductionDependencyGraph | null,
+  aggregates: BinAggregates | null,
   recipes: Recipe[],
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
@@ -201,8 +210,13 @@ export function useProductionTable(
   invalidCycleItemIds: Set<ItemId> = new Set(),
   ceilMode: boolean = false,
 ): ProductionTableData {
+  // Reserved-for-future args; reference here so unused-param lints
+  // don't fire when the hook's interior stops using them directly.
+  void facilities;
+  void items;
+  void ceilMode;
   return useMemo(() => {
-    if (!plan || plan.nodes.size === 0) {
+    if (!plan || plan.nodes.size === 0 || !aggregates) {
       return {
         rows: [],
         totals: { totalBuildings: 0, totalPower: 0, groupedSavings: 0 },
@@ -339,13 +353,9 @@ export function useProductionTable(
       });
     });
 
-    // Plan-level totals come from the shared `aggregateBinTotals` helper
-    // in plan-helpers.ts — same numbers `useProductionStats` consumes,
-    // so the table footer and stats panel cannot drift. `ceilMode`
-    // controls physical-vs-theoretical building/power accounting.
-    const aggregates = aggregateBinTotals(plan, facilities, items, {
-      ceilMode,
-    });
+    // Plan-level totals come from the shared `aggregates` lifted into
+    // `useProductionPlan` — same numbers `useProductionStats` consumes,
+    // so the table footer and stats panel cannot drift.
     const groupedSavings = Math.max(
       0,
       aggregates.multiFormulaBaselineBuildings -
@@ -360,5 +370,5 @@ export function useProductionTable(
         groupedSavings,
       },
     };
-  }, [plan, recipes, recipeOverrides, manualRawMaterials, facilities, items, invalidCycleItemIds, ceilMode]);
+  }, [plan, aggregates, recipes, recipeOverrides, manualRawMaterials, invalidCycleItemIds]);
 }
