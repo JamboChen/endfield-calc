@@ -6,11 +6,16 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { AlertCircle, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { Facility, Item, ItemId } from "@/types";
+import type { Facility, FacilityId, Item, ItemId } from "@/types";
 import { getFacilityName, getItemName } from "@/lib/i18n-helpers";
-import { getItemById, formatCount } from "@/lib/utils";
+import { cn, getItemById, formatCount } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
 
 type ProductionStatsProps = {
@@ -29,6 +34,14 @@ type ProductionStatsProps = {
    * and facility counts so the panel matches the table footer.
    */
   ceilMode?: boolean;
+  /**
+   * Per-facility cap-overflow info from `useProductionStats`. Cards
+   * whose facility id is in this map render with destructive border +
+   * bg tint + red count value, and a tooltip showing the short
+   * `(used / cap)` numeric form. Empty map → all cards render with
+   * default styling.
+   */
+  facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>;
 };
 
 const ProductionStats = memo(function ProductionStats({
@@ -42,6 +55,7 @@ const ProductionStats = memo(function ProductionStats({
   items,
   error,
   ceilMode = false,
+  facilityOverCapMap,
 }: ProductionStatsProps) {
   const { t } = useTranslation("stats");
   const [rawMaterialsOpen, setRawMaterialsOpen] = useState(false);
@@ -120,28 +134,60 @@ const ProductionStats = memo(function ProductionStats({
               <>
                 <Separator />
                 <div className="grid grid-cols-2 gap-2">
-                  {facilityList.map(({ facility, count }) => (
-                    <div
-                      key={facility.id}
-                      className="space-y-0.5 p-2 border border-border/50 bg-card"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        {facility.iconUrl && (
-                          <img
-                            src={facility.iconUrl}
-                            alt={getFacilityName(facility)}
-                            className="w-4 h-4 object-contain"
-                          />
+                  {facilityList.map(({ facility, count }) => {
+                    const overCap = facilityOverCapMap.get(
+                      facility.id as FacilityId,
+                    );
+                    const card = (
+                      <div
+                        className={cn(
+                          "space-y-0.5 p-2 border bg-card",
+                          overCap
+                            ? "border-destructive/70 bg-destructive/5"
+                            : "border-border/50",
                         )}
-                        <div className="text-xs text-muted-foreground truncate flex-1">
-                          {getFacilityName(facility)}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          {facility.iconUrl && (
+                            <img
+                              src={facility.iconUrl}
+                              alt={getFacilityName(facility)}
+                              className="w-4 h-4 object-contain"
+                            />
+                          )}
+                          <div className="text-xs text-muted-foreground truncate flex-1">
+                            {getFacilityName(facility)}
+                          </div>
+                        </div>
+                        <div
+                          className={cn(
+                            "text-sm font-semibold font-mono",
+                            overCap && "text-destructive",
+                          )}
+                        >
+                          {count.toFixed(1)}
                         </div>
                       </div>
-                      <div className="text-sm font-semibold font-mono">
-                        {count.toFixed(1)}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                    if (!overCap) {
+                      return (
+                        <div key={facility.id}>
+                          {card}
+                        </div>
+                      );
+                    }
+                    return (
+                      <Tooltip key={facility.id}>
+                        <TooltipTrigger asChild>{card}</TooltipTrigger>
+                        <TooltipContent>
+                          {t("facilityCapExceeded", {
+                            used: overCap.used.toFixed(1),
+                            cap: overCap.cap,
+                          })}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
                 </div>
               </>
             )}

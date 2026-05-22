@@ -528,6 +528,32 @@ export function useProductionPlan(
     [displayPlan, ceilMode],
   );
 
+  // Structured cap-overflow signals. Lifted to its own memo so two
+  // downstream consumers (the warnings string memo + the per-facility
+  // map for the side-panel visual indicator) share one computation.
+  const overCapWarnings = useMemo<readonly PlanWarning[]>(
+    () =>
+      aggregates
+        ? computeOverCapWarnings(aggregates.rawPerFacility, facilityCaps)
+        : [],
+    [aggregates, facilityCaps],
+  );
+
+  // Per-facility map for the side-panel `<ProductionStats>` card
+  // styling — `Map<FacilityId, { used; cap }>` indexed for O(1) lookup
+  // per facility card. Empty when no facility is over its cap.
+  const facilityOverCapMap = useMemo<
+    ReadonlyMap<FacilityId, { used: number; cap: number }>
+  >(() => {
+    const out = new Map<FacilityId, { used: number; cap: number }>();
+    for (const w of overCapWarnings) {
+      if (w.kind === "facility-over-cap") {
+        out.set(w.facilityId, { used: w.used, cap: w.cap });
+      }
+    }
+    return out;
+  }, [overCapWarnings]);
+
   // Derive warning messages from invalid cycles (with translated item names)
   // plus any non-fatal warnings the calculator surfaced (e.g. packer
   // fallback warnings from `multi-formula-packing`) plus facility-cap
@@ -595,14 +621,12 @@ export function useProductionPlan(
       formatPlanWarning(w, ceilMode, t, facilities),
     );
 
-    const capWarnings = aggregates
-      ? computeOverCapWarnings(aggregates.rawPerFacility, facilityCaps).map(
-          (w) => formatPlanWarning(w, ceilMode, t, facilities),
-        )
-      : [];
+    const capWarnings = overCapWarnings.map((w) =>
+      formatPlanWarning(w, ceilMode, t, facilities),
+    );
 
     return [...cycleWarnings, ...planWarnings, ...capWarnings];
-  }, [plan, aggregates, facilityCaps, recipeOverrides, ceilMode, t]);
+  }, [plan, overCapWarnings, recipeOverrides, ceilMode, t]);
 
   // Collect overridden item IDs from invalid cycles for table row styling.
   // Only the items whose recipe override caused the cycle get highlighted,
@@ -620,9 +644,13 @@ export function useProductionPlan(
   // View-specific data: computed in view layer hooks. Both receive
   // the shared `aggregates` so the table footer and stats panel
   // cannot drift — single source of truth, single compute per render.
+  // `facilityOverCapMap` flows through stats so the side-panel
+  // `<ProductionStats>` card can apply destructive styling to
+  // over-cap facility cards.
   const stats = useProductionStats(
     displayPlan,
     aggregates,
+    facilityOverCapMap,
     manualRawMaterials,
     facilities,
     items,

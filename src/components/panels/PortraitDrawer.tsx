@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/sheet";
 import TargetItemsGrid, { type ProductionTarget } from "./TargetItemsGrid";
 import ProductionStats from "../production/ProductionStats";
-import type { Facility, Item, ItemId } from "@/types";
+import type { Facility, FacilityId, Item, ItemId } from "@/types";
 
 type PortraitDrawerProps = {
   targets: ProductionTarget[];
@@ -22,6 +22,7 @@ type PortraitDrawerProps = {
   facilityRequirements: Map<string, number>;
   totalPickupPoints: number;
   rawMaterialPickupPoints: Map<ItemId, number>;
+  facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>;
   error: string | null;
   ceilMode?: boolean;
   onTargetChange: (index: number, rate: number) => void;
@@ -39,6 +40,7 @@ export default function PortraitDrawer({
   facilityRequirements,
   totalPickupPoints,
   rawMaterialPickupPoints,
+  facilityOverCapMap,
   error,
   ceilMode = false,
   onTargetChange,
@@ -112,6 +114,7 @@ export default function PortraitDrawer({
             facilityRequirements={facilityRequirements}
             totalPickupPoints={totalPickupPoints}
             rawMaterialPickupPoints={rawMaterialPickupPoints}
+            facilityOverCapMap={facilityOverCapMap}
             facilities={facilities}
             items={items}
             error={error}

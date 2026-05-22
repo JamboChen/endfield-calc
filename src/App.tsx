@@ -141,22 +141,23 @@ function AppContent() {
 
       <div className="flex-1 flex gap-4 min-h-0">
         <div className={isPortrait ? "hidden" : "contents"}>
-          <LeftPanel
-            targets={targets}
-            items={items}
-            facilities={facilities}
-            totalPowerConsumption={stats.totalPowerConsumption}
-            productionSteps={stats.uniqueProductionSteps}
-            rawMaterialRequirements={stats.rawMaterialRequirements}
-            facilityRequirements={stats.facilityRequirements}
-            totalPickupPoints={stats.totalPickupPoints}
-            rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
-            error={error}
-            ceilMode={ceilMode}
-            onTargetChange={handleTargetChange}
-            onTargetRemove={handleTargetRemove}
-            onAddClick={handleAddClick}
-          />
+              <LeftPanel
+                targets={targets}
+                items={items}
+                facilities={facilities}
+                totalPowerConsumption={stats.totalPowerConsumption}
+                productionSteps={stats.uniqueProductionSteps}
+                rawMaterialRequirements={stats.rawMaterialRequirements}
+                facilityRequirements={stats.facilityRequirements}
+                totalPickupPoints={stats.totalPickupPoints}
+                rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
+                facilityOverCapMap={stats.facilityOverCapMap}
+                error={error}
+                ceilMode={ceilMode}
+                onTargetChange={handleTargetChange}
+                onTargetRemove={handleTargetRemove}
+                onAddClick={handleAddClick}
+              />
         </div>
 
         <ProductionViewTabs
@@ -190,6 +191,7 @@ function AppContent() {
           facilityRequirements={stats.facilityRequirements}
           totalPickupPoints={stats.totalPickupPoints}
           rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
+          facilityOverCapMap={stats.facilityOverCapMap}
           error={error}
           ceilMode={ceilMode}
           onTargetChange={handleTargetChange}

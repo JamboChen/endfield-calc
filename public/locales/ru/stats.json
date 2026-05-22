@@ -1,4 +1,5 @@
 {
+  "facilityCapExceeded": "Лимит превышен ({{used}} / {{cap}})",
   "pickupPoints": "Порты выдачи",
   "productionSteps": "Этапы производства",
   "rawMaterialUsage": "Расход сырья",

@@ -1,4 +1,5 @@
 {
+  "facilityCapExceeded": "超出上限 ({{used}} / {{cap}})",
   "pickupPoints": "取货口",
   "productionSteps": "生产步骤",
   "rawMaterialUsage": "原材料用量",
