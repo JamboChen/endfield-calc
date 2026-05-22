@@ -40,6 +40,7 @@ export default function App() {
     setBinFusion,
     handleSavePlan,
     handleOpenPlan,
+    isLoading,
   } = useProductionPlan();
 
   const targetRates = useMemo(
@@ -94,6 +95,7 @@ export default function App() {
               binFusion={binFusion}
               onBinFusionChange={setBinFusion}
               warnings={warnings}
+              loading={isLoading}
             />
           </div>
 

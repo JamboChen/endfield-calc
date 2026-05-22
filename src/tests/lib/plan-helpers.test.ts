@@ -21,7 +21,7 @@ import type {
 } from "@/types";
 
 describe("computeGreedyAllocation", () => {
-  test("single producer, single consumer — direct assignment", () => {
+  test("single producer, single consumer — direct assignment", async () => {
     const result = computeGreedyAllocation(
       [{ recipeId: "A", rate: 60 }],
       [{ consumerId: "C1", demand: 60 }],
@@ -33,7 +33,7 @@ describe("computeGreedyAllocation", () => {
     expect(result.remainingByProducer.get("A")).toBeCloseTo(0);
   });
 
-  test("single producer, demand less than production — surplus remains", () => {
+  test("single producer, demand less than production — surplus remains", async () => {
     const result = computeGreedyAllocation(
       [{ recipeId: "A", rate: 60 }],
       [{ consumerId: "C1", demand: 30 }],
@@ -45,7 +45,7 @@ describe("computeGreedyAllocation", () => {
     expect(result.remainingByProducer.get("A")).toBeCloseTo(30);
   });
 
-  test("multi-producer, single consumer — largest fills first", () => {
+  test("multi-producer, single consumer — largest fills first", async () => {
     // Furnace (60) + Crucible (30) → SCC consumer (60)
     // Furnace alone satisfies demand. Crucible is surplus.
     const result = computeGreedyAllocation(
@@ -63,7 +63,7 @@ describe("computeGreedyAllocation", () => {
     expect(result.remainingByProducer.get("crucible")).toBeCloseTo(30);
   });
 
-  test("multi-producer, single consumer — demand exceeds largest producer", () => {
+  test("multi-producer, single consumer — demand exceeds largest producer", async () => {
     // Producer A (40) + Producer B (30) → Consumer (60)
     // A fills 40, B fills remaining 20. B has 10 surplus.
     const result = computeGreedyAllocation(
@@ -82,7 +82,7 @@ describe("computeGreedyAllocation", () => {
     expect(result.remainingByProducer.get("B")).toBeCloseTo(10);
   });
 
-  test("multi-producer, multiple consumers — greedy minimizes edges", () => {
+  test("multi-producer, multiple consumers — greedy minimizes edges", async () => {
     // Producers: A (30), B (30)
     // Consumers: C1 (30), C2 (20)
     // Greedy: A fills C1 entirely, B fills C2 with 10 surplus.
@@ -119,7 +119,7 @@ describe("computeGreedyAllocation", () => {
     expect(totalRemaining).toBeCloseTo(10);
   });
 
-  test("demand exceeds total production — allocates what's available", () => {
+  test("demand exceeds total production — allocates what's available", async () => {
     const result = computeGreedyAllocation(
       [{ recipeId: "A", rate: 30 }],
       [{ consumerId: "C1", demand: 60 }],
@@ -131,7 +131,7 @@ describe("computeGreedyAllocation", () => {
     expect(result.remainingByProducer.get("A")).toBeCloseTo(0);
   });
 
-  test("no consumers — all production remains for disposal", () => {
+  test("no consumers — all production remains for disposal", async () => {
     const result = computeGreedyAllocation(
       [
         { recipeId: "A", rate: 60 },
@@ -145,7 +145,7 @@ describe("computeGreedyAllocation", () => {
     expect(result.remainingByProducer.get("B")).toBeCloseTo(30);
   });
 
-  test("producers are sorted by rate regardless of input order", () => {
+  test("producers are sorted by rate regardless of input order", async () => {
     // Input order: small first. Should still assign large producer first.
     const result = computeGreedyAllocation(
       [
@@ -252,7 +252,7 @@ const baseNode = (): ProductionNode => ({
 
 describe("computeNodeByproducts", () => {
   describe("per-recipe view (no bin)", () => {
-    test("includes recipe's secondary outputs scaled from primary", () => {
+    test("includes recipe's secondary outputs scaled from primary", async () => {
       const node = baseNode();
       const result = computeNodeByproducts(node, TEST_ITEMS);
       expect(result).toHaveLength(1);
@@ -262,14 +262,14 @@ describe("computeNodeByproducts", () => {
       expect(result[0].amount).toBe(1);
     });
 
-    test("excludes the headline item from byproducts", () => {
+    test("excludes the headline item from byproducts", async () => {
       const node = baseNode();
       const result = computeNodeByproducts(node, TEST_ITEMS);
       const headlineInResult = result.some((b) => b.item.id === xirconItem.id);
       expect(headlineInResult).toBe(false);
     });
 
-    test("recipe with single output → empty byproducts", () => {
+    test("recipe with single output → empty byproducts", async () => {
       const singleOutputRecipe: Recipe = {
         id: "pool_liquid_liquid_xiranite_1" as RecipeId,
         inputs: [{ itemId: ironItem.id, amount: 1 }],
@@ -286,7 +286,7 @@ describe("computeNodeByproducts", () => {
       expect(computeNodeByproducts(node, TEST_ITEMS)).toEqual([]);
     });
 
-    test("rate falls back to per-facility when no primary output match", () => {
+    test("rate falls back to per-facility when no primary output match", async () => {
       // Defensive path: recipe has multi outputs but neither matches
       // node.item.id (data inconsistency). Should not happen in practice
       // but the function tolerates it via per-facility rate fallback.
@@ -340,7 +340,7 @@ describe("computeNodeByproducts", () => {
       variantId: "fac:grouped#v0",
     };
 
-    test("uses ONLY bin's binExtraOutputs, never headline recipe's outputs", () => {
+    test("uses ONLY bin's binExtraOutputs, never headline recipe's outputs", async () => {
       // Headline recipe is X (recipe.outputs = [Xircon, Sewage]); naive
       // implementation would re-add Sewage. The fixed implementation
       // routes around recipe.outputs entirely for grouped bins.
@@ -369,7 +369,7 @@ describe("computeNodeByproducts", () => {
       expect(sewageLeaked).toBe(false);
     });
 
-    test("empty binExtraOutputs → empty byproducts even with multi-output recipe", () => {
+    test("empty binExtraOutputs → empty byproducts even with multi-output recipe", async () => {
       // Grouped bin where headline is also the only external output.
       const node: ProductionNode = {
         ...baseNode(),
@@ -382,7 +382,7 @@ describe("computeNodeByproducts", () => {
   });
 
   describe("singleton bin (bin-fused but only one recipe)", () => {
-    test("falls through to recipe.outputs path (node.bin is undefined)", () => {
+    test("falls through to recipe.outputs path (node.bin is undefined)", async () => {
       // The bin-fused mapper sets `bin: bin.isGrouped ? bin : undefined`,
       // so singleton bins have node.bin === undefined and binExtraOutputs
       // === undefined. The function falls through to the recipe path.
@@ -398,7 +398,7 @@ describe("computeNodeByproducts", () => {
       expect(result[0].rate).toBe(60);
     });
 
-    test("isGrouped=false bin acts like singleton", () => {
+    test("isGrouped=false bin acts like singleton", async () => {
       // Defensive: if a caller mis-supplies bin with isGrouped:false (shouldn't
       // happen in practice), the function should still fall through to the
       // recipe path rather than treating it as grouped.
@@ -425,7 +425,7 @@ describe("computeNodeByproducts", () => {
   });
 
   describe("dedupe semantics", () => {
-    test("primary item never appears in byproducts even if in binExtraOutputs", () => {
+    test("primary item never appears in byproducts even if in binExtraOutputs", async () => {
       // Defensive: bin-fused-mapper filters headline out of binExtraOutputs,
       // but the function should also dedupe defensively.
       const groupedBin: Bin = {
@@ -458,7 +458,7 @@ describe("computeNodeByproducts", () => {
       expect(result.map((b) => b.item.id)).toEqual([lowpolyItem.id]);
     });
 
-    test("returns empty list when items lookup is missing for all entries", () => {
+    test("returns empty list when items lookup is missing for all entries", async () => {
       const node: ProductionNode = {
         ...baseNode(),
         bin: {
@@ -493,13 +493,13 @@ describe("computeNodeByproducts", () => {
 // ──────────────────────────────────────────────────────────────────────────
 
 describe("aggregateBinTotals (real data)", () => {
-  test("ceilMode=true: Xircon target=6 Expanded count = 1 (regression: was 3 with per-recipe ceiling)", () => {
+  test("ceilMode=true: Xircon target=6 Expanded count = 1 (regression: was 3 with per-recipe ceiling)", async () => {
     // Per-recipe Phase 2 demands at target=6 are tiny fractions
     // (LX=0.32, XE=0.32, X=0.2). MIP packs them all into a single
     // {LX, XE, X} Expanded bin with buildingCount=1. Per-recipe-ceiled
     // counting (the old useProductionStats logic) would report
     // 1+1+1 = 3 Expanded; bin-iteration reports 1.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
       items,
       recipes,
@@ -509,10 +509,10 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.perFacility.get(FacilityIdEnum.MIX_POOL_2)).toBe(1);
   });
 
-  test("ceilMode=true: Xircon target=57 Expanded count matches plan.bins aggregate", () => {
+  test("ceilMode=true: Xircon target=57 Expanded count matches plan.bins aggregate", async () => {
     // At target=57 MIP picks 2×{LX,XE,X} + 2×{LX,XE} = 4 Expanded.
     // The helper must agree with a direct count over bins.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -528,12 +528,12 @@ describe("aggregateBinTotals (real data)", () => {
       .toBe(4);
   });
 
-  test("ceilMode=false: totalPower equals Σ facility.power × mean(activities) per bin", () => {
+  test("ceilMode=false: totalPower equals Σ facility.power × mean(activities) per bin", async () => {
     // In ceilMode=OFF, each bin contributes the mean of its recipe
     // activities (sum_alloc / recipe_count) — not the raw buildingCount.
     // For singletons the mean equals buildingCount; for grouped bins it
     // is strictly ≤ buildingCount.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -554,8 +554,8 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalPower).toBeCloseTo(expected, 6);
   });
 
-  test("ceilMode=true: totalBuildings equals Σ ceil(bin.buildingCount) over all bins", () => {
-    const plan = calculateProductionPlan(
+  test("ceilMode=true: totalBuildings equals Σ ceil(bin.buildingCount) over all bins", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -569,8 +569,8 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalBuildings).toBe(expected);
   });
 
-  test("ceilMode=false (default): totalBuildings equals Σ mean(activities) per bin", () => {
-    const plan = calculateProductionPlan(
+  test("ceilMode=false (default): totalBuildings equals Σ mean(activities) per bin", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -587,16 +587,16 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalBuildings).toBeCloseTo(expected, 6);
   });
 
-  test("ceilMode=false: grouped Xircon bin contributes mean strictly below buildingCount", () => {
+  test("ceilMode=false: grouped Xircon bin contributes mean strictly below buildingCount", async () => {
     // The user-facing semantic: in ceilMode=OFF, bf=1 surfaces the
     // partial-load info that the integer bin.buildingCount hides for
-    // grouped bins. Under Path H, the variant LP picks active rates
-    // that honour the variant's regime; for partial-load demand the
+    // grouped bins. The variant LP picks active rates that honour
+    // the variant's regime; for partial-load demand the
     // mean activity strictly undercuts bin.buildingCount (which is the
     // ceiled physical count). The specific numeric value depends on
     // which variant the LP picks; the invariant `mean ≤ buildingCount`
     // always holds by construction.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -616,13 +616,13 @@ describe("aggregateBinTotals (real data)", () => {
     expect(mean).toBeLessThan(xirconBin!.buildingCount);
   });
 
-  test("ceilMode=OFF mean ≤ ceilMode=ON ceil for every bin (invariant)", () => {
+  test("ceilMode=OFF mean ≤ ceilMode=ON ceil for every bin (invariant)", async () => {
     // Mathematical invariant: each recipe's slot allocation ≤ bin.buildingCount
     // (allocator caps at bc), so sum ≤ bc × recipeCount, so mean ≤ bc.
     // Verify across the full Xircon-target test matrix.
     const TARGETS = [6, 30, 56, 57, 58, 60, 89, 90, 91];
     for (const target of TARGETS) {
-      const plan = calculateProductionPlan(
+      const plan = await calculateProductionPlan(
         [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: target }],
         items,
         recipes,
@@ -638,8 +638,8 @@ describe("aggregateBinTotals (real data)", () => {
     }
   });
 
-  test("multiFormulaBaseline >= multiFormulaActual (savings non-negative)", () => {
-    const plan = calculateProductionPlan(
+  test("multiFormulaBaseline >= multiFormulaActual (savings non-negative)", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -650,8 +650,8 @@ describe("aggregateBinTotals (real data)", () => {
       .toBeGreaterThanOrEqual(totals.multiFormulaActualBuildings);
   });
 
-  test("multiFormulaActual sums only bins on multi-formula-eligible facilities", () => {
-    const plan = calculateProductionPlan(
+  test("multiFormulaActual sums only bins on multi-formula-eligible facilities", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -669,8 +669,8 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.multiFormulaActualBuildings).toBe(expected);
   });
 
-  test("perFacility entries sum to totalBuildings (ceilMode=true)", () => {
-    const plan = calculateProductionPlan(
+  test("perFacility entries sum to totalBuildings (ceilMode=true)", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -684,8 +684,8 @@ describe("aggregateBinTotals (real data)", () => {
     expect(sum).toBe(totals.totalBuildings);
   });
 
-  test("perFacility entries sum to totalBuildings (ceilMode=false)", () => {
-    const plan = calculateProductionPlan(
+  test("perFacility entries sum to totalBuildings (ceilMode=false)", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -699,7 +699,7 @@ describe("aggregateBinTotals (real data)", () => {
     expect(sum).toBeCloseTo(totals.totalBuildings, 6);
   });
 
-  test("empty plan returns zero aggregates", () => {
+  test("empty plan returns zero aggregates", async () => {
     const emptyPlan = {
       nodes: new Map(),
       edges: [],
@@ -718,7 +718,7 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.multiFormulaBaselineBuildings).toBe(0);
   });
 
-  test("bin on unknown facility id is ignored (defensive)", () => {
+  test("bin on unknown facility id is ignored (defensive)", async () => {
     // Synthesize a plan with a bin pointing to a facility id that's
     // not in the facilities list. The helper should skip it rather
     // than crash.
@@ -750,11 +750,11 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalPower).toBe(0);
   });
 
-  test("ceilMode=true: Furnace singleton (fractional buildingCount) ceils up to 1", () => {
+  test("ceilMode=true: Furnace singleton (fractional buildingCount) ceils up to 1", async () => {
     // Sewage feeder runs at fractional building count (e.g.
     // furnace_copper_nugget at 0.12 for target=6). With ceilMode=true,
     // Math.max(1, Math.ceil(...)) makes a tiny fractional contribute 1.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
       items,
       recipes,
@@ -767,12 +767,12 @@ describe("aggregateBinTotals (real data)", () => {
     expect(furnaceCount).toBeGreaterThanOrEqual(1);
   });
 
-  test("ceilMode=false: Furnace facility count uses raw buildingCount sums", () => {
+  test("ceilMode=false: Furnace facility count uses raw buildingCount sums", async () => {
     // With ceilMode=false (proportional view), perFacility[Furnace]
     // sums raw bin.buildingCount (one bin per Furnace recipe in the
     // chain — IronNugget, CopperNugget, etc.). Each individual bin's
     // contribution is fractional; the sum is typically non-integer.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
       items,
       recipes,
@@ -791,9 +791,9 @@ describe("aggregateBinTotals (real data)", () => {
     expect(furnaceCount!).toBeCloseTo(expected, 6);
   });
 
-  test("ceilMode=true ≥ ceilMode=false for any per-facility entry", () => {
+  test("ceilMode=true ≥ ceilMode=false for any per-facility entry", async () => {
     // Whole-building ceiling can only increase counts, never decrease.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
       items,
       recipes,
@@ -809,12 +809,12 @@ describe("aggregateBinTotals (real data)", () => {
     }
   });
 
-  test("ceilMode=true: power for fractional bin uses full ceiled-building power", () => {
+  test("ceilMode=true: power for fractional bin uses full ceiled-building power", async () => {
     // The user's complaint: at low rates, total power should reflect
     // physical building cost (full power per built building) not
     // proportional. With ceilMode=true, a 0.12-building Furnace pays
     // its full 5W (Furnace tier-1 power), not 0.6W proportional.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
       items,
       recipes,
@@ -831,8 +831,8 @@ describe("aggregateBinTotals (real data)", () => {
     expect(ceiledTotals.totalPower).toBeGreaterThan(fractionalTotals.totalPower);
   });
 
-  test("ceilMode=true: power equals Σ fac.power × ceil(bin.buildingCount)", () => {
-    const plan = calculateProductionPlan(
+  test("ceilMode=true: power equals Σ fac.power × ceil(bin.buildingCount)", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
       items,
       recipes,
@@ -850,10 +850,10 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalPower).toBeCloseTo(expected, 6);
   });
 
-  test("multiFormulaActual/Baseline are always-ceiled regardless of ceilMode", () => {
+  test("multiFormulaActual/Baseline are always-ceiled regardless of ceilMode", async () => {
     // These are physical counterfactuals for the groupedSavings metric;
     // they must stay integer regardless of ceilMode.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
       items,
       recipes,

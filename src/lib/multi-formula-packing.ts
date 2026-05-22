@@ -63,22 +63,23 @@
  * game data); in production we fall back to `emitSingletonBins` for
  * every recipe, which is always exact-match feasible.
  *
- * See `docs/path-h-design.md` for the full design rationale, the
- * trade-offs (continuous-LP hybrid, sub-visible-variant filter), the
- * rocky implementation history, and future-work directions.
+ * **Architecture**: enumerate every cap-feasible shape-variant up
+ * front, then solve a strict-equality LP/MIP over those variants
+ * for active-slot counts. Port-cap feasibility is guaranteed by
+ * construction rather than by LP constraints, which keeps the LP
+ * clean and the solver fast. Tests under "port-cap invariants"
+ * pin this invariant.
  *
- * TODO(future): Path G (big-M indicator constraints in the MIP for
- * per-variant port-cap enforcement) was considered but rejected for
- * solver fragility on `javascript-lp-solver`. Path H trades a few extra
- * variables for guaranteed LP-clean correctness. If empirical evidence
- * later shows Path H's enumeration cost is a bottleneck for game data
- * with many borderline items per shape, Path G remains a viable
- * alternative.
+ * **Alternative not taken**: encoding per-variant port-cap
+ * enforcement as big-M indicator constraints inside the MIP,
+ * skipping the explicit variant-enumeration step. Fewer variables
+ * but more constraint complexity. Viable if variant enumeration
+ * ever becomes a bottleneck for game data with many borderline
+ * items per shape.
  */
 
-import solver from "javascript-lp-solver";
 import { calcRate } from "@/lib/utils";
-import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
+import { solve as highsSolve, type LPModel } from "@/lib/highs-wrapper";
 import type {
   Item,
   Recipe,
@@ -97,17 +98,19 @@ const NET_FLOW_EPSILON = 1e-9;
 /** Tolerance for treating slot demands / active slot counts as zero. */
 const SLOT_DEMAND_EPSILON = 1e-9;
 
-/** Building-count slack added to lex pass 2's cap to absorb LP noise. */
-const LEX_BUILDINGS_TOLERANCE = 1e-6;
+/**
+ * Building-count slack added to lex pass 2's cap to absorb LP solver
+ * noise. HiGHS's `primal_feasibility_tolerance` is configured to
+ * 1e-10 in the wrapper, so 1e-9 is a small defensive cushion.
+ */
+const LEX_BUILDINGS_TOLERANCE = 1e-9;
 
 /**
- * Power-budget slack added to lex pass 3's cap to absorb LP noise.
- * Generous (1e-3) relative to typical power values (multiples of 50W or
- * 100W per building) so rounding noise doesn't accidentally exclude a
- * legitimately optimal pass-3 packing. Tight enough that pass 3 can't
- * swap a higher-power facility tier under the cap.
+ * Power-budget slack added to lex pass 3's cap to absorb LP solver
+ * noise. Same HiGHS-precision justification as
+ * `LEX_BUILDINGS_TOLERANCE` above.
  */
-const LEX_POWER_TOLERANCE = 1e-3;
+const LEX_POWER_TOLERANCE = 1e-6;
 
 /**
  * Threshold for emitting a dev-console warning when a single shape
@@ -730,18 +733,8 @@ const makeBinId = (
  *
  * Lex passes: minimise buildings → power → shape-size sum. No Pass 4
  * for over-provisioning: with strict equality, `Σ_v u_v × dir_v[r] =
- * demand_r` is binding and y is fully determined.
- *
- * **IMPORTANT — strict equality is maintained MODULO sub-visible
- * variants.** The emission loop filters variants whose max recipe
- * rate falls below `MIN_VISIBLE_RATE_PER_MIN` (see filter rationale
- * below). Dropped variants leave the actual emitted bin total at
- * `demand_r − ε_drop` rather than exactly `demand_r`. The drift per
- * dropped variant is < `0.001/min`; cumulative drift across a plan
- * has been < `0.005/min` in all observed cases. Below user-visible
- * granularity, but technically a deviation from the LP's equality
- * contract. See `docs/path-h-design.md` for the full rationale and
- * known future-work directions.
+ * demand_r` is binding and y is fully determined exactly (modulo
+ * HiGHS's 1e-10 feasibility tolerance).
  */
 type SolveOutput = {
   buildingCounts: Map<BinShapeVariant, number>;
@@ -751,12 +744,11 @@ type SolveOutput = {
   totalPower: number;
 };
 
-const solvePacking = (
+const solvePacking = async (
   variants: BinShapeVariant[],
   classes: EquivalenceClass[],
   recipeOverrides: Map<ItemId, RecipeId> | undefined,
-  recipeMap: Map<RecipeId, Recipe>,
-): SolveOutput | null => {
+): Promise<SolveOutput | null> => {
   if (variants.length === 0 || classes.length === 0) {
     return {
       buildingCounts: new Map(),
@@ -780,31 +772,22 @@ const solvePacking = (
     opType: "min";
     constraints: Record<string, { min?: number; max?: number; equal?: number }>;
     variables: Record<string, Record<string, number>>;
-    /**
-     * Variables to treat as integer. Populated with x_v entries when
-     * the variant count is small enough for the integer MIP to solve
-     * quickly (see `USE_INTEGER_LP` threshold). For very large variant
-     * sets we drop integer constraints and round x_v up post-hoc to
-     * avoid pathological B&B runtimes.
-     */
+    /** Variables to treat as integer (x_v building counts always are). */
     ints: Record<string, 1>;
     /**
-     * Hard runtime cap (ms) — MIP only. Defense in depth against any
-     * pathological problem where branch-and-bound stalls past the
-     * `USE_INTEGER_LP` size threshold's expectations. `javascript-lp-
-     * solver` returns the best integer solution found so far (or
-     * `feasible: false` if none), at which point our try/catch /
-     * fallback chain takes over. Unreachable on typical workloads
-     * given the variant-count threshold below.
+     * Hard runtime cap (seconds) passed through to HiGHS as
+     * `time_limit`. Defense in depth against any pathological
+     * problem; unreachable on current workloads, but cheap insurance.
      */
-    options?: { timeout?: number };
+    options?: { timeLimitSeconds?: number };
   };
 
   /**
-   * Solver runtime cap applied to every lex pass. 30s matches vitest's
-   * `testTimeout` in `vite.config.ts`; any longer would break CI.
+   * Solver runtime cap (seconds) applied to every lex pass. 30 s
+   * matches vitest's `testTimeout` in `vite.config.ts`; any longer
+   * would break CI.
    */
-  const SOLVER_TIMEOUT_MS = 30000;
+  const SOLVER_TIME_LIMIT_SECONDS = 30;
 
   const variables: Model["variables"] = {};
   const constraints: Model["constraints"] = {};
@@ -830,37 +813,9 @@ const solvePacking = (
     variables[uName] = {};
   }
 
-  // Decide between integer MIP and continuous-LP-relaxation paths.
-  //
-  // Branch-and-bound on `javascript-lp-solver` scales poorly along
-  // two dimensions:
-  //   1. **Variant count**: each additional integer variable doubles
-  //      worst-case search depth. At ~35+ variants under strict
-  //      equality, B&B can take 90+ seconds.
-  //   2. **Max class demand**: each `x_v` can range from 0 to
-  //      `ceil(max_class_demand)`. Plans with high demand (e.g.,
-  //      30+ slots for some recipe) have integer search spaces
-  //      thousands of times wider than low-demand plans, even with
-  //      few variants.
-  //
-  // For typical 1-3 target plans both metrics are small (≤ 15
-  // variants, max demand ≤ 5). Integer MIP is fast and gives
-  // optimal building counts.
-  //
-  // For complex plans (many targets, or high-rate single targets),
-  // either metric can explode. The continuous relaxation + round-up
-  // path is much faster but may over-provision by ≤ 1 building per
-  // fractional variant — acceptable given the alternative is 90+
-  // second solves.
-  //
-  // Thresholds are empirical. If you tune them: lower → safer for
-  // perf, higher → tighter building-count optimality.
-  let maxClassDemand = 0;
-  for (const cls of classes) {
-    if (cls.slotDemand > maxClassDemand) maxClassDemand = cls.slotDemand;
-  }
-  const USE_INTEGER_LP = variants.length < 30 && maxClassDemand < 10;
-  const lpInts: Model["ints"] = USE_INTEGER_LP ? ints : {};
+  // Integer MIP always. HiGHS handles MIPs within budget on our
+  // workloads (typical solves well under 1 s for ~30-variant plans).
+  const lpInts: Model["ints"] = ints;
 
   let cIdx = 0;
 
@@ -957,11 +912,11 @@ const solvePacking = (
     constraints,
     variables,
     ints: lpInts,
-    options: { timeout: SOLVER_TIMEOUT_MS },
+    options: { timeLimitSeconds: SOLVER_TIME_LIMIT_SECONDS },
   };
   let r1: Record<string, number | boolean | undefined>;
   try {
-    r1 = solver.Solve(passOne) as Record<string, number | boolean | undefined>;
+    r1 = await highsSolve(passOne as LPModel);
   } catch (e) {
     if (import.meta.env?.DEV) {
       console.warn("[BIN_PACKING] pass-1 solver threw:", e);
@@ -1022,7 +977,7 @@ const solvePacking = (
     },
     variables: {},
     ints: lpInts,
-    options: { timeout: SOLVER_TIMEOUT_MS },
+    options: { timeLimitSeconds: SOLVER_TIME_LIMIT_SECONDS },
   };
   for (const [varName, coefs] of Object.entries(variables)) {
     passTwo.variables[varName] = { ...coefs };
@@ -1033,7 +988,7 @@ const solvePacking = (
   let r2: Record<string, number | boolean | undefined>;
   let pass2Succeeded = true;
   try {
-    r2 = solver.Solve(passTwo) as Record<string, number | boolean | undefined>;
+    r2 = await highsSolve(passTwo as LPModel);
   } catch (e) {
     if (import.meta.env?.DEV) {
       console.warn("[BIN_PACKING] pass-2 solver threw:", e);
@@ -1070,7 +1025,7 @@ const solvePacking = (
       },
       variables: {},
       ints: lpInts,
-      options: { timeout: SOLVER_TIMEOUT_MS },
+      options: { timeLimitSeconds: SOLVER_TIME_LIMIT_SECONDS },
     };
     for (const [varName, coefs] of Object.entries(variables)) {
       passThree.variables[varName] = { ...coefs };
@@ -1081,10 +1036,7 @@ const solvePacking = (
     }
     let r3: Record<string, number | boolean | undefined>;
     try {
-      r3 = solver.Solve(passThree) as Record<
-        string,
-        number | boolean | undefined
-      >;
+      r3 = await highsSolve(passThree as LPModel);
     } catch (e) {
       if (import.meta.env?.DEV) {
         console.warn(
@@ -1105,21 +1057,11 @@ const solvePacking = (
     finalResult = r3;
   }
 
-  // Extract x's and u's from the final result. Since we may have
-  // solved the continuous relaxation (no integer constraint on x_v),
-  // the x values may be fractional. Round each up to the next integer
-  // to realise physically-deployable building counts.
-  //
-  // Under strict-equality demand constraints, the LP determines
-  // y_r = Σ u_v × dir_v[r] = demand_r for every recipe r exactly,
-  // regardless of whether x is fractional or integer. The u values
-  // therefore reflect Phase 2's demand exactly.
-  //
-  // **Sub-visible variant filter**: with the continuous-LP path, the
-  // LP can return tiny `u` values (e.g., 1e-7) for vestigial variants
-  // — see `MIN_VISIBLE_RATE_PER_MIN` rationale. Skip these to avoid
-  // emitting bins whose rates fall below the downstream mapper's
-  // edge-allocation threshold (would otherwise produce isolated nodes).
+  // Extract x's and u's from the final result. Under strict-equality
+  // demand constraints and integer MIP, `x_v` is integer and
+  // `y_r = Σ u_v × dir_v[r] = demand_r` exactly for every recipe r.
+  // The Math.ceil on `x` below is a strict-integer no-op kept as
+  // a defensive guard against any 1e-10-scale FP drift.
   const buildingCounts = new Map<BinShapeVariant, number>();
   const activeSlots = new Map<BinShapeVariant, Map<RecipeId, number>>();
   let totalBuildings = 0;
@@ -1132,33 +1074,6 @@ const solvePacking = (
     const uName = uVarByVariant.get(v)!;
     const u = finalResult[uName];
     if (typeof u !== "number" || u <= SLOT_DEMAND_EPSILON) continue;
-
-    // Compute this variant's maximum item rate (items/min) across all
-    // input AND output flows. If even the largest contribution is
-    // sub-visible, skip the variant. Considering both inputs and
-    // outputs (not just outputs) covers the edge case where a recipe
-    // consumes more per cycle than it produces (e.g., Xircon
-    // production: 2 LXP in, 1 Xircon out) — the bin's incoming-edge
-    // candidates may still be visible even when outgoing-edge
-    // candidates fall below threshold.
-    let maxRatePerMin = 0;
-    for (let ri = 0; ri < v.recipeIds.length; ri++) {
-      const rid = v.recipeIds[ri];
-      const recipe = recipeMap.get(rid);
-      if (!recipe) continue;
-      let maxAmount = 0;
-      for (const out of recipe.outputs) {
-        if (out.amount > maxAmount) maxAmount = out.amount;
-      }
-      for (const inp of recipe.inputs) {
-        if (inp.amount > maxAmount) maxAmount = inp.amount;
-      }
-      if (maxAmount === 0) continue;
-      const ratePerSlot = (maxAmount / recipe.craftingTime) * 60;
-      const rate = u * v.rateDirection[ri] * ratePerSlot;
-      if (rate > maxRatePerMin) maxRatePerMin = rate;
-    }
-    if (maxRatePerMin < MIN_VISIBLE_RATE_PER_MIN) continue;
 
     const count = Math.ceil(x - SLOT_DEMAND_EPSILON);
     if (count <= 0) continue;
@@ -1582,7 +1497,7 @@ const assertBinPortCaps = (
 /**
  * Phase 3 entry point. Returns bins + per-recipe allocations + warnings.
  */
-export const packBins = (input: PackingInput): PackingResult => {
+export const packBins = async (input: PackingInput): Promise<PackingResult> => {
   const { recipeSlotDemands, recipeMap, facilityMap, itemMap, recipeOverrides } =
     input;
 
@@ -1647,7 +1562,7 @@ export const packBins = (input: PackingInput): PackingResult => {
     );
   }
 
-  const solution = solvePacking(allVariants, classes, recipeOverrides, recipeMap);
+  const solution = await solvePacking(allVariants, classes, recipeOverrides);
   if (!solution) {
     if (import.meta.env?.DEV) {
       console.warn(

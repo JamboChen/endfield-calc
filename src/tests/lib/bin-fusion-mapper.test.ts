@@ -57,7 +57,7 @@ const mkRecipe = (
 });
 
 describe("pickBinHeadlineOutput", () => {
-  test("targets win over tier", () => {
+  test("targets win over tier", async () => {
     const itemA = mkItem("a", { tier: 1 });
     const itemB = mkItem("b", { tier: 5 });
     const recipeA = mkRecipe("ra", [], [{ itemId: "a", amount: 1 }]);
@@ -86,7 +86,7 @@ describe("pickBinHeadlineOutput", () => {
     expect(result?.itemId).toBe("a"); // target a beats tier-5 b.
   });
 
-  test("highest tier wins when no targets", () => {
+  test("highest tier wins when no targets", async () => {
     const itemA = mkItem("a", { tier: 1 });
     const itemB = mkItem("b", { tier: 5 });
     const recipeA = mkRecipe("ra", [], [{ itemId: "a", amount: 1 }]);
@@ -110,7 +110,7 @@ describe("pickBinHeadlineOutput", () => {
     expect(result?.itemId).toBe("b"); // tier 5 beats tier 1.
   });
 
-  test("solid wins over liquid at same tier", () => {
+  test("solid wins over liquid at same tier", async () => {
     const itemSolid = mkItem("solid", { tier: 3, isLiquid: false });
     const itemLiquid = mkItem("liquid", { tier: 3, isLiquid: true });
     const recipeS = mkRecipe("rs", [], [{ itemId: "solid", amount: 1 }]);
@@ -134,7 +134,7 @@ describe("pickBinHeadlineOutput", () => {
     expect(result?.itemId).toBe("solid");
   });
 
-  test("alphabetical fallback at full tie", () => {
+  test("alphabetical fallback at full tie", async () => {
     const itemB = mkItem("b", { tier: 1 });
     const itemA = mkItem("a", { tier: 1 });
     const recipeB = mkRecipe("rb", [], [{ itemId: "b", amount: 1 }]);
@@ -158,7 +158,7 @@ describe("pickBinHeadlineOutput", () => {
     expect(result?.itemId).toBe("a"); // alphabetical first.
   });
 
-  test("returns null for bin with no external outputs", () => {
+  test("returns null for bin with no external outputs", async () => {
     const bin: Bin = {
       id: "bin-test" as BinId,
       facilityId: "fac" as unknown as FacilityIdType,
@@ -177,8 +177,8 @@ describe("pickBinHeadlineOutput", () => {
 });
 
 describe("mapPlanToFlowBinFused (Recipe View)", () => {
-  test("Xircon plan: one node per bin with bin metadata", () => {
-    const plan = calculateProductionPlan(
+  test("Xircon plan: one node per bin with bin metadata", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
       items,
       recipes,
@@ -215,14 +215,14 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     }
   });
 
-  test("grouped Xircon bin shows headline + extra outputs", () => {
+  test("grouped Xircon bin shows headline + extra outputs", async () => {
     // The Xircon scenario produces a bin with all 3 pool recipes
     // (LX, XE, X). External outputs: Xircon (target), Inert XE,
     // and (with rate=30, MIP picks all-Expanded with 4 buildings)
     // potentially Sewage surplus. Headline = Xircon (target +
     // tier 3 + solid). The card's primary item should be Xircon
     // and binExtraOutputs should include the others.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
       items,
       recipes,
@@ -252,12 +252,12 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(data.productionNode?.bin).toBeDefined();
   });
 
-  test("internal flows produce no edges", () => {
+  test("internal flows produce no edges", async () => {
     // For the Xircon scenario, Liquid Xiranite is internal (LX produces it,
     // XE consumes it, never leaves the building). The bin-fused mapper
     // emits no edge for Liquid Xiranite — it's neither in externalInputs
     // nor externalOutputs.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
       items,
       recipes,
@@ -292,8 +292,8 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     }
   });
 
-  test("flow integrity: no dangling edges", () => {
-    const plan = calculateProductionPlan(
+  test("flow integrity: no dangling edges", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
       items,
       recipes,
@@ -312,7 +312,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(dangling).toEqual([]);
   });
 
-  test("raw water pickup is emitted even when Liquid Purifier produces water as byproduct", () => {
+  test("raw water pickup is emitted even when Liquid Purifier produces water as byproduct", async () => {
     // Regression: bin-fused-mapper used to skip raw-pickup emission for
     // items that had any bin producer. The Liquid Purifier produces
     // Liquid Water as a byproduct (1 Water per cycle alongside the Poly
@@ -325,7 +325,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     //   - No water edge originates from the Purifier bin (its byproduct
     //     is shown on the bin card via `binExtraOutputs` but not routed).
     //   - Edges from the pickup feed each consumer bin's water input.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 56 }],
       items,
       recipes,
@@ -374,7 +374,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(waterOnBin!.rate).toBeGreaterThan(0);
   });
 
-  test("ceilMode=OFF: grouped bin card shows mean(activities), not integer bin.buildingCount", () => {
+  test("ceilMode=OFF: grouped bin card shows mean(activities), not integer bin.buildingCount", async () => {
     // bf=1 ceilMode=OFF surfaces partial-load info that the integer
     // `bin.buildingCount` hides for grouped bins. The Xircon {LX, XE, X}
     // bin at target=57 hosts activities (LX=2, XE=2, X=1.9) across 2
@@ -384,7 +384,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     // ceilMode=ON: card shows the integer 2 (physical).
     // ceilMode=OFF: card shows ≈ 1.967 (mean activity).
     // Invariant: ceilMode=OFF value ≤ ceilMode=ON value, always.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -440,12 +440,12 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(onFacilityCount).toBeGreaterThanOrEqual(1);
   });
 
-  test("ceilMode=OFF: singleton bin card facilityCount = bin.buildingCount (no change)", () => {
+  test("ceilMode=OFF: singleton bin card facilityCount = bin.buildingCount (no change)", async () => {
     // For singleton bins (1 recipe), mean = sum / 1 = sum = bin.buildingCount.
     // The Purifier bin (LIQUID_PURIFIER_XIRANITE_POLY_1, ~0.76 buildings at
     // target=57) is a singleton; the card should show 0.76 regardless of
     // ceilMode.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
@@ -473,14 +473,14 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(facilityCount).toBeCloseTo(purifierBin!.buildingCount, 6);
   });
 
-  test("zero-rate target emits no isolated sink node", () => {
+  test("zero-rate target emits no isolated sink node", async () => {
     // Reachability: the URL-hash parser in `useProductionPlan` accepts
     // any `rate >= 0`, so a hash like `#t=item_iron_nugget:0` results
     // in `targetRates.get(itemId) === 0`. The consumer-registration
     // loop already skips zero-rate targets; the sink-emission loop
     // must match, otherwise an isolated `target-sink-*` node trips
     // assertFlowIntegrity in dev mode.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 }],
       items,
       recipes,
@@ -498,7 +498,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(flow.nodes.find((n) => n.id === sinkId)).toBeUndefined();
   });
 
-  test("singleton-terminal target folds into one embedded sink (bf=0 parity)", () => {
+  test("singleton-terminal target folds into one embedded sink (bf=0 parity)", async () => {
     // Regression: prior to the singleton-terminal skip, the merged bin-fused
     // mapper emitted both the bin's production card AND the target sink
     // with embedded recipe info — duplicating the same information twice
@@ -509,7 +509,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     // Iron Nugget is the simplest terminal-target chain in the real data
     // (Furnace × 1 producing only Iron Nugget, no byproducts, no consumers
     // other than the target sink).
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 }],
       items,
       recipes,
@@ -574,14 +574,14 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     }
   });
 
-  test("target sink incoming edges sum to userTargetRate (target priority over disposal)", () => {
+  test("target sink incoming edges sum to userTargetRate (target priority over disposal)", async () => {
     // Recipe View counterpart of the Facility View test. The merged
     // bin-fused mapper also registers consumers in the order
     // target-then-disposal so the greedy allocator gives targets
     // priority. For Xircon Poly @ 60/min, the bin emits a single card
     // and its single edge to the target sink must carry exactly the
     // full target rate.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
       recipes,
@@ -611,7 +611,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     expect(totalRate).toBeCloseTo(60, 6);
   });
 
-  test("singleton-terminal target with multiple inputs routes all inputs to embedded sink (Xiranite Powder regression)", () => {
+  test("singleton-terminal target with multiple inputs routes all inputs to embedded sink (Xiranite Powder regression)", async () => {
     // Regression: my first attempt at the singleton-terminal skip
     // produced isolated `raw_item_liquid_water` and
     // `target-sink-item_xiranite_powder` nodes because the skipped
@@ -622,7 +622,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     //
     // Both inputs must land directly on the target sink, and neither
     // the raw water pickup nor the target sink may end up isolated.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POWDER, rate: 10 }],
       items,
       recipes,
@@ -679,8 +679,8 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
 });
 
 describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
-  test("emits N building nodes per bin where N = ceil(buildingCount)", () => {
-    const plan = calculateProductionPlan(
+  test("emits N building nodes per bin where N = ceil(buildingCount)", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
       recipes,
@@ -709,8 +709,8 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     }
   });
 
-  test("per-building rates = bin total ÷ buildingCount", () => {
-    const plan = calculateProductionPlan(
+  test("per-building rates = bin total ÷ buildingCount", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
       recipes,
@@ -754,8 +754,8 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     }
   });
 
-  test("flow integrity: no dangling edges in Facility View", () => {
-    const plan = calculateProductionPlan(
+  test("flow integrity: no dangling edges in Facility View", async () => {
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
       items,
       recipes,
@@ -781,11 +781,11 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     expect(dangling).toEqual([]);
   });
 
-  test("zero-rate target emits no isolated sink node", () => {
+  test("zero-rate target emits no isolated sink node", async () => {
     // Mirror of the Recipe View test: the separated mapper's
     // sink-emission loop must also skip zero-rate targets so no
     // isolated `target-sink-*` node escapes into the graph.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 }],
       items,
       recipes,
@@ -803,12 +803,12 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     expect(flow.nodes.find((n) => n.id === sinkId)).toBeUndefined();
   });
 
-  test("singleton-terminal target with ≤1 building folds into embedded sink (bf=0 parity)", () => {
+  test("singleton-terminal target with ≤1 building folds into embedded sink (bf=0 parity)", async () => {
     // Mirror of the Recipe View test for Facility View. When a singleton
     // bin collapses to one effective building (ceil(buildingCount) === 1)
     // and its sole output is a terminal target, the building card is
     // skipped and recipe info is embedded on the target sink instead.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 }],
       items,
       recipes,
@@ -875,13 +875,13 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     }
   });
 
-  test("singleton-terminal target with >1 buildings emits per-building cards (no embed)", () => {
+  test("singleton-terminal target with >1 buildings emits per-building cards (no embed)", async () => {
     // Counter-test: ensure the singleton-terminal skip only fires when
     // ceil(buildingCount) === 1. With multiple buildings, the existing
     // per-building emission must still happen (matches bf=0 multi-facility
     // branch). The target sink should NOT have productionInfo embedded
     // in this case — building cards carry the recipe info instead.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 100 }],
       items,
       recipes,
@@ -919,7 +919,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     expect(sinkData.productionInfo).toBeUndefined();
   });
 
-  test("cycle edges between bins carry direction=backward (ELK layout hint)", () => {
+  test("cycle edges between bins carry direction=backward (ELK layout hint)", async () => {
     // Regression: bin-fused-separated previously didn't tag cycle edges
     // with direction=backward, causing ELK to lay them out with default
     // priority. The mapper now tags both directions of detected cycles
@@ -931,7 +931,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     // different facilities, hence different bins. Detected by the SCC
     // detector and surfaces in `plan.detectedCycles` because the
     // LP-based solver doesn't add solved cycles to `resolvedSCCIds`.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_PLANT_MOSS_POWDER_1, rate: 30 }],
       items,
       recipes,
@@ -964,7 +964,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     }
   });
 
-  test("target sink incoming edges sum to userTargetRate (target priority over disposal)", () => {
+  test("target sink incoming edges sum to userTargetRate (target priority over disposal)", async () => {
     // Regression: bin-fused-separated previously registered disposal-bin
     // consumers BEFORE target sinks in the greedy allocator's consumer
     // map. With well-balanced plans this produced identical results,
@@ -975,7 +975,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     // Xircon Poly @ 60/min puts the grouped {LX, XE, X} bin at 2
     // buildings, each connecting to the target sink. Total target
     // sink incoming for ITEM_XIRANITE_POLY must equal 60/min exactly.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
       recipes,
@@ -1005,13 +1005,13 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     expect(totalRate).toBeCloseTo(60, 6);
   });
 
-  test("singleton-terminal target with multiple inputs routes all inputs to embedded sink (Xiranite Powder regression)", () => {
+  test("singleton-terminal target with multiple inputs routes all inputs to embedded sink (Xiranite Powder regression)", async () => {
     // Facility View equivalent of the Xiranite Powder Recipe View
     // regression. The Xiranite Oven recipe consumes Carbon Enriched +
     // Liquid Water and outputs Xiranite Powder — a singleton-terminal
     // bin with two inputs. Both inputs must reach the target sink
     // directly; raw water pickup must not be orphaned.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POWDER, rate: 10 }],
       items,
       recipes,
@@ -1065,14 +1065,14 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     }
   });
 
-  test("per-building cards for grouped multi-building target carry isDirectTarget (star ribbon)", () => {
+  test("per-building cards for grouped multi-building target carry isDirectTarget (star ribbon)", async () => {
     // Regression: `mapPlanToFlowBinFusedSeparated` hardcoded
     // `isDirectTarget: false` on every per-building emission, so the
     // amber Star ribbon in `CustomProductionNode` never showed. For
     // Xircon Poly @ 60/min the {LX, XE, X} bin produces the target
     // across 2+ buildings — each must carry `isDirectTarget: true`
     // plus a non-zero per-building `directTargetRate`.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
       recipes,
@@ -1109,12 +1109,12 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     }
   });
 
-  test("per-building cards on singleton multi-building target carry isDirectTarget", () => {
+  test("per-building cards on singleton multi-building target carry isDirectTarget", async () => {
     // Counterpart of the grouped test for singleton bins with
     // buildingCount > 1 (Iron Nugget @ 100/min). Not a
     // singleton-terminal case (the skip gate requires N === 1), so
     // building cards emit — and each must still carry the star.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 100 }],
       items,
       recipes,
@@ -1149,7 +1149,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     }
   });
 
-  test("battery SCC scenario: bin-fused renders connected graph with target reachable", () => {
+  test("battery SCC scenario: bin-fused renders connected graph with target reachable", async () => {
     // Exercises bin-fused-separated on a synthetic byproduct-SCC recipe
     // graph (`byproductSCCRecipes`) targeting Battery. Covers a
     // different graph topology than the Xircon scenario: the byproduct
@@ -1164,7 +1164,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     //   - The furnace (external Sewage producer) has outgoing edges.
     //   - The Battery target sink has incoming edges with the requested
     //     rate.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_PROC_BATTERY_1, rate: 30 }],
       mockItems,
       byproductSCCRecipes,
@@ -1208,7 +1208,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     expect(sinkIncoming.length).toBeGreaterThan(0);
   });
 
-  test("grouped bin sister count matches bin.recipeIds.length (off-by-one regression)", () => {
+  test("grouped bin sister count matches bin.recipeIds.length (off-by-one regression)", async () => {
     // Catches the off-by-one bug in the sister filter where
     // `bin.recipeIds.filter((rid) => rid !== self)` would incorrectly
     // retain the self id (e.g. lx_1's sisters would be [lx_2, xe_2,
@@ -1217,7 +1217,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     //
     // Uses real data so Phase 3 actually packs the {LX, XE, X} pool
     // into Expanded Crucible bins.
-    const plan = calculateProductionPlan(
+    const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 30 }],
       items,
       recipes,
@@ -1263,29 +1263,31 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     }
   });
 
-  test("3-target plan (Hetonite Part + SC Wuling Battery + Yazhen Syringe) produces no isolated bins", () => {
+  test("3-target plan (Hetonite Part + SC Wuling Battery + Yazhen Syringe) produces no isolated bins", async () => {
     // Regression test for the "vestigial 2-recipe variant" bug.
     //
-    // Background: with strict-equality demand in `solvePacking` and the
-    // continuous-LP relaxation path (≥30 variants), the LP could return
+    // Background: in an earlier solver iteration that solved the LP
+    // as a continuous relaxation, strict-equality demand could leave
     // tiny u values (~1e-7) for 2-recipe variants combining unrelated
     // chemistries (e.g., `{pool_copper_enr, pool_liquid_plant_grass_2}`).
-    // These variants are vestigial — singletons of the same recipes
-    // cover demand at meaningful rates — but FP residue from simplex
-    // pivots left them with non-zero u just above SLOT_DEMAND_EPSILON.
+    // These variants were vestigial: singletons of the same recipes
+    // already covered demand at meaningful rates, but FP residue from
+    // simplex pivots left them with non-zero u just above
+    // SLOT_DEMAND_EPSILON.
     //
     // When rounded to x=1, such bins emitted external rates of ~3e-5
     // /min, far below the bin-fused mapper's 0.001/min edge-allocation
     // threshold. The mapper skipped all incident edges, leaving the
     // bin as an isolated node → `assertFlowIntegrity` failure.
     //
-    // The 3-target combination below reliably triggered this on
-    // real game data. The fix (`MIN_VISIBLE_RATE_PER_MIN` filter in
-    // `solvePacking` emission) drops sub-visible variants before they
-    // reach the mapper. If `assertFlowIntegrity` ever fires for this
-    // scenario again, either the filter regressed or game data has
-    // shifted in a way that exposes a new corner case.
-    const plan = calculateProductionPlan(
+    // The 3-target combination below was a known failure mode in an
+    // earlier solver iteration: certain LP outputs left bins emitting
+    // at rates below the mapper's edge-allocation threshold,
+    // producing isolated nodes that tripped `assertFlowIntegrity`.
+    // The current solver's 1e-10 feasibility tolerance keeps such
+    // sub-visible outputs from appearing. If `assertFlowIntegrity`
+    // ever fires for this scenario, that invariant regressed.
+    const plan = await calculateProductionPlan(
       [
         { itemId: ItemId.ITEM_COPPER_ENR_CMPT, rate: 6 },
         { itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 6 },
@@ -1331,8 +1333,8 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
 
     // Facility View (bin-fused separated). Same packer output, but
     // the mapper emits one node per physical building instead of one
-    // per bin. The sub-visible-variant bug surfaces identically here
-    // because the same source bins drive both mappers.
+    // per bin. Same bins drive both mappers, so any edge-allocation
+    // failure surfaces in both views identically.
     const flowSeparated = mapPlanToFlowBinFusedSeparated(
       plan,
       items,

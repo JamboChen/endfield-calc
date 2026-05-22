@@ -3,6 +3,7 @@ import { useState } from "react";
 import { AlertTriangle, BarChart3, Network } from "lucide-react";
 import ProductionTable from "./ProductionTable";
 import ProductionDependencyTree from "../flow/ProductionDependencyTree";
+import SolverLoadingOverlay from "./SolverLoadingOverlay";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -36,6 +37,10 @@ interface ProductionViewTabsProps {
   binFusion: boolean;
   onBinFusionChange: (value: boolean) => void;
   warnings: string[];
+  /** True while the solver is busy: either the HiGHS WASM module is
+   *  still loading, or a calculation has been in flight long enough
+   *  (>300ms) for the debounced loading overlay to engage. */
+  loading: boolean;
 }
 
 export default function ProductionViewTabs({
@@ -54,6 +59,7 @@ export default function ProductionViewTabs({
   binFusion,
   onBinFusionChange,
   warnings,
+  loading,
 }: ProductionViewTabsProps) {
   const { t } = useTranslation("app");
   const [visualizationMode, setVisualizationMode] =
@@ -164,7 +170,8 @@ export default function ProductionViewTabs({
             )}
           </div>
         </CardHeader>
-        <CardContent className="flex-1 min-h-0 overflow-hidden p-0">
+        <CardContent className="relative flex-1 min-h-0 overflow-hidden p-0">
+          {loading && <SolverLoadingOverlay />}
           <Tabs value={activeTab} className="h-full">
             <TabsContent value="table" className="h-full m-0 p-4 pt-0">
               {warnings.length > 0 && (

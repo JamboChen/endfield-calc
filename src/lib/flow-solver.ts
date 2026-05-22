@@ -20,14 +20,14 @@ import type {
   InvalidSCCInfo,
 } from "./calculator-types";
 
-export function calculateFlows(
+export async function calculateFlows(
   graph: BipartiteGraph,
   condensedOrder: CondensedNode[],
   targetRates: Map<ItemId, number>,
   maps: ProductionMaps,
   recipeOverrides?: Map<ItemId, RecipeId>,
   manualRawMaterials?: Set<ItemId>,
-): { flowData: FlowData; invalidSCCs: InvalidSCCInfo[] } {
+): Promise<{ flowData: FlowData; invalidSCCs: InvalidSCCInfo[] }> {
   const itemDemands = new Map<ItemId, number>();
   const recipeFacilityCounts = new Map<RecipeId, number>();
   const resolvedSCCIds = new Set<string>();
@@ -43,10 +43,15 @@ export function calculateFlows(
     `[FLOW] Processing ${reversedOrder.length} condensed nodes in topological order`,
   );
 
-  reversedOrder.forEach((node, idx) => {
+  // Sequential async loop — each SCC's solve depends on the running
+  // `itemDemands` / `recipeFacilityCounts` state populated by earlier
+  // iterations, so we await each before processing the next. Using
+  // a for-of loop instead of `.forEach` so `await` works correctly.
+  for (let idx = 0; idx < reversedOrder.length; idx++) {
+    const node = reversedOrder[idx];
     if (node.type === "scc") {
       console.log(`[FLOW] [${idx}] Processing SCC: ${node.scc.id}`);
-      const solved = solveSCCFlow(
+      const solved = await solveSCCFlow(
         node.scc,
         graph,
         itemDemands,
@@ -106,7 +111,7 @@ export function calculateFlows(
     } else if (node.type === "item") {
       console.log(`[FLOW] [${idx}] Processing item: ${node.itemId}`);
     }
-  });
+  }
 
   return {
     flowData: { itemDemands, recipeFacilityCounts, resolvedSCCIds },
@@ -337,7 +342,7 @@ function propagateRawMaterialDeficit(
   }
 }
 
-function solveSCCFlow(
+async function solveSCCFlow(
   scc: SCCInfo,
   graph: BipartiteGraph,
   itemDemands: Map<ItemId, number>,
@@ -347,7 +352,7 @@ function solveSCCFlow(
   recipeOverrides?: Map<ItemId, RecipeId>,
   resolvedSCCIds?: Set<string>,
   manualRawMaterials?: Set<ItemId>,
-): boolean {
+): Promise<boolean> {
   console.log(`[SCC_SOLVE] Solving flow for SCC: ${scc.id}`);
 
   const recipesList = Array.from(scc.recipes).map(
@@ -406,7 +411,7 @@ function solveSCCFlow(
     graph,
     maps,
   );
-  const result = solveLP(lpInput);
+  const result = await solveLP(lpInput);
 
   if (!result.feasible) {
     console.warn(
@@ -504,7 +509,7 @@ function solveSCCFlow(
  *   5. Propagate external-input consumption into `itemDemands` so
  *      upstream linear-DAG processing scales producers accordingly.
  */
-function tryExtendSCCWithFeeders(
+async function tryExtendSCCWithFeeders(
   scc: SCCInfo,
   graph: BipartiteGraph,
   itemDemands: Map<ItemId, number>,
@@ -514,7 +519,7 @@ function tryExtendSCCWithFeeders(
   recipeOverrides?: Map<ItemId, RecipeId>,
   resolvedSCCIds?: Set<string>,
   manualRawMaterials?: Set<ItemId>,
-): boolean {
+): Promise<boolean> {
   if (!recipeOverrides || recipeOverrides.size === 0) return false;
 
   const feedersAdded: {
@@ -721,7 +726,7 @@ function tryExtendSCCWithFeeders(
     ),
     pinnedRecipes: pinnedOverrides,
   };
-  const result = solveLP(lpInput);
+  const result = await solveLP(lpInput);
 
   if (!result.feasible) {
     console.warn(

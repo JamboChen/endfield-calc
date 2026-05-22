@@ -62,11 +62,11 @@ const buildMaps = (items: Item[], recipes: Recipe[], facilities: Facility[]) => 
 
 describe("packBins", () => {
   describe("trivial / fallback", () => {
-    test("empty demand returns empty bins", () => {
+    test("empty demand returns empty bins", async () => {
       const items: Item[] = [];
       const recipes: Recipe[] = [];
       const facilities: Facility[] = [];
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: new Map(),
         ...buildMaps(items, recipes, facilities),
       });
@@ -74,14 +74,14 @@ describe("packBins", () => {
       expect(r.allocations.size).toBe(0);
     });
 
-    test("recipe on single-formula facility → singleton bin", () => {
+    test("recipe on single-formula facility → singleton bin", async () => {
       const items = [item("raw"), item("out")];
       const r1 = recipe("r1", [{ itemId: "raw", amount: 1 }], [{ itemId: "out", amount: 1 }], "fac");
       const fac = facility("fac", { powerConsumption: 25 }); // no cacheSlots
       const slotDemands = new Map<RecipeId, number>([
         ["r1" as RecipeId, 1.5],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [r1], [fac]),
       });
@@ -160,7 +160,7 @@ describe("packBins", () => {
     const recipes = [lx_1, lx_2, xe_1, xe_2, x_1, x_2];
     const facilities = [reactor, expanded];
 
-    test("optimal triple: 4 buildings on Expanded covering slot demand", () => {
+    test("optimal triple: 4 buildings on Expanded covering slot demand", async () => {
       // Slot demands: LX = 4, XE = 4, X = 2.
       // Inner slot count for {LX,XE,X}: 8 distinct items
       // (xiranite_powder, water, liquid_xiranite, liquid_sewage,
@@ -178,7 +178,7 @@ describe("packBins", () => {
         ["xe_1" as RecipeId, 4],
         ["x_1" as RecipeId, 2],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -224,12 +224,12 @@ describe("packBins", () => {
       expect(slotsByRecipe.get("x_1") ?? 0).toBeCloseTo(2, 2);
     });
 
-    test("fractional demand at target=57: cap-safe packing, Xircon rate met", () => {
+    test("fractional demand at target=57: cap-safe packing, Xircon rate met", async () => {
       // Phase 2 LP demands at target=57 Xircon (real ratios).
       // x_X = 1.9, x_XE = x_LX = 3.04.
       //
-      // Under Path H, the packer enumerates only cap-feasible variants
-      // of each shape. The triple {LX,XE,X} shape has multiple variants;
+      // The packer enumerates only cap-feasible variants of each
+      // shape. The triple {LX,XE,X} shape has multiple variants;
       // demand at non-stoichiometric ratios (XE/X = 1.6 vs natural 2.0)
       // forces the LP to combine variants and/or pair shapes to cover
       // demand while keeping each bin within port caps.
@@ -245,7 +245,7 @@ describe("packBins", () => {
         ["xe_1" as RecipeId, 3.04],
         ["x_1" as RecipeId, 1.9],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -262,11 +262,11 @@ describe("packBins", () => {
           );
         }
       }
-      // Strict-equality demand: allocations must equal demand exactly,
-      // modulo the documented sub-visible-variant drift (<0.005/min
-      // rate-level cumulative, which is well below 0.005 slots for any
-      // recipe in the test set). `toBeCloseTo(target, 2)` gives ±0.005
-      // tolerance — catches both under- and over-allocation regressions.
+      // Strict-equality demand: allocations must equal demand exactly
+      // (HiGHS holds equality to its 1e-10 feasibility tolerance).
+      // `toBeCloseTo(target, 2)` gives ±0.005 tolerance, conservative
+      // for solver noise; catches both under- and over-allocation
+      // regressions.
       expect(slotsByRecipe.get("lx_1") ?? 0).toBeCloseTo(3.04, 2);
       expect(slotsByRecipe.get("xe_1") ?? 0).toBeCloseTo(3.04, 2);
       expect(slotsByRecipe.get("x_1") ?? 0).toBeCloseTo(1.9, 2);
@@ -303,7 +303,7 @@ describe("packBins", () => {
       }
     });
 
-    test("pass 3 prefers smaller shape mix when buildings/power tie", () => {
+    test("pass 3 prefers smaller shape mix when buildings/power tie", async () => {
       // Demand x_X=1, x_LX=x_XE=2 admits two 2-building packings:
       //   - 2×{LX,XE,X}: 2 X, 2 LX, 2 XE. shape-sum 6. X over by 1.
       //   - 1×{LX,XE,X} + 1×{LX,XE}: 1 X, 2 LX, 2 XE. shape-sum 5. Exact.
@@ -313,7 +313,7 @@ describe("packBins", () => {
         ["xe_1" as RecipeId, 2],
         ["x_1" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -335,7 +335,7 @@ describe("packBins", () => {
       expect(pairBin?.buildingCount).toBe(1);
     });
 
-    test("smaller demand: 1 building of {LX, XE, X} on Expanded", () => {
+    test("smaller demand: 1 building of {LX, XE, X} on Expanded", async () => {
       // N_LX = 1, N_XE = 1, N_X = 1 → 1 Expanded with 1 building.
       // Reactor alternative: 3 singleton buildings @ 50W = 150W; Expanded 1 @ 100W.
       // Lex: minimise buildings (1 < 3), so Expanded wins.
@@ -344,7 +344,7 @@ describe("packBins", () => {
         ["xe_1" as RecipeId, 1],
         ["x_1" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -355,7 +355,7 @@ describe("packBins", () => {
       expect(r.bins[0].recipeIds.length).toBe(3);
     });
 
-    test("internal items: Liquid Xiranite is fully internal (1:1 LX→XE)", () => {
+    test("internal items: Liquid Xiranite is fully internal (1:1 LX→XE)", async () => {
       // For 1:1:1 ratio, LX produces 0.5 LX/s, XE consumes 0.5 LX/s → net 0.
       // Sewage: X produces 0.5/s, XE consumes 0.5/s → net 0 (also internal!).
       // Wait — for {1,1,1} ratio: XE consumes 1 LX/cycle = 0.5/s, X produces 1
@@ -369,7 +369,7 @@ describe("packBins", () => {
         ["xe_1" as RecipeId, 1],
         ["x_1" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
@@ -381,7 +381,7 @@ describe("packBins", () => {
       expect(internalIds.has("liquid_xiranite" as ItemId)).toBe(true);
     });
 
-    test("port caps reject group with > 2 liquid outputs", () => {
+    test("port caps reject group with > 2 liquid outputs", async () => {
       // Synthetic: 3 recipes producing 3 distinct external liquids; would
       // need 3 liquid-out ports.
       const itemsWithExtras = [
@@ -416,7 +416,7 @@ describe("packBins", () => {
         ["b_1" as RecipeId, 1],
         ["c_1" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(itemsWithExtras, [a, b, c], [expandedSmall]),
       });
@@ -457,12 +457,12 @@ describe("packBins", () => {
       "mix_pool_1",
     );
 
-    test("Reactor packs 2 grass recipes when ratio allows", () => {
+    test("Reactor packs 2 grass recipes when ratio allows", async () => {
       const slotDemands = new Map<RecipeId, number>([
         ["grass1_1" as RecipeId, 1],
         ["grass2_1" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [grass1, grass2], [reactor]),
       });
@@ -504,7 +504,7 @@ describe("packBins", () => {
       "mix_pool_2",
     );
 
-    test("override forces specific variant", () => {
+    test("override forces specific variant", async () => {
       // In the realistic pipeline, the flow solver respects the user's
       // recipe override and routes demand through the pinned variant.
       // Here we simulate that by placing slot demand on lx_2 (the pin)
@@ -515,7 +515,7 @@ describe("packBins", () => {
       const overrides = new Map<ItemId, RecipeId>([
         ["liquid_xiranite" as ItemId, "lx_2" as RecipeId],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         recipeOverrides: overrides,
         ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
@@ -530,7 +530,7 @@ describe("packBins", () => {
       expect(allOnExpanded).toBe(true);
     });
 
-    test("conflict: two items pinning different variants build both facilities", () => {
+    test("conflict: two items pinning different variants build both facilities", async () => {
       // Two recipes producing different items but in the same equivalence
       // class (same I/O structure, different facilities). User pins item
       // A to recipe_a_1 and item B to recipe_a_2. The packer must honour
@@ -550,7 +550,7 @@ describe("packBins", () => {
         ["item_a" as ItemId, "lx_1" as RecipeId],
         ["item_b" as ItemId, "lx_2" as RecipeId],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         recipeOverrides: overrides,
         ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
@@ -571,7 +571,7 @@ describe("packBins", () => {
       expect(lx2Buildings).toBeGreaterThanOrEqual(2);
     });
 
-    test("single pin + unpinned coexist: pin honoured, unpinned free to substitute", () => {
+    test("single pin + unpinned coexist: pin honoured, unpinned free to substitute", async () => {
       // One pinned demand-recipe (lx_2 via item_b's override) plus one
       // unpinned demand-recipe (lx_1) in the same class. The pin must be
       // honoured at lx_2's facility; the unpinned portion is free to use
@@ -584,7 +584,7 @@ describe("packBins", () => {
       const overrides = new Map<ItemId, RecipeId>([
         ["item_b" as ItemId, "lx_2" as RecipeId],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         recipeOverrides: overrides,
         ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
@@ -603,7 +603,7 @@ describe("packBins", () => {
       expect(totalBuildings).toBeGreaterThanOrEqual(5);
     });
 
-    test("infeasible pin: fallback to singletons with warning", () => {
+    test("infeasible pin: fallback to singletons with warning", async () => {
       // User pins a recipe whose facility has no buffer capacity for the
       // recipe's I/O — no bin shape exists. The packer falls back to
       // per-recipe singletons (still produces a valid plan) and emits
@@ -632,7 +632,7 @@ describe("packBins", () => {
       const overrides = new Map<ItemId, RecipeId>([
         ["liquid_xiranite" as ItemId, "lx_2_no_buf" as RecipeId],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         recipeOverrides: overrides,
         ...buildMaps(items, [lx_1, lx_2, lx_2_no_buf], [reactor, expanded, noBufferFac]),
@@ -647,7 +647,7 @@ describe("packBins", () => {
   });
 
   describe("byte-identity defensive guard", () => {
-    test("twin recipes have matching signatures", () => {
+    test("twin recipes have matching signatures", async () => {
       const a = recipe("a",
         [{ itemId: "x", amount: 1 }],
         [{ itemId: "y", amount: 1 }],
@@ -674,7 +674,7 @@ describe("packBins", () => {
         buffersOut: { belt: [{ ports: 1 }], pipe: [] },
       });
       const slotDemands = new Map<RecipeId, number>([["a" as RecipeId, 1]]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [a, b], [fac1, fac2]),
       });
@@ -685,7 +685,7 @@ describe("packBins", () => {
   });
 
   describe("deterministic output", () => {
-    test("repeated calls return identical bin ids", () => {
+    test("repeated calls return identical bin ids", async () => {
       const items = [
         item("a"), item("b"), item("c"),
         item("water", { isLiquid: true }),
@@ -712,18 +712,18 @@ describe("packBins", () => {
         ["r1" as RecipeId, 1],
         ["r2" as RecipeId, 1],
       ]);
-      const a = packBins({
+      const a = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [r1, r2], [fac]),
       });
-      const b = packBins({
+      const b = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [r1, r2], [fac]),
       });
       expect(a.bins.map((x) => x.id)).toEqual(b.bins.map((x) => x.id));
     });
 
-    test("bin.recipeIds is sorted ascending across every emitted bin", () => {
+    test("bin.recipeIds is sorted ascending across every emitted bin", async () => {
       // Contract relied on by `useProductionTable.ts:263`
       // (`primaryRecipeId = bin.recipeIds[0]` = alphabetically-first id)
       // for the "primary row owns the power" heuristic. A future packer
@@ -759,7 +759,7 @@ describe("packBins", () => {
         ["z_recipe" as RecipeId, 1],
         ["a_recipe" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [r1, r2], [fac]),
       });
@@ -782,7 +782,7 @@ describe("packBins", () => {
   });
 
   describe("singleton fallback", () => {
-    test("single recipe with no peers → 1 building, no grouping", () => {
+    test("single recipe with no peers → 1 building, no grouping", async () => {
       const items = [item("raw"), item("out")];
       const fac = facility("fac", {
         powerConsumption: 50,
@@ -795,7 +795,7 @@ describe("packBins", () => {
         "fac",
       );
       const slotDemands = new Map<RecipeId, number>([["r1" as RecipeId, 1]]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [r1], [fac]),
       });
@@ -839,7 +839,7 @@ describe("packBins", () => {
       "mix_pool_2",
     );
 
-    test("bin.recipeIds holds Phase-2 demand ids, not physical twins", () => {
+    test("bin.recipeIds holds Phase-2 demand ids, not physical twins", async () => {
       // With only one demand recipe and no other recipes, no grouping is
       // beneficial (singleton bin on Reactor wins). This singleton path
       // exercises the demand-id rule trivially: the bin shows `lx_1`,
@@ -847,7 +847,7 @@ describe("packBins", () => {
       const slotDemands = new Map<RecipeId, number>([
         ["lx_1" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [lx_1, lx_2], [reactor, expanded]),
       });
@@ -860,7 +860,7 @@ describe("packBins", () => {
       }
     });
 
-    test("grouped bin with twin swap reports demand recipe ids", () => {
+    test("grouped bin with twin swap reports demand recipe ids", async () => {
       // 3-recipe Xircon-style scenario forces ILP onto Expanded; the
       // demand was on `_1` recipes, so bin.recipeIds must still be the
       // `_1` ids (not the physical `_2` twins the bin actually runs).
@@ -905,7 +905,7 @@ describe("packBins", () => {
         ["xe_1" as RecipeId, 4],
         ["x_1" as RecipeId, 2],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items3, [lx_1, lx_2, xe_1, xe_2, x_1, x_2], [reactor, expanded]),
       });
@@ -925,7 +925,7 @@ describe("packBins", () => {
       }
     });
 
-    test("sister filter via plain id-equality removes self correctly", () => {
+    test("sister filter via plain id-equality removes self correctly", async () => {
       // After demand-id semantics, `bin.recipeIds.filter(rid => rid !== self)`
       // must correctly drop the row's own recipe id. Verifies the off-by-one
       // count fix (badge said "4 formulas" for a 3-formula bin).
@@ -970,7 +970,7 @@ describe("packBins", () => {
         ["xe_1" as RecipeId, 1],
         ["x_1" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items3, [lx_1, lx_2, xe_1, xe_2, x_1, x_2], [reactor, expanded]),
       });
@@ -988,7 +988,7 @@ describe("packBins", () => {
   });
 
   describe("totals match plan.bins aggregate", () => {
-    test("Reactor pair: building count and power match bin sum", () => {
+    test("Reactor pair: building count and power match bin sum", async () => {
       const items = [
         item("powder1"),
         item("powder2"),
@@ -1016,7 +1016,7 @@ describe("packBins", () => {
         ["grass1_1" as RecipeId, 1],
         ["grass2_1" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, [grass1, grass2], [reactor]),
       });
@@ -1037,13 +1037,13 @@ describe("packBins", () => {
     });
   });
 
-  describe("port-cap invariants (Path H regression coverage)", () => {
+  describe("port-cap invariants", () => {
     // The user-reported "3/2 liq in" bug: at certain target rates and
     // recipe configurations, the old packer emitted a bin with more
     // external liquid inputs than the facility's pipe-in buffer count.
-    // Path H prevents this by enumerating only cap-feasible variants.
-    // These tests act as the smoke screen: every bin must satisfy its
-    // facility's port caps.
+    // The current packer prevents this by enumerating only
+    // cap-feasible variants. These tests act as the smoke screen:
+    // every bin must satisfy its facility's port caps.
 
     // Xircon recipe fixtures (real-data analogues).
     const items = [
@@ -1114,7 +1114,7 @@ describe("packBins", () => {
     ];
     const facilities = [reactor, expanded];
 
-    test("Xircon target=6/min: bin reports cap-compliant ports", () => {
+    test("Xircon target=6/min: bin reports cap-compliant ports", async () => {
       // The exact target from the user bug report. Demands are tiny
       // (LX=0.4, XE=0.4, X=0.2 slots), which used to push allocation
       // ratios into the "all three liquids external" region.
@@ -1123,13 +1123,14 @@ describe("packBins", () => {
         ["xe_1" as RecipeId, 0.4],
         ["x_1" as RecipeId, 0.2],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });
 
-      // Every bin satisfies port caps (the structural invariant Path H
-      // guarantees; assertBinPortCaps would throw otherwise).
+      // Every bin satisfies port caps (structural invariant of the
+      // variant-enumeration architecture; assertBinPortCaps would
+      // throw otherwise).
       for (const bin of r.bins) {
         const fac = facilities.find((f) => f.id === bin.facilityId);
         if (!fac || fac.cacheSlots == null) continue;
@@ -1142,7 +1143,7 @@ describe("packBins", () => {
       }
     });
 
-    test("Xircon range of targets: cap compliance across feasible LP", () => {
+    test("Xircon range of targets: cap compliance across feasible LP", async () => {
       // Parametric sweep — caps must hold at every target.
       const targets = [0.2, 1, 1.9, 3.04, 5, 10] as const;
       for (const xDemand of targets) {
@@ -1151,7 +1152,7 @@ describe("packBins", () => {
           ["xe_1" as RecipeId, 2 * xDemand],
           ["x_1" as RecipeId, xDemand],
         ]);
-        const r = packBins({
+        const r = await packBins({
           recipeSlotDemands: slotDemands,
           ...buildMaps(items, recipes, facilities),
         });
@@ -1168,14 +1169,14 @@ describe("packBins", () => {
       }
     });
 
-    test("every bin carries a non-empty variantId", () => {
+    test("every bin carries a non-empty variantId", async () => {
       // variantId is a Bin contract field — must always be populated.
       const slotDemands = new Map<RecipeId, number>([
         ["lx_1" as RecipeId, 1],
         ["xe_1" as RecipeId, 1],
         ["x_1" as RecipeId, 1],
       ]);
-      const r = packBins({
+      const r = await packBins({
         recipeSlotDemands: slotDemands,
         ...buildMaps(items, recipes, facilities),
       });

@@ -5,14 +5,15 @@
  * (≥ 0) and per-item constraints whose operator is selected by the caller
  * via `LPItemConstraint.type` (see type docs below). Raw materials are
  * excluded from balance constraints — they appear only in the `rawCost`
- * objective (infinite-supply assumption). Solver: `javascript-lp-solver`.
+ * objective (infinite-supply assumption). Solver: HiGHS WASM via
+ * `@bubblyworld/highs-ts` (see `highs-singleton.ts`).
  *
  * Lexicographic two-pass objective: minimize raw-material consumption
  * first, then minimize total power among solutions tying for raw-min.
  */
 
-import solver from "javascript-lp-solver";
 import { calcRate } from "@/lib/utils";
+import { solve as highsSolve } from "@/lib/highs-wrapper";
 import type { ItemId, RecipeId, FacilityId, Recipe, Facility } from "@/types";
 
 /** Numerical tolerance used for sign / equality checks against LP output. */
@@ -337,7 +338,7 @@ const extractSolution = (
  *      caller should fall through to feeder extension or accept the SCC
  *      as invalid.
  */
-export const solveLP = (input: LPInput): LPResult => {
+export const solveLP = async (input: LPInput): Promise<LPResult> => {
   if (input.recipes.length === 0) {
     return {
       feasible: true,
@@ -353,7 +354,7 @@ export const solveLP = (input: LPInput): LPResult => {
     buildModel(input, "rawCost");
   let rawResult: Record<string, number | boolean | undefined>;
   try {
-    rawResult = solver.Solve(rawModel) as Record<string, number | boolean | undefined>;
+    rawResult = await highsSolve(rawModel);
   } catch (e) {
     if (import.meta.env?.DEV) {
       console.warn("[LP_SOLVER] pass-1 solver threw:", e);
@@ -383,7 +384,7 @@ export const solveLP = (input: LPInput): LPResult => {
   } = buildModel(input, "power", rawSolution.totalRaw);
   let powerResult: Record<string, number | boolean | undefined>;
   try {
-    powerResult = solver.Solve(powerModel) as Record<string, number | boolean | undefined>;
+    powerResult = await highsSolve(powerModel);
   } catch (e) {
     if (import.meta.env?.DEV) {
       console.warn("[LP_SOLVER] pass-2 solver threw, falling back to pass-1:", e);

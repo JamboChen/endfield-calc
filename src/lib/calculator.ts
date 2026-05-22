@@ -360,14 +360,14 @@ function backtrackRecipeChoices(
   return null;
 }
 
-export function calculateProductionPlan(
+export async function calculateProductionPlan(
   targets: Array<{ itemId: ItemId; rate: number }>,
   items: Item[],
   recipes: Recipe[],
   facilities: Facility[],
   recipeOverrides?: Map<ItemId, RecipeId>,
   manualRawMaterials?: Set<ItemId>,
-): ProductionDependencyGraph {
+): Promise<ProductionDependencyGraph> {
   if (targets.length === 0) throw new Error("No targets specified");
 
   const maps: ProductionMaps = {
@@ -395,7 +395,7 @@ export function calculateProductionPlan(
     const sccs = detectSCCs(graph);
     const condensedOrder = buildCondensedDAGAndSort(graph, sccs);
     const targetRatesMap = new Map(targets.map((t) => [t.itemId, t.rate]));
-    const { flowData, invalidSCCs } = calculateFlows(
+    const { flowData, invalidSCCs } = await calculateFlows(
       graph,
       condensedOrder,
       targetRatesMap,
@@ -409,7 +409,7 @@ export function calculateProductionPlan(
         `[SUCCESS] Valid production plan found in ${iteration} iteration(s)`,
       );
       injectDisposalRecipes(graph, flowData, maps, targets);
-      const packing = packBins({
+      const packing = await packBins({
         recipeSlotDemands: flowData.recipeFacilityCounts,
         recipeMap: maps.recipeMap,
         itemMap: maps.itemMap,
@@ -445,7 +445,7 @@ export function calculateProductionPlan(
           `Returning best-effort result with ${invalidSCCs.length} invalid cycle(s).`,
       );
       injectDisposalRecipes(graph, flowData, maps, targets);
-      const packing = packBins({
+      const packing = await packBins({
         recipeSlotDemands: flowData.recipeFacilityCounts,
         recipeMap: maps.recipeMap,
         itemMap: maps.itemMap,
