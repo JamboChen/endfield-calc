@@ -125,12 +125,17 @@ describe("aic-research-helpers", () => {
       expect(gated.size + always.size).toBe(all.size);
     });
 
-    test("xiranite_oven_1 is always-unlocked (cap-raises only, no facility-unlock node)", () => {
-      // Real-data invariant — the upstream tech_jinlong_1_xiranite_oven_1
-      // node is actionType=0 placeholder and is filtered out by extract:aic.
-      // So the calc must treat xiranite_oven_1 as always-on.
-      expect(ALWAYS_UNLOCKED_FACILITIES.has(FacilityId.XIRANITE_OVEN_1)).toBe(true);
-      expect(GATED_FACILITIES.has(FacilityId.XIRANITE_OVEN_1)).toBe(false);
+    test("xiranite_oven_1 is gated (Wuling AIC I), default-granted via alreadyUnlocked", () => {
+      // The upstream tech_jinlong_1_xiranite_oven_1 has `actionType: 0`
+      // (a data-side anomaly — every other facility-unlock tech uses
+      // 501). MachineId2MachineTechIdTable correctly maps
+      // `item_port_xiranite_oven_1` to this tech, so our extractor
+      // (machine-map-first) emits it as a real `unlock` node with
+      // `alreadyUnlocked: true`. The model matches the in-game UI:
+      // Forge of the Sky appears in Wuling AIC I as a default-granted
+      // facility.
+      expect(GATED_FACILITIES.has(FacilityId.XIRANITE_OVEN_1)).toBe(true);
+      expect(ALWAYS_UNLOCKED_FACILITIES.has(FacilityId.XIRANITE_OVEN_1)).toBe(false);
     });
 
     test("furnance_1 is gated (Basic AIC I)", () => {

@@ -43,6 +43,9 @@
     "tech_jinlong_1_pump_1": {
       "name": "Fluid Pumping"
     },
+    "tech_jinlong_1_xiranite_oven_1": {
+      "name": "Xiranite Forging"
+    },
     "tech_jinlong_1_xiranite_oven_amount_1": {
       "name": "Forge Expansion I"
     },

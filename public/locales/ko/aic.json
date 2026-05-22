@@ -43,6 +43,9 @@
     "tech_jinlong_1_pump_1": {
       "name": "액체 탐색"
     },
+    "tech_jinlong_1_xiranite_oven_1": {
+      "name": "식양 생성"
+    },
     "tech_jinlong_1_xiranite_oven_amount_1": {
       "name": "화로 확장 I"
     },

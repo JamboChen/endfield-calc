@@ -43,6 +43,9 @@
     "tech_jinlong_1_pump_1": {
       "name": "Перекачка жидкости"
     },
+    "tech_jinlong_1_xiranite_oven_1": {
+      "name": "Ковка ксиранита"
+    },
     "tech_jinlong_1_xiranite_oven_amount_1": {
       "name": "Расширение кузницы I"
     },
