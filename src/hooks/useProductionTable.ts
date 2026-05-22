@@ -202,7 +202,7 @@ export type ProductionTableData = {
 export function useProductionTable(
   plan: ProductionDependencyGraph | null,
   aggregates: BinAggregates | null,
-  recipes: Recipe[],
+  recipes: readonly Recipe[],
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
   facilities: Facility[] = [],

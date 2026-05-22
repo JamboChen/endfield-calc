@@ -1,6 +1,12 @@
 import { calculateProductionPlan } from "@/lib/calculator";
 import { initHighs, isHighsReady } from "@/lib/highs-singleton";
-import { items, recipes, facilities, MAX_TARGETS } from "@/data";
+import {
+  items,
+  recipes,
+  facilities,
+  forcedRawMaterials,
+  MAX_TARGETS,
+} from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
@@ -409,14 +415,22 @@ export function useProductionPlan(
 
     const nextRaws = new Set<ItemId>();
     for (const itemId of manualRawMaterials) {
-      // Keep a manual raw if the item still exists in `items` AND is
-      // either producible (the user may want to short-circuit a chain)
-      // or has no producer (a leaf item the user pinned as raw). Drop
-      // it only when the item is genuinely unreachable AND can no
-      // longer be produced — covered by checking against the full
-      // `items` set.
-      const itemExists = items.some((i) => i.id === itemId);
-      if (itemExists) {
+      // Keep a manual raw iff the item is either producible (in
+      // `reachableProducibleItems`, i.e. an output of at least one
+      // recipe in the strict `availableRecipes` set) OR a forced raw
+      // (always-available — pin is redundant but harmless).
+      //
+      // Drop pins on items that are completely unreachable: no
+      // available recipe produces them AND they aren't a forced raw.
+      // Rationale: a manual-raw pin on an unproducible item is
+      // meaningless — there's no chain to override. Since
+      // `availableRecipes` is chain-filtered upstream (App layer),
+      // a producibility check here naturally excludes recipes whose
+      // own chain is broken.
+      if (
+        reachableProducibleItems.has(itemId) ||
+        forcedRawMaterials.has(itemId)
+      ) {
         nextRaws.add(itemId);
       } else {
         removedRaws++;
@@ -660,7 +674,10 @@ export function useProductionPlan(
   const tableData = useProductionTable(
     displayPlan,
     aggregates,
-    recipes,
+    // Narrow the recipe set the override dropdown searches over: only
+    // recipes that are AIC-unlocked AND have reachable input chains
+    // can be valid alternatives. Same canonical set the calc uses.
+    availableRecipes,
     recipeOverrides,
     manualRawMaterials,
     facilities,

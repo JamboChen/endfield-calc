@@ -16,6 +16,8 @@ import { ThemeProvider, useTheme } from "./components/ui/theme-provider";
 import { DomainSettingsProvider } from "./contexts/DomainSettingsProvider";
 import { useDomainSettingsContext } from "./contexts/domain-settings-context";
 import { computeRecipeAvailability } from "./lib/aic-research-helpers";
+import { computeRecipeReachability } from "./lib/recipe-reachability";
+import { forcedRawMaterials } from "./data";
 import type { FacilityId, ItemId } from "./types";
 
 /**
@@ -48,34 +50,50 @@ function AppContent() {
   const { i18n } = useTranslation("app");
   const settings = useDomainSettingsContext();
 
-  // AIC-filtered recipe set: drops recipes whose host facility is locked
-  // or whose mode is gated by an unresearched modeUnlock tech. Re-derived
-  // on every research/activation change; the auto-prune effect inside
-  // `useProductionPlan` cleans up targets/overrides/raws that became
-  // unreachable as a result.
-  const availableRecipes = useMemo(
-    () =>
-      computeRecipeAvailability(
-        recipes,
-        settings.aic.unlockedFacilities,
-        settings.aic.unlockedModes,
-      ).availableRecipes,
-    [settings.aic.unlockedFacilities, settings.aic.unlockedModes],
-  );
-
-  // Items the picker may show as targets: those produced by ANY recipe
-  // in `availableRecipes`. Raws (no producer) and `asTarget: false`
-  // items are filtered out here; the dialog further excludes
-  // already-targeted items.
-  const targetableItems = useMemo(() => {
-    const reachable = new Set<ItemId>();
-    for (const r of availableRecipes) {
-      for (const o of r.outputs) reachable.add(o.itemId);
-    }
-    return items.filter(
-      (item) => reachable.has(item.id) && item.asTarget !== false,
+  // Canonical `availableRecipes` set used by the picker, the calc, the
+  // recipe-override dropdown, and the auto-prune logic in
+  // `useProductionPlan`. Composed in two stages:
+  //
+  //   1. `computeRecipeAvailability` filters the full game-data recipes
+  //      by AIC unlock state (facility unlock + mode unlock).
+  //   2. `computeRecipeReachability` further filters to recipes whose
+  //      inputs are reachable from `forcedRawMaterials` via the AIC-
+  //      filtered set. Recipes with broken chains (e.g. xiranite_oven_1
+  //      recipes when Furnace is locked → Carbon Enr unreachable) are
+  //      excluded, so the calc never sees them and the picker never
+  //      surfaces their outputs as targetable.
+  //
+  // Manual raws intentionally do NOT feed into this closure — they're
+  // a plan-specific calc-time hint, not a configuration capability.
+  // Pinning an unreachable intermediate as raw doesn't rescue a blocked
+  // recipe; the dangling pin gets auto-pruned downstream.
+  //
+  // The intermediate AIC-only set is scoped to this memo only. Auto-
+  // prune downstream operates on the strict `availableRecipes` outputs.
+  const { availableRecipes, reachableItems } = useMemo(() => {
+    const aicFiltered = computeRecipeAvailability(
+      recipes,
+      settings.aic.unlockedFacilities,
+      settings.aic.unlockedModes,
+    ).availableRecipes;
+    const { runnableRecipes, reachableItems } = computeRecipeReachability(
+      aicFiltered,
+      forcedRawMaterials,
     );
-  }, [availableRecipes]);
+    return { availableRecipes: runnableRecipes, reachableItems };
+  }, [settings.aic.unlockedFacilities, settings.aic.unlockedModes]);
+
+  // Items the picker may show as targets: those reachable via the AIC-
+  // and chain-filtered recipe set. Forced raws are in `reachableItems`
+  // but typically carry `asTarget !== false` to exclude them; the
+  // dialog further excludes already-targeted items.
+  const targetableItems = useMemo(
+    () =>
+      items.filter(
+        (item) => reachableItems.has(item.id) && item.asTarget !== false,
+      ),
+    [reachableItems],
+  );
 
   // Aggregated per-facility cap = sum over currently-active domains of
   // each (facility, domain) effective cap. Threaded into the Phase 5
@@ -164,7 +182,7 @@ function AppContent() {
           plan={plan}
           tableData={tableData}
           items={items}
-          recipes={recipes}
+          recipes={availableRecipes}
           facilities={facilities}
           activeTab={activeTab}
           onTabChange={setActiveTab}

@@ -17,6 +17,7 @@ import type {
 } from "@/types";
 import { forcedDisposalItems } from "@/data";
 import { calcRate } from "@/lib/utils";
+import { computeRecipeReachability } from "@/lib/recipe-reachability";
 import { buildBipartiteGraph, detectSCCs, buildCondensedDAGAndSort } from "./graph-builder";
 import { calculateFlows } from "./flow-solver";
 import { packBins } from "./multi-formula-packing";
@@ -122,8 +123,12 @@ function injectDisposalRecipes(
 /**
  * Compute the set of items reachable from raw materials via the active
  * recipe set (those with a positive slot allocation in the LP solution).
- * Fixpoint: start with `rawMaterials`, then repeatedly add the outputs
- * of any active recipe whose inputs are all already bootable.
+ *
+ * Thin wrapper around `computeRecipeReachability` in
+ * `src/lib/recipe-reachability.ts`. The underlying fixpoint is shared
+ * with the App-layer `availableRecipes` derivation; centralising the
+ * algorithm in one place avoids drift between prefill detection and
+ * picker filtering.
  *
  * Used by `propagatePrefillCandidates` to filter 2-cycle items: a cycle
  * has an external entry whenever at least one of its items is reachable
@@ -146,28 +151,18 @@ function computeBootableItems(
   recipeMap: Map<RecipeId, Recipe>,
   rawMaterials: ReadonlySet<ItemId>,
 ): Set<ItemId> {
-  const bootable = new Set<ItemId>(rawMaterials);
   const activeRecipes: Recipe[] = [];
   for (const rid of activeRecipeIds) {
     const recipe = recipeMap.get(rid);
     if (recipe) activeRecipes.push(recipe);
   }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const recipe of activeRecipes) {
-      if (recipe.outputs.every((o) => bootable.has(o.itemId))) continue;
-      if (recipe.inputs.every((i) => bootable.has(i.itemId))) {
-        for (const o of recipe.outputs) {
-          if (!bootable.has(o.itemId)) {
-            bootable.add(o.itemId);
-            changed = true;
-          }
-        }
-      }
-    }
-  }
-  return bootable;
+  const { reachableItems } = computeRecipeReachability(
+    activeRecipes,
+    rawMaterials,
+  );
+  // Materialise into a mutable Set for downstream consumers that may
+  // augment it (the existing API contract).
+  return new Set(reachableItems);
 }
 
 /**

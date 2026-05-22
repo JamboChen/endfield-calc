@@ -398,7 +398,7 @@ export function computeNodeByproducts(
 export function pickBinHeadlineOutput(
   bin: Bin,
   items: Item[],
-  recipes: Recipe[],
+  recipes: readonly Recipe[],
   targetItemIds: Set<ItemId>,
 ): { itemId: ItemId; recipeId: RecipeId } | null {
   if (bin.externalOutputs.length === 0) return null;

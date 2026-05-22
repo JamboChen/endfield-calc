@@ -51,7 +51,7 @@ import { assertFlowIntegrity } from "./flow-assertions";
 export function mapPlanToFlowBinFused(
   plan: ProductionDependencyGraph,
   items: Item[],
-  recipes: Recipe[],
+  recipes: readonly Recipe[],
   facilities: Facility[],
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
@@ -572,7 +572,7 @@ export function mapPlanToFlowBinFused(
 export function mapPlanToFlowBinFusedSeparated(
   plan: ProductionDependencyGraph,
   items: Item[],
-  recipes: Recipe[],
+  recipes: readonly Recipe[],
   facilities: Facility[],
   targetRates?: Map<ItemId, number>,
   ceilMode = false,

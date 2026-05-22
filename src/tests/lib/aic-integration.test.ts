@@ -18,7 +18,8 @@ import {
   computeUnlockedFacilities,
   computeUnlockedModes,
 } from "@/lib/aic-research-helpers";
-import { items, recipes, facilities } from "@/data";
+import { computeRecipeReachability } from "@/lib/recipe-reachability";
+import { items, recipes, facilities, forcedRawMaterials } from "@/data";
 import { aicGroups, aicNodes } from "@/data/aic-plans";
 import type { AicTechId } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
@@ -230,5 +231,115 @@ describe("AIC integration: recipe availability + calculator", () => {
       );
       expect(hasProducer).toBe(true);
     }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Chain-reachability composition: AIC filter → recipe-reachability →
+// canonical `availableRecipes` (the App-layer pipeline)
+// ════════════════════════════════════════════════════════════════════
+
+describe("AIC integration: chain-reachability filter", () => {
+  /**
+   * Helper that composes the two filters exactly the way App.tsx does:
+   * computeRecipeAvailability (AIC-only) → computeRecipeReachability
+   * (chain from forced raws) → canonical availableRecipes set.
+   */
+  const composeAvailableRecipes = (
+    researched: ReadonlySet<AicTechId>,
+    activeDomains: ReadonlySet<DomainId>,
+  ) => {
+    const unlockedFacilities = computeUnlockedFacilities(
+      researched,
+      activeDomains,
+    );
+    const unlockedModes = computeUnlockedModes(
+      researched,
+      unlockedFacilities,
+    );
+    const aicFiltered = computeRecipeAvailability(
+      recipes,
+      unlockedFacilities,
+      unlockedModes,
+    ).availableRecipes;
+    return computeRecipeReachability(aicFiltered, forcedRawMaterials);
+  };
+
+  test("locking Furnace removes xiranite_oven_xiranite_powder_1 from availableRecipes (Carbon Enr unreachable)", () => {
+    // Pins the user-reported scenario: Furnace locked → Carbon Enr
+    // has no producer in the AIC-filtered set AND isn't a forced raw
+    // → xiranite_oven_xiranite_powder_1 is chain-blocked. The chain
+    // filter excludes it from `availableRecipes`, so the picker never
+    // surfaces Xiranite Powder.
+    const researched = allButNotResearched("tech_tundra_1_furnance_1");
+    const activeDomains = allDomainsActive();
+    const { runnableRecipes, reachableItems } = composeAvailableRecipes(
+      researched,
+      activeDomains,
+    );
+
+    // Xiranite Powder recipe is filtered out (input chain broken).
+    expect(
+      runnableRecipes.some((r) => r.id === "xiranite_oven_xiranite_powder_1"),
+    ).toBe(false);
+    // Xiranite Powder is NOT reachable.
+    expect(reachableItems.has(ItemId.ITEM_XIRANITE_POWDER)).toBe(false);
+    // Carbon Enr is also NOT reachable (its only producer is Furnace).
+    expect(reachableItems.has(ItemId.ITEM_CARBON_ENR)).toBe(false);
+  });
+
+  test("cascade: locking grinder removes downstream chain (carbon_powder, iron_powder, etc.)", () => {
+    // Grinder produces several powders. Locking it cascades into
+    // recipes that need those powders. The transitive closure
+    // correctly removes the entire downstream chain.
+    const researched = allButNotResearched("tech_tundra_1_grinder_1");
+    const activeDomains = allDomainsActive();
+    const { runnableRecipes, reachableItems } = composeAvailableRecipes(
+      researched,
+      activeDomains,
+    );
+
+    // No grinder recipes remain (AIC filter caught these directly).
+    expect(
+      runnableRecipes.some((r) => r.facilityId === FacilityId.GRINDER_1),
+    ).toBe(false);
+
+    // Items only produced by grinder become unreachable.
+    expect(reachableItems.has(ItemId.ITEM_IRON_POWDER)).toBe(false);
+    expect(reachableItems.has(ItemId.ITEM_CARBON_POWDER)).toBe(false);
+
+    // Downstream recipes that consume those powders are gone.
+    // E.g., furnance_iron_nugget_2 consumes item_iron_powder → blocked.
+    // (Sibling furnance_iron_nugget_1 consumes iron_ore directly, a
+    // forced raw, so it survives — providing an alternative producer
+    // for iron_nugget.)
+    expect(
+      runnableRecipes.some((r) => r.id === "furnance_iron_nugget_2"),
+    ).toBe(false);
+    // Iron Nugget itself stays reachable via the iron_ore path.
+    expect(reachableItems.has(ItemId.ITEM_IRON_NUGGET)).toBe(true);
+  });
+
+  test("manual-raw rescue does NOT work at the App-layer filter: locking Furnace + 'pinning' Carbon Enr does NOT bring back xiranite_powder", () => {
+    // Confirms the design decision: the App-layer filter uses ONLY
+    // forced raws. Even if a user has manual raws set (or thinks
+    // they should rescue chains), the App-layer `availableRecipes`
+    // doesn't include manual raws in its closure. The recipe stays
+    // filtered out.
+    //
+    // (This is the helper's contract — verified pure in
+    // recipe-reachability.test.ts; here we pin the App-layer policy.)
+    const researched = allButNotResearched("tech_tundra_1_furnance_1");
+    const activeDomains = allDomainsActive();
+    const { runnableRecipes } = composeAvailableRecipes(
+      researched,
+      activeDomains,
+    );
+    // Even if the user "intended" to rescue via manual raw, the
+    // composed `availableRecipes` is closed over forced raws only.
+    // Xiranite Powder recipe stays out.
+    expect(
+      runnableRecipes.some((r) => r.id === "xiranite_oven_xiranite_powder_1"),
+    ).toBe(false);
   });
 });
