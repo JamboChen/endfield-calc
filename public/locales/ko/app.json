@@ -8,8 +8,7 @@
   "calculationError": "생산 계획 계산 중 오류가 발생했습니다. 목표와 제조법 설정을 확인하세요.",
   "cycleWarning": "{{overriddenItems}}에 선택된 제조법이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다. 영향받는 아이템: {{affectedItems}}.",
   "cycleWarningNoAffected": "{{overriddenItems}}에 선택된 제조법이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다.",
-  "facilityOverCap_one": "{{facility}} 배치가 상한을 초과합니다: 계획에 {{displayCount}}개 건물이 필요하지만 상한은 {{cap}}개입니다. 상한을 높이거나 계획을 조정하거나 다른 지역을 활성화하세요.",
-  "facilityOverCap_other": "{{facility}} 배치가 상한을 초과합니다: 계획에 {{displayCount}}개 건물이 필요하지만 상한은 {{cap}}개입니다. 상한을 높이거나 계획을 조정하거나 다른 지역을 활성화하세요.",
+  "facilityOverCap": "{{facility}}: 상한 초과 ({{displayCount}} / {{cap}}).",
   "packerOverrideInfeasible": "시설 \"{{facility}}\"의 제조법 \"{{recipe}}\"에 유효한 배치 패턴이 없어, 패커가 이 제조법을 개별 건물로 폴백했습니다.",
   "packerFallback": "제약 조건을 해결할 수 없어, 다중 제조법 건물 패커가 제조법별 개별 건물로 폴백했습니다.",
   "footer": {

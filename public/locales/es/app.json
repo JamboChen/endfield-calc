@@ -8,8 +8,7 @@
   "calculationError": "Ocurrió un error durante el cálculo del plan de producción. Por favor, revisa tus objetivos y las configuraciones de recetas.",
   "cycleWarning": "La receta seleccionada para {{overriddenItems}} crea un ciclo de producción que no puede mantener la producción requerida. Elementos afectados: {{affectedItems}}.",
   "cycleWarningNoAffected": "La receta seleccionada para {{overriddenItems}} crea un ciclo de producción que no puede mantener la producción requerida.",
-  "facilityOverCap_one": "Colocación de {{facility}} excede el límite: el plan necesita {{displayCount}} edificio, pero el límite es {{cap}}. Aumenta el límite, reestructura el plan o activa otro dominio.",
-  "facilityOverCap_other": "Colocación de {{facility}} excede el límite: el plan necesita {{displayCount}} edificios, pero el límite es {{cap}}. Aumenta el límite, reestructura el plan o activa otro dominio.",
+  "facilityOverCap": "{{facility}}: límite excedido ({{displayCount}} / {{cap}}).",
   "packerOverrideInfeasible": "La receta \"{{recipe}}\" en la instalación \"{{facility}}\" no tiene una forma de contenedor válida — el empaquetador recurrió a edificios individuales por receta.",
   "packerFallback": "El empaquetador de edificios multireceta recurrió a edificios individuales por receta debido a una configuración de restricciones inviable.",
   "footer": {

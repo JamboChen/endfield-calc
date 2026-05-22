@@ -165,7 +165,7 @@ const ProductionStats = memo(function ProductionStats({
                             overCap && "text-destructive",
                           )}
                         >
-                          {count.toFixed(1)}
+                          {formatCount(count, ceilMode)}
                         </div>
                       </div>
                     );
@@ -181,7 +181,7 @@ const ProductionStats = memo(function ProductionStats({
                         <TooltipTrigger asChild>{card}</TooltipTrigger>
                         <TooltipContent>
                           {t("facilityCapExceeded", {
-                            used: overCap.used.toFixed(1),
+                            used: formatCount(overCap.used, ceilMode),
                             cap: overCap.cap,
                           })}
                         </TooltipContent>

@@ -198,12 +198,13 @@ function formatPlanWarning(
 
   switch (w.kind) {
     case "facility-over-cap":
-      // Plural classification uses ceiled count (physical buildings
-      // are integer). Display value respects user's ceilMode toggle.
+      // Short numeric form: `{facility}: cap exceeded ({displayCount} / {cap})`.
+      // `displayCount` respects user's `ceilMode` toggle for parity with
+      // the side-panel card count + tooltip. No plural classification
+      // needed — the format string has no pluralizable noun.
       return t("facilityOverCap", {
         facility: lookupFacilityName(w.facilityId),
         displayCount: formatCount(w.used, ceilMode),
-        count: Math.ceil(w.used - 1e-9),
         cap: w.cap,
       });
     case "packer-override-infeasible":

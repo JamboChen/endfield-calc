@@ -8,8 +8,7 @@
   "calculationError": "生産計画の計算中にエラーが発生しました。目標とレシピの上書きを確認してください。",
   "cycleWarning": "{{overriddenItems}} で選択されたレシピは、必要な生産量を維持できない生産ループを形成しています。影響を受けるアイテム：{{affectedItems}}。",
   "cycleWarningNoAffected": "{{overriddenItems}} で選択されたレシピは、必要な生産量を維持できない生産ループを形成しています。",
-  "facilityOverCap_one": "{{facility}} の設置数が上限を超えています：本プランでは {{displayCount}} 棟必要ですが、上限は {{cap}} 棟です。上限を引き上げる、プランを変更する、または別の地域を有効化してください。",
-  "facilityOverCap_other": "{{facility}} の設置数が上限を超えています：本プランでは {{displayCount}} 棟必要ですが、上限は {{cap}} 棟です。上限を引き上げる、プランを変更する、または別の地域を有効化してください。",
+  "facilityOverCap": "{{facility}}: 上限超過 ({{displayCount}} / {{cap}})。",
   "packerOverrideInfeasible": "施設「{{facility}}」のレシピ「{{recipe}}」に有効な配置パターンがありません — パッカーはこのレシピを単独建物にフォールバックしました。",
   "packerFallback": "制約条件が解決できないため、複数レシピ建物パッカーはレシピごとの単独建物にフォールバックしました。",
   "footer": {

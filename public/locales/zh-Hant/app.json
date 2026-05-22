@@ -8,8 +8,7 @@
   "calculationError": "計算生產計畫時發生錯誤。請檢查您的目標產出和配方覆蓋設定。",
   "cycleWarning": "{{overriddenItems}} 所選配方形成了無法維持所需產量的生產循環。受影響物品：{{affectedItems}}。",
   "cycleWarningNoAffected": "{{overriddenItems}} 所選配方形成了無法維持所需產量的生產循環。",
-  "facilityOverCap_one": "{{facility}} 放置超出上限：本方案需要 {{displayCount}} 個建築，但上限為 {{cap}}。請提高上限、調整方案或啟用其他區域。",
-  "facilityOverCap_other": "{{facility}} 放置超出上限：本方案需要 {{displayCount}} 個建築，但上限為 {{cap}}。請提高上限、調整方案或啟用其他區域。",
+  "facilityOverCap": "{{facility}}：超出上限 ({{displayCount}} / {{cap}})。",
   "packerOverrideInfeasible": "在「{{facility}}」上選用的配方「{{recipe}}」沒有可行的容器形狀——打包器已退回為該配方使用獨立建築。",
   "packerFallback": "由於約束配置不可行，多配方建築打包器已退回為每個配方使用獨立建築。",
   "footer": {
