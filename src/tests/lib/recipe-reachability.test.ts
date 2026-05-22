@@ -10,7 +10,7 @@
 import { describe, test, expect } from "vitest";
 
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
-import type { ItemId, Recipe, RecipeId, FacilityId } from "@/types";
+import type { FacilityId, ItemId, Recipe, RecipeId } from "@/types";
 
 const recipe = (
   id: string,
@@ -161,5 +161,93 @@ describe("computeRecipeReachability", () => {
     const result = computeRecipeReachability(recipes, rawSet("raw"));
     expect(result.runnableRecipes.map((r) => r.id)).toEqual(["a", "c"]);
     expect(result.blockedRecipes.map((r) => r.id)).toEqual(["b"]);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Bootstrap-facility exception (Seed-Picking Unit / plant↔seed cycle)
+// ════════════════════════════════════════════════════════════════════
+
+describe("bootstrap-facility exception", () => {
+  test("bootstrap facility recipe is runnable even when its inputs are unreachable", () => {
+    // Mimics: seedcollector_plant_moss_1 consumes a plant that has no
+    // producer (planter locked or plant unreachable from raws). Without
+    // bootstrap, the recipe is blocked. With bootstrap, it's runnable
+    // and its seed output joins reachableItems.
+    const r = recipe("collect", ["plant"], ["seed"], "bootstrap_fac");
+    const bootstrap = new Set(["bootstrap_fac" as FacilityId]);
+    const result = computeRecipeReachability([r], rawSet(), bootstrap);
+
+    expect(result.runnableRecipes.map((x) => x.id)).toEqual(["collect"]);
+    expect(result.blockedRecipes).toHaveLength(0);
+    expect(result.reachableItems.has("seed" as ItemId)).toBe(true);
+    // The unreachable input does NOT join reachableItems (we only added
+    // outputs; inputs are still unsourced — calc handles via magic-raw
+    // fallback if needed).
+    expect(result.reachableItems.has("plant" as ItemId)).toBe(false);
+  });
+
+  test("empty bootstrap arg (default) preserves chain-strict behavior", () => {
+    // Same scenario as the previous test but without passing bootstrap.
+    // The recipe should be blocked, confirming the default arg behaves
+    // exactly as a non-bootstrapped closure (no behavior regression
+    // for existing call sites like `computeBootableItems`).
+    const r = recipe("collect", ["plant"], ["seed"], "regular_fac");
+    const result = computeRecipeReachability([r], rawSet());
+
+    expect(result.runnableRecipes).toHaveLength(0);
+    expect(result.blockedRecipes.map((x) => x.id)).toEqual(["collect"]);
+    expect(result.reachableItems.has("seed" as ItemId)).toBe(false);
+  });
+
+  test("plant↔seed 2-cycle with seedcollector-equivalent as bootstrap: both runnable, both items reachable", () => {
+    // Mimics planter_plant_moss_1 ↔ seedcollector_plant_moss_1. Both
+    // recipes' inputs cycle through the other's output. Bootstrap on
+    // the seedcollector side seeds the cycle: seed becomes reachable,
+    // planter becomes runnable, plant becomes reachable.
+    const planter = recipe("planter", ["seed"], ["plant"], "planter_fac");
+    const seedcol = recipe(
+      "seedcol",
+      ["plant"],
+      ["seed"],
+      "seedcollector_fac",
+    );
+    const bootstrap = new Set(["seedcollector_fac" as FacilityId]);
+    const result = computeRecipeReachability(
+      [planter, seedcol],
+      rawSet(),
+      bootstrap,
+    );
+
+    expect(result.runnableRecipes.map((r) => r.id).sort()).toEqual([
+      "planter",
+      "seedcol",
+    ]);
+    expect(result.blockedRecipes).toHaveLength(0);
+    expect(result.reachableItems.has("seed" as ItemId)).toBe(true);
+    expect(result.reachableItems.has("plant" as ItemId)).toBe(true);
+  });
+
+  test("plant↔seed 2-cycle WITHOUT bootstrap: both blocked (regression guard)", () => {
+    // Confirms that the cycle stays unreachable in the chain-strict
+    // path. This is the bug the bootstrap exception addresses; without
+    // bootstrap, the cycle has no entry point and both recipes are
+    // correctly identified as blocked.
+    const planter = recipe("planter", ["seed"], ["plant"], "planter_fac");
+    const seedcol = recipe(
+      "seedcol",
+      ["plant"],
+      ["seed"],
+      "seedcollector_fac",
+    );
+    const result = computeRecipeReachability([planter, seedcol], rawSet());
+
+    expect(result.runnableRecipes).toHaveLength(0);
+    expect(result.blockedRecipes.map((r) => r.id).sort()).toEqual([
+      "planter",
+      "seedcol",
+    ]);
+    expect(result.reachableItems.has("seed" as ItemId)).toBe(false);
+    expect(result.reachableItems.has("plant" as ItemId)).toBe(false);
   });
 });

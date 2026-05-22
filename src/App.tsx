@@ -17,7 +17,7 @@ import { DomainSettingsProvider } from "./contexts/DomainSettingsProvider";
 import { useDomainSettingsContext } from "./contexts/domain-settings-context";
 import { computeRecipeAvailability } from "./lib/aic-research-helpers";
 import { computeRecipeReachability } from "./lib/recipe-reachability";
-import { forcedRawMaterials } from "./data";
+import { bootstrapFacilities, forcedRawMaterials } from "./data";
 import type { FacilityId, ItemId } from "./types";
 
 /**
@@ -58,10 +58,17 @@ function AppContent() {
   //      by AIC unlock state (facility unlock + mode unlock).
   //   2. `computeRecipeReachability` further filters to recipes whose
   //      inputs are reachable from `forcedRawMaterials` via the AIC-
-  //      filtered set. Recipes with broken chains (e.g. xiranite_oven_1
-  //      recipes when Furnace is locked → Carbon Enr unreachable) are
-  //      excluded, so the calc never sees them and the picker never
-  //      surfaces their outputs as targetable.
+  //      filtered set, with one exception: recipes on `bootstrap
+  //      Facilities` (e.g. Seed-Picking Unit) are unconditionally
+  //      runnable when the facility is unlocked. This handles the
+  //      planter↔seedcollector cycle that has no entry from forced
+  //      raws — in-game the player seeds the cycle externally. See
+  //      `bootstrapFacilities` in `@/data` for the rationale.
+  //
+  // Recipes with broken chains AND no bootstrap exception (e.g.
+  // xiranite_oven_1 recipes when Furnace is locked → Carbon Enr
+  // unreachable) are excluded, so the calc never sees them and the
+  // picker never surfaces their outputs as targetable.
   //
   // Manual raws intentionally do NOT feed into this closure — they're
   // a plan-specific calc-time hint, not a configuration capability.
@@ -79,6 +86,7 @@ function AppContent() {
     const { runnableRecipes, reachableItems } = computeRecipeReachability(
       aicFiltered,
       forcedRawMaterials,
+      bootstrapFacilities,
     );
     return { availableRecipes: runnableRecipes, reachableItems };
   }, [settings.aic.unlockedFacilities, settings.aic.unlockedModes]);

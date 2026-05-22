@@ -19,7 +19,13 @@ import {
   computeUnlockedModes,
 } from "@/lib/aic-research-helpers";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
-import { items, recipes, facilities, forcedRawMaterials } from "@/data";
+import {
+  items,
+  recipes,
+  facilities,
+  forcedRawMaterials,
+  bootstrapFacilities,
+} from "@/data";
 import { aicGroups, aicNodes } from "@/data/aic-plans";
 import type { AicTechId } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
@@ -243,7 +249,8 @@ describe("AIC integration: chain-reachability filter", () => {
   /**
    * Helper that composes the two filters exactly the way App.tsx does:
    * computeRecipeAvailability (AIC-only) → computeRecipeReachability
-   * (chain from forced raws) → canonical availableRecipes set.
+   * (chain from forced raws, with bootstrap exception for the Seed-
+   * Picking Unit) → canonical availableRecipes set.
    */
   const composeAvailableRecipes = (
     researched: ReadonlySet<AicTechId>,
@@ -262,7 +269,11 @@ describe("AIC integration: chain-reachability filter", () => {
       unlockedFacilities,
       unlockedModes,
     ).availableRecipes;
-    return computeRecipeReachability(aicFiltered, forcedRawMaterials);
+    return computeRecipeReachability(
+      aicFiltered,
+      forcedRawMaterials,
+      bootstrapFacilities,
+    );
   };
 
   test("locking Furnace removes xiranite_oven_xiranite_powder_1 from availableRecipes (Carbon Enr unreachable)", () => {
@@ -341,5 +352,59 @@ describe("AIC integration: chain-reachability filter", () => {
     expect(
       runnableRecipes.some((r) => r.id === "xiranite_oven_xiranite_powder_1"),
     ).toBe(false);
+  });
+
+  test("default config: moss plants and seeds are reachable via seedcollector bootstrap", () => {
+    // The planter↔seedcollector cycle has no forced-raw entry point.
+    // Without the bootstrap exception for `seedcollector_1`, the
+    // chain closure would mark both recipes as blocked and the
+    // picker would hide moss plants entirely. With bootstrap, the
+    // cycle seeds itself: seedcollector recipes are unconditionally
+    // runnable, their seed outputs join reachableItems, planter
+    // recipes become runnable (seeds now satisfied), and plant
+    // outputs follow.
+    const researched = allResearched();
+    const activeDomains = allDomainsActive();
+    const { runnableRecipes, reachableItems } = composeAvailableRecipes(
+      researched,
+      activeDomains,
+    );
+
+    // Both sides of the cycle are runnable.
+    expect(
+      runnableRecipes.some((r) => r.id === "seedcollector_plant_moss_1_1"),
+    ).toBe(true);
+    expect(
+      runnableRecipes.some((r) => r.id === "planter_plant_moss_1_1"),
+    ).toBe(true);
+
+    // Both plant AND seed are reachable.
+    expect(reachableItems.has(ItemId.ITEM_PLANT_MOSS_1)).toBe(true);
+    expect(reachableItems.has(ItemId.ITEM_PLANT_MOSS_SEED_1)).toBe(true);
+  });
+
+  test("locking tech_tundra_2_plant_1 (both planter + seedcollector locked) → moss plants unreachable", () => {
+    // tech_tundra_2_plant_1 unlocks BOTH planter_1 (primary) and
+    // seedcollector_1 (via additionalFacilities). Locking it removes
+    // the bootstrap entry point along with the planter recipes.
+    // Result: plant/seed cycle is unreachable, picker hides them.
+    const researched = allButNotResearched("tech_tundra_2_plant_1");
+    const activeDomains = allDomainsActive();
+    const { runnableRecipes, reachableItems } = composeAvailableRecipes(
+      researched,
+      activeDomains,
+    );
+
+    // Neither cycle recipe is runnable.
+    expect(
+      runnableRecipes.some((r) => r.id === "seedcollector_plant_moss_1_1"),
+    ).toBe(false);
+    expect(
+      runnableRecipes.some((r) => r.id === "planter_plant_moss_1_1"),
+    ).toBe(false);
+
+    // Plants and seeds aren't reachable.
+    expect(reachableItems.has(ItemId.ITEM_PLANT_MOSS_1)).toBe(false);
+    expect(reachableItems.has(ItemId.ITEM_PLANT_MOSS_SEED_1)).toBe(false);
   });
 });

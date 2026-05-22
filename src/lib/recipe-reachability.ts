@@ -1,13 +1,15 @@
-import type { ItemId, Recipe, RecipeId } from "@/types";
+import type { FacilityId, ItemId, Recipe, RecipeId } from "@/types";
 
 /**
  * Transitive closure: which recipes are *runnable* given a set of
  * raw materials and a recipe pool, plus which items are *reachable*
  * through the resulting production chains.
  *
- * A recipe is `runnable` iff all its inputs are in the reachable set.
- * A recipe is `blocked` iff at least one input has no producer among
- * `recipes` AND isn't in `rawMaterials`.
+ * A recipe is `runnable` iff:
+ *   - all its inputs are in the reachable set, OR
+ *   - its host facility is in `bootstrapFacilities` (see below).
+ *
+ * A recipe is `blocked` iff neither condition holds.
  *
  * # Why this exists
  *
@@ -27,11 +29,16 @@ import type { ItemId, Recipe, RecipeId } from "@/types";
  *
  * # Algorithm
  *
- * Standard fixpoint:
- *   1. Seed `reachableItems` with `rawMaterials`.
- *   2. Loop: for each not-yet-runnable recipe, if all its inputs are
- *      in `reachableItems`, mark it runnable and add its outputs.
- *   3. Repeat until no change.
+ * Two-phase closure:
+ *   1. **Bootstrap pass** (optional): recipes on a `bootstrapFacilities`
+ *      member are unconditionally marked runnable; their outputs join
+ *      `reachableItems` regardless of input reachability. See the
+ *      `bootstrapFacilities` constant in `@/data` for the use case
+ *      (Seed-Picking Unit and the plant↔seed cycle).
+ *   2. **Fixpoint pass**: seed `reachableItems` with `rawMaterials`
+ *      (already done) + bootstrap outputs; for each not-yet-runnable
+ *      recipe, if all its inputs are in `reachableItems`, mark it
+ *      runnable and add its outputs. Repeat until no change.
  *
  * Disposal recipes (0 outputs) are correctly handled: they're marked
  * runnable when their input is reachable, but contribute no new items
@@ -44,11 +51,14 @@ import type { ItemId, Recipe, RecipeId } from "@/types";
  * # Usage
  *
  *   - **App layer** (single canonical pipeline): pass the AIC-filtered
- *     recipe set + `forcedRawMaterials`; consume `runnableRecipes` as
- *     the canonical `availableRecipes`.
+ *     recipe set + `forcedRawMaterials` + `bootstrapFacilities`;
+ *     consume `runnableRecipes` as the canonical `availableRecipes`.
  *   - **Prefill detection** (via `computeBootableItems` in
  *     `calculator.ts`): same closure, exposed through a wrapper that
- *     returns just the `reachableItems` set.
+ *     omits the bootstrap arg → empty default → strict chain-only
+ *     semantics. The prefill cycle warning continues to fire for
+ *     planter↔seedcollector, which is correct at the runtime layer
+ *     even when bootstrap is applied at the planning layer.
  *
  * Manual raws (`manualRawMaterials`) intentionally do NOT feed into
  * the App-layer closure. They're a plan-specific calc-time hint, not
@@ -59,6 +69,7 @@ import type { ItemId, Recipe, RecipeId } from "@/types";
 export function computeRecipeReachability(
   recipes: readonly Recipe[],
   rawMaterials: ReadonlySet<ItemId>,
+  bootstrapFacilities: ReadonlySet<FacilityId> = new Set(),
 ): {
   reachableItems: ReadonlySet<ItemId>;
   runnableRecipes: readonly Recipe[];
@@ -66,6 +77,23 @@ export function computeRecipeReachability(
 } {
   const reachableItems = new Set<ItemId>(rawMaterials);
   const runnableIds = new Set<RecipeId>();
+
+  // Bootstrap pass: facility-level exception to the chain check.
+  // Recipes on a bootstrap facility are unconditionally runnable;
+  // their outputs join the reachable set before the normal fixpoint
+  // runs. This breaks otherwise-blocked cycles whose entry point is
+  // out-of-band in the game (e.g., player-collected seeds for the
+  // planter↔seedcollector cycle).
+  if (bootstrapFacilities.size > 0) {
+    for (const recipe of recipes) {
+      if (bootstrapFacilities.has(recipe.facilityId)) {
+        runnableIds.add(recipe.id);
+        for (const o of recipe.outputs) {
+          reachableItems.add(o.itemId);
+        }
+      }
+    }
+  }
 
   let changed = true;
   while (changed) {
