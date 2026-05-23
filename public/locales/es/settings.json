@@ -2,7 +2,7 @@
   "title": "Configuración",
   "open": "Abrir configuración",
   "aic": {
-    "intro": "Elige qué tecnologías de la CAI has investigado. En una futura actualización, esto filtrará los objetos y recetas disponibles en tus planes.",
+    "intro": "Elige qué tecnologías de la CAI has investigado. En una futura actualización, esto filtrará los objetos y fórmulas disponibles en tus planes.",
     "activateAll": "Activar todo",
     "activateLayer": "Activar capa",
     "resetDefaults": "Restablecer valores predeterminados",
@@ -10,7 +10,7 @@
     "row": {
       "alwaysAvailable": "Siempre disponible (predeterminado del juego)",
       "showDescription": "Mostrar descripción",
-      "showRecipes": "Mostrar recetas desbloqueadas",
+      "showRecipes": "Mostrar fórmulas desbloqueadas",
       "unlocksLabel": "Desbloquea",
       "ariaResearched": "{{name}}, investigado",
       "ariaAvailable": "{{name}}, disponible para investigar",

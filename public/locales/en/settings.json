@@ -2,7 +2,7 @@
   "title": "Settings",
   "open": "Open settings",
   "aic": {
-    "intro": "Choose which AIC technologies you've researched. In a future update, this will filter the items and recipes available to your plans.",
+    "intro": "Choose which AIC technologies you've researched. In a future update, this will filter the items and formulas available to your plans.",
     "activateAll": "Activate all",
     "activateLayer": "Activate layer",
     "resetDefaults": "Reset to defaults",
@@ -10,7 +10,7 @@
     "row": {
       "alwaysAvailable": "Always available (game default)",
       "showDescription": "Show description",
-      "showRecipes": "Show unlocked recipes",
+      "showRecipes": "Show unlocked formulas",
       "unlocksLabel": "Unlocks",
       "ariaResearched": "{{name}}, researched",
       "ariaAvailable": "{{name}}, available to research",
@@ -19,10 +19,10 @@
     },
     "facilityLimits": {
       "title": "Facility limits",
-      "gameCap": "Game cap",
+      "gameCap": "Game limit",
       "customCap": "Custom",
       "effective": "Effective",
-      "reset": "Reset to game cap"
+      "reset": "Reset to game limit"
     },
     "domain": {
       "toggleActivate": "Activate {{name}}",
