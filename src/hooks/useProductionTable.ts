@@ -12,10 +12,37 @@ import { calcRate } from "@/lib/utils";
 import type { BinAggregates } from "@/lib/plan-helpers";
 import { getRecipeInputItemId } from "@/lib/plan-helpers";
 
+/**
+ * Per-producer entry in a merged item row. Items with > 1 active producer
+ * (the LP returned a mixed-strategy solution, or two recipes co-produced
+ * the item as primary + byproduct) get an entry per producer here.
+ *
+ * **Currently a defensive shape**: with HiGHS simplex on today's data the
+ * global LP never returns mixed strategies (HiGHS lands on vertex
+ * solutions; no raw-material capacity constraints exist in the LP to
+ * force mixing). The structure exists so that when raw caps land
+ * (planned future feature) the table renders correctly without a
+ * follow-up refactor. See `[MIXED-STRATEGY]` dev-mode log in
+ * `flow-solver.ts:detectMixedStrategies` for runtime telemetry.
+ */
+type ProducerEntry = {
+  recipeId: RecipeId;
+  facilityCount: number;
+};
+
 type MergedItemNode = {
   itemId: ItemId;
   totalProductionRate: number;
+  /**
+   * Primary producer for the row's dropdown selection. Picked as the
+   * dominant (highest facility-count) producer when multiple are active;
+   * for the single-producer case (≥ 99% of plans), this is the only
+   * producer. Falls back to a user override if one is pinned and active.
+   */
   recipeId: RecipeId | null;
+  /** All active producers (fc > 0). Length ≥ 2 ⇒ mixed-strategy row. */
+  producers: ProducerEntry[];
+  /** Sum of facility counts across `producers`. */
   totalFacilityCount: number;
   isRawMaterial: boolean;
   isTarget: boolean;
@@ -24,13 +51,45 @@ type MergedItemNode = {
 };
 
 /**
- * Merges production data for items that are produced by same recipe.
+ * Merges item-level production data into one entry per item. When the LP
+ * solution has multiple active producers for the same item (rare but
+ * possible under future raw caps — see `ProducerEntry` JSDoc), this
+ * function aggregates them: `totalFacilityCount` sums producers, the
+ * dropdown's `recipeId` selects the dominant one, and `producers`
+ * carries the full breakdown for UI rendering.
+ *
+ * Producer selection rules:
+ *   1. If the user has pinned a recipe via `recipeOverrides` AND that
+ *      recipe is an active producer in the plan, use it as primary.
+ *      The user's explicit choice always wins the dropdown spot.
+ *   2. Otherwise, pick the producer with the highest facility count.
+ *   3. Otherwise (no active producer), recipeId = null.
  */
-function mergeItemNodes(
+// Exported only for the mixed-strategy unit test in
+// `src/tests/lib/merge-item-nodes.test.ts`. Not part of the public hook API.
+export function mergeItemNodes(
   plan: ProductionDependencyGraph,
   recipeOverrides: Map<ItemId, RecipeId>,
 ): Map<ItemId, MergedItemNode> {
   const merged = new Map<ItemId, MergedItemNode>();
+
+  // Pre-build an O(1) item → active producers map so we don't scan
+  // `plan.edges` × `plan.nodes` per item (was O(N²) before).
+  const producersByItem = new Map<ItemId, ProducerEntry[]>();
+  for (const edge of plan.edges) {
+    const fromNode = plan.nodes.get(edge.from);
+    if (fromNode?.type !== "recipe") continue;
+    const toItemId = edge.to as ItemId;
+    if (!plan.nodes.has(toItemId)) continue;
+    const fc = fromNode.facilityCount;
+    if (fc <= 0) continue;
+    let list = producersByItem.get(toItemId);
+    if (!list) {
+      list = [];
+      producersByItem.set(toItemId, list);
+    }
+    list.push({ recipeId: fromNode.recipeId, facilityCount: fc });
+  }
 
   plan.nodes.forEach((node) => {
     if (node.type !== "item") return;
@@ -38,67 +97,60 @@ function mergeItemNodes(
     const existing = merged.get(node.itemId);
 
     if (existing) {
-      // Merge rates (shouldn't happen in current implementation, but safe)
+      // Defensive: items shouldn't appear twice in plan.nodes today, but
+      // if they do (e.g. future graph-builder change), merge rates.
       existing.totalProductionRate += node.productionRate;
       if (node.isTarget) existing.isTarget = true;
-    } else {
-      // Find producer recipe. When an item has multiple producers (e.g.,
-      // override recipe + feeder recipe), prefer the user's override.
-      const overrideId = recipeOverrides.get(node.itemId);
-      let producerRecipeId: RecipeId | null = null;
-
-      if (
-        overrideId &&
-        plan.nodes.has(overrideId) &&
-        plan.edges.some(
-          (e) => e.from === overrideId && e.to === node.itemId,
-        )
-      ) {
-        producerRecipeId = overrideId;
-      } else {
-        producerRecipeId =
-          Array.from(plan.nodes.values()).find(
-            (n): n is Extract<ProductionGraphNode, { type: "recipe" }> =>
-              n.type === "recipe" &&
-              plan.edges.some(
-                (e) => e.from === n.recipeId && e.to === node.itemId,
-              ),
-          )?.recipeId || null;
-      }
-
-      const facilityCount = producerRecipeId
-        ? (
-            plan.nodes.get(producerRecipeId) as Extract<
-              ProductionGraphNode,
-              { type: "recipe" }
-            >
-          )?.facilityCount || 0
-        : 0;
-
-      // Find dependencies (items consumed by this item's producer recipe)
-      const dependencies = new Set<ItemId>();
-      if (producerRecipeId) {
-        plan.edges.forEach((edge) => {
-          if (edge.to === producerRecipeId) {
-            const sourceNode = plan.nodes.get(edge.from);
-            if (sourceNode?.type === "item") {
-              dependencies.add(sourceNode.itemId);
-            }
-          }
-        });
-      }
-
-      merged.set(node.itemId, {
-        itemId: node.itemId,
-        totalProductionRate: node.productionRate,
-        recipeId: producerRecipeId,
-        totalFacilityCount: facilityCount,
-        isRawMaterial: node.isRawMaterial,
-        isTarget: node.isTarget,
-        dependencies,
-        level: 0,
-      });
+      return;
     }
+
+    const producers = producersByItem.get(node.itemId) ?? [];
+
+    // Producer selection: user override (if active) > highest-fc producer.
+    let producerRecipeId: RecipeId | null = null;
+    const overrideId = recipeOverrides.get(node.itemId);
+    if (overrideId && producers.some((p) => p.recipeId === overrideId)) {
+      producerRecipeId = overrideId;
+    } else if (producers.length > 0) {
+      let dominant = producers[0];
+      for (let i = 1; i < producers.length; i++) {
+        if (producers[i].facilityCount > dominant.facilityCount) {
+          dominant = producers[i];
+        }
+      }
+      producerRecipeId = dominant.recipeId;
+    }
+
+    const totalFacilityCount = producers.reduce(
+      (sum, p) => sum + p.facilityCount,
+      0,
+    );
+
+    // Dependencies = union of inputs across all active producers. Under
+    // mixed-strategy this surfaces every upstream item the row depends
+    // on, not just the dominant producer's inputs.
+    const dependencies = new Set<ItemId>();
+    for (const p of producers) {
+      for (const edge of plan.edges) {
+        if (edge.to !== p.recipeId) continue;
+        const sourceNode = plan.nodes.get(edge.from);
+        if (sourceNode?.type === "item") {
+          dependencies.add(sourceNode.itemId);
+        }
+      }
+    }
+
+    merged.set(node.itemId, {
+      itemId: node.itemId,
+      totalProductionRate: node.productionRate,
+      recipeId: producerRecipeId,
+      producers,
+      totalFacilityCount,
+      isRawMaterial: node.isRawMaterial,
+      isTarget: node.isTarget,
+      dependencies,
+      level: 0,
+    });
   });
 
   return merged;
@@ -308,6 +360,10 @@ export function useProductionTable(
         binBuildingCount,
         isBinPrimary,
         binSpanningInfo,
+        // Only surface activeProducers when it's actually multi-producer.
+        // Single-producer (the common case) leaves this undefined so the
+        // table renders the existing single-recipe layout unchanged.
+        activeProducers: node.producers.length > 1 ? node.producers : undefined,
       };
     });
 

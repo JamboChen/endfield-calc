@@ -42,6 +42,10 @@
       "powerSharedExplain": "電力はグループの主行のみで集計されます。",
       "spanning": "レシピは {{count}} 種のグループに分散："
     },
+    "recipe": {
+      "mixedHint": "他 +{{count}}",
+      "mixedTooltipHeader": "このアイテムは複数のレシピで生産されます："
+    },
     "totals": {
       "buildings": "建物総数",
       "power": "総電力",
