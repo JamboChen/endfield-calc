@@ -2,7 +2,7 @@
   "title": "Set your AIC Plans",
   "description": "Check the plans you've researched in-game.",
   "warningLabel": "Warning",
-  "warning": "Unchecking hides those facilities from recipes and may break an in-progress plan.",
+  "warning": "Unchecking an AIC plan locks its formulas. Items in your current plan that need those formulas will be removed.",
   "hint": "You can change this anytime in Settings.",
   "confirmButton": "Continue",
   "statusActive": "Active",

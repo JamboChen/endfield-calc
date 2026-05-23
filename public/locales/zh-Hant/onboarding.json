@@ -2,7 +2,7 @@
   "title": "設定你的 AIC 計畫",
   "description": "勾選你已在遊戲中研究的計畫。",
   "warningLabel": "注意",
-  "warning": "取消勾選會將這些設施從配方中隱藏，並可能影響進行中的計畫。",
+  "warning": "取消勾選 AIC 計畫會鎖定其配方。當前計畫中需要這些配方的物品將被移除。",
   "hint": "你可以隨時在設定中變更。",
   "confirmButton": "繼續",
   "statusActive": "啟用",

@@ -10,29 +10,40 @@
  * # Behavior
  *
  *   - Triggered on mount when the flag is absent.
- *   - All domains (pinned + togglable) appear as large button-cards,
- *     defaulted to selected. The pinned domain (Valley IV) cannot be
- *     deactivated, but its card still drives whether its AIC nodes
- *     start fully researched (selected) or only at game defaults
- *     (unselected).
+ *   - All domains (pinned + togglable) appear as hero-image cards in
+ *     a 2-up grid (1-up on mobile), defaulted to selected. The pinned
+ *     domain (Valley IV) cannot be deactivated, but its card still
+ *     drives whether its AIC nodes start fully researched (selected)
+ *     or only at game defaults (unselected).
  *   - Staged state: card toggles update local component state.
  *     Nothing is mutated on the global settings until Confirm.
  *   - On Confirm (or any close event): `applyOnboardingChoices` runs
  *     the bulk apply, then `localStorage` flag is set, then the dialog
- *     closes. Any close path (Escape, overlay click, X button) takes
- *     this same path, so users can't end up in a partial state.
+ *     closes. Any close path (Escape, overlay click) takes this same
+ *     path, so users can't end up in a partial state.
  *
  * # Visual design
  *
- *   - Each domain is a full-width `<button>` (not a checkbox). The
- *     whole card is the click target; `role="button"` + `aria-pressed`
- *     carry the state contract to assistive tech.
- *   - Selected: background tinted with domain color (~8% opacity),
- *     thick (4px) left border in the domain color, full-saturation
- *     status pill. Unselected: outline only, muted name + status.
- *   - The dialog leans on weight + tracking + size for typographic
- *     hierarchy instead of a custom display font — fits the rest of
- *     the calculator's restrained look while still feeling deliberate.
+ *   - Each domain is a full-card `<button>` with two zones:
+ *       1. Hero zone (3:1 aspect — matches the source deco PNG's
+ *          790×257 dimensions so silhouettes display in full). A
+ *          neutral `bg-secondary` plate throughout; the silhouette is
+ *          always rendered via CSS `mask-image` (the PNG's alpha
+ *          becomes the mask) and tinted via `background-color`. When
+ *          SELECTED, the tint is the literal domain color; when
+ *          UNSELECTED, it's `muted-foreground` at ~35% alpha (theme-
+ *          aware via `color-mix`) — region identity remains
+ *          recognizable as a soft ghost.
+ *       2. Footer zone: domain name + uppercase status text. The
+ *          status text takes the domain's color when selected,
+ *          muted-foreground when not.
+ *   - Selected cards carry a 2px domain-color border. Unselected
+ *     cards have a 2px neutral border. Selection is conveyed by the
+ *     silhouette color + border + the "ACTIVE" / "OFF" status text;
+ *     no chrome overlay sits on the pictogram itself.
+ *   - Per-domain color identity is the accent system — there's
+ *     intentionally no shared brand accent. Yellow seen in upstream
+ *     mockups was a placeholder.
  *
  * # Trigger contract
  *
@@ -52,7 +63,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowRight, CircleDashed, CheckCircle2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -68,26 +79,6 @@ import { cn } from "@/lib/utils";
 import type { DomainId } from "@/types/domain";
 
 const STORAGE_KEY = "endfield-calc:onboarding-v1";
-
-/**
- * Convert a 6-digit hex string (no leading `#`) to an `rgba()` string.
- * Domain colors live as bare hex in `aic-plans.ts` (`"dfef36"`); we
- * use this to derive the low-opacity background tints for selected
- * button-cards.
- *
- * Pre-computing rgba and exposing it via CSS variables (rather than
- * inlining `color-mix(...)` inside Tailwind arbitrary properties) is
- * a workaround for Tailwind v4's arbitrary-value parser, which mangles
- * nested parentheses inside `color-mix(...)` expressions and emits a
- * stripped property value (e.g. `background-color: var(--domain-color)`
- * — the full-saturation color — instead of the tinted result).
- */
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
-  const b = parseInt(hex.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
 
 export function AicOnboardingDialog() {
   const { t } = useTranslation(["onboarding", "domain"]);
@@ -148,17 +139,22 @@ export function AicOnboardingDialog() {
     [handleConfirm],
   );
 
+  const decoBaseUrl = `${import.meta.env.BASE_URL}images/domains/`;
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent showCloseButton={false} className="sm:max-w-lg">
-        <DialogHeader className="gap-3">
+      <DialogContent
+        showCloseButton={false}
+        className="sm:max-w-2xl"
+      >
+        <DialogHeader className="gap-2">
           <DialogTitle className="text-2xl font-bold uppercase tracking-[0.12em] leading-tight">
             {t("onboarding:title")}
           </DialogTitle>
           <DialogDescription>{t("onboarding:description")}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-2 py-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-1">
           {domains.map((domain, idx) => {
             const checked = choices.get(domain.id) ?? true;
             const domainName = t(`domain:domains.${domain.id}.name`, {
@@ -177,97 +173,88 @@ export function AicOnboardingDialog() {
                 onClick={() => handleToggle(domain.id)}
                 style={
                   {
-                    // Inline CSS variables bound to the domain color
-                    // (selected state only). The Tailwind classes below
-                    // consume `--domain-color` for the border/pill and
-                    // `--domain-tint` / `--domain-tint-hover` for the
-                    // tinted backgrounds. Pre-computing rgba in JS
-                    // sidesteps a Tailwind v4 arbitrary-value parser
-                    // bug with nested `color-mix(...)` expressions.
+                    // CSS variable bound to the domain color (selected
+                    // state only). Consumed via `var()` by the border,
+                    // check badge, and status text classes below.
                     ...(checked
-                      ? {
-                          ["--domain-color"]: `#${domain.color}`,
-                          ["--domain-tint"]: hexToRgba(domain.color, 0.08),
-                          ["--domain-tint-hover"]: hexToRgba(
-                            domain.color,
-                            0.14,
-                          ),
-                        }
+                      ? { ["--domain-color"]: `#${domain.color}` }
                       : {}),
                     // Staggered entrance: each card fades in 50ms after
-                    // the previous one. CSS animation runs once on
-                    // mount; subsequent state changes don't re-trigger.
+                    // the previous one. Runs once on mount; subsequent
+                    // state changes don't re-trigger.
                     animationDelay: `${idx * 50}ms`,
                   } as React.CSSProperties
                 }
                 className={cn(
-                  // Layout
-                  "group relative w-full flex items-center justify-between gap-3",
-                  "px-4 py-3.5 rounded-lg text-left",
+                  // Layout — full-card button with overflow-hidden so
+                  // the hero zone clips correctly to the rounded corner.
+                  "group relative w-full overflow-hidden rounded-lg text-left",
                   // Motion
                   "transition-colors duration-150 ease-out",
                   "active:scale-[0.99]",
-                  // Use arbitrary `[animation-duration:300ms]` instead
-                  // of `duration-300` so the card entrance keeps its
-                  // 300ms reveal while the state transitions above
-                  // correctly use the 150ms duration class. Tailwind's
-                  // `duration-*` writes a shared `--tw-duration`
-                  // variable that both `transition-*` and `animate-*`
-                  // consume, so two `duration-*` classes on the same
-                  // element collapse into one.
                   "animate-in fade-in-0 slide-in-from-bottom-1 [animation-duration:300ms] fill-mode-both",
                   // Focus
-                  "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                  // State styling
+                  "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  // Border — uniform 2px thickness in both states so
+                  // toggling doesn't shift content.
+                  "border-2",
                   checked
-                    ? [
-                        // Selected: tinted bg + bold left border in
-                        // the domain color, rest neutral.
-                        "border border-transparent border-l-[4px]",
-                        "[border-left-color:var(--domain-color)]",
-                        "[background-color:var(--domain-tint)]",
-                        "hover:[background-color:var(--domain-tint-hover)]",
-                      ]
-                    : [
-                        // Unselected: thin outline, no color.
-                        "border border-border",
-                        "bg-card hover:bg-accent/40",
-                      ],
+                    ? "[border-color:var(--domain-color)]"
+                    : "border-border hover:border-border/70",
                 )}
               >
-                <div className="flex flex-col items-start gap-0.5 min-w-0">
-                  <span
+                {/* Hero zone (3:1 aspect — matches the source deco
+                    PNG's 790×257 dimensions so silhouettes display
+                    without cropping). Neutral `bg-secondary` plate
+                    throughout; the silhouette is always rendered via
+                    CSS `mask-image` (the PNG's alpha becomes the mask)
+                    and tinted via `background-color`:
+                      - selected: literal domain color
+                      - unselected: muted-foreground at ~35% alpha
+                        (theme-aware via `color-mix`)
+                    No chrome overlays the pictogram. */}
+                <div className="relative aspect-[3/1] bg-secondary">
+                  <div
+                    aria-hidden="true"
+                    className="absolute inset-0"
+                    style={{
+                      backgroundColor: checked
+                        ? `#${domain.color}`
+                        : "color-mix(in oklch, var(--muted-foreground), transparent 65%)",
+                      maskImage: `url(${decoBaseUrl}deco_${domain.id}.png)`,
+                      WebkitMaskImage: `url(${decoBaseUrl}deco_${domain.id}.png)`,
+                      maskSize: "cover",
+                      WebkitMaskSize: "cover",
+                      maskRepeat: "no-repeat",
+                      WebkitMaskRepeat: "no-repeat",
+                      maskPosition: "center",
+                      WebkitMaskPosition: "center",
+                    }}
+                  />
+                </div>
+
+                {/* Footer zone — name + status */}
+                <div className="px-3 py-2.5 bg-card">
+                  <p
                     className={cn(
-                      "text-base font-semibold tracking-wide leading-tight truncate",
+                      "text-base font-semibold leading-tight truncate",
                       !checked && "text-muted-foreground",
                     )}
                   >
                     {domainName}
-                  </span>
+                  </p>
+                  <p
+                    className={cn(
+                      "text-[11px] font-mono uppercase tracking-[0.15em] mt-1",
+                      !checked && "text-muted-foreground",
+                    )}
+                    style={
+                      checked ? { color: `#${domain.color}` } : undefined
+                    }
+                  >
+                    {statusLabel}
+                  </p>
                 </div>
-
-                <span
-                  className={cn(
-                    "shrink-0 inline-flex items-center gap-1.5",
-                    "text-[11px] font-semibold uppercase tracking-[0.15em]",
-                    checked
-                      ? "[color:var(--domain-color)]"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {checked ? (
-                    <CheckCircle2
-                      className="size-3.5 shrink-0"
-                      strokeWidth={2.5}
-                    />
-                  ) : (
-                    <CircleDashed
-                      className="size-3.5 shrink-0"
-                      strokeWidth={2}
-                    />
-                  )}
-                  {statusLabel}
-                </span>
               </button>
             );
           })}
