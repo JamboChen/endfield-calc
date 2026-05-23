@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import type {
-  Facility,
   FacilityId,
   Item,
   ItemId,
@@ -107,25 +106,17 @@ function collectStats(
  * multi-formula bins (e.g. an Xircon `{LX,XE,X}` bin showing 3
  * Expanded instead of 1); the shared aggregate prevents drift.
  *
- * `facilities` and `ceilMode` remain in the signature for backwards
- * compatibility with callers, but the heavy lift is now done once
- * upstream in `useProductionPlan` and passed via `aggregates`.
+ * `items` is needed to resolve per-item source-facility rates (pumps
+ * vs. depots) for pickup-point counts; everything else flows through
+ * the shared `aggregates`.
  */
 export function useProductionStats(
   plan: ProductionDependencyGraph | null,
   aggregates: BinAggregates | null,
   facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>,
   manualRawMaterials: Set<ItemId>,
-  facilities: Facility[],
   items: Item[],
-  ceilMode: boolean,
 ): ProductionStats {
-  // facilities + ceilMode kept on the signature: future stats fields
-  // may need them, and keeping them avoids a churn of call sites if
-  // such fields are added. Reference them here so unused-param lints
-  // don't fire.
-  void facilities;
-  void ceilMode;
   return useMemo(() => {
     if (!plan || plan.nodes.size === 0 || !aggregates) {
       return {

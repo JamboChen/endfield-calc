@@ -145,6 +145,14 @@ function injectDisposalRecipes(
  * recipes the LP didn't pick aren't actually running and don't contribute
  * to bootability for THIS plan. Use `activeRecipeIds` (drawn from
  * `recipeBinAllocations.keys()`).
+ *
+ * **Two reachability policies coexist** (see `computeRecipeReachability`'s
+ * Usage section for the full framing):
+ *   - **Planning layer** (App.tsx): bootstrap-aware. "Can the user
+ *     configure this plan?"
+ *   - **Runtime layer** (this function): bootstrap-omitted, strict
+ *     chain-only. "Does this cycle need a kickstart at startup?"
+ * Don't conflate them.
  */
 function computeBootableItems(
   activeRecipeIds: Iterable<RecipeId>,

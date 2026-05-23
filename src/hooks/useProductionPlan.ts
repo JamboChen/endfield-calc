@@ -453,13 +453,20 @@ export function useProductionPlan(
             : `Removed ${total} items no longer producible by your current AIC settings.`,
       }),
     );
-    // `targets`, `recipeOverrides`, and `manualRawMaterials` are
-    // intentionally NOT in the dep array — the effect reacts to
-    // `availableRecipes` (and derived sets), pulling current state via
-    // closure. Including them would re-fire on every prune-driven
-    // state change, doubling the toast.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reachableProducibleItems, availableRecipeIds]);
+    // The effect is idempotent against its own output: when the setters
+    // above fire, `targets` / `recipeOverrides` / `manualRawMaterials`
+    // change identity → effect re-runs → recomputes the prune against
+    // already-pruned state → `total === 0` → early return above, no
+    // double toast. So declaring the full dep set is safe (and
+    // ESLint-honest) — the second pass exits before any state writes.
+  }, [
+    reachableProducibleItems,
+    availableRecipeIds,
+    targets,
+    recipeOverrides,
+    manualRawMaterials,
+    t,
+  ]);
 
   // Debounced overlay visibility: only flip true if `isCalculating`
   // stays true for >300ms. Sub-300ms calcs (the common case at
@@ -667,9 +674,7 @@ export function useProductionPlan(
     aggregates,
     facilityOverCapMap,
     manualRawMaterials,
-    facilities,
     items,
-    ceilMode,
   );
   const tableData = useProductionTable(
     displayPlan,
@@ -680,10 +685,7 @@ export function useProductionPlan(
     availableRecipes,
     recipeOverrides,
     manualRawMaterials,
-    facilities,
-    items,
     invalidCycleItemIds,
-    ceilMode,
   );
 
   const handleTargetChange = useCallback((index: number, rate: number) => {

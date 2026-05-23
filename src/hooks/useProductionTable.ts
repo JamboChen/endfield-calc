@@ -6,8 +6,6 @@ import type {
   RecipeId,
   BinId,
   Recipe,
-  Facility,
-  Item,
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
 import { calcRate } from "@/lib/utils";
@@ -194,10 +192,7 @@ export type ProductionTableData = {
  *
  * `aggregates` is the shared `BinAggregates` computed once in
  * `useProductionPlan` and passed down — eliminates the duplicate
- * `aggregateBinTotals` call this hook used to do. `facilities` /
- * `items` / `ceilMode` remain on the signature for backwards
- * compatibility; the table-row construction logic doesn't need them
- * directly anymore, but call sites pass them through anyway.
+ * `aggregateBinTotals` call this hook used to do.
  */
 export function useProductionTable(
   plan: ProductionDependencyGraph | null,
@@ -205,16 +200,8 @@ export function useProductionTable(
   recipes: readonly Recipe[],
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
-  facilities: Facility[] = [],
-  items: Item[] = [],
   invalidCycleItemIds: Set<ItemId> = new Set(),
-  ceilMode: boolean = false,
 ): ProductionTableData {
-  // Reserved-for-future args; reference here so unused-param lints
-  // don't fire when the hook's interior stops using them directly.
-  void facilities;
-  void items;
-  void ceilMode;
   return useMemo(() => {
     if (!plan || plan.nodes.size === 0 || !aggregates) {
       return {
