@@ -1,5 +1,5 @@
 import type { ItemId, RecipeId, Recipe } from "@/types";
-import { forcedRawMaterials, forcedDisposalItems } from "@/data";
+import { forcedRawMaterials, forcedDisposalItems, costlessRaws } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { selectRecipe } from "./graph-builder";
 import { solveLP, type LPInput, type LPItemConstraint } from "./lp-solver";
@@ -282,6 +282,7 @@ function buildLPInputForSCC(
     recipes: recipesList,
     itemConstraints,
     rawMaterials,
+    costlessRaws,
     facilityMap: maps.facilityMap,
   };
 }

@@ -92,6 +92,15 @@ export type LPInput = {
   pinnedRecipes?: Map<RecipeId, number>;
   /** Items that should contribute to the raw-cost objective. */
   rawMaterials: Set<ItemId>;
+  /**
+   * Subset of `rawMaterials` whose consumption is treated as **free** in
+   * the `rawCost` objective. Liquid raws (water, acid) fall in here:
+   * pickup is via Fluid Pumps with effectively unbounded throughput and
+   * trivial power, so they shouldn't bias the LP against recipes that
+   * happen to consume them (e.g. Yazhen planter water vs Buckflower
+   * planter no-water). See `src/data/index.ts:costlessRaws`.
+   */
+  costlessRaws: ReadonlySet<ItemId>;
   /** Facility lookup for power-cost computation. */
   facilityMap: Map<FacilityId, Facility>;
 };
@@ -112,16 +121,28 @@ export type LPFailure = {
 
 export type LPResult = LPSolution | LPFailure;
 
-/** Per-facility-per-minute raw consumption rate; sums inputs in `rawMaterials`. */
+/**
+ * Per-facility-per-minute raw consumption rate; sums inputs in
+ * `rawMaterials` *excluding* `costlessRaws`. Costless raws (currently:
+ * liquid water + liquid acid) are treated as infinite-supply AND
+ * zero-cost in the LP objective so they don't bias selection against
+ * recipes that consume them.
+ *
+ * The exclusion happens here on the input side only — raws never appear
+ * as LP balance constraints anyway, so byproduct raws (e.g. acid emitted
+ * by `liquid_purifier_copper_enr_1`) already had no LP value; symmetry
+ * is preserved.
+ */
 const rawCostPerFacility = (
   recipe: Recipe,
   rawMaterials: Set<ItemId>,
+  costlessRaws: ReadonlySet<ItemId>,
 ): number => {
   let cost = 0;
   for (const input of recipe.inputs) {
-    if (rawMaterials.has(input.itemId)) {
-      cost += calcRate(input.amount, recipe.craftingTime);
-    }
+    if (!rawMaterials.has(input.itemId)) continue;
+    if (costlessRaws.has(input.itemId)) continue;
+    cost += calcRate(input.amount, recipe.craftingTime);
   }
   return cost;
 };
@@ -134,6 +155,7 @@ const buildVariableCoefficients = (
   recipe: Recipe,
   itemConstraintNames: Map<ItemId, string>,
   rawMaterials: Set<ItemId>,
+  costlessRaws: ReadonlySet<ItemId>,
   facilityMap: Map<FacilityId, Facility>,
 ): Record<string, number> => {
   const coefs: Record<string, number> = {};
@@ -151,7 +173,7 @@ const buildVariableCoefficients = (
       calcRate(inp.amount, recipe.craftingTime);
   }
 
-  coefs.rawCost = rawCostPerFacility(recipe, rawMaterials);
+  coefs.rawCost = rawCostPerFacility(recipe, rawMaterials, costlessRaws);
   const facility = facilityMap.get(recipe.facilityId);
   coefs.power = (facility?.powerConsumption ?? 0) + POWER_COST_FLOOR;
 
@@ -212,6 +234,7 @@ const buildModel = (
       recipe,
       itemConstraintNames,
       input.rawMaterials,
+      input.costlessRaws,
       input.facilityMap,
     );
     recipeIndexMap.set(varName, recipe.id);
@@ -285,6 +308,7 @@ const extractSolution = (
   recipes: Recipe[],
   facilityMap: Map<FacilityId, Facility>,
   rawMaterials: Set<ItemId>,
+  costlessRaws: ReadonlySet<ItemId>,
 ): {
   facilityCounts: Map<RecipeId, number>;
   disposalDeficits: Map<ItemId, number>;
@@ -304,7 +328,7 @@ const extractSolution = (
     const fc = typeof v === "number" && Math.abs(v) > LP_EPSILON ? v : 0;
     facilityCounts.set(recipeId, fc);
     const recipe = recipesById.get(recipeId)!;
-    totalRaw += rawCostPerFacility(recipe, rawMaterials) * fc;
+    totalRaw += rawCostPerFacility(recipe, rawMaterials, costlessRaws) * fc;
     const facility = facilityMap.get(recipe.facilityId);
     totalPower += (facility?.powerConsumption ?? 0) * fc;
   }
@@ -374,6 +398,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
     input.recipes,
     input.facilityMap,
     input.rawMaterials,
+    input.costlessRaws,
   );
 
   // Pass 2: power minimization with raw-cost upper-bound constraint.
@@ -426,6 +451,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
     input.recipes,
     input.facilityMap,
     input.rawMaterials,
+    input.costlessRaws,
   );
 
   return {

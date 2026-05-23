@@ -58,6 +58,7 @@ describe("solveLP", () => {
         ["raw" as ItemId, { type: "min", rhs: 0 }],
       ]),
       rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -88,6 +89,7 @@ describe("solveLP", () => {
         ["raw" as ItemId, { type: "min", rhs: 0 }],
       ]),
       rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -128,6 +130,7 @@ describe("solveLP", () => {
         ["raw_b" as ItemId, { type: "min", rhs: 0 }],
       ]),
       rawMaterials: new Set(["raw_a" as ItemId, "raw_b" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -165,6 +168,7 @@ describe("solveLP", () => {
         ["ore" as ItemId, { type: "min", rhs: 0 }],
       ]),
       rawMaterials: new Set(["ore" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -200,6 +204,7 @@ describe("solveLP", () => {
         ["raw" as ItemId, { type: "min", rhs: 0 }],
       ]),
       rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -224,6 +229,7 @@ describe("solveLP", () => {
         ["raw" as ItemId, { type: "equal", rhs: 0 }], // can't consume raw — infeasible
       ]),
       rawMaterials: new Set(),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -235,6 +241,7 @@ describe("solveLP", () => {
       recipes: [],
       itemConstraints: new Map(),
       rawMaterials: new Set(),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -282,6 +289,7 @@ describe("solveLP", () => {
       // Pin furnace below what's needed → forces deficit on sewage.
       pinnedRecipes: new Map([["furnace" as RecipeId, 1 / 30]]),
       rawMaterials: new Set(["ore" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -320,6 +328,7 @@ describe("solveLP", () => {
         ["ore" as ItemId, { type: "min", rhs: 0 }],
       ]),
       rawMaterials: new Set(["ore" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -355,6 +364,7 @@ describe("solveLP", () => {
       ]),
       pinnedRecipes: new Map([["r_b" as RecipeId, 1]]),
       rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -381,6 +391,7 @@ describe("solveLP", () => {
       ]),
       pinnedRecipes: new Map([["nonexistent" as RecipeId, 5]]),
       rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -416,6 +427,7 @@ describe("solveLP", () => {
         ["raw" as ItemId, { type: "min", rhs: 0 }],
       ]),
       rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
@@ -459,6 +471,7 @@ describe("solveLP", () => {
         ],
       ]),
       rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
       facilityMap: facMap,
     };
     const result = await solveLP(input);
