@@ -1,8 +1,8 @@
 {
-  "title": "设置你的 AIC 计划",
-  "description": "勾选你已在游戏中研究的计划。",
+  "title": "设置你的工业计划",
+  "description": "勾选你已在游戏中研究的工业计划。",
   "warningLabel": "注意",
-  "warning": "取消勾选 AIC 计划会锁定其配方。当前计划中需要这些配方的物品将被移除。",
+  "warning": "取消勾选工业计划会锁定其配方。当前方案中需要这些配方的物品将被移除。",
   "hint": "你可以随时在设置中更改。",
   "confirmButton": "继续",
   "statusActive": "启用",
