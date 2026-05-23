@@ -10,16 +10,29 @@
  * # Behavior
  *
  *   - Triggered on mount when the flag is absent.
- *   - All domains (pinned + togglable) appear as checkboxes, defaulted
- *     to checked. The pinned domain (Valley IV) cannot be deactivated,
- *     but its checkbox still drives whether its AIC nodes start fully
- *     researched (checked) or only at game defaults (unchecked).
- *   - Staged state: checkbox toggles update local component state.
+ *   - All domains (pinned + togglable) appear as large button-cards,
+ *     defaulted to selected. The pinned domain (Valley IV) cannot be
+ *     deactivated, but its card still drives whether its AIC nodes
+ *     start fully researched (selected) or only at game defaults
+ *     (unselected).
+ *   - Staged state: card toggles update local component state.
  *     Nothing is mutated on the global settings until Confirm.
  *   - On Confirm (or any close event): `applyOnboardingChoices` runs
  *     the bulk apply, then `localStorage` flag is set, then the dialog
  *     closes. Any close path (Escape, overlay click, X button) takes
  *     this same path, so users can't end up in a partial state.
+ *
+ * # Visual design
+ *
+ *   - Each domain is a full-width `<button>` (not a checkbox). The
+ *     whole card is the click target; `role="button"` + `aria-pressed`
+ *     carry the state contract to assistive tech.
+ *   - Selected: background tinted with domain color (~8% opacity),
+ *     thick (4px) left border in the domain color, full-saturation
+ *     status pill. Unselected: outline only, muted name + status.
+ *   - The dialog leans on weight + tracking + size for typographic
+ *     hierarchy instead of a custom display font — fits the rest of
+ *     the calculator's restrained look while still feeling deliberate.
  *
  * # Trigger contract
  *
@@ -34,15 +47,14 @@
  *
  *   - The initial `localStorage.getItem` lives inside `useEffect`, so
  *     server-side renders don't try to read `window`.
- *   - Initial render returns `null` (dialog closed); effect runs
- *     post-mount, flips `open` if the flag is absent.
+ *   - Initial render returns the dialog closed; effect runs post-mount,
+ *     flips `open` if the flag is absent.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle } from "lucide-react";
+import { ArrowRight, CircleDashed, CheckCircle2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +68,26 @@ import { cn } from "@/lib/utils";
 import type { DomainId } from "@/types/domain";
 
 const STORAGE_KEY = "endfield-calc:onboarding-v1";
+
+/**
+ * Convert a 6-digit hex string (no leading `#`) to an `rgba()` string.
+ * Domain colors live as bare hex in `aic-plans.ts` (`"dfef36"`); we
+ * use this to derive the low-opacity background tints for selected
+ * button-cards.
+ *
+ * Pre-computing rgba and exposing it via CSS variables (rather than
+ * inlining `color-mix(...)` inside Tailwind arbitrary properties) is
+ * a workaround for Tailwind v4's arbitrary-value parser, which mangles
+ * nested parentheses inside `color-mix(...)` expressions and emits a
+ * stripped property value (e.g. `background-color: var(--domain-color)`
+ * — the full-saturation color — instead of the tinted result).
+ */
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 export function AicOnboardingDialog() {
   const { t } = useTranslation(["onboarding", "domain"]);
@@ -119,60 +151,140 @@ export function AicOnboardingDialog() {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t("onboarding:title")}</DialogTitle>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader className="gap-3">
+          <DialogTitle className="text-2xl font-bold uppercase tracking-[0.12em] leading-tight">
+            {t("onboarding:title")}
+          </DialogTitle>
           <DialogDescription>{t("onboarding:description")}</DialogDescription>
         </DialogHeader>
 
-        <ul className="flex flex-col gap-2 py-2">
-          {domains.map((domain) => {
+        <div className="flex flex-col gap-2 py-1">
+          {domains.map((domain, idx) => {
             const checked = choices.get(domain.id) ?? true;
             const domainName = t(`domain:domains.${domain.id}.name`, {
               defaultValue: domain.id,
             });
+            const statusLabel = checked
+              ? t("onboarding:statusActive")
+              : t("onboarding:statusInactive");
+
             return (
-              <li
+              <button
                 key={domain.id}
-                className={cn(
-                  "flex items-center gap-3 rounded-md border-l-4 px-3 py-2.5",
-                  "bg-card/40 hover:bg-accent/30 transition-colors cursor-pointer",
-                )}
-                style={{ borderLeftColor: `#${domain.color}` }}
+                type="button"
+                aria-pressed={checked}
+                aria-label={`${domainName} — ${statusLabel}`}
                 onClick={() => handleToggle(domain.id)}
+                style={
+                  {
+                    // Inline CSS variables bound to the domain color
+                    // (selected state only). The Tailwind classes below
+                    // consume `--domain-color` for the border/pill and
+                    // `--domain-tint` / `--domain-tint-hover` for the
+                    // tinted backgrounds. Pre-computing rgba in JS
+                    // sidesteps a Tailwind v4 arbitrary-value parser
+                    // bug with nested `color-mix(...)` expressions.
+                    ...(checked
+                      ? {
+                          ["--domain-color"]: `#${domain.color}`,
+                          ["--domain-tint"]: hexToRgba(domain.color, 0.08),
+                          ["--domain-tint-hover"]: hexToRgba(
+                            domain.color,
+                            0.14,
+                          ),
+                        }
+                      : {}),
+                    // Staggered entrance: each card fades in 50ms after
+                    // the previous one. CSS animation runs once on
+                    // mount; subsequent state changes don't re-trigger.
+                    animationDelay: `${idx * 50}ms`,
+                  } as React.CSSProperties
+                }
+                className={cn(
+                  // Layout
+                  "group relative w-full flex items-center justify-between gap-3",
+                  "px-4 py-3.5 rounded-lg text-left",
+                  // Motion
+                  "transition-colors duration-150 ease-out",
+                  "active:scale-[0.99]",
+                  "animate-in fade-in-0 slide-in-from-bottom-1 duration-300 fill-mode-both",
+                  // Focus
+                  "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                  // State styling
+                  checked
+                    ? [
+                        // Selected: tinted bg + bold left border in
+                        // the domain color, rest neutral.
+                        "border border-transparent border-l-[4px]",
+                        "[border-left-color:var(--domain-color)]",
+                        "[background-color:var(--domain-tint)]",
+                        "hover:[background-color:var(--domain-tint-hover)]",
+                      ]
+                    : [
+                        // Unselected: thin outline, no color.
+                        "border border-border",
+                        "bg-card hover:bg-accent/40",
+                      ],
+                )}
               >
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={() => handleToggle(domain.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label={domainName}
-                />
-                <span className="text-sm font-medium">{domainName}</span>
-              </li>
+                <div className="flex flex-col items-start gap-0.5 min-w-0">
+                  <span
+                    className={cn(
+                      "text-base font-semibold tracking-wide leading-tight truncate",
+                      !checked && "text-muted-foreground",
+                    )}
+                  >
+                    {domainName}
+                  </span>
+                </div>
+
+                <span
+                  className={cn(
+                    "shrink-0 inline-flex items-center gap-1.5",
+                    "text-[11px] font-semibold uppercase tracking-[0.15em]",
+                    checked
+                      ? "[color:var(--domain-color)]"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {checked ? (
+                    <CheckCircle2
+                      className="size-3.5 shrink-0"
+                      strokeWidth={2.5}
+                    />
+                  ) : (
+                    <CircleDashed
+                      className="size-3.5 shrink-0"
+                      strokeWidth={2}
+                    />
+                  )}
+                  {statusLabel}
+                </span>
+              </button>
             );
           })}
-        </ul>
+        </div>
 
-        <div
-          className={cn(
-            "flex items-start gap-2 rounded-md border px-3 py-2",
-            "border-amber-500/40 bg-amber-50/60 dark:bg-amber-950/30",
-            "text-amber-900 dark:text-amber-200",
-          )}
-          role="note"
-        >
-          <AlertTriangle
-            className="size-4 shrink-0 mt-0.5"
-            aria-hidden="true"
-          />
-          <p className="text-xs leading-snug">{t("onboarding:warning")}</p>
+        <div className="border-l-2 border-amber-500/60 pl-3 py-1 mt-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
+            {t("onboarding:warningLabel")}
+          </p>
+          <p className="text-xs leading-snug text-muted-foreground mt-0.5">
+            {t("onboarding:warning")}
+          </p>
         </div>
 
         <p className="text-xs text-muted-foreground">{t("onboarding:hint")}</p>
 
-        <DialogFooter>
-          <Button type="button" onClick={handleConfirm}>
+        <DialogFooter className="mt-1">
+          <Button
+            type="button"
+            onClick={handleConfirm}
+            className="min-w-[180px] h-11 uppercase tracking-[0.12em] font-semibold"
+          >
             {t("onboarding:confirmButton")}
+            <ArrowRight className="size-4" />
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,7 +1,10 @@
 {
   "title": "AIC プランの設定",
   "description": "ゲーム内で研究済みのプランにチェックを入れてください。",
+  "warningLabel": "注意",
   "warning": "チェックを外すと、それらの施設がレシピから非表示になり、進行中のプランが使えなくなる可能性があります。",
   "hint": "設定からいつでも変更できます。",
-  "confirmButton": "続ける"
+  "confirmButton": "続ける",
+  "statusActive": "稼働",
+  "statusInactive": "停止"
 }

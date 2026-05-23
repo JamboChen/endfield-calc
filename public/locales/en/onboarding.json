@@ -1,7 +1,10 @@
 {
   "title": "Set your AIC Plans",
   "description": "Check the plans you've researched in-game.",
+  "warningLabel": "Warning",
   "warning": "Unchecking hides those facilities from recipes and may break an in-progress plan.",
   "hint": "You can change this anytime in Settings.",
-  "confirmButton": "Continue"
+  "confirmButton": "Continue",
+  "statusActive": "Active",
+  "statusInactive": "Off"
 }
