@@ -25,7 +25,7 @@ i18n
     backend: {
       loadPath: `${import.meta.env.BASE_URL}locales/{{lng}}/{{ns}}.json`,
     },
-    ns: ["item", "facility", "recipe", "aic", "domain", "settings"],
+    ns: ["item", "facility", "recipe", "aic", "domain", "settings", "onboarding"],
     interpolation: {
       escapeValue: false, // not needed for react as it escapes by default
     },

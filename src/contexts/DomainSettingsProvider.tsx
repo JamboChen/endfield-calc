@@ -18,11 +18,21 @@
  * internally (each sub-state and the umbrella object are `useMemo`'d),
  * so passing it directly to the provider is fine — re-broadcasts only
  * happen when a relevant slice actually changes.
+ *
+ * # Onboarding dialog
+ *
+ * The provider also renders `<AicOnboardingDialog />` as a sibling of
+ * `children`. The dialog is self-gating: it checks the
+ * `endfield-calc:onboarding-v1` localStorage flag on mount and shows
+ * itself only when absent. Co-locating it here keeps the "first-visit
+ * AIC choice" UI bound to the same module that owns the per-domain
+ * state it mutates.
  */
 
 import type { ReactNode } from "react";
 
 import { useDomainSettings } from "@/hooks/useDomainSettings";
+import { AicOnboardingDialog } from "@/components/onboarding/AicOnboardingDialog";
 
 import { DomainSettingsContext } from "./domain-settings-context";
 
@@ -31,6 +41,7 @@ export function DomainSettingsProvider({ children }: { children: ReactNode }) {
   return (
     <DomainSettingsContext.Provider value={value}>
       {children}
+      <AicOnboardingDialog />
     </DomainSettingsContext.Provider>
   );
 }

@@ -1,0 +1,7 @@
+{
+  "title": "Configura tus planes CAI",
+  "description": "Marca los planes que has investigado en el juego.",
+  "warning": "Al desmarcar ocultarás esas instalaciones de las recetas y podrías invalidar un plan en curso.",
+  "hint": "Puedes cambiarlo en cualquier momento desde Configuración.",
+  "confirmButton": "Continuar"
+}

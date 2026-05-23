@@ -364,6 +364,24 @@ export interface DomainSettingsValue {
    */
   toggleDomain: (id: DomainId) => void;
 
+  /**
+   * Bulk-apply the first-visit onboarding choices. For each `(domainId,
+   * isChecked)` pair:
+   *   - Non-pinned + checked → domain active, all nodes researched.
+   *   - Non-pinned + unchecked → domain inactive, nodes reset to
+   *     `alreadyUnlocked` only.
+   *   - Pinned + checked → all nodes researched (domain stays active).
+   *   - Pinned + unchecked → nodes reset to `alreadyUnlocked` only
+   *     (domain stays active — pinned domains can't deactivate).
+   *
+   * Domains absent from the map are treated as checked (defensive — the
+   * caller defaults to all-checked).
+   *
+   * Atomic: one `setInactiveDomains` + one `setResearched` call, so the
+   * persist effect fires once with both updates batched by React.
+   */
+  applyOnboardingChoices: (choices: ReadonlyMap<DomainId, boolean>) => void;
+
   /** AIC sub-state (the first category). Future categories sit alongside. */
   readonly aic: AicSubState;
 }
@@ -459,6 +477,48 @@ export function useDomainSettings(): DomainSettingsValue {
       return next;
     });
   }, []);
+
+  /**
+   * First-visit onboarding bulk-apply. See `DomainSettingsValue
+   * .applyOnboardingChoices` for semantics. Touches both inactive-
+   * domains and researched-nodes in two setter calls; React batches
+   * them so the persist effect fires once.
+   */
+  const applyOnboardingChoices = useCallback(
+    (choices: ReadonlyMap<DomainId, boolean>) => {
+      setInactiveDomains(() => {
+        const next = new Set<DomainId>();
+        for (const d of domainData) {
+          if (d.isPinned) continue; // pinned never enters inactive set
+          const isChecked = choices.get(d.id) ?? true;
+          if (!isChecked) next.add(d.id);
+        }
+        return next;
+      });
+
+      setResearched(() => {
+        const next = new Set<AicTechId>();
+        for (const node of aicNodes) {
+          const domainId = NODE_DOMAIN_BY_GROUP.get(node.groupId);
+          if (!domainId) {
+            // Defensive: orphan node — apply game default only.
+            if (node.alreadyUnlocked) next.add(node.id);
+            continue;
+          }
+          const isChecked = choices.get(domainId) ?? true;
+          if (isChecked) {
+            // All nodes researched
+            next.add(node.id);
+          } else if (node.alreadyUnlocked) {
+            // Game default only
+            next.add(node.id);
+          }
+        }
+        return next;
+      });
+    },
+    [],
+  );
 
   const toggleNode = useCallback(
     (id: AicTechId) => {
@@ -581,6 +641,7 @@ export function useDomainSettings(): DomainSettingsValue {
     domains: domainData,
     activeDomains,
     toggleDomain,
+    applyOnboardingChoices,
     aic,
   };
 }
