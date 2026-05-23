@@ -50,7 +50,7 @@
  *   - Initial render returns the dialog closed; effect runs post-mount,
  *     flips `open` if the flag is absent.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, CircleDashed, CheckCircle2 } from "lucide-react";
 
@@ -97,15 +97,14 @@ export function AicOnboardingDialog() {
 
   // Staged choices — local until Confirm. Initialise with every domain
   // checked (the "all unlocked" default that matches who actually uses
-  // production calculators).
-  const initialChoices = useMemo(() => {
+  // production calculators). The initializer runs once on mount;
+  // `domains` is a stable module-level reference so re-running it would
+  // produce the same result anyway.
+  const [choices, setChoices] = useState<Map<DomainId, boolean>>(() => {
     const m = new Map<DomainId, boolean>();
     for (const d of domains) m.set(d.id, true);
     return m;
-  }, [domains]);
-  const [choices, setChoices] = useState<Map<DomainId, boolean>>(
-    () => new Map(initialChoices),
-  );
+  });
 
   // Trigger gate: read localStorage post-mount. Hidden on SSR.
   useEffect(() => {
@@ -151,7 +150,7 @@ export function AicOnboardingDialog() {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent showCloseButton={false} className="sm:max-w-lg">
         <DialogHeader className="gap-3">
           <DialogTitle className="text-2xl font-bold uppercase tracking-[0.12em] leading-tight">
             {t("onboarding:title")}
@@ -174,7 +173,7 @@ export function AicOnboardingDialog() {
                 key={domain.id}
                 type="button"
                 aria-pressed={checked}
-                aria-label={`${domainName} — ${statusLabel}`}
+                aria-label={`${domainName}, ${statusLabel}`}
                 onClick={() => handleToggle(domain.id)}
                 style={
                   {
@@ -208,7 +207,15 @@ export function AicOnboardingDialog() {
                   // Motion
                   "transition-colors duration-150 ease-out",
                   "active:scale-[0.99]",
-                  "animate-in fade-in-0 slide-in-from-bottom-1 duration-300 fill-mode-both",
+                  // Use arbitrary `[animation-duration:300ms]` instead
+                  // of `duration-300` so the card entrance keeps its
+                  // 300ms reveal while the state transitions above
+                  // correctly use the 150ms duration class. Tailwind's
+                  // `duration-*` writes a shared `--tw-duration`
+                  // variable that both `transition-*` and `animate-*`
+                  // consume, so two `duration-*` classes on the same
+                  // element collapse into one.
+                  "animate-in fade-in-0 slide-in-from-bottom-1 [animation-duration:300ms] fill-mode-both",
                   // Focus
                   "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
                   // State styling
