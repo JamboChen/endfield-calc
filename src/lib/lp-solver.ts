@@ -20,6 +20,23 @@ import type { ItemId, RecipeId, FacilityId, Recipe, Facility } from "@/types";
 const LP_EPSILON = 1e-9;
 
 /**
+ * Facility-count clamp threshold applied in `extractSolution`. LP outputs
+ * below this magnitude are treated as zero — accounts for HiGHS numerical
+ * artefacts in degenerate cases (e.g. lex passes with ties or
+ * floating-point drift near the cap constraints).
+ *
+ * Why higher than `LP_EPSILON`: the LP can occasionally land on a
+ * "near-optimal" vertex with one alternative recipe at ~1e-8 facilities
+ * (effectively zero throughput, ~3e-7 items/min) while the dominant
+ * alternative carries the real load. Without this clamp, downstream
+ * consumers (bin packer, mappers) see a phantom recipe with no edges.
+ * 1e-6 is well above any sub-visible threshold (`MIN_VISIBLE_RATE_PER_MIN`
+ * = 1e-3 items/min ≈ 3e-5 facilities at the slowest recipe rate) and
+ * well below any meaningful facility count.
+ */
+const FACILITY_COUNT_EPSILON = 1e-6;
+
+/**
  * Lexicographic objective ordering for `solveLP`. Each pass minimises one
  * objective subject to upper-bound constraints from all previous passes,
  * so the resulting solution is **lex-optimal** under this ranking. Order
@@ -380,7 +397,8 @@ const extractSolution = (
   let totalPower = 0;
   for (const [varName, recipeId] of recipeIndexMap.entries()) {
     const v = rawResult[varName];
-    const fc = typeof v === "number" && Math.abs(v) > LP_EPSILON ? v : 0;
+    const fc =
+      typeof v === "number" && Math.abs(v) > FACILITY_COUNT_EPSILON ? v : 0;
     facilityCounts.set(recipeId, fc);
     const recipe = recipesById.get(recipeId)!;
     totalRaw += rawCostPerFacility(recipe, rawMaterials, costlessRaws) * fc;
