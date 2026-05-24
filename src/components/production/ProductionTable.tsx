@@ -67,18 +67,6 @@ export type ProductionLineData = {
    * surfaced in the UI tooltip.
    */
   binSpanningInfo?: Array<{ binId: BinId; buildingCount: number; slots: number }>;
-  /**
-   * Active producers for this item when the LP returned a mixed-strategy
-   * solution (≥ 2 recipes producing the same item with positive facility
-   * counts). Empty / undefined when there is exactly one producer (the
-   * common case under HiGHS simplex on current data). When length ≥ 2,
-   * the table row renders a small `(+N more)` hint next to the dominant
-   * formula in the dropdown trigger, with a tooltip listing each
-   * alternative and its facility share. Selecting an alternative in
-   * the dropdown pins it via `onRecipeChange`, narrowing the LP to that
-   * single formula.
-   */
-  activeProducers?: Array<{ recipeId: RecipeId; facilityCount: number }>;
 };
 
 /**
@@ -319,10 +307,16 @@ const ProductionTable = memo(function ProductionTable({
     const highlighted = new Set<ItemId>();
     highlighted.add(hoveredItemId); // Add the hovered item itself
 
-    // Find the hovered line and add its direct dependencies
-    const hoveredLine = data.find((line) => line.item.id === hoveredItemId);
-    if (hoveredLine?.directDependencyItemIds) {
-      hoveredLine.directDependencyItemIds.forEach((depId) => {
+    // Mixed-strategy items have multiple rows for the same itemId — one
+    // per active producer. Union direct dependencies across all sister
+    // rows so hovering surfaces the full one-hop upstream of the item,
+    // not just whichever producer happens to appear first in the array.
+    // For single-producer items (≥ 99% of plans today) the filter
+    // returns exactly one row and this collapses to the original
+    // behaviour.
+    const sisterRows = data.filter((line) => line.item.id === hoveredItemId);
+    for (const row of sisterRows) {
+      row.directDependencyItemIds?.forEach((depId) => {
         highlighted.add(depId);
       });
     }
@@ -624,100 +618,53 @@ const ProductionTable = memo(function ProductionTable({
                         {t("table.manualRawMaterial")}
                       </div>
                     ) : line.availableRecipes.length > 1 ? (
-                      <div className="flex items-center gap-1">
-                        <Select
-                          value={line.selectedRecipeId}
-                          onValueChange={(value: RecipeId) =>
-                            onRecipeChange(line.item.id, value)
-                          }
-                        >
-                          <SelectTrigger className="h-auto min-h-8 text-xs py-1">
-                            <SelectValue>
-                              {selectedRecipe && (
-                                <RecipeIOCompact
-                                  recipe={selectedRecipe}
+                      // Multi-recipe item: dropdown lets the user pin a
+                      // specific formula. Under the row-per-producer
+                      // model, mixed-strategy items emit one row per
+                      // active producer with its own dropdown — the
+                      // dropdown's `selectedRecipeId` is THIS row's
+                      // producer, and switching pins that recipe as
+                      // the SOLE producer of the item (collapsing the
+                      // mixed strategy on next recompute). Sister rows
+                      // are visible side-by-side in the table; no
+                      // explicit "this is a mixed-strategy row" badge
+                      // needed.
+                      <Select
+                        value={line.selectedRecipeId}
+                        onValueChange={(value: RecipeId) =>
+                          onRecipeChange(line.item.id, value)
+                        }
+                      >
+                        <SelectTrigger className="h-auto min-h-8 text-xs py-1">
+                          <SelectValue>
+                            {selectedRecipe && (
+                              <RecipeIOCompact
+                                recipe={selectedRecipe}
+                                getItemById={getItemById}
+                              />
+                            )}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="max-w-[400px]">
+                          {line.availableRecipes.map((recipe) => (
+                            <SelectItem
+                              key={recipe.id}
+                              value={recipe.id}
+                              className="text-xs"
+                            >
+                              <div className="flex flex-col gap-1 py-1">
+                                <span className="font-medium text-xs">
+                                  {getRecipeName(recipe)}
+                                </span>
+                                <RecipeIOFull
+                                  recipe={recipe}
                                   getItemById={getItemById}
                                 />
-                              )}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent className="max-w-[400px]">
-                            {line.availableRecipes.map((recipe) => (
-                              <SelectItem
-                                key={recipe.id}
-                                value={recipe.id}
-                                className="text-xs"
-                              >
-                                <div className="flex flex-col gap-1 py-1">
-                                  <span className="font-medium text-xs">
-                                    {getRecipeName(recipe)}
-                                  </span>
-                                  <RecipeIOFull
-                                    recipe={recipe}
-                                    getItemById={getItemById}
-                                  />
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {/*
-                         * Mixed-strategy hint: when the LP returns >1
-                         * active producer for this item, show "+N more"
-                         * next to the dominant formula. Hover surfaces
-                         * the full breakdown with per-formula facility
-                         * counts. Clicking a formula in the dropdown
-                         * narrows the LP to that single choice (via the
-                         * existing pin mechanism).
-                         *
-                         * Currently dormant on live data — HiGHS simplex
-                         * lands on vertex solutions; mixed strategies
-                         * would only materialise under future raw-cap
-                         * features (see flow-solver:detectMixedStrategies).
-                         */}
-                        {line.activeProducers &&
-                          line.activeProducers.length > 1 && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="cursor-help text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5">
-                                  {t("table.recipe.mixedHint", {
-                                    count: line.activeProducers.length - 1,
-                                    defaultValue: "+{{count}} more",
-                                  })}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent side="left" className="max-w-[320px]">
-                                <div className="text-xs">
-                                  <div className="font-medium mb-2">
-                                    {t("table.recipe.mixedTooltipHeader", {
-                                      defaultValue:
-                                        "This item is produced by multiple formulas:",
-                                    })}
-                                  </div>
-                                  <ul className="space-y-1">
-                                    {line.activeProducers.map((p) => {
-                                      const recipe = line.availableRecipes.find(
-                                        (r) => r.id === p.recipeId,
-                                      );
-                                      if (!recipe) return null;
-                                      return (
-                                        <li key={p.recipeId} className="flex items-center justify-between gap-2">
-                                          <span>{getRecipeName(recipe)}</span>
-                                          <span className="text-muted-foreground font-mono">
-                                            {formatNumber(p.facilityCount, 2)}{" "}
-                                            {t("table.bin.buildings", {
-                                              defaultValue: "buildings",
-                                            })}
-                                          </span>
-                                        </li>
-                                      );
-                                    })}
-                                  </ul>
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                      </div>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     ) : selectedRecipe ? (
                       <Tooltip>
                         <TooltipTrigger asChild>

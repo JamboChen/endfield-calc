@@ -42,10 +42,6 @@
       "powerSharedExplain": "전력은 묶음의 주 행에만 표시됩니다.",
       "spanning": "공식이 {{count}}개의 묶음에 분산:"
     },
-    "recipe": {
-      "mixedHint": "외 +{{count}}",
-      "mixedTooltipHeader": "이 아이템은 여러 공식으로 생산됩니다:"
-    },
     "totals": {
       "buildings": "총 건물 수",
       "power": "총 전력",

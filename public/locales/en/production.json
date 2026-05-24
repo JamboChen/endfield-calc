@@ -42,10 +42,6 @@
       "powerSharedExplain": "Power counted on the bin's primary row.",
       "spanning": "Formula split across {{count}} bin shapes:"
     },
-    "recipe": {
-      "mixedHint": "+{{count}} more",
-      "mixedTooltipHeader": "This item is produced by multiple formulas:"
-    },
     "totals": {
       "buildings": "Total buildings",
       "power": "Total power",

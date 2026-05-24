@@ -42,10 +42,6 @@
       "powerSharedExplain": "La energía se cuenta sólo en la fila principal del grupo.",
       "spanning": "Fórmula dividida en {{count}} formas de grupo:"
     },
-    "recipe": {
-      "mixedHint": "+{{count}} más",
-      "mixedTooltipHeader": "Este artículo se produce con varias fórmulas:"
-    },
     "totals": {
       "buildings": "Edificios totales",
       "power": "Energía total",

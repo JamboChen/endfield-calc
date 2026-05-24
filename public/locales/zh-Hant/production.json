@@ -42,10 +42,6 @@
       "powerSharedExplain": "功耗僅在主列顯示。",
       "spanning": "配方分佈於 {{count}} 個組合："
     },
-    "recipe": {
-      "mixedHint": "等 +{{count}}",
-      "mixedTooltipHeader": "此物品由多個配方生產："
-    },
     "totals": {
       "buildings": "建築總數",
       "power": "總功耗",

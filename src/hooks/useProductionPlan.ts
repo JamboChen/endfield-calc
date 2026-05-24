@@ -683,7 +683,6 @@ export function useProductionPlan(
     // recipes that are AIC-unlocked AND have reachable input chains
     // can be valid alternatives. Same canonical set the calc uses.
     availableRecipes,
-    recipeOverrides,
     manualRawMaterials,
     invalidCycleItemIds,
   );

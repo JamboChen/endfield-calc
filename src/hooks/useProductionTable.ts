@@ -13,37 +13,39 @@ import type { BinAggregates } from "@/lib/plan-helpers";
 import { getRecipeInputItemId } from "@/lib/plan-helpers";
 
 /**
- * Per-producer entry in a merged item row. Items with > 1 active producer
- * (the LP returned a mixed-strategy solution, or two recipes co-produced
- * the item as primary + byproduct) get an entry per producer here.
+ * One merged row representing a single (item, active-producer) pair.
  *
- * **Currently a defensive shape**: with HiGHS simplex on today's data the
- * global LP never returns mixed strategies (HiGHS lands on vertex
- * solutions; no raw-material capacity constraints exist in the LP to
- * force mixing). The structure exists so that when raw caps land
- * (planned future feature) the table renders correctly without a
- * follow-up refactor. See `[MIXED-STRATEGY]` dev-mode log in
- * `flow-solver.ts:detectMixedStrategies` for runtime telemetry.
+ * Items with > 1 active producer (the LP returned a mixed-strategy
+ * solution, or two recipes co-produced the same item) get **one
+ * MergedRow per producer** rather than a single aggregated row. This
+ * mirrors the disposal-row pattern already in the table: distinct
+ * recipes touching the same item live on adjacent rows, not folded
+ * into one.
+ *
+ * **Per-producer fields** (different on sister rows for the same item):
+ *   - `recipeId` — this row's specific active producer (or `null` for
+ *     raw / no-producer items).
+ *   - `facilityCount` — this producer's building count only.
+ *   - `producerContribution` — this producer's output rate toward the
+ *     item, e.g. `output_amount / craftingTime × 60 × facilityCount`.
+ *     Sister rows for the same item sum to the item's total output.
+ *   - `dependencies` — input items consumed by THIS producer's recipe
+ *     only (not the union across sister rows). The hover-highlight
+ *     layer in `ProductionTable.tsx` unions sister rows' deps on lookup.
+ *
+ * **Per-item fields** (identical on every sister row of the same item):
+ *   - `isRawMaterial`, `isTarget`, `level`, the underlying `Item` data.
+ *
+ * Mixed strategies are dormant on current game data (HiGHS simplex
+ * returns vertex solutions; no raw caps in the LP today). The shape
+ * is in place for the planned raw-cap feature. See `flow-solver.ts:
+ * detectMixedStrategies` for runtime DEV telemetry.
  */
-type ProducerEntry = {
-  recipeId: RecipeId;
-  facilityCount: number;
-};
-
-type MergedItemNode = {
+type MergedRow = {
   itemId: ItemId;
-  totalProductionRate: number;
-  /**
-   * Primary producer for the row's dropdown selection. Picked as the
-   * dominant (highest facility-count) producer when multiple are active;
-   * for the single-producer case (≥ 99% of plans), this is the only
-   * producer. Falls back to a user override if one is pinned and active.
-   */
   recipeId: RecipeId | null;
-  /** All active producers (fc > 0). Length ≥ 2 ⇒ mixed-strategy row. */
-  producers: ProducerEntry[];
-  /** Sum of facility counts across `producers`. */
-  totalFacilityCount: number;
+  facilityCount: number;
+  producerContribution: number;
   isRawMaterial: boolean;
   isTarget: boolean;
   dependencies: Set<ItemId>;
@@ -51,166 +53,195 @@ type MergedItemNode = {
 };
 
 /**
- * Merges item-level production data into one entry per item. When the LP
- * solution has multiple active producers for the same item (rare but
- * possible under future raw caps — see `ProducerEntry` JSDoc), this
- * function aggregates them: `totalFacilityCount` sums producers, the
- * dropdown's `recipeId` selects the dominant one, and `producers`
- * carries the full breakdown for UI rendering.
+ * Build the per-row merged list from a plan.
  *
- * Producer selection rules:
- *   1. If the user has pinned a recipe via `recipeOverrides` AND that
- *      recipe is an active producer in the plan, use it as primary.
- *      The user's explicit choice always wins the dropdown spot.
- *   2. Otherwise, pick the producer with the highest facility count.
- *   3. Otherwise (no active producer), recipeId = null.
+ * For each item in `plan.nodes`:
+ *   - **Active producers exist** → emit one row per active producer
+ *     (`facilityCount > 0`). Each row carries that producer's specific
+ *     `facilityCount`, output contribution, and inputs.
+ *   - **No active producer** (raw, manual-raw, or chain-terminated) →
+ *     emit one row with `recipeId = null`, `facilityCount = 0`. The
+ *     row's `producerContribution` falls back to the item's total
+ *     production rate (which for raws is the LP-computed net demand).
+ *
+ * User overrides don't change the row layout: an override pins the LP
+ * to one recipe upstream of the table, so by the time `plan` arrives
+ * here the override item already has exactly one active producer.
  */
 // Exported only for the mixed-strategy unit test in
 // `src/tests/lib/merge-item-nodes.test.ts`. Not part of the public hook API.
 export function mergeItemNodes(
   plan: ProductionDependencyGraph,
-  recipeOverrides: Map<ItemId, RecipeId>,
-): Map<ItemId, MergedItemNode> {
-  const merged = new Map<ItemId, MergedItemNode>();
-
-  // Pre-build an O(1) item → active producers map so we don't scan
-  // `plan.edges` × `plan.nodes` per item (was O(N²) before).
-  const producersByItem = new Map<ItemId, ProducerEntry[]>();
+): MergedRow[] {
+  // Pre-build O(1) lookups so the per-item loop doesn't rescan edges.
+  // `producersByItem`: which active recipes produce each item, with
+  // their facility counts (sufficient for the row data).
+  // `inputsByRecipe`: which items each recipe consumes (sufficient for
+  // per-row dependencies).
+  type ActiveProducer = {
+    recipeId: RecipeId;
+    facilityCount: number;
+    contribution: number;
+  };
+  const producersByItem = new Map<ItemId, ActiveProducer[]>();
+  const inputsByRecipe = new Map<RecipeId, ItemId[]>();
   for (const edge of plan.edges) {
     const fromNode = plan.nodes.get(edge.from);
-    if (fromNode?.type !== "recipe") continue;
-    const toItemId = edge.to as ItemId;
-    if (!plan.nodes.has(toItemId)) continue;
-    const fc = fromNode.facilityCount;
-    if (fc <= 0) continue;
-    let list = producersByItem.get(toItemId);
-    if (!list) {
-      list = [];
-      producersByItem.set(toItemId, list);
+    const toNode = plan.nodes.get(edge.to);
+    if (fromNode?.type === "recipe" && toNode?.type === "item") {
+      // recipe → item edge (producer relation).
+      const fc = fromNode.facilityCount;
+      if (fc <= 0) continue;
+      const output = fromNode.recipe.outputs.find(
+        (o) => o.itemId === toNode.itemId,
+      );
+      if (!output) continue;
+      const contribution = calcRate(output.amount, fromNode.recipe.craftingTime) * fc;
+      let list = producersByItem.get(toNode.itemId);
+      if (!list) {
+        list = [];
+        producersByItem.set(toNode.itemId, list);
+      }
+      list.push({
+        recipeId: fromNode.recipeId,
+        facilityCount: fc,
+        contribution,
+      });
+    } else if (fromNode?.type === "item" && toNode?.type === "recipe") {
+      // item → recipe edge (consumer relation; gives us recipe inputs).
+      let list = inputsByRecipe.get(toNode.recipeId);
+      if (!list) {
+        list = [];
+        inputsByRecipe.set(toNode.recipeId, list);
+      }
+      list.push(fromNode.itemId);
     }
-    list.push({ recipeId: fromNode.recipeId, facilityCount: fc });
   }
+
+  const rows: MergedRow[] = [];
 
   plan.nodes.forEach((node) => {
     if (node.type !== "item") return;
 
-    const existing = merged.get(node.itemId);
+    const producers = producersByItem.get(node.itemId) ?? [];
 
-    if (existing) {
-      // Defensive: items shouldn't appear twice in plan.nodes today, but
-      // if they do (e.g. future graph-builder change), merge rates.
-      existing.totalProductionRate += node.productionRate;
-      if (node.isTarget) existing.isTarget = true;
+    if (producers.length === 0) {
+      // Raw / chain-terminator / no-producer item. One row, no recipe.
+      rows.push({
+        itemId: node.itemId,
+        recipeId: null,
+        facilityCount: 0,
+        producerContribution: node.productionRate,
+        isRawMaterial: node.isRawMaterial,
+        isTarget: node.isTarget,
+        dependencies: new Set(),
+        level: 0,
+      });
       return;
     }
 
-    const producers = producersByItem.get(node.itemId) ?? [];
-
-    // Producer selection: user override (if active) > highest-fc producer.
-    let producerRecipeId: RecipeId | null = null;
-    const overrideId = recipeOverrides.get(node.itemId);
-    if (overrideId && producers.some((p) => p.recipeId === overrideId)) {
-      producerRecipeId = overrideId;
-    } else if (producers.length > 0) {
-      let dominant = producers[0];
-      for (let i = 1; i < producers.length; i++) {
-        if (producers[i].facilityCount > dominant.facilityCount) {
-          dominant = producers[i];
-        }
-      }
-      producerRecipeId = dominant.recipeId;
+    for (const producer of producers) {
+      const dependencies = new Set<ItemId>(
+        inputsByRecipe.get(producer.recipeId) ?? [],
+      );
+      rows.push({
+        itemId: node.itemId,
+        recipeId: producer.recipeId,
+        facilityCount: producer.facilityCount,
+        producerContribution: producer.contribution,
+        isRawMaterial: node.isRawMaterial,
+        isTarget: node.isTarget,
+        dependencies,
+        level: 0,
+      });
     }
-
-    const totalFacilityCount = producers.reduce(
-      (sum, p) => sum + p.facilityCount,
-      0,
-    );
-
-    // Dependencies = union of inputs across all active producers. Under
-    // mixed-strategy this surfaces every upstream item the row depends
-    // on, not just the dominant producer's inputs.
-    const dependencies = new Set<ItemId>();
-    for (const p of producers) {
-      for (const edge of plan.edges) {
-        if (edge.to !== p.recipeId) continue;
-        const sourceNode = plan.nodes.get(edge.from);
-        if (sourceNode?.type === "item") {
-          dependencies.add(sourceNode.itemId);
-        }
-      }
-    }
-
-    merged.set(node.itemId, {
-      itemId: node.itemId,
-      totalProductionRate: node.productionRate,
-      recipeId: producerRecipeId,
-      producers,
-      totalFacilityCount,
-      isRawMaterial: node.isRawMaterial,
-      isTarget: node.isTarget,
-      dependencies,
-      level: 0,
-    });
   });
 
-  return merged;
+  return rows;
 }
 
 /**
- * Calculates depth levels using topological order.
+ * Compute per-item depth levels and propagate to every row of that
+ * item. Levels drive sort order so downstream items (targets) render
+ * at the top and raws at the bottom.
+ *
+ * The dependency set used for level computation is the **union of
+ * inputs across all sister rows for the same item** — even though each
+ * row only carries its own producer's deps, the item's depth in the
+ * chain is determined by its deepest input across any active producer.
  */
-function calculateLevels(merged: Map<ItemId, MergedItemNode>): void {
+function calculateLevels(rows: MergedRow[]): void {
+  // Item-level dependency union for the recursion.
+  const itemDeps = new Map<ItemId, Set<ItemId>>();
+  for (const row of rows) {
+    let deps = itemDeps.get(row.itemId);
+    if (!deps) {
+      deps = new Set();
+      itemDeps.set(row.itemId, deps);
+    }
+    row.dependencies.forEach((d) => deps!.add(d));
+  }
+
   const levels = new Map<ItemId, number>();
   const visited = new Set<ItemId>();
 
   const calcLevel = (itemId: ItemId): number => {
     if (levels.has(itemId)) return levels.get(itemId)!;
     if (visited.has(itemId)) return 0;
-
     visited.add(itemId);
 
-    const node = merged.get(itemId);
-    if (!node || node.dependencies.size === 0) {
+    const deps = itemDeps.get(itemId);
+    if (!deps || deps.size === 0) {
       levels.set(itemId, 0);
       return 0;
     }
 
     let maxDepLevel = -1;
-    node.dependencies.forEach((depItemId) => {
-      if (merged.has(depItemId)) {
+    deps.forEach((depItemId) => {
+      if (itemDeps.has(depItemId)) {
         maxDepLevel = Math.max(maxDepLevel, calcLevel(depItemId));
       }
     });
 
     const level = maxDepLevel + 1;
     levels.set(itemId, level);
-    node.level = level;
     return level;
   };
 
-  merged.forEach((_, itemId) => calcLevel(itemId));
+  itemDeps.forEach((_, itemId) => calcLevel(itemId));
+
+  // Propagate the item-level value to every row of that item.
+  for (const row of rows) {
+    row.level = levels.get(row.itemId) ?? 0;
+  }
 }
 
 /**
- * Sorts merged nodes by level and tier.
+ * Sort rows by level → tier → item id → recipe id.
+ *
+ * The item-id tiebreaker keeps sister rows (multiple producers of the
+ * same item, mixed-strategy case) adjacent in the table; the recipe-id
+ * tiebreaker gives a deterministic order within each item's sister
+ * group so renders are stable across runs.
  */
-function sortNodes(
-  merged: Map<ItemId, MergedItemNode>,
+function sortRows(
+  rows: MergedRow[],
   plan: ProductionDependencyGraph,
-): MergedItemNode[] {
-  const nodes = Array.from(merged.values());
-
-  return nodes.sort((a, b) => {
-    if (b.level !== a.level) {
-      return b.level - a.level;
-    }
+): MergedRow[] {
+  return [...rows].sort((a, b) => {
+    if (b.level !== a.level) return b.level - a.level;
     const itemA = (
       plan.nodes.get(a.itemId) as Extract<ProductionGraphNode, { type: "item" }>
     ).item;
     const itemB = (
       plan.nodes.get(b.itemId) as Extract<ProductionGraphNode, { type: "item" }>
     ).item;
-    return itemB.tier - itemA.tier;
+    if (itemB.tier !== itemA.tier) return itemB.tier - itemA.tier;
+    if (a.itemId !== b.itemId) return a.itemId < b.itemId ? -1 : 1;
+    const aRid = a.recipeId ?? "";
+    const bRid = b.recipeId ?? "";
+    if (aRid !== bRid) return aRid < bRid ? -1 : 1;
+    return 0;
   });
 }
 
@@ -250,7 +281,6 @@ export function useProductionTable(
   plan: ProductionDependencyGraph | null,
   aggregates: BinAggregates | null,
   recipes: readonly Recipe[],
-  recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
   invalidCycleItemIds: Set<ItemId> = new Set(),
 ): ProductionTableData {
@@ -262,32 +292,33 @@ export function useProductionTable(
       };
     }
 
-    const mergedNodes = mergeItemNodes(plan, recipeOverrides);
-    calculateLevels(mergedNodes);
-    const sortedNodes = sortNodes(mergedNodes, plan);
+    const mergedRows = mergeItemNodes(plan);
+    calculateLevels(mergedRows);
+    const sortedRows = sortRows(mergedRows, plan);
 
     // Per-bin lookup for bin-aware power amortisation.
     const binById = new Map(plan.bins.map((b) => [b.id, b]));
 
-    const itemRows: ProductionLineData[] = sortedNodes.map((node) => {
-      const itemNode = plan.nodes.get(node.itemId) as Extract<
+    const itemRows: ProductionLineData[] = sortedRows.map((row) => {
+      const itemNode = plan.nodes.get(row.itemId) as Extract<
         ProductionGraphNode,
         { type: "item" }
       >;
 
+      // The dropdown's available-recipes list is the same for every
+      // sister row of an item (it's an item-level property). The
+      // selected option is the row's own recipe — clicking a different
+      // one pins that recipe, which the LP then uses as the SOLE
+      // producer of the item (collapsing any mixed strategy to one row
+      // on the next recompute).
       const availableRecipes = recipes.filter((recipe) =>
-        recipe.outputs.some((output) => output.itemId === node.itemId),
+        recipe.outputs.some((output) => output.itemId === row.itemId),
       );
 
-      let selectedRecipeId: RecipeId | "" = "";
-      if (recipeOverrides.has(node.itemId)) {
-        selectedRecipeId = recipeOverrides.get(node.itemId)!;
-      } else if (node.recipeId) {
-        selectedRecipeId = node.recipeId;
-      }
+      const selectedRecipeId: RecipeId | "" = row.recipeId ?? "";
 
-      const recipeNode = node.recipeId
-        ? (plan.nodes.get(node.recipeId) as
+      const recipeNode = row.recipeId
+        ? (plan.nodes.get(row.recipeId) as
             | Extract<ProductionGraphNode, { type: "recipe" }>
             | undefined)
         : undefined;
@@ -297,7 +328,7 @@ export function useProductionTable(
       // first recipe of the bin as "primary" — that row displays the bin's
       // full power total; other rows show "grouped" and zero power.
       // `bin.recipeIds` are demand recipe ids (Phase 2's pick), so plain
-      // equality with `node.recipeId` resolves correctly even when Phase 3
+      // equality with `row.recipeId` resolves correctly even when Phase 3
       // swapped the physical variant.
       let binId: BinId | undefined;
       let binSisterRecipeIds: RecipeId[] | undefined;
@@ -311,20 +342,20 @@ export function useProductionTable(
         if (bin) {
           binId = bin.id;
           binSisterRecipeIds = bin.recipeIds.filter(
-            (rid) => rid !== node.recipeId,
+            (rid) => rid !== row.recipeId,
           );
           if (bin.isGrouped) {
             binBuildingCount = bin.buildingCount;
             // bin.recipeIds is already sorted ascending (per packer contract).
             const primaryRecipeId = bin.recipeIds[0];
-            isBinPrimary = node.recipeId === primaryRecipeId;
+            isBinPrimary = row.recipeId === primaryRecipeId;
           }
           // Build spanning info from the recipe's allocation across bins.
           // For most plans this is a single-entry array; populated for all
           // grouped recipes so the tooltip can list every bin the recipe
           // is hosted in (handles split allocations).
-          if (node.recipeId) {
-            const alloc = plan.recipeBinAllocations.get(node.recipeId);
+          if (row.recipeId) {
+            const alloc = plan.recipeBinAllocations.get(row.recipeId);
             if (alloc) {
               binSpanningInfo = alloc.perBin
                 .map((entry) => {
@@ -345,25 +376,27 @@ export function useProductionTable(
 
       return {
         item: itemNode.item,
-        outputRate: node.totalProductionRate,
+        // Per-producer contribution (Option Y): sister rows of a mixed-
+        // strategy item each show their own slice; sum across sisters
+        // equals the item's total output. For single-producer items
+        // (≥ 99% of plans today) this collapses to the item's total
+        // output rate — the same value as before the row-per-producer
+        // refactor.
+        outputRate: row.producerContribution,
         availableRecipes,
         selectedRecipeId,
         facility: recipeNode?.facility || null,
-        facilityCount: node.totalFacilityCount,
-        isRawMaterial: node.isRawMaterial,
-        isTarget: node.isTarget,
-        isManualRawMaterial: manualRawMaterials.has(node.itemId),
-        isInvalidCycle: invalidCycleItemIds.has(node.itemId),
-        directDependencyItemIds: node.dependencies,
+        facilityCount: row.facilityCount,
+        isRawMaterial: row.isRawMaterial,
+        isTarget: row.isTarget,
+        isManualRawMaterial: manualRawMaterials.has(row.itemId),
+        isInvalidCycle: invalidCycleItemIds.has(row.itemId),
+        directDependencyItemIds: row.dependencies,
         binId,
         binSisterRecipeIds,
         binBuildingCount,
         isBinPrimary,
         binSpanningInfo,
-        // Only surface activeProducers when it's actually multi-producer.
-        // Single-producer (the common case) leaves this undefined so the
-        // table renders the existing single-recipe layout unchanged.
-        activeProducers: node.producers.length > 1 ? node.producers : undefined,
       };
     });
 
@@ -413,5 +446,5 @@ export function useProductionTable(
         groupedSavings,
       },
     };
-  }, [plan, aggregates, recipes, recipeOverrides, manualRawMaterials, invalidCycleItemIds]);
+  }, [plan, aggregates, recipes, manualRawMaterials, invalidCycleItemIds]);
 }

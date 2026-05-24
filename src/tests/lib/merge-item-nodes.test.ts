@@ -11,17 +11,18 @@ import type {
 } from "@/types";
 
 /**
- * Mixed-strategy table rendering tests.
+ * Row-per-producer merging tests.
  *
- * Why these matter even though the global LP doesn't currently produce
- * mixed strategies on real data: the table-side `mergeItemNodes` must
- * handle the case correctly for when raw-material capacity constraints
- * eventually land (the only known trigger for genuine mixed-strategy
- * LP outputs). These synthetic-plan tests pin the rendering contract
- * so the support doesn't bit-rot.
+ * Under the row-per-producer model, `mergeItemNodes` emits ONE row per
+ * `(item, active-producer)` pair. Single-producer items (≥ 99% of
+ * plans today) emit exactly one row each — same shape as before the
+ * mixed-strategy refactor. Multi-producer items (mixed strategy, only
+ * reachable under future raw-cap features) emit one row per producer
+ * with that producer's specific facility count, output contribution,
+ * and input dependencies.
  *
- * See `src/lib/flow-solver.ts:detectMixedStrategies` for the dev-mode
- * runtime telemetry on the same condition.
+ * See also: `flow-solver.ts:detectMixedStrategies` for the dev-mode
+ * runtime telemetry that flags mixed-strategy LP outputs.
  */
 
 const item = (id: string): Item => ({
@@ -33,12 +34,14 @@ const recipe = (
   id: string,
   inputId: string,
   outputId: string,
+  outputAmount = 1,
+  craftingTime = 2,
 ): Recipe => ({
   id: id as RecipeId,
   inputs: [{ itemId: inputId as ItemId, amount: 1 }],
-  outputs: [{ itemId: outputId as ItemId, amount: 1 }],
+  outputs: [{ itemId: outputId as ItemId, amount: outputAmount }],
   facilityId: "fac" as Facility["id"],
-  craftingTime: 2,
+  craftingTime,
 });
 
 const facility: Facility = {
@@ -61,6 +64,9 @@ function buildMixedStrategyPlan(): ProductionDependencyGraph {
   const itemX = item("x");
   const itemRaw = item("raw");
 
+  // recipe_a: 1 raw → 1 x (rate 30/min/facility, fc=0.4 → 12 x/min)
+  // recipe_b: 1 raw → 1 x (rate 30/min/facility, fc=0.6 → 18 x/min)
+  // Combined: 30 x/min — fulfills target of 30.
   const recipeA = recipe("recipe_a", "raw", "x");
   const recipeB = recipe("recipe_b", "raw", "x");
 
@@ -69,7 +75,7 @@ function buildMixedStrategyPlan(): ProductionDependencyGraph {
     type: "item",
     itemId: "x" as ItemId,
     item: itemX,
-    productionRate: 60,
+    productionRate: 30,
     isRawMaterial: false,
     isTarget: true,
   });
@@ -77,12 +83,10 @@ function buildMixedStrategyPlan(): ProductionDependencyGraph {
     type: "item",
     itemId: "raw" as ItemId,
     item: itemRaw,
-    productionRate: 60,
+    productionRate: 30,
     isRawMaterial: true,
     isTarget: false,
   });
-  // recipe_a runs at 0.4 facilities; recipe_b runs at 0.6 facilities.
-  // Together they produce 60/min of item_x.
   nodes.set("recipe_a", {
     type: "recipe",
     recipeId: "recipe_a" as RecipeId,
@@ -125,73 +129,59 @@ function buildMixedStrategyPlan(): ProductionDependencyGraph {
   };
 }
 
-describe("mergeItemNodes mixed-strategy handling", () => {
-  test("aggregates facility counts across multiple active producers", () => {
+const rowsForItem = (
+  rows: ReturnType<typeof mergeItemNodes>,
+  itemId: string,
+) => rows.filter((r) => r.itemId === itemId);
+
+describe("mergeItemNodes row-per-producer contract", () => {
+  test("mixed-strategy item emits one row per active producer", () => {
     const plan = buildMixedStrategyPlan();
-    const merged = mergeItemNodes(plan, new Map());
-    const xNode = merged.get("x" as ItemId);
-    expect(xNode).toBeDefined();
-    expect(xNode!.producers.length).toBe(2);
-    // Total facility count = sum of all producers (0.4 + 0.6 = 1.0).
-    expect(xNode!.totalFacilityCount).toBeCloseTo(1.0, 5);
+    const rows = mergeItemNodes(plan);
+
+    const xRows = rowsForItem(rows, "x");
+    expect(xRows.length).toBe(2);
+
+    // Each row references one specific producer recipe; together they
+    // cover both active producers.
+    const recipeIds = xRows
+      .map((r) => r.recipeId)
+      .filter((rid): rid is RecipeId => rid !== null)
+      .sort();
+    expect(recipeIds).toEqual(["recipe_a", "recipe_b"]);
   });
 
-  test("picks the dominant (highest-fc) producer for the dropdown's recipeId", () => {
+  test("each sister row carries its own facility count, not the sum", () => {
     const plan = buildMixedStrategyPlan();
-    const merged = mergeItemNodes(plan, new Map());
-    const xNode = merged.get("x" as ItemId);
-    // recipe_b has fc=0.6, recipe_a has fc=0.4 → b dominates.
-    expect(xNode!.recipeId).toBe("recipe_b");
-  });
+    const rows = mergeItemNodes(plan);
 
-  test("user override beats the dominant-fc heuristic when override is an active producer", () => {
-    const plan = buildMixedStrategyPlan();
-    // User pins recipe_a even though recipe_b has higher facility count.
-    const overrides = new Map([["x" as ItemId, "recipe_a" as RecipeId]]);
-    const merged = mergeItemNodes(plan, overrides);
-    expect(merged.get("x" as ItemId)!.recipeId).toBe("recipe_a");
-  });
-
-  test("override that isn't an active producer falls back to dominant-fc", () => {
-    const plan = buildMixedStrategyPlan();
-    // User pins recipe_c which doesn't exist in the plan; should fall
-    // back to dominant heuristic (recipe_b).
-    const overrides = new Map([["x" as ItemId, "recipe_c" as RecipeId]]);
-    const merged = mergeItemNodes(plan, overrides);
-    expect(merged.get("x" as ItemId)!.recipeId).toBe("recipe_b");
-  });
-
-  test("producers list preserves both entries with their facility counts", () => {
-    const plan = buildMixedStrategyPlan();
-    const merged = mergeItemNodes(plan, new Map());
-    const xNode = merged.get("x" as ItemId);
-    const a = xNode!.producers.find(
-      (p) => p.recipeId === ("recipe_a" as RecipeId),
-    );
-    const b = xNode!.producers.find(
-      (p) => p.recipeId === ("recipe_b" as RecipeId),
-    );
+    const xRows = rowsForItem(rows, "x");
+    const a = xRows.find((r) => r.recipeId === ("recipe_a" as RecipeId));
+    const b = xRows.find((r) => r.recipeId === ("recipe_b" as RecipeId));
     expect(a?.facilityCount).toBeCloseTo(0.4, 5);
     expect(b?.facilityCount).toBeCloseTo(0.6, 5);
   });
 
-  test("single-producer item (the common case) has producers.length === 1", () => {
-    // Same shape as the mixed test, but only one active producer.
+  test("each sister row's producerContribution is its own slice (Option Y)", () => {
     const plan = buildMixedStrategyPlan();
-    // Zero out recipe_a's facility count → no longer an active producer.
-    const recipeA = plan.nodes.get("recipe_a")!;
-    if (recipeA.type === "recipe") recipeA.facilityCount = 0;
+    const rows = mergeItemNodes(plan);
 
-    const merged = mergeItemNodes(plan, new Map());
-    const xNode = merged.get("x" as ItemId);
-    expect(xNode!.producers.length).toBe(1);
-    expect(xNode!.producers[0].recipeId).toBe("recipe_b");
-    expect(xNode!.totalFacilityCount).toBeCloseTo(0.6, 5);
-    expect(xNode!.recipeId).toBe("recipe_b");
+    const xRows = rowsForItem(rows, "x");
+    const a = xRows.find((r) => r.recipeId === ("recipe_a" as RecipeId));
+    const b = xRows.find((r) => r.recipeId === ("recipe_b" as RecipeId));
+    // recipe_a outputs 1 x per 2s = 30/min/facility × 0.4 fc = 12/min
+    expect(a?.producerContribution).toBeCloseTo(12, 5);
+    // recipe_b: 30/min × 0.6 fc = 18/min
+    expect(b?.producerContribution).toBeCloseTo(18, 5);
+    // Sum across sisters = item's total output rate (30/min)
+    expect(
+      (a?.producerContribution ?? 0) + (b?.producerContribution ?? 0),
+    ).toBeCloseTo(30, 5);
   });
 
-  test("dependencies union across all active producers", () => {
-    // Build a plan where two producers consume different inputs.
+  test("each sister row's dependencies are its own producer's inputs only", () => {
+    // Build a plan where two producers consume different inputs, so the
+    // per-row vs union distinction is observable.
     const recipeA: Recipe = {
       id: "recipe_a" as RecipeId,
       inputs: [{ itemId: "raw_a" as ItemId, amount: 1 }],
@@ -212,7 +202,7 @@ describe("mergeItemNodes mixed-strategy handling", () => {
       type: "item",
       itemId: "x" as ItemId,
       item: item("x"),
-      productionRate: 60,
+      productionRate: 30,
       isRawMaterial: false,
       isTarget: true,
     });
@@ -271,10 +261,138 @@ describe("mergeItemNodes mixed-strategy handling", () => {
       warnings: [],
     };
 
-    const merged = mergeItemNodes(plan, new Map());
-    const xNode = merged.get("x" as ItemId);
-    // Should depend on BOTH raw_a and raw_b (union of producer inputs).
-    expect(xNode!.dependencies.has("raw_a" as ItemId)).toBe(true);
-    expect(xNode!.dependencies.has("raw_b" as ItemId)).toBe(true);
+    const rows = mergeItemNodes(plan);
+    const xRows = rowsForItem(rows, "x");
+    const a = xRows.find((r) => r.recipeId === ("recipe_a" as RecipeId));
+    const b = xRows.find((r) => r.recipeId === ("recipe_b" as RecipeId));
+
+    // Row A's deps include only raw_a (its producer's input).
+    expect(a?.dependencies.has("raw_a" as ItemId)).toBe(true);
+    expect(a?.dependencies.has("raw_b" as ItemId)).toBe(false);
+    // Row B's deps include only raw_b.
+    expect(b?.dependencies.has("raw_b" as ItemId)).toBe(true);
+    expect(b?.dependencies.has("raw_a" as ItemId)).toBe(false);
+  });
+
+  test("single-producer item emits exactly one row", () => {
+    const plan = buildMixedStrategyPlan();
+    // Zero out recipe_a → only one active producer for x.
+    const recipeA = plan.nodes.get("recipe_a")!;
+    if (recipeA.type === "recipe") recipeA.facilityCount = 0;
+
+    const rows = mergeItemNodes(plan);
+    const xRows = rowsForItem(rows, "x");
+    expect(xRows.length).toBe(1);
+    expect(xRows[0].recipeId).toBe("recipe_b");
+    expect(xRows[0].facilityCount).toBeCloseTo(0.6, 5);
+    // Single-producer contribution equals the item's total output rate.
+    expect(xRows[0].producerContribution).toBeCloseTo(18, 5);
+  });
+
+  test("raw / no-producer item emits one row with recipeId = null", () => {
+    const plan = buildMixedStrategyPlan();
+    const rows = mergeItemNodes(plan);
+
+    const rawRows = rowsForItem(rows, "raw");
+    expect(rawRows.length).toBe(1);
+    expect(rawRows[0].recipeId).toBe(null);
+    expect(rawRows[0].facilityCount).toBe(0);
+    expect(rawRows[0].isRawMaterial).toBe(true);
+    // No-producer fallback: contribution = item's reported productionRate
+    // (LP-computed net demand for raws).
+    expect(rawRows[0].producerContribution).toBeCloseTo(30, 5);
+  });
+
+  test("multi-output recipe contributes a row to each of its produced items", () => {
+    // A recipe that emits TWO items as outputs. Both items should
+    // appear in rows, each attributed to the same producer recipe.
+    const multiOutRecipe: Recipe = {
+      id: "multi" as RecipeId,
+      inputs: [{ itemId: "raw" as ItemId, amount: 1 }],
+      outputs: [
+        { itemId: "primary" as ItemId, amount: 2 },
+        { itemId: "byproduct" as ItemId, amount: 1 },
+      ],
+      facilityId: "fac" as Facility["id"],
+      craftingTime: 2,
+    };
+
+    const nodes = new Map<string, ProductionGraphNode>();
+    nodes.set("raw", {
+      type: "item",
+      itemId: "raw" as ItemId,
+      item: item("raw"),
+      productionRate: 30,
+      isRawMaterial: true,
+      isTarget: false,
+    });
+    nodes.set("primary", {
+      type: "item",
+      itemId: "primary" as ItemId,
+      item: item("primary"),
+      productionRate: 60,
+      isRawMaterial: false,
+      isTarget: true,
+    });
+    nodes.set("byproduct", {
+      type: "item",
+      itemId: "byproduct" as ItemId,
+      item: item("byproduct"),
+      productionRate: 30,
+      isRawMaterial: false,
+      isTarget: false,
+    });
+    nodes.set("multi", {
+      type: "recipe",
+      recipeId: "multi" as RecipeId,
+      recipe: multiOutRecipe,
+      facility,
+      facilityCount: 1,
+      isDisposal: false,
+      binId: undefined,
+      binSisterRecipeIds: [],
+      prefillCandidates: [],
+    });
+
+    const plan: ProductionDependencyGraph = {
+      nodes,
+      edges: [
+        { from: "raw", to: "multi" },
+        { from: "multi", to: "primary" },
+        { from: "multi", to: "byproduct" },
+      ],
+      targets: new Set(["primary" as ItemId]),
+      detectedCycles: [],
+      invalidCycles: [],
+      bins: [],
+      recipeBinAllocations: new Map(),
+      warnings: [],
+    };
+
+    const rows = mergeItemNodes(plan);
+    const primaryRows = rowsForItem(rows, "primary");
+    const byproductRows = rowsForItem(rows, "byproduct");
+
+    expect(primaryRows.length).toBe(1);
+    expect(primaryRows[0].recipeId).toBe("multi");
+    // 2 primary per 2s = 60/min/fc × 1 fc = 60
+    expect(primaryRows[0].producerContribution).toBeCloseTo(60, 5);
+
+    expect(byproductRows.length).toBe(1);
+    expect(byproductRows[0].recipeId).toBe("multi");
+    // 1 byproduct per 2s = 30/min/fc × 1 fc = 30
+    expect(byproductRows[0].producerContribution).toBeCloseTo(30, 5);
+  });
+
+  test("inactive producer (fc = 0) does not emit a row", () => {
+    const plan = buildMixedStrategyPlan();
+    const recipeA = plan.nodes.get("recipe_a")!;
+    if (recipeA.type === "recipe") recipeA.facilityCount = 0;
+
+    const rows = mergeItemNodes(plan);
+    const xRows = rowsForItem(rows, "x");
+    // Only recipe_b is active → only one row for x.
+    expect(xRows.length).toBe(1);
+    expect(xRows[0].recipeId).toBe("recipe_b");
   });
 });
