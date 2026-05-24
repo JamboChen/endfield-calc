@@ -190,8 +190,10 @@ export type ProductionGraphNode =
     };
 
 /**
- * Represents an unsolvable production cycle that could not be resolved
- * by either the SCC solver or feeder extension.
+ * Represents an unsolvable production cycle that the global LP could
+ * not satisfy. Typically traces to a user-pinned recipe that creates
+ * a closed cycle with no external entry point, or a bootstrap problem
+ * (e.g. planter ↔ seedcollector with no seed source).
  */
 export type InvalidCycleInfo = {
   cycleId: string;

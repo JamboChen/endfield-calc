@@ -252,56 +252,6 @@ describe("solveLP", () => {
     }
   });
 
-  test("disposalDeficits reflects the slack value when SCC has a deficit", async () => {
-    // Same setup as the byproduct-deficit case but force a deficit by
-    // not allowing the producer to scale: pin furnace at 1/30 (the
-    // minimum for the nugget target). With pool consuming 4 sewage and
-    // furnace producing only 1, slack on sewage should be 3.
-    //
-    // We can't directly pin furnace as low as we want and check sewage
-    // becomes a deficit using `disposal-slack`. Easier: declare sewage as
-    // disposal-slack and rely on the high penalty to keep slack at 0
-    // when feasible, > 0 when not. Here we set it up so deficit IS
-    // necessary by giving pool a primary-output demand that forces it
-    // to consume more sewage than the SCC can produce.
-    const furnace = makeRecipe(
-      "furnace",
-      [{ itemId: "ore" as ItemId, amount: 1 }],
-      [
-        { itemId: "nugget" as ItemId, amount: 1 },
-        { itemId: "sewage" as ItemId, amount: 1 },
-      ],
-    );
-    const pool = makeRecipe(
-      "pool",
-      [{ itemId: "sewage" as ItemId, amount: 1 }],
-      [{ itemId: "product" as ItemId, amount: 1 }],
-    );
-    const input: LPInput = {
-      recipes: [furnace, pool],
-      itemConstraints: new Map([
-        // Sewage as disposal-slack: deficit allowed, propagated as result.
-        ["sewage" as ItemId, { type: "disposal-slack", rhs: 0 }],
-        ["nugget" as ItemId, { type: "min", rhs: 1 }],
-        ["product" as ItemId, { type: "min", rhs: 4 }],
-        ["ore" as ItemId, { type: "min", rhs: 0 }],
-      ]),
-      // Pin furnace below what's needed → forces deficit on sewage.
-      pinnedRecipes: new Map([["furnace" as RecipeId, 1 / 30]]),
-      rawMaterials: new Set(["ore" as ItemId]),
-      costlessRaws: new Set(),
-      facilityMap: facMap,
-    };
-    const result = await solveLP(input);
-    if (!result.feasible) throw new Error("expected feasible (with slack)");
-    // Furnace pinned at 1/30 fac → produces 1 sewage/min.
-    // Pool needs to produce 4 product/min → consumes 4 sewage/min.
-    // Deficit = 4 - 1 = 3.
-    expect(result.facilityCounts.get("furnace" as RecipeId)).toBeCloseTo(1 / 30, 5);
-    expect(result.facilityCounts.get("pool" as RecipeId)).toBeCloseTo(4 / 30, 5);
-    expect(result.disposalDeficits.get("sewage" as ItemId)).toBeCloseTo(3, 5);
-  });
-
   test("disposalDeficits is empty when SCC is internally balanced", async () => {
     // Same recipe shapes as the deficit test but no pinning — LP scales
     // furnace to satisfy sewage demand. Slack should be 0, so
@@ -336,70 +286,7 @@ describe("solveLP", () => {
     expect(result.disposalDeficits.has("sewage" as ItemId)).toBe(false);
   });
 
-  test("pinnedRecipes forces an exact facility count", async () => {
-    // Two recipes, both produce `out` at 30/fac/min from 1 raw.
-    // Demand: out ≥ 30/min.
-    // r_a is cheaper (power 10), so LP would normally pick r_a alone.
-    // Pin r_b at 1 fac; LP must include r_b at 1 fac; demand is satisfied
-    // by r_b alone, so r_a should be 0.
-    const rA = makeRecipe(
-      "r_a",
-      [{ itemId: "raw" as ItemId, amount: 1 }],
-      [{ itemId: "out" as ItemId, amount: 1 }],
-      2,
-      FAC.id, // power 10
-    );
-    const rB = makeRecipe(
-      "r_b",
-      [{ itemId: "raw" as ItemId, amount: 1 }],
-      [{ itemId: "out" as ItemId, amount: 1 }],
-      2,
-      FAC_HEAVY.id, // power 50
-    );
-    const input: LPInput = {
-      recipes: [rA, rB],
-      itemConstraints: new Map([
-        ["out" as ItemId, { type: "min", rhs: 30 }],
-        ["raw" as ItemId, { type: "min", rhs: 0 }],
-      ]),
-      pinnedRecipes: new Map([["r_b" as RecipeId, 1]]),
-      rawMaterials: new Set(["raw" as ItemId]),
-      costlessRaws: new Set(),
-      facilityMap: facMap,
-    };
-    const result = await solveLP(input);
-    if (!result.feasible) throw new Error("expected feasible");
-    expect(result.facilityCounts.get("r_b" as RecipeId)).toBeCloseTo(1, 5);
-    // r_a should not run since r_b alone satisfies the `out ≥ 30` demand.
-    expect(result.facilityCounts.get("r_a" as RecipeId)).toBeCloseTo(0, 5);
-  });
-
-  test("pinnedRecipes referencing an unknown recipe id is silently skipped", async () => {
-    // If the caller pins a recipe that's not in `input.recipes`, the LP
-    // ignores the pin rather than throwing. This matches the "no-op on
-    // unknown" defensiveness of the rest of the module.
-    const r = makeRecipe(
-      "r1",
-      [{ itemId: "raw" as ItemId, amount: 1 }],
-      [{ itemId: "out" as ItemId, amount: 1 }],
-    );
-    const input: LPInput = {
-      recipes: [r],
-      itemConstraints: new Map([
-        ["out" as ItemId, { type: "min", rhs: 30 }],
-        ["raw" as ItemId, { type: "min", rhs: 0 }],
-      ]),
-      pinnedRecipes: new Map([["nonexistent" as RecipeId, 5]]),
-      rawMaterials: new Set(["raw" as ItemId]),
-      costlessRaws: new Set(),
-      facilityMap: facMap,
-    };
-    const result = await solveLP(input);
-    if (!result.feasible) throw new Error("expected feasible");
-    expect(result.facilityCounts.get("r1" as RecipeId)).toBeCloseTo(1, 5);
-  });
-
-  test("lex two-pass: prefers raw-min even when power suggests otherwise", async () => {
+  test("lex multi-pass: prefers raw-min over power", async () => {
     // r_low_power (power 5) consumes 2 raw per cycle, produces 1 out.
     // r_high_power (power 50) consumes 1 raw per cycle, produces 1 out.
     // Demand: out ≥ 30/min.

@@ -87,7 +87,7 @@ const getOrThrow = <K, V>(map: Map<K, V>, key: K, type: string): V => {
  *
  * **Multi-recipe traversal**: every reachable item gets edges to **all**
  * of its surviving producers (per `availableProducersFor`), not just one
- * heuristic pick. The LP downstream (`solveGlobalFlow` in
+ * heuristic pick. The LP downstream (`calculateFlows` in
  * `flow-solver.ts`) picks which producers actually run and at what rate
  * by minimising the lex objective `rawCost → buildingCount → power`.
  *
@@ -97,8 +97,8 @@ const getOrThrow = <K, V>(map: Map<K, V>, key: K, type: string): V => {
  *
  * Cycles are allowed: the LP handles them natively via balance
  * constraints (production − consumption ≥ 0). The downstream
- * `detectSCCs` / `buildCondensedDAGAndSort` are kept for rendering
- * (backward-edge styling, prefill detection), not for solving.
+ * `detectSCCs` is kept for rendering (backward-edge styling, prefill
+ * detection), not for solving.
  */
 export function buildBipartiteGraph(
   targets: Array<{ itemId: ItemId; rate: number }>,

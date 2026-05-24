@@ -156,8 +156,8 @@ export function mapPlanToFlowBinFused(
   // producers. The greedy allocator drains byproduct supply to consumers
   // first; the pickup node emitted later absorbs only the residual
   // (`node.productionRate`, the LP-computed net external demand from
-  // `propagateRawMaterialDeficit`). This keeps the visualization
-  // consistent with the side-panel net rate.
+  // the post-LP byproduct netting in `flow-solver.ts:calculateFlows`).
+  // This keeps the visualization consistent with the side-panel net rate.
   //
   // Singleton-terminal bins (identified above) are EXCLUDED from
   // producer registration and have their consumer registrations
@@ -359,12 +359,13 @@ export function mapPlanToFlowBinFused(
     emittedRawMaterials.add(itemId);
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item") return rawNodeId;
-    // Use `node.productionRate` (NET external demand, after byproduct
-    // netting via `propagateRawMaterialDeficit`) as the pickup's
-    // displayed rate — matches the side-panel `rawMaterialRequirements`
-    // and the bin-aware `aggregateBinTotals` totals. The old fallback
-    // to `rawMaterialDemand` (gross consumer sum) drifted from the
-    // side-panel value when a raw was also a byproduct inside an SCC.
+    // Use `node.productionRate` (NET external demand, after post-LP
+    // byproduct netting in `flow-solver.ts:calculateFlows`) as the
+    // pickup's displayed rate — matches the side-panel
+    // `rawMaterialRequirements` and the bin-aware `aggregateBinTotals`
+    // totals. The old fallback to `rawMaterialDemand` (gross consumer
+    // sum) drifted from the side-panel value when a raw was also a
+    // byproduct inside an SCC.
     const totalDemand = node.productionRate;
     const cfg = rawMaterialSources.get(itemId);
     const sourceFacility = cfg
@@ -959,10 +960,10 @@ export function mapPlanToFlowBinFusedSeparated(
   // the previous transport-capacity-based math implied.
   //
   // `totalDemand` is the NET external supply rate (`node.productionRate`,
-  // after `propagateRawMaterialDeficit` nets out byproduct supply from
-  // same-SCC producers). This matches the side panel and
-  // `aggregateBinTotals`. The gross consumer sum would over-count the
-  // pickup capacity needed.
+  // after the post-LP byproduct netting in `flow-solver.ts:calculateFlows`
+  // subtracts byproduct production from gross consumption). This matches
+  // the side panel and `aggregateBinTotals`. The gross consumer sum would
+  // over-count the pickup capacity needed.
   const emittedRawNodes = new Set<string>();
   for (const itemId of consumersByItem.keys()) {
     const node = plan.nodes.get(itemId);
@@ -1142,8 +1143,9 @@ export function mapPlanToFlowBinFusedSeparated(
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item" || !node.isRawMaterial) continue;
     // `node.productionRate` is the LP-computed net external demand for
-    // raws (`propagateRawMaterialDeficit` already subtracted byproduct
-    // supply). Skip the pickup entirely if byproduct fully covers it.
+    // raws (post-LP byproduct netting in `flow-solver.ts:calculateFlows`
+    // already subtracted byproduct supply). Skip the pickup entirely
+    // if byproduct fully covers it.
     if (node.productionRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const item = itemById.get(itemId);
     if (!item) continue;

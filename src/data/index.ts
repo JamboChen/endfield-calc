@@ -74,9 +74,8 @@ const forcedRawMaterials: ReadonlySet<ItemId> = new Set(
  *
  * The set is symmetric on the output side: liquid raws produced as
  * byproducts (e.g. acid from `liquid_purifier_copper_enr_1`) were never
- * credited to the LP today (raws have no balance constraint), so making
- * their input cost zero introduces no new asymmetry. See
- * `docs/path-h-design.md` for the broader LP-objective framing.
+ * credited to the LP (raws have no balance constraint), so making
+ * their input cost zero introduces no new asymmetry.
  *
  * Auto-extends if game data adds a new liquid raw — the derivation
  * lives next to `forcedRawMaterials` and uses the same source of truth.

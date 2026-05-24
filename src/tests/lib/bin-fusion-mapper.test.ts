@@ -324,8 +324,8 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     // producers — the greedy allocator drains byproduct supply into
     // water consumers first, and the pickup node absorbs only the
     // residual demand (`node.productionRate`, the LP-computed net
-    // external supply after byproduct netting via
-    // `propagateRawMaterialDeficit`).
+    // external supply after post-LP byproduct netting in
+    // `flow-solver.ts:calculateFlows`).
     //
     // This keeps the pickup's `targetRate` consistent with the side
     // panel's NET water demand: pumps × 60/min = node.productionRate,

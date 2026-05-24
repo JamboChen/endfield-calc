@@ -1,15 +1,18 @@
 /**
- * LP-based SCC flow solver.
+ * Generic LP wrapper around HiGHS (WASM).
  *
- * Each SCC sub-problem is formulated as an LP with facility-count variables
- * (≥ 0) and per-item constraints whose operator is selected by the caller
- * via `LPItemConstraint.type` (see type docs below). Raw materials are
- * excluded from balance constraints — they appear only in the `rawCost`
- * objective (infinite-supply assumption). Solver: HiGHS WASM via
- * `@bubblyworld/highs-ts` (see `highs-singleton.ts`).
+ * Callers supply a recipe set + per-item constraints (`equal`, `min`, or
+ * `disposal-slack`); the solver returns a feasible facility-count
+ * assignment that's **lex-optimal** under the `LEX_ORDER` objective
+ * ranking (currently `rawCost → buildingCount → power`).
  *
- * Lexicographic two-pass objective: minimize raw-material consumption
- * first, then minimize total power among solutions tying for raw-min.
+ * Raw materials are excluded from balance constraints — they appear
+ * only in the `rawCost` objective (infinite-supply assumption). Items
+ * in `costlessRaws` further contribute 0 to that objective so the LP
+ * doesn't bias against recipes that consume them.
+ *
+ * Used by `flow-solver.ts:calculateFlows` as the single solve over the
+ * multi-recipe graph; see that file for the global-LP framing.
  */
 
 import { calcRate } from "@/lib/utils";
@@ -39,8 +42,7 @@ const FACILITY_COUNT_EPSILON = 1e-6;
 /**
  * Lexicographic objective ordering for `solveLP`. Each pass minimises one
  * objective subject to upper-bound constraints from all previous passes,
- * so the resulting solution is **lex-optimal** under this ranking. Order
- * encodes the user's preference (per `docs/path-h-design.md`):
+ * so the resulting solution is **lex-optimal** under this ranking:
  *   1. `rawCost` — total non-liquid raw material consumption per minute.
  *   2. `buildingCount` — total fractional facility count (Σ x_r).
  *   3. `power` — total power consumption per minute (gated by `MINIMIZE_POWER`).
@@ -118,24 +120,18 @@ export type LPItemConstraint = {
 };
 
 export type LPInput = {
-  /** Recipes participating in the LP (typically an SCC's recipes). */
+  /**
+   * Recipes participating in the LP (typically every recipe in the
+   * active subset of `graph.recipeNodes`).
+   */
   recipes: Recipe[];
   /**
    * Constraints per item. The full set of items mentioned by any recipe's
    * inputs/outputs MUST appear here, otherwise the LP under-constrains the
-   * solution. Items not relevant to the SCC's local balance can use
+   * solution. Items not relevant to local balance can use
    * `{ type: "min", rhs: 0 }`.
    */
   itemConstraints: Map<ItemId, LPItemConstraint>;
-  /**
-   * Recipes whose facility count is fixed (typically because the user
-   * overrode the producer for some item, and we want LP to honor that
-   * choice). The LP adds an equality constraint `x[recipe] = count`.
-   *
-   * Used by `tryExtendSCCWithFeeders` to force user-overridden recipes
-   * to actually run when a feeder is added.
-   */
-  pinnedRecipes?: Map<RecipeId, number>;
   /** Items that should contribute to the raw-cost objective. */
   rawMaterials: Set<ItemId>;
   /**
@@ -287,9 +283,6 @@ const buildModel = (
 
   const variables: LPModel["variables"] = {};
   const recipeIndexMap = new Map<string, RecipeId>();
-  // Reverse lookup: RecipeId → varName. Used by `pinnedRecipes` injection
-  // and by `extractSolution` to avoid O(n²) `recipes.find` scans.
-  const varNameByRecipeId = new Map<RecipeId, string>();
   input.recipes.forEach((recipe, idx) => {
     const varName = `x_${idx}`;
     variables[varName] = buildVariableCoefficients(
@@ -300,7 +293,6 @@ const buildModel = (
       input.facilityMap,
     );
     recipeIndexMap.set(varName, recipe.id);
-    varNameByRecipeId.set(recipe.id, varName);
   });
 
   // Add disposal-slack variables; see the `SLACK_PENALTY` constant above
@@ -324,20 +316,6 @@ const buildModel = (
       buildingCount: SLACK_PENALTY,
       power: SLACK_PENALTY,
     };
-  }
-
-  // Pinned recipes get an equality constraint forcing their facility count
-  // to the specified value. Used to honor user recipe-overrides during
-  // feeder extension.
-  if (input.pinnedRecipes) {
-    let pinIdx = 0;
-    for (const [recipeId, count] of input.pinnedRecipes.entries()) {
-      const varName = varNameByRecipeId.get(recipeId);
-      if (!varName) continue;
-      const constraintName = `pin_${pinIdx++}_${recipeId}`;
-      constraints[constraintName] = { equal: count };
-      variables[varName][constraintName] = 1;
-    }
   }
 
   // Lex caps: every previously-optimised objective gets an upper-bound

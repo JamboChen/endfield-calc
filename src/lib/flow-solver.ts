@@ -197,8 +197,7 @@ export async function calculateFlows(
   // raw as a side-output, e.g. `liquid_purifier_xiranite_poly_1` emits
   // water). The pickup-count layer in the bin-fused mapper consumes
   // this value as `totalDemand` to size pump emissions; using gross
-  // would over-count pickups. Mirrors the pre-LP
-  // `propagateRawMaterialDeficit` netting behaviour.
+  // would over-count pickups.
   //
   // We sum gross consumption and gross production separately FIRST, then
   // compute net at the end — per-recipe netting interleaved with addition
@@ -246,15 +245,17 @@ export async function calculateFlows(
 
 /**
  * Dev-only diagnostic: detect items with multiple active producers in
- * the LP solution (a "mixed strategy"). With current data and HiGHS'
- * simplex pivot this is essentially never expected — see
- * `docs/path-h-design.md` "Mixed strategy" for the conditions that
- * could trigger it (raw caps, exact cost ties + interior-point solver).
+ * the LP solution (a "mixed strategy"). Genuinely forced mixes occur
+ * in real-data plans where multi-output recipes have byproduct balance
+ * constraints — e.g. SC Wuling + Heavy Xiranite produces a mix on
+ * `item_liquid_sewage` (furnace + pool) and `item_liquid_xiranite_poly`
+ * (pool + purifier) because the LP needs both to balance lowpoly/sewage
+ * flows. They're correct, not artifacts.
  *
  * Logged for telemetry. Does NOT throw, even in test mode: mixed
  * strategies are valid LP outputs and the table renderer
  * (`mergeItemNodes` in `useProductionTable.ts`) handles them by
- * aggregating producer counts.
+ * emitting one row per active producer.
  */
 function detectMixedStrategies(
   graph: BipartiteGraph,

@@ -35,7 +35,6 @@ import type {
 // residuals on the order of 1e-13. Without this tolerance, a disposal recipe
 // would be injected with facilityCount ≈ 0, rendering as a disconnected
 // "0/min" sink in the UI (e.g. Xircon Effluent on Jade Gourd at 1/min).
-// Matches `TARGET_VALIDATION_TOLERANCE` used by the LP solver.
 const SURPLUS_EPSILON = 1e-6;
 
 function injectDisposalRecipes(
@@ -756,15 +755,14 @@ function buildProductionGraph(
   };
 
   graph.recipeNodes.forEach((recipeData, recipeId) => {
-    // Disposal recipes (synthesised by injectDisposalRecipes) stay even
-    // at fc=0 because they're rendered as sinks; their presence makes
-    // the byproduct surplus visible to the user. activeRecipeIds was
-    // computed BEFORE injectDisposalRecipes ran (well — actually it
-    // runs above; check the call order in calculateProductionPlan).
-    // Either way, the isDisposal short-circuit keeps them visible.
-    const isDisposal = recipeData.recipe.outputs.length === 0;
-    if (!isDisposal && !activeRecipeIds.has(recipeId)) return;
+    // `activeRecipeIds` already includes disposal recipes: `injectDisposalRecipes`
+    // runs before this function in `calculateProductionPlan` and adds each
+    // disposal recipe to `flowData.recipeFacilityCounts` with fc > 0, so
+    // it passes the `fc > 0` filter above. Inactive non-disposal alternatives
+    // (e.g. tier-2 pool variants the LP didn't pick) are filtered out here.
+    if (!activeRecipeIds.has(recipeId)) return;
 
+    const isDisposal = recipeData.recipe.outputs.length === 0;
     const { facility, binId, sisters } = resolveBinInfo(
       recipeId,
       recipeData.facility,
@@ -798,9 +796,8 @@ function buildProductionGraph(
     });
   });
 
-  // Under the global LP, every detected SCC stays cyclic in graph
-  // structure (no feeder extension linearises any of them), so all SCCs
-  // render as cycles with backward-edge styling.
+  // Every detected SCC stays cyclic in graph structure (no DAG-linearisation
+  // step exists), so all SCCs render as cycles with backward-edge styling.
   //
   // Filter cycle members to **active** recipes only: an SCC's recipe set
   // includes every alternative producer added by the multi-recipe
@@ -809,8 +806,7 @@ function buildProductionGraph(
   // they shouldn't appear in cycleNodes. Iterating them would also call
   // resolveBinInfo on recipes the packer correctly didn't allocate,
   // firing spurious `[resolveBinInfo] ... has no bin allocation`
-  // warnings — diagnosed via src/tests/lib/diagnose-mixed-strategy.test.ts
-  // (since removed); see commit message for details.
+  // warnings.
   const detectedCycles: DetectedCycle[] = sccs.map((scc) => {
     const cycleNodes: ProductionNode[] = Array.from(scc.recipes)
       .filter((recipeId) => activeRecipeIds.has(recipeId))
@@ -932,10 +928,10 @@ export async function calculateProductionPlan(
   );
 
   const sccs = detectSCCs(graph);
-  // buildCondensedDAGAndSort is still useful for downstream rendering
-  // ordering, but the global LP doesn't need topological order. We keep
-  // the SCC detection because `propagatePrefillCandidates` and the
-  // backward-edge styling in the mapper layer both consume `sccs`.
+  // SCC detection is kept because `propagatePrefillCandidates` and the
+  // mapper layer's backward-edge styling both consume `sccs`. The global
+  // LP itself doesn't need a topological order — it solves over the
+  // whole recipe set in one shot.
   const targetRatesMap = new Map(targets.map((t) => [t.itemId, t.rate]));
   const { flowData, invalidSCCs } = await calculateFlows(
     graph,
