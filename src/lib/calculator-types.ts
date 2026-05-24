@@ -41,14 +41,6 @@ export type SCCInfo = {
 export type FlowData = {
   itemDemands: Map<ItemId, number>;
   recipeFacilityCounts: Map<RecipeId, number>;
-  /**
-   * SCC IDs whose flow was successfully solved. Under the global LP all
-   * detected SCCs are resolved in one solve (no feeder-extension or
-   * per-SCC retry phase), so this is simply `new Set(detectedSCCs.map(s => s.id))`
-   * when `flowData.feasible === true`. Kept on the data type so mappers
-   * can still gate "is this cycle backward-edge-styled?" off it.
-   */
-  resolvedSCCIds: Set<string>;
 };
 
 export type InvalidSCCInfo = {

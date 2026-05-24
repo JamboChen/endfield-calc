@@ -82,7 +82,6 @@ export async function calculateFlows(
       flowData: {
         itemDemands: new Map(targetRates),
         recipeFacilityCounts: new Map(),
-        resolvedSCCIds: new Set(),
       },
       invalidSCCs: [],
     };
@@ -166,7 +165,6 @@ export async function calculateFlows(
       flowData: {
         itemDemands: new Map(targetRates),
         recipeFacilityCounts: new Map(),
-        resolvedSCCIds: new Set(),
       },
       invalidSCCs,
     };
@@ -237,17 +235,10 @@ export async function calculateFlows(
     itemDemands.set(itemId, Math.max(0, current - produced));
   }
 
-  // `resolvedSCCIds` historically meant "SCCs that became DAGs via
-  // feeder extension" (i.e. no longer true cycles for rendering). With
-  // the global LP, no feeder extension happens — cycles stay cyclic in
-  // graph structure even when the LP balances them numerically. So no
-  // SCC is "resolved" in that sense; all detected SCCs render as
-  // cycles with backward-edge styling.
   return {
     flowData: {
       itemDemands,
       recipeFacilityCounts: result.facilityCounts,
-      resolvedSCCIds: new Set(),
     },
     invalidSCCs: [],
   };

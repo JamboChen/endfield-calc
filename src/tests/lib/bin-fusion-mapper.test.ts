@@ -948,11 +948,12 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     // to feed ELK's `elk.layered.priority.direction` (see `layout.ts`)
     // for consistent visual layout of multi-bin cycles.
     //
-    // The moss seed cycle (planter ↔ seedcollector) is the canonical
+    // The plant seed cycle (planter ↔ seedcollector) is the canonical
     // multi-bin cycle in real data — planter and seedcollector are on
     // different facilities, hence different bins. Detected by the SCC
-    // detector and surfaces in `plan.detectedCycles` because the
-    // LP-based solver doesn't add solved cycles to `resolvedSCCIds`.
+    // detector and surfaces in `plan.detectedCycles` because under the
+    // global LP every detected SCC stays cyclic in graph structure
+    // (no feeder extension linearises them).
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_PLANT_MOSS_POWDER_1, rate: 30 }],
       items,

@@ -798,8 +798,10 @@ function buildProductionGraph(
     });
   });
 
-  const activeSCCs = sccs.filter((scc) => !flowData.resolvedSCCIds.has(scc.id));
-  const detectedCycles: DetectedCycle[] = activeSCCs.map((scc) => {
+  // Under the global LP, every detected SCC stays cyclic in graph
+  // structure (no feeder extension linearises any of them), so all SCCs
+  // render as cycles with backward-edge styling.
+  const detectedCycles: DetectedCycle[] = sccs.map((scc) => {
     const cycleNodes: ProductionNode[] = Array.from(scc.recipes).flatMap(
       (recipeId) => {
         const recipeData = graph.recipeNodes.get(recipeId)!;
