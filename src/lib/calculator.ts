@@ -801,9 +801,20 @@ function buildProductionGraph(
   // Under the global LP, every detected SCC stays cyclic in graph
   // structure (no feeder extension linearises any of them), so all SCCs
   // render as cycles with backward-edge styling.
+  //
+  // Filter cycle members to **active** recipes only: an SCC's recipe set
+  // includes every alternative producer added by the multi-recipe
+  // traversal (e.g. both plant_moss and plant_grass producers when only
+  // grass was picked by the LP). Inactive alternatives don't run, so
+  // they shouldn't appear in cycleNodes. Iterating them would also call
+  // resolveBinInfo on recipes the packer correctly didn't allocate,
+  // firing spurious `[resolveBinInfo] ... has no bin allocation`
+  // warnings — diagnosed via src/tests/lib/diagnose-mixed-strategy.test.ts
+  // (since removed); see commit message for details.
   const detectedCycles: DetectedCycle[] = sccs.map((scc) => {
-    const cycleNodes: ProductionNode[] = Array.from(scc.recipes).flatMap(
-      (recipeId) => {
+    const cycleNodes: ProductionNode[] = Array.from(scc.recipes)
+      .filter((recipeId) => activeRecipeIds.has(recipeId))
+      .flatMap((recipeId) => {
         const recipeData = graph.recipeNodes.get(recipeId)!;
         const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
         const outputs = recipeData.recipe.outputs;

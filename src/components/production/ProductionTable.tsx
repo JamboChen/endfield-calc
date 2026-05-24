@@ -414,9 +414,18 @@ const ProductionTable = memo(function ProductionTable({
                 rowClassName += " bg-green-50/30 dark:bg-green-900/10";
               }
 
+              // Row key construction must be unique even when an item has
+              // multiple sister rows (mixed-strategy producers; row-per-
+              // producer model). Pre-cfcc37e the key was just `item.id`,
+              // which collided as soon as two non-disposal rows shared an
+              // item. Including the recipe id disambiguates sisters and
+              // preserves the existing disposal-row carve-out.
+              const rowKey = line.isDisposal
+                ? `disposal-${line.item.id}-${line.selectedRecipeId || "noproducer"}`
+                : `${line.item.id}-${line.selectedRecipeId || "noproducer"}`;
               return (
                 <TableRow
-                  key={line.isDisposal ? `disposal-${line.item.id}` : line.item.id}
+                  key={rowKey}
                   className={[
                     rowClassName,
                     shouldDim && "opacity-30",
