@@ -2905,4 +2905,58 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
     });
     expect(activeBypass.length).toBeGreaterThan(0);
   });
+
+  test("pinning a dismantle recipe whose filling counterpart cycles back surfaces as invalid cycle", async () => {
+    // Repro for the user-reported "bottled-recipe pin produces invalid
+    // plans silently" bug:
+    //   * Target: SC Wuling Battery 6/min (drives ~48-60/min Xircon
+    //     Effluent demand downstream through Xiranite Poly).
+    //   * Pin: Xircon Effluent → DISMANTLER_COPPER_XIRANITE_POLY_1
+    //     (fbottle_copper_xiranite_poly → Copper Bottle + Effluent).
+    //
+    // The dismantler's fbottle input has a producer:
+    //   FILLING_BOTTLED_COPPER_XIRANITE_POLY consumes Copper Bottle +
+    //   Effluent to remake the fbottle. That forms a tight 2-recipe
+    //   cycle on Effluent that absorbs all dismantler output back into
+    //   FILLING. The downstream Xir Poly demand has zero net supply.
+    //
+    // Effluent is in `forcedDisposalItems`, so its LP constraint is
+    // `disposal-slack`. The deficit (≥ ~30/min for Xir Poly's Effluent
+    // input) gets absorbed by the slack variable at high penalty cost,
+    // making the LP report feasible — but the plan is operationally a
+    // phantom (Xir Poly facility count > 0 with no actual Effluent
+    // supply).
+    //
+    // The fix in `flow-solver.ts` maps each non-zero deficit back to
+    // the SCC containing the affected item, marking the SCC as
+    // invalid. `calculator.ts` then builds an InvalidCycleInfo with
+    // `overriddenItemIds` populated (Effluent is pinned), which
+    // `useProductionPlan.warnings` surfaces via the existing
+    // `cycleWarning` i18n key.
+    const overrides = new Map([
+      [
+        ItemId.ITEM_LIQUID_XIRANITE_POLY,
+        RecipeId.DISMANTLER_COPPER_XIRANITE_POLY_1,
+      ],
+    ]);
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 6 }],
+      items,
+      recipes,
+      facilities,
+      { recipeOverrides: overrides },
+    );
+
+    expect(plan.invalidCycles.length).toBeGreaterThan(0);
+    const effluentCycle = plan.invalidCycles.find((ic) =>
+      ic.involvedItemIds.includes(ItemId.ITEM_LIQUID_XIRANITE_POLY),
+    );
+    expect(effluentCycle).toBeDefined();
+    // The pinned item must show up in `overriddenItemIds` so the
+    // useProductionPlan warning filter (length > 0) admits this
+    // cycle into the user-facing warnings list.
+    expect(effluentCycle!.overriddenItemIds).toContain(
+      ItemId.ITEM_LIQUID_XIRANITE_POLY,
+    );
+  });
 });

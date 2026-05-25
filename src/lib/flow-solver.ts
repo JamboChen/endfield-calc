@@ -186,6 +186,57 @@ export async function calculateFlows(
     detectMixedStrategies(graph, result.facilityCounts);
   }
 
+  // --- Feasible-with-deficit: translate disposal slack to invalid SCCs ---
+  //
+  // The LP can report `feasible` even when a forced-disposal item's
+  // `disposal-slack` variable absorbs a positive deficit (lp-solver
+  // assigns `SLACK_PENALTY` per unit so this only happens when no
+  // recipe combination satisfies the constraint without it). A non-zero
+  // slack means some downstream consumer is "running" against supply
+  // that doesn't actually exist — facility counts are populated but the
+  // chain is operationally a phantom.
+  //
+  // The classic trigger: user pins a dismantle (fbottle-consuming)
+  // recipe for a forced-disposal item whose corresponding FILLING
+  // recipe consumes the same item to remake the fbottle. The bottle
+  // balance forces `x_dism = x_fill`, all dismantler output gets eaten
+  // by FILLING, and the original consumer's demand falls into slack.
+  //
+  // Each non-zero deficit gets mapped back to the SCC containing the
+  // affected item — Tarjan SCCs partition the item set, so `find`
+  // returns at most one. The existing `cycleWarning` pipeline in
+  // `useProductionPlan` then surfaces this (it filters
+  // `overriddenItemIds.length > 0`, which the user's pin guarantees).
+  //
+  // Dedupe by `sccId` because multiple deficit items can sit in the
+  // same SCC (e.g. Sewage + Effluent both trapped in one cycle).
+  const invalidSCCs: InvalidSCCInfo[] = [];
+  const seenSccIds = new Set<string>();
+  for (const [itemId, deficit] of result.disposalDeficits) {
+    if (deficit <= 0) continue;
+    const scc = sccs.find((s) => s.items.has(itemId));
+    if (!scc) {
+      // Defensive: in current data every forced-disposal item with a
+      // deficit lives inside an SCC (byproduct chains form cycles). If
+      // a future game-data shift produces a non-cyclic deficit, the
+      // user-facing warning would silently disappear — log it so the
+      // gap is observable in dev mode.
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[GLOBAL_FLOW] deficit on ${itemId} (${deficit.toFixed(2)}/min) has no containing SCC; warning not surfaced`,
+        );
+      }
+      continue;
+    }
+    if (seenSccIds.has(scc.id)) continue;
+    seenSccIds.add(scc.id);
+    invalidSCCs.push({
+      sccId: scc.id,
+      involvedItems: scc.items,
+      reason: "no_solution",
+    });
+  }
+
   // --- Post-LP: derive itemDemands ---
   // Downstream consumers (calculator.ts buildProductionGraph) read
   // itemDemands only for raw items to compute their consumption rate;
@@ -239,7 +290,7 @@ export async function calculateFlows(
       itemDemands,
       recipeFacilityCounts: result.facilityCounts,
     },
-    invalidSCCs: [],
+    invalidSCCs,
   };
 }
 
