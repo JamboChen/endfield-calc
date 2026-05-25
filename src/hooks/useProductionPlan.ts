@@ -49,6 +49,26 @@ interface SavedPlan {
   binFusion?: boolean;
 }
 
+/**
+ * A user-pinned (item, recipe) pair where the LP chose to produce zero
+ * of the pinned recipe. The pin is a hard producer-set narrowing in
+ * `availableProducersFor` (graph-builder.ts) — if any downstream
+ * consumer of the pinned item has a bypass alternative the LP prefers
+ * on the lex objective, the pinned item disappears from the plan
+ * entirely and the pinned recipe's facility count clamps to 0.
+ *
+ * Detection predicate: `!plan.nodes.has(pinnedRecipeId)`. The
+ * active-subgraph filter in `buildProductionGraph` (calculator.ts:668)
+ * only adds recipe nodes with `fc > 0`, and the LP-side epsilon clamp
+ * (`FACILITY_COUNT_EPSILON` in `lp-solver.ts:379`) zeroes sub-1e-6
+ * outputs — so the predicate is exact, no thresholding required.
+ *
+ * Surfaced in the Production Table as a ghost row appended to the end
+ * of the row list (see `ProductionTable.tsx`), with the same recipe
+ * picker + reset affordance as normal rows.
+ */
+export type IneffectivePin = { itemId: ItemId; recipeId: RecipeId };
+
 interface ParsedHashState {
   targets: ProductionTarget[];
   recipeOverrides: Map<ItemId, RecipeId>;
@@ -530,6 +550,33 @@ export function useProductionPlan(
     return { ...plan, nodes: activeNodes, edges: activeEdges } as ProductionDependencyGraph;
   }, [plan]);
 
+  // Set of item ids the user has pinned a recipe for. Threaded into the
+  // Production Table so the recipe picker can render a reset affordance
+  // for any pinned row (effective or ineffective). Set form keeps the
+  // `has()` lookup O(1) inside the per-row map in the table.
+  const pinnedItemIds = useMemo<ReadonlySet<ItemId>>(
+    () => new Set(recipeOverrides.keys()),
+    [recipeOverrides],
+  );
+
+  // Pinned (item, recipe) pairs the LP did NOT run. Emits a ghost row
+  // at the end of the Production Table's row list so the user can see
+  // and remove these otherwise-invisible pins. See `IneffectivePin`
+  // for the detection rationale.
+  //
+  // Reads `displayPlan` (post-zero-filter) rather than the raw `plan`:
+  // for recipe nodes the two are equivalent (calculator's active filter
+  // already drops fc=0), but using `displayPlan` keeps this memo
+  // consistent with the rest of the rendering pipeline.
+  const ineffectivePins = useMemo<IneffectivePin[]>(() => {
+    if (!displayPlan) return [];
+    const out: IneffectivePin[] = [];
+    for (const [itemId, recipeId] of recipeOverrides) {
+      if (!displayPlan.nodes.has(recipeId)) out.push({ itemId, recipeId });
+    }
+    return out;
+  }, [displayPlan, recipeOverrides]);
+
   // Single canonical `BinAggregates` per plan / ceilMode change. Lifted
   // here from `useProductionStats` + `useProductionTable` so the heavy
   // walk runs once per render (was twice — both view hooks called it
@@ -721,6 +768,19 @@ export function useProductionPlan(
     [],
   );
 
+  // Drop the user's pin for `itemId`. Triggered by the reset icon in
+  // the Production Table's recipe picker (both normal rows and ghost
+  // rows). The next calculation pass re-broadens the producer set for
+  // `itemId` via `availableProducersFor` so the LP picks freely.
+  const handleRecipePinReset = useCallback((itemId: ItemId) => {
+    setRecipeOverrides((prev) => {
+      if (!prev.has(itemId)) return prev;
+      const newMap = new Map(prev);
+      newMap.delete(itemId);
+      return newMap;
+    });
+  }, []);
+
   const handleAddClick = useCallback(() => {
     setDialogOpen(true);
   }, []);
@@ -824,9 +884,12 @@ export function useProductionPlan(
     handleBatchAddTargets,
     handleToggleRawMaterial,
     handleRecipeChange,
+    handleRecipePinReset,
     handleAddClick,
     handleSavePlan,
     handleOpenPlan,
     isLoading,
+    pinnedItemIds,
+    ineffectivePins,
   };
 }

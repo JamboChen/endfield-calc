@@ -32,6 +32,7 @@
     "noData": "No data",
     "noRecipe": "No formula",
     "rawMaterial": "Raw Material",
+    "removePin": "Remove pin",
     "unmarkRawMaterial": "Unmark",
     "bin": {
       "slots": "{{slots}} slots",

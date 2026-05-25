@@ -2860,4 +2860,49 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
       }
     }
   });
+
+  test("LP eliminates pinned intermediate recipe when downstream bypass exists", async () => {
+    // Repro for the user-reported ineffective-pin scenario:
+    //   * Target: Dense Carbon Powder (item_carbon_enr_powder).
+    //   * Pin: Carbon Powder → Buckflower Powder route
+    //          (furnance_carbon_powder_1).
+    //   * Expected: the LP swaps Dense Carbon Powder's producer to a
+    //     recipe that doesn't need Carbon Powder at all
+    //     (furnance_carbon_enr_powder_1 / _2 — direct from Ground
+    //     Buckflower / Ground Wuxiang Moss). The pinned Carbon Powder
+    //     recipe ends up with facility count 0 and is filtered out of
+    //     plan.nodes by the active-subgraph guard in
+    //     `buildProductionGraph` (calculator.ts:668).
+    //
+    // The predicate `!plan.nodes.has(pinnedRecipeId)` is the exact
+    // signal `useProductionPlan` uses to surface ineffective pins in
+    // the Production Table footer (ghost rows).
+    const overrides = new Map([
+      [ItemId.ITEM_CARBON_POWDER, RecipeId.FURNANCE_CARBON_POWDER_1],
+    ]);
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_CARBON_ENR_POWDER, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      { recipeOverrides: overrides },
+    );
+    expect(plan.invalidCycles).toEqual([]);
+
+    // The pinned Carbon Powder recipe must NOT appear in plan.nodes —
+    // the LP routed around Carbon Powder entirely.
+    expect(plan.nodes.has(RecipeId.FURNANCE_CARBON_POWDER_1)).toBe(false);
+
+    // Sanity: the LP picked one of the direct Dense-Carbon-Powder
+    // routes that bypasses Carbon Powder.
+    const bypassCandidates: RecipeId[] = [
+      RecipeId.FURNANCE_CARBON_ENR_POWDER_1,
+      RecipeId.FURNANCE_CARBON_ENR_POWDER_2,
+    ];
+    const activeBypass = bypassCandidates.filter((rid) => {
+      const n = plan.nodes.get(rid);
+      return n?.type === "recipe" && n.facilityCount > 0;
+    });
+    expect(activeBypass.length).toBeGreaterThan(0);
+  });
 });

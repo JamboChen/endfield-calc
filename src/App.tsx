@@ -138,6 +138,7 @@ function AppContent() {
     handleBatchAddTargets,
     handleToggleRawMaterial,
     handleRecipeChange,
+    handleRecipePinReset,
     handleAddClick,
     setDialogOpen,
     setActiveTab,
@@ -148,6 +149,8 @@ function AppContent() {
     handleSavePlan,
     handleOpenPlan,
     isLoading,
+    pinnedItemIds,
+    ineffectivePins,
   } = useProductionPlan(availableRecipes, facilityCaps);
 
   const targetRates = useMemo(
@@ -195,7 +198,10 @@ function AppContent() {
           activeTab={activeTab}
           onTabChange={setActiveTab}
           onRecipeChange={handleRecipeChange}
+          onRecipePinReset={handleRecipePinReset}
           onToggleRawMaterial={handleToggleRawMaterial}
+          pinnedItemIds={pinnedItemIds}
+          ineffectivePins={ineffectivePins}
           targetRates={targetRates}
           ceilMode={ceilMode}
           onCeilModeChange={setCeilMode}

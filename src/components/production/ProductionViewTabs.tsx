@@ -19,6 +19,7 @@ import type {
   VisualizationMode,
 } from "@/types";
 import type { ProductionTableData } from "@/hooks/useProductionTable";
+import type { IneffectivePin } from "@/hooks/useProductionPlan";
 
 interface ProductionViewTabsProps {
   plan: ProductionDependencyGraph | null;
@@ -29,7 +30,14 @@ interface ProductionViewTabsProps {
   activeTab: "table" | "tree";
   onTabChange: (tab: "table" | "tree") => void;
   onRecipeChange: (itemId: ItemId, recipeId: RecipeId) => void;
+  onRecipePinReset: (itemId: ItemId) => void;
   onToggleRawMaterial: (itemId: ItemId) => void;
+  /** Items with a user-pinned recipe (effective or ineffective). Drives
+   *  the reset-icon affordance in the recipe picker. */
+  pinnedItemIds: ReadonlySet<ItemId>;
+  /** Pinned recipes the LP chose not to run. Emitted as ghost rows at
+   *  the end of the Production Table's row list. */
+  ineffectivePins: IneffectivePin[];
   targetRates?: Map<ItemId, number>;
   ceilMode: boolean;
   onCeilModeChange: (value: boolean) => void;
@@ -52,7 +60,10 @@ export default function ProductionViewTabs({
   activeTab,
   onTabChange,
   onRecipeChange,
+  onRecipePinReset,
   onToggleRawMaterial,
+  pinnedItemIds,
+  ineffectivePins,
   targetRates,
   ceilMode,
   onCeilModeChange,
@@ -192,8 +203,12 @@ export default function ProductionViewTabs({
                   data={tableData.rows}
                   totals={tableData.totals}
                   items={items}
+                  recipes={recipes}
                   onRecipeChange={onRecipeChange}
+                  onRecipePinReset={onRecipePinReset}
                   onToggleRawMaterial={onToggleRawMaterial}
+                  pinnedItemIds={pinnedItemIds}
+                  ineffectivePins={ineffectivePins}
                   ceilMode={ceilMode}
                 />
               </div>
