@@ -487,7 +487,7 @@ const FacilityId = {
   SHAPER_1: "shaper_1",
   THICKENER_1: "thickener_1",
   // NOTE: "assebling" is a typo from the upstream `FactoryBuildingTable`
-  // game-data dump. Preserved verbatim so the `bun run extract:recipes`
+  // game-data dump. Preserved verbatim so the `pnpm run extract:recipes`
   // pipeline keeps matching upstream IDs. Do not rename locally — see
   // `public/images/facilities/tools_assebling_mc_1.png` and the recipe
   // `facilityId` references in `src/data/recipes.ts`.
