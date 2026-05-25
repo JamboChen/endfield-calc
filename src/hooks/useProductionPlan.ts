@@ -410,6 +410,7 @@ export function useProductionPlan() {
     recipeOverrides,
     manualRawMaterials,
     facilities,
+    items,
     invalidCycleItemIds,
     ceilMode,
   );

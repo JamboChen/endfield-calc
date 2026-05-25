@@ -14,6 +14,7 @@ export const calcRate = (amount: number, craftingTime: number): number =>
   (amount * 60) / craftingTime;
 
 import type { Item, ItemId } from "@/types";
+import { rawMaterialSources } from "@/data";
 
 const TRANSPORT_BELT_CAPACITY = 30;
 const TRANSPORT_PIPE_CAPACITY = 120;
@@ -45,8 +46,40 @@ export const getTransportCountWithFacilities = (
   return ceil ? Math.max(throughput, Math.ceil(facilityCount)) : Math.max(throughput, facilityCount);
 };
 
-export const getPickupPointCount = (demandRate: number, item?: Item): number =>
-  demandRate > 0 ? Math.ceil(demandRate / getTransportCapacity(item)) : 0;
+/**
+ * Per-facility throughput for the source building that supplies a raw
+ * material. Honours the `ratePerMinute` override from `rawMaterialSources`
+ * (60/min for liquids — pump_1/pump_2 cap at one unit per second).
+ * Falls back to transport capacity (30 belt / 120 pipe) for raws without
+ * an explicit override, and for items that aren't in `rawMaterialSources`
+ * (defensive — shouldn't happen for actual raws).
+ */
+export const getRawSourceRate = (
+  itemId: ItemId,
+  item: Item | undefined,
+): number => {
+  const cfg = rawMaterialSources.get(itemId);
+  return cfg?.ratePerMinute ?? getTransportCapacity(item);
+};
+
+/**
+ * Fractional number of source-facility instances (pickup points) needed
+ * to supply the demand. Returns the raw `demand / perFacilityRate` ratio
+ * — callers apply `formatCount(value, ceilMode)` (or similar) to render
+ * either the ceiled physical count (ceilMode=true) or the fractional
+ * theoretical count (ceilMode=false). Mirrors how regular bin facility
+ * counts are formatted.
+ *
+ * `perFacilityRate` is the per-facility throughput from `getRawSourceRate`
+ * — DO NOT pass transport capacity directly: pumps (60/min) are slower
+ * than pipes (120/min) and unloaders (30/min) match belt capacity, but
+ * the source-rate abstraction is the right concept.
+ */
+export const getPickupPointCount = (
+  demandRate: number,
+  perFacilityRate: number,
+): number =>
+  demandRate > 0 && perFacilityRate > 0 ? demandRate / perFacilityRate : 0;
 
 /**
  * Returns the effective facility count — ceiled when ceilMode is on,

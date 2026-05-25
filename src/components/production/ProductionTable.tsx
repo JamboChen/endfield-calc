@@ -23,7 +23,8 @@ import { Switch } from "@/components/ui/switch";
 import type { Item, Recipe, Facility, ItemId, RecipeId, BinId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName, getRecipeName } from "@/lib/i18n-helpers";
-import { getTransportCountWithFacilities, getPickupPointCount, formatCount, formatNumber } from "@/lib/utils";
+import { getTransportCountWithFacilities, getPickupPointCount, getRawSourceRate, formatCount, formatNumber } from "@/lib/utils";
+import { rawMaterialSources, facilities as allFacilities } from "@/data";
 
 export type ProductionLineData = {
   item: Item;
@@ -508,18 +509,27 @@ const ProductionTable = memo(function ProductionTable({
 
                   {/* Facility count */}
                   <TableCell className="text-right font-mono text-sm tabular-nums p-2">
-                    {line.isRawMaterial ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="text-green-600 dark:text-green-400 cursor-help">
-                            {getPickupPointCount(line.outputRate, line.item)}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="text-xs">{t("tree.pickupPoint")}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : isManualRaw ? (
+                    {line.isRawMaterial ? (() => {
+                      const cfg = rawMaterialSources.get(line.item.id);
+                      const sourceFac = cfg
+                        ? allFacilities.find((f) => f.id === cfg.sourceFacility)
+                        : undefined;
+                      const tooltipLabel = sourceFac
+                        ? getFacilityName(sourceFac)
+                        : t("tree.pickupPoint");
+                      return (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="text-green-600 dark:text-green-400 cursor-help">
+                              {formatCount(getPickupPointCount(line.outputRate, getRawSourceRate(line.item.id, line.item)), ceilMode)}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">{tooltipLabel}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })() : isManualRaw ? (
                       <span className="text-muted-foreground">-</span>
                     ) : isGrouped && line.binBuildingCount !== undefined ? (
                       // Grouped bin: surface the bin's building count

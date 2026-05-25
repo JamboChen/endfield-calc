@@ -7,6 +7,7 @@ import type {
   BinId,
   Recipe,
   Facility,
+  Item,
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
 import { calcRate } from "@/lib/utils";
@@ -196,6 +197,7 @@ export function useProductionTable(
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
   facilities: Facility[] = [],
+  items: Item[] = [],
   invalidCycleItemIds: Set<ItemId> = new Set(),
   ceilMode: boolean = false,
 ): ProductionTableData {
@@ -341,7 +343,9 @@ export function useProductionTable(
     // in plan-helpers.ts — same numbers `useProductionStats` consumes,
     // so the table footer and stats panel cannot drift. `ceilMode`
     // controls physical-vs-theoretical building/power accounting.
-    const aggregates = aggregateBinTotals(plan, facilities, { ceilMode });
+    const aggregates = aggregateBinTotals(plan, facilities, items, {
+      ceilMode,
+    });
     const groupedSavings = Math.max(
       0,
       aggregates.multiFormulaBaselineBuildings -
@@ -356,5 +360,5 @@ export function useProductionTable(
         groupedSavings,
       },
     };
-  }, [plan, recipes, recipeOverrides, manualRawMaterials, facilities, invalidCycleItemIds, ceilMode]);
+  }, [plan, recipes, recipeOverrides, manualRawMaterials, facilities, items, invalidCycleItemIds, ceilMode]);
 }

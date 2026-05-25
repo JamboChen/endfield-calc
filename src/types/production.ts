@@ -57,6 +57,22 @@ export type ProductionNode = {
    * tooltip self-contained without re-querying the plan.
    */
   bin?: Bin;
+  /**
+   * Items the player must seed into this node's hosting building(s)
+   * at startup so a 2-recipe cycle can bootstrap. Source of truth for
+   * the amber Prefill chip rendered by `CustomProductionNode`.
+   *
+   * Semantics differ slightly between mappers:
+   *   - **bf=1** (`bin-fused-mapper`): one node per bin. The list is
+   *     the bin's full union (= `bin.prefillCandidates`). Seeding ANY
+   *     one item bootstraps the bin's cycle.
+   *   - **bf=0** (`merged-mapper`): one node per recipe. The list is
+   *     the recipe's specific prefill items (the union from
+   *     `ProductionGraphNode.prefillCandidates` across hosting bins).
+   *
+   * Empty / undefined when no prefill is needed.
+   */
+  prefillCandidates?: ItemId[];
 };
 
 /**
@@ -100,6 +116,22 @@ export type ProductionGraphNode =
       binId?: BinId;
       /** IDs of sister recipes co-located in the same bin. */
       binSisterRecipeIds?: RecipeId[];
+      /**
+       * Per-recipe prefill items: items this recipe consumes that
+       * participate in a 2-recipe cycle the LP can't bootstrap from
+       * raws. Populated by `propagatePrefillCandidates` after packing.
+       *
+       * The mapper merges multiple bin allocations into a single
+       * recipe-level list (union across hosting bins, filtered to
+       * inputs THIS recipe consumes). Read by `merged-mapper` (bf=0)
+       * to render the per-recipe chip and by tooltips that surface
+       * the recipe's bootstrap requirement independently of bin
+       * grouping. Empty when this recipe isn't on a stuck 2-cycle.
+       *
+       * For the bin-aware union (rendered on bin cards in bf=1), read
+       * `bin.prefillCandidates` instead.
+       */
+      prefillCandidates?: ItemId[];
     };
 
 /**
@@ -205,6 +237,38 @@ export type Bin = {
   externalOutputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }>;
   /** Items whose net flow is zero (fully internal); occupies an inner slot. */
   internalItems: ItemId[];
+  /**
+   * Items the player must seed into this bin's inner inventory at
+   * startup so a 2-recipe cycle hosted by the bin (or spanning it)
+   * can bootstrap. Populated by `propagatePrefillCandidates` in
+   * `calculator.ts` after packing; the per-bin list is the union of
+   * each member recipe's prefill items, restricted to items the bin's
+   * recipes actually consume.
+   *
+   * **The 2-recipe cycle rule + bootability filter**: items become
+   * candidates only when they participate in a TIGHT back-and-forth
+   * between two recipes AND neither side of the cycle is reachable
+   * from raws via the active recipe set. If even one cycle item has
+   * a bootable producer (e.g. Furnace producing Sewage from raws in
+   * Xircon-60), the cycle has an external entry point and emits no
+   * chip — the system bootstraps via that side once any genuinely
+   * stuck inner SCC is seeded.
+   *
+   * Two cycle shapes flagged when stuck:
+   *   - **Inter-bin**: planter ↔ seedcollector moss cycle. Each bin
+   *     gets the cycle item its own recipe consumes (planter→[seed],
+   *     seedcollector→[plant]).
+   *   - **Intra-bin (when stuck)**: a multi-formula building hosting
+   *     a tight 2-cycle whose items have no bootable producer. In
+   *     practice this is rare with the real recipe set; the Xircon
+   *     Crucible cycle is NOT flagged because Sewage is bootable via
+   *     Furnace.
+   *
+   * UI consumers: `CustomProductionNode` reads `node.prefillCandidates`
+   * (which equals `bin.prefillCandidates` for bin-fused mappers, or
+   * the per-recipe filtered list for the merged mapper).
+   */
+  prefillCandidates: ItemId[];
   /** Distinct item count actually used by this bin (≤ facility.cacheSlots). */
   innerSlotsUsed: number;
   /** True when this bin shape groups ≥ 2 distinct recipes per building. */

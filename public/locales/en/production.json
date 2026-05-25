@@ -83,6 +83,10 @@
     "internal": "Internal",
     "internalItems": "Internal items (circulating)",
     "innerSlotsUsed": "Inner slots: {{used}}",
-    "portUtilization": "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out"
+    "portUtilization": "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out",
+    "prefillZoneLabel": "Prefill",
+    "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
+    "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
+    "prefillCandidates": "Prefill candidates"
   }
 }

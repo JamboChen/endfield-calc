@@ -17,7 +17,8 @@ import {
   createDisposalSinkNode,
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
-import { calcRate } from "@/lib/utils";
+import { calcRate, getRawSourceRate } from "@/lib/utils";
+import { rawMaterialSources } from "@/data";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import { getRecipeOutputItemId, getRecipeInputItemId, getItemProducers, isRecipeTerminal, computeGreedyAllocation } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
@@ -86,6 +87,11 @@ export function mapPlanToFlowMerged(
               dependencies: [],
               binId: node.binId,
               binSisterRecipeIds: node.binSisterRecipeIds,
+              // bf=0 chip: this recipe's specific prefill items (not the
+              // bin's full union). Empty for recipes that don't sit on
+              // a stuck 2-cycle, which is most of them. See
+              // `propagatePrefillCandidates` in calculator.ts.
+              prefillCandidates: node.prefillCandidates ?? [],
             },
             items,
             facilities,
@@ -253,10 +259,35 @@ export function mapPlanToFlowMerged(
           ),
         );
       } else if (sourceNode.isRawMaterial) {
-        // Raw material → Recipe: create node for raw material
+        // Raw material → Recipe: create node for raw material, tagged
+        // with its source facility (unloader_1 / pump_1 / pump_2) and
+        // the fractional pickup count. Downstream rendering applies
+        // `formatCount(value, ceilMode)` to render ceiled vs fractional.
+        // Power for these facilities is summed by `aggregateBinTotals`.
+        //
+        // Note: this legacy (bf=0) view does NOT route raw byproducts
+        // as separate edges. The pickup card's `targetRate` already
+        // shows the LP-computed NET external demand
+        // (`sourceNode.productionRate`), but the sum of pickup→consumer
+        // edges is the GROSS per-consumer demand. Byproduct supply
+        // appears on the producing recipe's card but isn't drawn as an
+        // edge here. See `mapPlanToFlowBinFused` for the byproduct-
+        // routing implementation in the default (bf=1) view.
         const rawMaterialNodeId = createRawMaterialId(sourceNode.itemId);
 
         if (!flowNodes.find((n) => n.id === rawMaterialNodeId)) {
+          const cfg = rawMaterialSources.get(sourceNode.itemId);
+          const sourceFacility = cfg
+            ? (facilities.find((f) => f.id === cfg.sourceFacility) ?? null)
+            : null;
+          const perFacilityRate = getRawSourceRate(
+            sourceNode.itemId,
+            sourceNode.item,
+          );
+          const pickupCount =
+            perFacilityRate > 0
+              ? sourceNode.productionRate / perFacilityRate
+              : 0;
           flowNodes.push(
             createProductionFlowNode(
               rawMaterialNodeId,
@@ -264,8 +295,8 @@ export function mapPlanToFlowMerged(
                 item: sourceNode.item,
                 targetRate: sourceNode.productionRate,
                 recipe: null,
-                facility: null,
-                facilityCount: 0,
+                facility: sourceFacility,
+                facilityCount: pickupCount,
                 isRawMaterial: true,
                 isTarget: false,
                 dependencies: [],

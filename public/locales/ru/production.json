@@ -82,6 +82,10 @@
     "formulasInBin": "Формулы в этом здании",
     "internalItems": "Внутренние предметы (циркулируют)",
     "innerSlotsUsed": "Внутренние слоты: {{used}}",
-    "portUtilization": "Порты: {{liqIn}}/{{liqInCap}} жидк. вх · {{liqOut}}/{{liqOutCap}} жидк. вых · {{beltOut}}/{{beltOutCap}} лент. вых"
+    "portUtilization": "Порты: {{liqIn}}/{{liqInCap}} жидк. вх · {{liqOut}}/{{liqOutCap}} жидк. вых · {{beltOut}}/{{beltOutCap}} лент. вых",
+    "prefillZoneLabel": "Prefill",
+    "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
+    "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
+    "prefillCandidates": "Prefill candidates"
   }
 }

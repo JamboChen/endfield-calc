@@ -6,8 +6,48 @@ import {
   computeGreedyAllocation,
   computeNodeByproducts,
 } from "@/lib/plan-helpers";
-import { items, recipes, facilities } from "@/data";
+import { items, recipes, facilities, rawMaterialSources } from "@/data";
+import { getRawSourceRate } from "@/lib/utils";
 import { ItemId as ItemIdEnum, FacilityId as FacilityIdEnum } from "@/types/constants";
+import type { ProductionDependencyGraph } from "@/types";
+
+/**
+ * Source-facility (pickup-point) contribution that `aggregateBinTotals`
+ * now folds into the totals. Tests that assert bin-only math must add
+ * this back when comparing against per-bin reductions.
+ *
+ * `ceilMode=true` uses ceiled pickup count (physical pumps); `ceilMode=false`
+ * uses fractional pickup count (theoretical view). Mirrors the bin-loop
+ * semantic in `aggregateBinTotals`.
+ */
+function expectedPickupContribution(
+  plan: ProductionDependencyGraph,
+  ceilMode: boolean = true,
+): {
+  buildings: number;
+  power: number;
+} {
+  let buildings = 0;
+  let power = 0;
+  const facilityById = new Map(facilities.map((f) => [f.id, f]));
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  for (const node of plan.nodes.values()) {
+    if (node.type !== "item") continue;
+    if (!node.isRawMaterial || node.productionRate <= 0) continue;
+    const cfg = rawMaterialSources.get(node.itemId);
+    if (!cfg) continue;
+    const fac = facilityById.get(cfg.sourceFacility);
+    if (!fac) continue;
+    const item = itemById.get(node.itemId);
+    const rate = getRawSourceRate(node.itemId, item);
+    if (rate <= 0) continue;
+    const fractional = node.productionRate / rate;
+    const effective = ceilMode ? Math.ceil(fractional) : fractional;
+    buildings += effective;
+    power += fac.powerConsumption * effective;
+  }
+  return { buildings, power };
+}
 import type {
   Item,
   Recipe,
@@ -335,6 +375,7 @@ describe("computeNodeByproducts", () => {
         // NOTE: Sewage intentionally NOT present — it's internal.
       ],
       internalItems: [sewageItem.id, xiraniteItem.id],
+      prefillCandidates: [],
       innerSlotsUsed: 8,
       isGrouped: true,
       variantId: "fac:grouped#v0",
@@ -412,6 +453,7 @@ describe("computeNodeByproducts", () => {
           externalInputs: [],
           externalOutputs: [],
           internalItems: [],
+          prefillCandidates: [],
           innerSlotsUsed: 4,
           isGrouped: false,
           variantId: "fac:not-grouped#v0",
@@ -439,6 +481,7 @@ describe("computeNodeByproducts", () => {
           { itemId: lowpolyItem.id, rate: 30, isLiquid: true },
         ],
         internalItems: [],
+        prefillCandidates: [],
         innerSlotsUsed: 4,
         isGrouped: true,
         variantId: "fac:dedupe#v0",
@@ -469,6 +512,7 @@ describe("computeNodeByproducts", () => {
           externalInputs: [],
           externalOutputs: [],
           internalItems: [],
+          prefillCandidates: [],
           innerSlotsUsed: 1,
           isGrouped: true,
           variantId: "fac:missing-items#v0",
@@ -505,7 +549,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     expect(totals.perFacility.get(FacilityIdEnum.MIX_POOL_2)).toBe(1);
   });
 
@@ -518,7 +562,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const expandedDirectCount = plan.bins
       .filter((b) => b.facilityId === FacilityIdEnum.MIX_POOL_2)
       .reduce((s, b) => s + Math.max(1, Math.ceil(b.buildingCount)), 0);
@@ -528,63 +572,67 @@ describe("aggregateBinTotals (real data)", () => {
       .toBe(4);
   });
 
-  test("ceilMode=false: totalPower equals Σ facility.power × mean(activities) per bin", async () => {
+  test("ceilMode=false: totalPower equals Σ facility.power × mean(activities) per bin + pickup-source power", async () => {
     // In ceilMode=OFF, each bin contributes the mean of its recipe
     // activities (sum_alloc / recipe_count) — not the raw buildingCount.
     // For singletons the mean equals buildingCount; for grouped bins it
-    // is strictly ≤ buildingCount.
+    // is strictly ≤ buildingCount. Pickup-point source facilities mirror
+    // the bin-loop semantic: fractional under ceilMode=OFF.
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities);
+    const totals = aggregateBinTotals(plan, facilities, items);
     const sumByBin = buildBinActivitySums(plan);
 
-    let expected = 0;
+    let binPower = 0;
     const facilityById = new Map(facilities.map((f) => [f.id, f]));
     for (const bin of plan.bins) {
       const fac = facilityById.get(bin.facilityId);
       if (!fac) continue;
       const recipeCount = Math.max(1, bin.recipeIds.length);
       const sumActivities = sumByBin.get(bin.id) ?? bin.buildingCount;
-      expected += fac.powerConsumption * (sumActivities / recipeCount);
+      binPower += fac.powerConsumption * (sumActivities / recipeCount);
     }
-    expect(totals.totalPower).toBeCloseTo(expected, 6);
+    const pickup = expectedPickupContribution(plan, false);
+    expect(totals.totalPower).toBeCloseTo(binPower + pickup.power, 6);
   });
 
-  test("ceilMode=true: totalBuildings equals Σ ceil(bin.buildingCount) over all bins", async () => {
+  test("ceilMode=true: totalBuildings equals Σ ceil(bin.buildingCount) over all bins + pickup-point sources", async () => {
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
-    const expected = plan.bins.reduce(
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
+    const binTotal = plan.bins.reduce(
       (s, b) => s + Math.max(1, Math.ceil(b.buildingCount)),
       0,
     );
-    expect(totals.totalBuildings).toBe(expected);
+    const pickup = expectedPickupContribution(plan);
+    expect(totals.totalBuildings).toBe(binTotal + pickup.buildings);
   });
 
-  test("ceilMode=false (default): totalBuildings equals Σ mean(activities) per bin", async () => {
+  test("ceilMode=false (default): totalBuildings equals Σ mean(activities) per bin + pickup-point sources", async () => {
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
       items,
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities);
+    const totals = aggregateBinTotals(plan, facilities, items);
     const sumByBin = buildBinActivitySums(plan);
 
-    const expected = plan.bins.reduce((s, b) => {
+    const binTotal = plan.bins.reduce((s, b) => {
       const recipeCount = Math.max(1, b.recipeIds.length);
       const sumActivities = sumByBin.get(b.id) ?? b.buildingCount;
       return s + sumActivities / recipeCount;
     }, 0);
-    expect(totals.totalBuildings).toBeCloseTo(expected, 6);
+    const pickup = expectedPickupContribution(plan, false);
+    expect(totals.totalBuildings).toBeCloseTo(binTotal + pickup.buildings, 6);
   });
 
   test("ceilMode=false: grouped Xircon bin contributes mean strictly below buildingCount", async () => {
@@ -645,7 +693,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities);
+    const totals = aggregateBinTotals(plan, facilities, items);
     expect(totals.multiFormulaBaselineBuildings)
       .toBeGreaterThanOrEqual(totals.multiFormulaActualBuildings);
   });
@@ -657,7 +705,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities);
+    const totals = aggregateBinTotals(plan, facilities, items);
     const facilityById = new Map(facilities.map((f) => [f.id, f]));
     let expected = 0;
     for (const bin of plan.bins) {
@@ -676,7 +724,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const sum = Array.from(totals.perFacility.values()).reduce(
       (a, b) => a + b,
       0,
@@ -691,7 +739,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities);
+    const totals = aggregateBinTotals(plan, facilities, items);
     const sum = Array.from(totals.perFacility.values()).reduce(
       (a, b) => a + b,
       0,
@@ -710,7 +758,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipeBinAllocations: new Map(),
       warnings: [],
     };
-    const totals = aggregateBinTotals(emptyPlan, facilities);
+    const totals = aggregateBinTotals(emptyPlan, facilities, items);
     expect(totals.totalBuildings).toBe(0);
     expect(totals.totalPower).toBe(0);
     expect(totals.perFacility.size).toBe(0);
@@ -737,6 +785,7 @@ describe("aggregateBinTotals (real data)", () => {
           externalInputs: [],
           externalOutputs: [],
           internalItems: [],
+          prefillCandidates: [],
           innerSlotsUsed: 0,
           isGrouped: false,
           variantId: "orphan:#v0",
@@ -745,7 +794,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipeBinAllocations: new Map(),
       warnings: [],
     };
-    const totals = aggregateBinTotals(plan, facilities);
+    const totals = aggregateBinTotals(plan, facilities, items);
     expect(totals.totalBuildings).toBe(0);
     expect(totals.totalPower).toBe(0);
   });
@@ -760,7 +809,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const furnaceCount = totals.perFacility.get(
       FacilityIdEnum.FURNANCE_1,
     );
@@ -778,7 +827,7 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities, { ceilMode: false });
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: false });
     const furnaceCount = totals.perFacility.get(
       FacilityIdEnum.FURNANCE_1,
     );
@@ -799,8 +848,8 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const ceiled = aggregateBinTotals(plan, facilities, { ceilMode: true });
-    const fractional = aggregateBinTotals(plan, facilities, {
+    const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
+    const fractional = aggregateBinTotals(plan, facilities, items, {
       ceilMode: false,
     });
     for (const [facId, ceiledCount] of ceiled.perFacility.entries()) {
@@ -820,10 +869,10 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const ceiledTotals = aggregateBinTotals(plan, facilities, {
+    const ceiledTotals = aggregateBinTotals(plan, facilities, items, {
       ceilMode: true,
     });
-    const fractionalTotals = aggregateBinTotals(plan, facilities, {
+    const fractionalTotals = aggregateBinTotals(plan, facilities, items, {
       ceilMode: false,
     });
     // Ceiled power must be ≥ fractional power (each fractional building
@@ -831,23 +880,24 @@ describe("aggregateBinTotals (real data)", () => {
     expect(ceiledTotals.totalPower).toBeGreaterThan(fractionalTotals.totalPower);
   });
 
-  test("ceilMode=true: power equals Σ fac.power × ceil(bin.buildingCount)", async () => {
+  test("ceilMode=true: power equals Σ fac.power × ceil(bin.buildingCount) + pickup-source power", async () => {
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
       items,
       recipes,
       facilities,
     );
-    const totals = aggregateBinTotals(plan, facilities, { ceilMode: true });
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const facilityById = new Map(facilities.map((f) => [f.id, f]));
-    let expected = 0;
+    let binPower = 0;
     for (const bin of plan.bins) {
       const fac = facilityById.get(bin.facilityId);
       if (!fac) continue;
-      expected +=
+      binPower +=
         fac.powerConsumption * Math.max(1, Math.ceil(bin.buildingCount));
     }
-    expect(totals.totalPower).toBeCloseTo(expected, 6);
+    const pickup = expectedPickupContribution(plan);
+    expect(totals.totalPower).toBeCloseTo(binPower + pickup.power, 6);
   });
 
   test("multiFormulaActual/Baseline are always-ceiled regardless of ceilMode", async () => {
@@ -859,8 +909,8 @@ describe("aggregateBinTotals (real data)", () => {
       recipes,
       facilities,
     );
-    const ceiled = aggregateBinTotals(plan, facilities, { ceilMode: true });
-    const fractional = aggregateBinTotals(plan, facilities, {
+    const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
+    const fractional = aggregateBinTotals(plan, facilities, items, {
       ceilMode: false,
     });
     expect(ceiled.multiFormulaActualBuildings).toBe(

@@ -23,6 +23,7 @@ type PortraitDrawerProps = {
   totalPickupPoints: number;
   rawMaterialPickupPoints: Map<ItemId, number>;
   error: string | null;
+  ceilMode?: boolean;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
   onAddClick: () => void;
@@ -39,6 +40,7 @@ export default function PortraitDrawer({
   totalPickupPoints,
   rawMaterialPickupPoints,
   error,
+  ceilMode = false,
   onTargetChange,
   onTargetRemove,
   onAddClick,
@@ -113,6 +115,7 @@ export default function PortraitDrawer({
             facilities={facilities}
             items={items}
             error={error}
+            ceilMode={ceilMode}
           />
         </div>
       </SheetContent>

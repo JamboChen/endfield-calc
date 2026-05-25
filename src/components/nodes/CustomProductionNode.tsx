@@ -1,6 +1,6 @@
 import { Handle, type NodeProps, type Node, Position } from "@xyflow/react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Factory, Zap, Star, ArrowDownToLine, Boxes, Repeat } from "lucide-react";
+import { Factory, Zap, Star, ArrowDownToLine, Boxes, Repeat, AlertTriangle } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -16,7 +16,7 @@ import type {
   FlowNodeDataWithTarget,
   RecipeId,
 } from "@/types";
-import { getTransportCountWithFacilities, getPickupPointCount, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
+import { getTransportCountWithFacilities, getPickupPointCount, getRawSourceRate, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
 import { computeNodeByproducts } from "@/lib/plan-helpers";
 
 /**
@@ -115,9 +115,9 @@ export default function CustomProductionNode({
         <div>
           <p className="text-muted-foreground">{t("tree.trueRawMaterial")}</p>
           <div className="mt-1 text-muted-foreground">
-            {t("tree.pickupPoint")}: {isSeparated
+            {facility ? getFacilityName(facility) : t("tree.pickupPoint")}: {isSeparated
               ? `${data.facilityIndex! + 1} / ${data.totalFacilities}`
-              : `×${getPickupPointCount(node.targetRate, node.item)}`}
+              : `×${formatCount(getPickupPointCount(node.targetRate, getRawSourceRate(node.item.id, node.item)), ceilMode)}`}
           </div>
         </div>
       ) : node.recipe ? (
@@ -163,11 +163,11 @@ export default function CustomProductionNode({
                 {t("tree.multiFormulaGroup", { defaultValue: "Multi-Formula Building" })}
               </div>
               {/* Per-formula breakdown: each constituent recipe with its
-                * I/O at slot rate. When `node.bin` is provided (bin-fused
-                * mapper path), iterate bin.recipeIds and look up the
-                * recipe via items metadata. Otherwise fall back to a
-                * name-only sister list (per-recipe / unfused path). */}
-              {node.bin ? (
+                * I/O at slot rate. Gated on `bin.isGrouped` (not just
+                * `node.bin`) because singletons now also carry a `bin`
+                * reference (so the Prefill chip can render on them), but
+                * they don't need the multi-formula breakdown. */}
+              {node.bin?.isGrouped ? (
                 <>
                   <div className="text-muted-foreground mt-1 mb-0.5">
                     {t("tree.formulasInBin", {
@@ -195,6 +195,23 @@ export default function CustomProductionNode({
                             <li key={iid}>
                               {it ? getItemName(it) : iid}
                             </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
+                  {node.bin.prefillCandidates.length > 0 && (
+                    <>
+                      <div className="text-amber-700 dark:text-amber-300 mt-2 mb-0.5 font-semibold">
+                        ⚠ {t("tree.prefillCandidates", {
+                          defaultValue: "Prefill candidates",
+                        })}:
+                      </div>
+                      <ul className="ml-3 text-amber-700 dark:text-amber-300 list-disc">
+                        {node.bin.prefillCandidates.map((iid) => {
+                          const it = getItemById(items, iid);
+                          return (
+                            <li key={iid}>{it ? getItemName(it) : iid}</li>
                           );
                         })}
                       </ul>
@@ -354,6 +371,70 @@ export default function CustomProductionNode({
               </div>
             )}
 
+            {/* === Zone 1.75: Prefill warning ===
+              * Cards on a stuck 2-recipe cycle (intra-bin or inter-bin)
+              * need a startup seed to bootstrap the loop. Amber chip
+              * lists the candidate items as icons; seeding ANY listed
+              * item in the corresponding building's inner inventory at
+              * startup is sufficient. Hover the chip for the full
+              * explanation; hover an item icon for the per-item tooltip.
+              *
+              * `node.prefillCandidates` is the source of truth across
+              * both mappers:
+              *   - bf=1 (`bin-fused-mapper`): mirrors `bin.prefillCandidates`
+              *     (the per-bin union).
+              *   - bf=0 (`merged-mapper`): the per-recipe filtered list
+              *     from `ProductionGraphNode.prefillCandidates`.
+              *
+              * Populated by `propagatePrefillCandidates` in calculator.ts
+              * with a bootability filter — cycles whose items are
+              * reachable from raws via the active recipe set emit no
+              * chip (e.g. the Xircon Crucible's Sewage/Effluent cycle
+              * stays silent because Furnace produces Sewage from raws).
+              */}
+            {(node.prefillCandidates?.length ?? 0) > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-dashed border-amber-500/40 cursor-help">
+                    <AlertTriangle className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span className="text-[10px] text-amber-700 dark:text-amber-300 shrink-0">
+                      {t("tree.prefillZoneLabel", { defaultValue: "Prefill" })}
+                    </span>
+                    <div className="flex items-center gap-1 flex-wrap min-w-0">
+                      {(node.prefillCandidates ?? []).map((iid) => {
+                        const it = getItemById(items, iid);
+                        if (!it) return null;
+                        return (
+                          <Tooltip key={iid}>
+                            <TooltipTrigger asChild>
+                              <div className="cursor-help">
+                                <ItemIcon item={it} size="sm" />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              <p className="text-xs">
+                                {getItemName(it)} — {t("tree.prefillItemTooltip", {
+                                  defaultValue: "Requires prefill at startup to bootstrap this cycle",
+                                })}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs">
+                  <p className="text-xs">
+                    {t("tree.prefillCardTooltip", {
+                      defaultValue:
+                        "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
+                    })}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+
             {/* === Zone 2: Facility / Source === */}
 
             {/* Facility details (produced items)
@@ -404,13 +485,13 @@ export default function CustomProductionNode({
                 <div className="flex items-center gap-1.5 min-w-0">
                   <ArrowDownToLine className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
                   <span className="text-[10px] text-muted-foreground truncate">
-                    {t("tree.pickupPoint")}
+                    {facility ? getFacilityName(facility) : t("tree.pickupPoint")}
                   </span>
                 </div>
                 <span className="font-mono font-semibold text-xs shrink-0 ml-2">
                   {isSeparated
                     ? `${data.facilityIndex! + 1}/${data.totalFacilities}`
-                    : `×${getPickupPointCount(node.targetRate, node.item)}`}
+                    : `×${formatCount(getPickupPointCount(node.targetRate, getRawSourceRate(node.item.id, node.item)), ceilMode)}`}
                 </span>
               </div>
             )}

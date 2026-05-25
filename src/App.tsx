@@ -73,6 +73,7 @@ export default function App() {
                 totalPickupPoints={stats.totalPickupPoints}
                 rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
                 error={error}
+                ceilMode={ceilMode}
                 onTargetChange={handleTargetChange}
                 onTargetRemove={handleTargetRemove}
                 onAddClick={handleAddClick}
@@ -111,6 +112,7 @@ export default function App() {
               totalPickupPoints={stats.totalPickupPoints}
               rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
               error={error}
+              ceilMode={ceilMode}
               onTargetChange={handleTargetChange}
               onTargetRemove={handleTargetRemove}
               onAddClick={handleAddClick}

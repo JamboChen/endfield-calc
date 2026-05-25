@@ -82,6 +82,10 @@
     "formulasInBin": "Fórmulas en este edificio",
     "internalItems": "Elementos internos (en circulación)",
     "innerSlotsUsed": "Ranuras internas: {{used}}",
-    "portUtilization": "Puertos: {{liqIn}}/{{liqInCap}} líq ent · {{liqOut}}/{{liqOutCap}} líq sal · {{beltOut}}/{{beltOutCap}} cinta sal"
+    "portUtilization": "Puertos: {{liqIn}}/{{liqInCap}} líq ent · {{liqOut}}/{{liqOutCap}} líq sal · {{beltOut}}/{{beltOutCap}} cinta sal",
+    "prefillZoneLabel": "Prefill",
+    "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
+    "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
+    "prefillCandidates": "Prefill candidates"
   }
 }

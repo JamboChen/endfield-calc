@@ -37,7 +37,8 @@ import {
   createDisposalSinkNode,
 } from "../flow/flow-utils";
 import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
-import { calcRate, getTransportCapacity } from "@/lib/utils";
+import { calcRate, getRawSourceRate } from "@/lib/utils";
+import { rawMaterialSources } from "@/data";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import { buildBinActivitySums, pickBinHeadlineOutput } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
@@ -150,17 +151,13 @@ export function mapPlanToFlowBinFused(
   // externalOutputs and as a consumer for each item in its
   // externalInputs.
   //
-  // Raw materials are deliberately NOT registered as producers even when
-  // a bin produces them as a byproduct (e.g. Liquid Purifier outputs
-  // Liquid Water). Reason: raw items are conceptually pickup-sourced; the
-  // merged-mapper (bf=0) makes the same call via `getItemProducers`
-  // returning [] for raw items, ensuring a raw-material pickup node is
-  // emitted regardless of byproduct producers. Mirroring that here keeps
-  // bf=1 visually consistent with bf=0 — the byproduct still appears on
-  // the producing bin's card (via `bin.externalOutputs` →
-  // `binExtraOutputs` → `computeNodeByproducts`), but no edge is drawn
-  // from it; consumer bins receive their raw input from the pickup node
-  // emitted in the rawMaterialDemand loop below.
+  // Raw materials WITH a byproduct producer (e.g. Liquid Purifier emits
+  // Liquid Water alongside its Xircon output) ARE registered as
+  // producers. The greedy allocator drains byproduct supply to consumers
+  // first; the pickup node emitted later absorbs only the residual
+  // (`node.productionRate`, the LP-computed net external demand from
+  // `propagateRawMaterialDeficit`). This keeps the visualization
+  // consistent with the side-panel net rate.
   //
   // Singleton-terminal bins (identified above) are EXCLUDED from
   // producer registration and have their consumer registrations
@@ -183,8 +180,6 @@ export function mapPlanToFlowBinFused(
     // output → target-sink edge would be redundant with the embed.
     if (!skipped) {
       for (const out of bin.externalOutputs) {
-        const outNode = plan.nodes.get(out.itemId);
-        if (outNode?.type === "item" && outNode.isRawMaterial) continue;
         const arr = producersByItem.get(out.itemId) ?? [];
         arr.push({ binId: bin.id, rate: out.rate });
         producersByItem.set(out.itemId, arr);
@@ -229,22 +224,14 @@ export function mapPlanToFlowBinFused(
     consumersByItem.set(inp.itemId, arr);
   }
 
-  // Raw-material pickup tracking. A raw material is an item with no
-  // producing bin (any consumer's input that's not in producersByItem).
-  const rawMaterialDemand = new Map<ItemId, number>();
-  for (const [itemId, consumers] of consumersByItem.entries()) {
-    if (producersByItem.has(itemId)) continue;
-    const node = plan.nodes.get(itemId);
-    if (node?.type !== "item" || !node.isRawMaterial) continue;
-    rawMaterialDemand.set(
-      itemId,
-      consumers.reduce((s, c) => s + c.rate, 0),
-    );
-  }
-
   // Greedy producer→consumer allocation per item. Produces one edge
   // per (producer, consumer) pair with the allocated rate. Whole-
   // producer assignments minimise edge count vs. proportional split.
+  //
+  // Raw byproducts (e.g. Liquid Purifier emits water) are now valid
+  // producers — the allocator drains their supply into consumers first,
+  // and the pickup-edge loop below absorbs only the residual demand
+  // (`node.productionRate`, the LP-computed net external demand).
   type AllocEdge = { producerId: string; consumerId: string; rate: number };
   const allocated = new Map<ItemId, AllocEdge[]>();
   for (const [itemId, producers] of producersByItem.entries()) {
@@ -337,7 +324,15 @@ export function mapPlanToFlowBinFused(
             (rid) => rid !== headline.recipeId,
           ),
           binExtraOutputs,
-          bin: bin.isGrouped ? bin : undefined,
+          // Always attach the bin; downstream code distinguishes grouped
+          // vs singleton via `bin.isGrouped`. Singleton bins need the
+          // reference so the Prefill chip can render when they're in a
+          // cycle (e.g. moss planter/seedcollector singletons).
+          bin,
+          // bf=1 chip: the bin's full union of prefill items. Mirrors
+          // `bin.prefillCandidates` so `CustomProductionNode` can read
+          // `node.prefillCandidates` uniformly across both mapper paths.
+          prefillCandidates: bin.prefillCandidates,
         },
         items,
         facilities,
@@ -352,7 +347,11 @@ export function mapPlanToFlowBinFused(
     );
   }
 
-  // Emit raw-material pickup nodes (one per distinct raw item).
+  // Emit raw-material pickup nodes (one per distinct raw item). Each
+  // node aggregates the raw's total demand and surfaces its source
+  // facility (unloader_1 / pump_1 / pump_2) so the card shows the
+  // correct icon + pickup count. Power for these facilities is
+  // accumulated by `aggregateBinTotals`, not by re-summing here.
   const emittedRawMaterials = new Set<ItemId>();
   const ensureRawMaterialNode = (itemId: ItemId): string => {
     const rawNodeId = createRawMaterialId(itemId);
@@ -360,15 +359,32 @@ export function mapPlanToFlowBinFused(
     emittedRawMaterials.add(itemId);
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item") return rawNodeId;
+    // Use `node.productionRate` (NET external demand, after byproduct
+    // netting via `propagateRawMaterialDeficit`) as the pickup's
+    // displayed rate — matches the side-panel `rawMaterialRequirements`
+    // and the bin-aware `aggregateBinTotals` totals. The old fallback
+    // to `rawMaterialDemand` (gross consumer sum) drifted from the
+    // side-panel value when a raw was also a byproduct inside an SCC.
+    const totalDemand = node.productionRate;
+    const cfg = rawMaterialSources.get(itemId);
+    const sourceFacility = cfg
+      ? (facilityById.get(cfg.sourceFacility) ?? null)
+      : null;
+    const perFacilityRate = getRawSourceRate(itemId, node.item);
+    // Fractional facility count; downstream rendering applies
+    // `formatCount(value, ceilMode)` to show either ceiled physical
+    // pickups (ceilMode=ON) or fractional theoretical pickups (OFF).
+    const pickupCount =
+      perFacilityRate > 0 ? totalDemand / perFacilityRate : 0;
     flowNodes.push(
       createProductionFlowNode(
         rawNodeId,
         {
           item: node.item,
-          targetRate: rawMaterialDemand.get(itemId) ?? node.productionRate,
+          targetRate: totalDemand,
           recipe: null,
-          facility: null,
-          facilityCount: 0,
+          facility: sourceFacility,
+          facilityCount: pickupCount,
           isRawMaterial: true,
           isTarget: false,
           dependencies: [],
@@ -483,23 +499,46 @@ export function mapPlanToFlowBinFused(
   }
 
   // Raw-material edges: each consumer of a raw item gets an edge from a
-  // pickup node. Consumers can be production bins (id = bin.id) or
+  // pickup node for whatever portion of its demand isn't already met by
+  // byproduct producers (the greedy allocator above handles byproduct
+  // routing). Consumers can be production bins (id = bin.id) or
   // disposal sinks (id = `disposal-...`).
+  //
+  // If byproduct supply fully covers a raw's consumer demand
+  // (`node.productionRate ≈ 0`), no pickup is emitted.
   for (const [itemId, consumers] of consumersByItem.entries()) {
-    if (producersByItem.has(itemId)) continue;
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item" || !node.isRawMaterial) continue;
+    if (node.productionRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const sourceItem = itemById.get(itemId);
-    const rawNodeId = ensureRawMaterialNode(itemId);
+    // Per-consumer allocation already assigned by greedy producer
+    // distribution (byproducts).
+    const allocByConsumer = new Map<string, number>();
+    for (const a of allocated.get(itemId) ?? []) {
+      allocByConsumer.set(
+        a.consumerId,
+        (allocByConsumer.get(a.consumerId) ?? 0) + a.rate,
+      );
+    }
+    // Compute per-consumer unmet demand; skip raws whose byproduct
+    // fully satisfies all consumers.
+    const unmetEdges: Array<{ binId: string; rate: number }> = [];
     for (const consumer of consumers) {
-      if (consumer.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
-      if (!emittedNodeIds.has(consumer.binId)) continue;
+      const alloc = allocByConsumer.get(consumer.binId) ?? 0;
+      const unmet = consumer.rate - alloc;
+      if (unmet <= MIN_VISIBLE_RATE_PER_MIN) continue;
+      unmetEdges.push({ binId: consumer.binId, rate: unmet });
+    }
+    if (unmetEdges.length === 0) continue;
+    const rawNodeId = ensureRawMaterialNode(itemId);
+    for (const ue of unmetEdges) {
+      if (!emittedNodeIds.has(ue.binId)) continue;
       flowEdges.push(
         createEdge(
           `e${edgeIdCounter++}`,
           rawNodeId,
-          consumer.binId,
-          consumer.rate,
+          ue.binId,
+          ue.rate,
           sourceItem,
           undefined,
           ceilMode,
@@ -734,10 +773,11 @@ export function mapPlanToFlowBinFusedSeparated(
   }
 
   // Producer/consumer lookups keyed by per-building instance id.
-  // Raw materials are deliberately NOT registered as producers — see
-  // the equivalent block in `mapPlanToFlowBinFused` above for the
-  // rationale. The raw-pickup loop downstream emits pickup nodes for
-  // raw items based on consumer demand, matching bf=0 behaviour.
+  // Raw materials WITH a byproduct producer (e.g. Liquid Purifier emits
+  // water) ARE registered as producers so the greedy allocator drains
+  // byproduct supply into consumers; pickup nodes downstream absorb
+  // only the residual `node.productionRate` (LP-computed net external
+  // demand).
   //
   // Singleton-terminal bins are absent from productionInstances (we
   // skipped them above), so they contribute no producer entries. For
@@ -752,8 +792,6 @@ export function mapPlanToFlowBinFusedSeparated(
     const id = buildingInstanceId(inst.bin.id, inst.instanceIdx);
     for (const out of inst.perBuildingOutputs) {
       if (out.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
-      const outNode = plan.nodes.get(out.itemId);
-      if (outNode?.type === "item" && outNode.isRawMaterial) continue;
       const arr = producersByItem.get(out.itemId) ?? [];
       arr.push({ instanceId: id, rate: out.rate });
       producersByItem.set(out.itemId, arr);
@@ -879,7 +917,16 @@ export function mapPlanToFlowBinFusedSeparated(
             (rid) => rid !== headline.recipeId,
           ),
           binExtraOutputs,
-          bin: inst.bin.isGrouped ? inst.bin : undefined,
+          // Always attach the bin; downstream code distinguishes grouped
+          // vs singleton via `bin.isGrouped`. Singleton bins need the
+          // reference so the Prefill chip can render when they're in a
+          // cycle (e.g. moss planter/seedcollector singletons).
+          bin: inst.bin,
+          // Facility View chip: per-building, but the prefill obligation
+          // is per-bin (seeding one building's inner inventory is what
+          // the player must do — they pick whichever instance). Mirror
+          // the bin's union so every per-building card carries the chip.
+          prefillCandidates: inst.bin.prefillCandidates,
         },
         items,
         facilities,
@@ -905,30 +952,47 @@ export function mapPlanToFlowBinFusedSeparated(
     );
   }
 
-  // Emit pickup nodes for raw materials (transport-capacity-sized).
+  // Emit pickup nodes for raw materials (one per source-facility instance).
+  // Each pickup node represents ONE physical unloader_1 (30/min, solid) or
+  // ONE pump_1/pump_2 (60/min, liquid). For liquids the source rate is
+  // half pipe capacity, so liquid raws emit ~2× as many pickup nodes as
+  // the previous transport-capacity-based math implied.
+  //
+  // `totalDemand` is the NET external supply rate (`node.productionRate`,
+  // after `propagateRawMaterialDeficit` nets out byproduct supply from
+  // same-SCC producers). This matches the side panel and
+  // `aggregateBinTotals`. The gross consumer sum would over-count the
+  // pickup capacity needed.
   const emittedRawNodes = new Set<string>();
-  for (const [itemId, consumers] of consumersByItem.entries()) {
-    if (producersByItem.has(itemId)) continue;
+  for (const itemId of consumersByItem.keys()) {
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item" || !node.isRawMaterial) continue;
-    const totalDemand = consumers.reduce((s, c) => s + c.rate, 0);
+    // Skip if byproduct producers fully satisfy demand. The
+    // `node.productionRate` is the LP-computed net residual that must
+    // be sourced externally.
+    const totalDemand = node.productionRate;
     if (totalDemand <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const item = itemById.get(itemId);
     if (!item) continue;
-    const transportCap = getTransportCapacity(item);
+    const sourceRate = getRawSourceRate(itemId, item);
+    if (sourceRate <= 0) continue;
+    const cfg = rawMaterialSources.get(itemId);
+    const sourceFacility = cfg
+      ? (facilityById.get(cfg.sourceFacility) ?? null)
+      : null;
     // Subtract MIN_VISIBLE_RATE_PER_MIN before ceiling to avoid
     // emitting an extra empty pickup node from FP noise on totalDemand
     // (see allocator-side comment for the full rationale).
     const pickupCount = Math.max(
       1,
-      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / transportCap),
+      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / sourceRate),
     );
     for (let i = 0; i < pickupCount; i++) {
       const pickupId = `${createRawMaterialId(itemId)}-p${i}`;
       if (emittedRawNodes.has(pickupId)) continue;
       emittedRawNodes.add(pickupId);
-      const capacity = Math.min(transportCap, totalDemand - i * transportCap);
-      const isPartialLoad = capacity < transportCap * 0.999;
+      const capacity = Math.min(sourceRate, totalDemand - i * sourceRate);
+      const isPartialLoad = capacity < sourceRate * 0.999;
       flowNodes.push(
         createProductionFlowNode(
           pickupId,
@@ -936,8 +1000,8 @@ export function mapPlanToFlowBinFusedSeparated(
             item,
             targetRate: capacity,
             recipe: null,
-            facility: null,
-            facilityCount: 0,
+            facility: sourceFacility,
+            facilityCount: 1,
             isRawMaterial: true,
             isTarget: false,
             dependencies: [],
@@ -1064,37 +1128,61 @@ export function mapPlanToFlowBinFusedSeparated(
   }
 
   // Raw-material → consumer edges (one per consumer-instance, drawn
-  // from sequential pickup-point capacity).
+  // from sequential pickup-point capacity). Per-pickup capacity here is
+  // the SOURCE-FACILITY rate (30/min unloader / 60/min pump), not pipe
+  // capacity — keeps the pickup-count math identical to the emission
+  // loop above. Edge labels downstream still use transport capacity for
+  // belt/pipe counts via getTransportCount.
+  //
+  // Consumers may already have part of their demand met by byproduct
+  // producers (the greedy allocator handles those above). The pickup
+  // absorbs only each consumer's UNMET demand — when byproduct fully
+  // covers a consumer, no pickup edge is emitted for that consumer.
   for (const [itemId, consumers] of consumersByItem.entries()) {
-    if (producersByItem.has(itemId)) continue;
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item" || !node.isRawMaterial) continue;
+    // `node.productionRate` is the LP-computed net external demand for
+    // raws (`propagateRawMaterialDeficit` already subtracted byproduct
+    // supply). Skip the pickup entirely if byproduct fully covers it.
+    if (node.productionRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const item = itemById.get(itemId);
     if (!item) continue;
-    const transportCap = getTransportCapacity(item);
-    // Track remaining capacity per pickup point.
-    const totalDemand = consumers.reduce((s, c) => s + c.rate, 0);
+    const sourceRate = getRawSourceRate(itemId, item);
+    if (sourceRate <= 0) continue;
+    // Per-consumer-instance allocation already assigned by greedy
+    // producer distribution (byproducts).
+    const allocByConsumer = new Map<string, number>();
+    for (const a of allocated.get(itemId) ?? []) {
+      allocByConsumer.set(
+        a.consumerId,
+        (allocByConsumer.get(a.consumerId) ?? 0) + a.rate,
+      );
+    }
+    // Net pickup capacity to size the pickup-node grid; matches the
+    // emission loop above which uses `node.productionRate` as totalDemand.
+    const totalDemand = node.productionRate;
     // Subtract MIN_VISIBLE_RATE_PER_MIN from totalDemand before ceiling
     // to avoid emitting an extra empty pickup node when totalDemand is
-    // an exact multiple of transportCap plus FP noise (e.g.,
-    // 480.0000001 / 120 rounds up to 5 instead of 4). The downstream
+    // an exact multiple of sourceRate plus FP noise. The downstream
     // allocator skips pickups with capacity below this same threshold,
     // so any such sub-visible "p_N" would be isolated.
     const pickupCount = Math.max(
       1,
-      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / transportCap),
+      Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / sourceRate),
     );
     const pickupRemaining: number[] = [];
     for (let i = 0; i < pickupCount; i++) {
       pickupRemaining.push(
-        Math.min(transportCap, totalDemand - i * transportCap),
+        Math.min(sourceRate, totalDemand - i * sourceRate),
       );
     }
     let pickupIdx = 0;
     for (const consumer of consumers) {
       if (consumer.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       if (!emittedNodeIds.has(consumer.instanceId)) continue;
-      let need = consumer.rate;
+      // Subtract byproduct already routed to this consumer-instance.
+      const alloc = allocByConsumer.get(consumer.instanceId) ?? 0;
+      let need = consumer.rate - alloc;
       while (need > MIN_VISIBLE_RATE_PER_MIN && pickupIdx < pickupCount) {
         const avail = pickupRemaining[pickupIdx];
         if (avail <= MIN_VISIBLE_RATE_PER_MIN) {

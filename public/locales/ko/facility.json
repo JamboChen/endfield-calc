@@ -9,10 +9,13 @@
   "mix_pool_1": "반응기",
   "mix_pool_2": "확장 반응기",
   "planter_1": "재배기",
+  "pump_1": "양수기",
+  "pump_2": "내산성 양수기 II",
   "seedcollector_1": "씨앗 추출기",
   "shaper_1": "성형기",
   "thickener_1": "연마기",
   "tools_assebling_mc_1": "포장기",
+  "unloader_1": "창고 출력 포트",
   "winder_1": "장비 부품 합성기",
   "xiranite_oven_1": "천화로"
 }

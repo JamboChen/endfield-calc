@@ -82,6 +82,10 @@
     "formulasInBin": "该建筑内的配方",
     "internalItems": "内部物品（循环）",
     "innerSlotsUsed": "内部槽位：{{used}}",
-    "portUtilization": "端口：{{liqIn}}/{{liqInCap}} 液入 · {{liqOut}}/{{liqOutCap}} 液出 · {{beltOut}}/{{beltOutCap}} 带出"
+    "portUtilization": "端口：{{liqIn}}/{{liqInCap}} 液入 · {{liqOut}}/{{liqOutCap}} 液出 · {{beltOut}}/{{beltOutCap}} 带出",
+    "prefillZoneLabel": "Prefill",
+    "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
+    "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
+    "prefillCandidates": "Prefill candidates"
   }
 }

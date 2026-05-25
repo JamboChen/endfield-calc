@@ -9,10 +9,13 @@
   "mix_pool_1": "Reactor Crucible",
   "mix_pool_2": "Expanded Crucible",
   "planter_1": "Planting Unit",
+  "pump_1": "Fluid Pump",
+  "pump_2": "Acid Resistant Pump Mk II",
   "seedcollector_1": "Seed-Picking Unit",
   "shaper_1": "Moulding Unit",
   "thickener_1": "Grinding Unit",
   "tools_assebling_mc_1": "Packaging Unit",
+  "unloader_1": "Depot Unloader",
   "winder_1": "Gearing Unit",
   "xiranite_oven_1": "Forge of the Sky"
 }

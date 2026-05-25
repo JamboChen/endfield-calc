@@ -6,7 +6,7 @@ import {
   mapPlanToFlowBinFusedSeparated,
 } from "@/components/mappers/bin-fused-mapper";
 import { items, recipes, facilities } from "@/data";
-import type { ItemId, ProductionDependencyGraph } from "@/types";
+import type { FacilityId, ItemId, ProductionDependencyGraph } from "@/types";
 import type { Edge, Node } from "@xyflow/react";
 
 function checkIntegrity(nodes: Node[], edges: Edge[]) {
@@ -94,6 +94,156 @@ describe("Phase 3 bin-aware integrity", () => {
       if (node.isDisposal) continue;
       if (node.facilityCount <= 1e-9) continue;
       expect(node.binId).toBeDefined();
+    }
+  });
+});
+
+describe("Prefill chip rendering across views", () => {
+  // Pins both mapper paths to the same prefill payload. Flow nodes
+  // wrap the data as `data.productionNode`, so this looks one level
+  // deeper than the raw `Bin` / `ProductionGraphNode` carriers.
+  //
+  //   - bf=0 (`mapPlanToFlowMerged`): the chip is attached per recipe
+  //     node, sourced from `ProductionGraphNode.prefillCandidates`.
+  //   - bf=1 (`mapPlanToFlowBinFused`): the chip is attached per bin
+  //     node, sourced from `bin.prefillCandidates` (the per-bin union).
+  // Both paths populate `data.productionNode.prefillCandidates` so
+  // `CustomProductionNode` reads `node.prefillCandidates` uniformly.
+  type NodeData = {
+    productionNode: { prefillCandidates?: ItemId[]; bin?: { prefillCandidates: ItemId[] } };
+  };
+
+  test("plant moss plan: planter recipe carries [seed] chip in bf=0", async () => {
+    const plan = await calculateProductionPlan(
+      [{ itemId: "item_plant_moss_powder_1" as ItemId, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const targetRates = new Map<ItemId, number>([
+      ["item_plant_moss_powder_1" as ItemId, 30],
+    ]);
+    const flow = mapPlanToFlowMerged(plan, items, facilities, targetRates);
+
+    const planterNode = flow.nodes.find(
+      (n) => n.id === "planter_plant_moss_1_1",
+    );
+    expect(planterNode).toBeDefined();
+    const planterData = planterNode!.data as NodeData;
+    expect(planterData.productionNode.prefillCandidates).toEqual([
+      "item_plant_moss_seed_1" as ItemId,
+    ]);
+
+    const seedcollectorNode = flow.nodes.find(
+      (n) => n.id === "seedcollector_plant_moss_1_1",
+    );
+    expect(seedcollectorNode).toBeDefined();
+    const seedcollectorData = seedcollectorNode!.data as NodeData;
+    expect(seedcollectorData.productionNode.prefillCandidates).toEqual([
+      "item_plant_moss_1" as ItemId,
+    ]);
+
+    // The Carbon-Powder Furnace consuming plant_moss_powder is acyclic
+    // → no chip. Pins the negative case so a future bug that flags
+    // every consumer of a cycle item gets caught immediately.
+    const furnaceNode = flow.nodes.find(
+      (n) => n.id === "furnance_carbon_powder_1_1",
+    );
+    if (furnaceNode) {
+      const data = furnaceNode.data as NodeData;
+      expect(data.productionNode.prefillCandidates ?? []).toEqual([]);
+    }
+  });
+
+  test("plant moss plan: planter bin carries [seed] chip in bf=1", async () => {
+    const plan = await calculateProductionPlan(
+      [{ itemId: "item_plant_moss_powder_1" as ItemId, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const targetRates = new Map<ItemId, number>([
+      ["item_plant_moss_powder_1" as ItemId, 30],
+    ]);
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      targetRates,
+    );
+
+    // Bin-fused IDs are bin ids, not recipe ids. Locate by the recipe.
+    const planterBin = plan.bins.find(
+      (b) => b.recipeIds[0] === "planter_plant_moss_1_1",
+    );
+    expect(planterBin).toBeDefined();
+    const planterNode = flow.nodes.find((n) => n.id === planterBin!.id);
+    expect(planterNode).toBeDefined();
+    const data = planterNode!.data as NodeData;
+    // Both surfaces carry the same data — bf=1 mapper uses the bin's
+    // union, which for a singleton bin equals the lone recipe's list.
+    expect(data.productionNode.prefillCandidates).toEqual([
+      "item_plant_moss_seed_1" as ItemId,
+    ]);
+    expect(data.productionNode.bin?.prefillCandidates).toEqual([
+      "item_plant_moss_seed_1" as ItemId,
+    ]);
+  });
+
+  test("Xircon-60: both Crucible bins emit no chip in either view (cycle bootstraps via Xircon Effluent)", async () => {
+    // The 3-formula Crucible bin's intra-bin (Effluent-Prod, Xircon-Prod)
+    // cycle has external entry via Xircon Effluent (in externalInputs).
+    // Phase 1 (intra-bin Tarjan) skips. The 2-formula bin's Sewage is
+    // externalInput from Furnace; the inter-bin (Effluent-Prod,
+    // Xircon-Prod) pair is silenced by Phase 2's bootability filter
+    // because Sewage is bootable via Furnace. Both bins → []. bf=0
+    // and bf=1 must agree.
+    const plan = await calculateProductionPlan(
+      [{ itemId: "item_xiranite_poly" as ItemId, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const targetRates = new Map<ItemId, number>([
+      ["item_xiranite_poly" as ItemId, 60],
+    ]);
+
+    const crucibleBins = plan.bins.filter(
+      (b) => b.facilityId === ("mix_pool_2" as FacilityId),
+    );
+    expect(crucibleBins.length).toBeGreaterThan(0);
+    for (const bin of crucibleBins) {
+      expect(bin.prefillCandidates).toEqual([]);
+    }
+
+    // bf=1: each bin node carries its bin's chip (empty here).
+    const binFused = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      targetRates,
+    );
+    for (const bin of crucibleBins) {
+      const node = binFused.nodes.find((n) => n.id === bin.id);
+      if (!node) continue;
+      const data = node.data as NodeData;
+      expect(data.productionNode.prefillCandidates ?? []).toEqual([]);
+      expect(data.productionNode.bin?.prefillCandidates ?? []).toEqual([]);
+    }
+
+    // bf=0: per-recipe nodes for the three pool recipes all empty.
+    const merged = mapPlanToFlowMerged(plan, items, facilities, targetRates);
+    for (const rid of [
+      "pool_liquid_xiranite_poly_1",
+      "pool_xiranite_poly_1",
+      "pool_liquid_liquid_xiranite_1",
+    ]) {
+      const node = merged.nodes.find((n) => n.id === rid);
+      if (!node) continue;
+      const data = node.data as NodeData;
+      expect(data.productionNode.prefillCandidates ?? []).toEqual([]);
     }
   });
 });

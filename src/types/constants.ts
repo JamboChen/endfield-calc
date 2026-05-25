@@ -492,6 +492,7 @@ const FacilityId = {
   // `public/images/facilities/tools_assebling_mc_1.png` and the recipe
   // `facilityId` references in `src/data/recipes.ts`.
   TOOLS_ASSEBLING_MC_1: "tools_assebling_mc_1",
+  UNLOADER_1: "unloader_1",
   WINDER_1: "winder_1",
   XIRANITE_OVEN_1: "xiranite_oven_1",
 } as const;
