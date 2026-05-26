@@ -11,6 +11,13 @@
       "switchedToFallback": "{{name}} の工場に切り替えました"
     }
   },
+  "rawLimits": {
+    "title": "素材の上限",
+    "placeholder": "—",
+    "unitSuffix": "/分",
+    "inputAria": "{{name}} の上限 (個/分)",
+    "reset": "リセット"
+  },
   "aic": {
     "intro": "研究済みの AIC テクノロジーを選択します。この設定によりプランで使用可能なアイテムとレシピが絞り込まれます。",
     "activateAll": "すべて有効化",

@@ -11,6 +11,13 @@
       "switchedToFallback": "Se cambió a la fábrica de {{name}}"
     }
   },
+  "rawLimits": {
+    "title": "Límites de materia prima",
+    "placeholder": "—",
+    "unitSuffix": "/min",
+    "inputAria": "Límite de {{name}} (objetos por minuto)",
+    "reset": "Restablecer"
+  },
   "aic": {
     "intro": "Elige qué tecnologías de la CAI has investigado. Esto filtra los objetos y fórmulas disponibles en tus planes.",
     "activateAll": "Activar todo",

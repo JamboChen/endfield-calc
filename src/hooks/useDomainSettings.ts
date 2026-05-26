@@ -79,6 +79,7 @@ import {
   domains as domainData,
   facilityBaseCaps,
 } from "@/data/aic-plans";
+import { rawAvailabilityByDomain } from "@/data";
 import {
   buildNodeIndex,
   cascadeActivate,
@@ -91,6 +92,7 @@ import {
   computeUnlockedModes,
   isGroupAtDefaults,
 } from "@/lib/aic-research-helpers";
+import { parseRawLimitKey, rawLimitKey } from "@/lib/raw-limits-helpers";
 import type {
   AicGroupId,
   AicLayerId,
@@ -98,7 +100,7 @@ import type {
   AicTechId,
 } from "@/types/aic";
 import type { Domain, DomainId } from "@/types/domain";
-import type { FacilityId } from "@/types";
+import type { FacilityId, ItemId } from "@/types";
 
 const STORAGE_KEY = "endfield-calc:aic-v1";
 
@@ -108,17 +110,29 @@ interface CapOverrideRecord {
   value: number;
 }
 
+interface RawLimitOverrideRecord {
+  itemId: ItemId;
+  domainId: DomainId;
+  value: number;
+}
+
 /**
  * Nested persistence shape — what writer emits and current-shape loader expects.
  *
  * `domains.current` may be absent (legacy payload written before the
  * region picker). Loader defaults to the latest active region.
+ *
+ * `rawLimits` may be absent (payload written before raw-material
+ * limits landed). Loader defaults to an empty override set.
  */
 interface PersistedShape {
   domains: { inactive: DomainId[]; current?: DomainId };
   aic: {
     unresearched: AicTechId[];
     capOverrides: CapOverrideRecord[];
+  };
+  rawLimits?: {
+    overrides: RawLimitOverrideRecord[];
   };
 }
 
@@ -280,9 +294,34 @@ function loadFromStorage(): PersistedShape | null {
       knownDomainIds.has(shape.domains.current)
         ? (shape.domains.current as DomainId)
         : undefined;
+
+    // Raw-limit overrides — drop entries whose (itemId, domainId) is
+    // not in `rawAvailabilityByDomain` (e.g. game patch removed a raw
+    // from a region, or the persisted state predates the data).
+    const rawLimitOverrides = Array.isArray(shape.rawLimits?.overrides)
+      ? shape.rawLimits.overrides.filter(
+          (r): r is RawLimitOverrideRecord => {
+            if (
+              r === null ||
+              typeof r !== "object" ||
+              typeof r.itemId !== "string" ||
+              typeof r.domainId !== "string" ||
+              typeof r.value !== "number" ||
+              !Number.isFinite(r.value)
+            )
+              return false;
+            const regionSet = rawAvailabilityByDomain.get(
+              r.domainId as DomainId,
+            );
+            return regionSet?.has(r.itemId as ItemId) ?? false;
+          },
+        )
+      : [];
+
     return {
       domains: { inactive, current },
       aic: { unresearched, capOverrides },
+      rawLimits: { overrides: rawLimitOverrides },
     };
   } catch {
     return null;
@@ -294,6 +333,7 @@ function persistToStorage(state: {
   inactiveDomains: ReadonlySet<DomainId>;
   capOverrides: ReadonlyMap<string, number>;
   currentDomain: DomainId;
+  rawLimitOverrides: ReadonlyMap<string, number>;
 }): void {
   if (typeof window === "undefined") return;
   try {
@@ -314,6 +354,18 @@ function persistToStorage(state: {
         value,
       });
     }
+
+    const rawLimitsList: RawLimitOverrideRecord[] = [];
+    for (const [key, value] of state.rawLimitOverrides) {
+      const parsed = parseRawLimitKey(key);
+      if (!parsed) continue;
+      rawLimitsList.push({
+        itemId: parsed.itemId,
+        domainId: parsed.domainId,
+        value,
+      });
+    }
+
     const payload: PersistedShape = {
       domains: {
         inactive: Array.from(state.inactiveDomains).sort(),
@@ -324,6 +376,12 @@ function persistToStorage(state: {
         capOverrides: capList.sort((a, b) => {
           if (a.facilityId !== b.facilityId)
             return a.facilityId.localeCompare(b.facilityId);
+          return a.domainId.localeCompare(b.domainId);
+        }),
+      },
+      rawLimits: {
+        overrides: rawLimitsList.sort((a, b) => {
+          if (a.itemId !== b.itemId) return a.itemId.localeCompare(b.itemId);
           return a.domainId.localeCompare(b.domainId);
         }),
       },
@@ -396,6 +454,43 @@ export interface AicSubState {
   ) => void;
 }
 
+/**
+ * Raw-material limits sub-state — peer to `aic` on
+ * `DomainSettingsValue`. Models the user's per-(item, domain) upper
+ * limit on raw consumption, in **items/min**.
+ *
+ * As of this commit the values are persisted and edited via the UI,
+ * but NOT yet consumed by the calc layer (no warning emission, no LP
+ * constraint). The future solver-enforcement workstream will read
+ * `overrides`, compute a per-region aggregated cap map from it via
+ * `currentDomain` lookup, and surface either warnings or hard
+ * constraints (TBD).
+ *
+ * Storage is per-(item, domain) so the user can pre-configure caps
+ * for any region for forward planning, matching how `facilityBaseCaps`
+ * works.
+ */
+export interface RawLimitsSubState {
+  /**
+   * User-set raw-material limit overrides, in items/min.
+   * Keyed by `rawLimitKey(itemId, domainId)`.
+   * Absence of a key = uncapped.
+   */
+  readonly overrides: ReadonlyMap<string, number>;
+
+  /**
+   * Set / clear a per-(item, domain) limit. `value === null` (or
+   * non-finite) removes the override; otherwise stores the new limit.
+   * No validation against `rawAvailabilityByDomain` here — the UI is
+   * responsible for only offering inputs for valid items.
+   */
+  setRawLimitOverride: (
+    itemId: ItemId,
+    domainId: DomainId,
+    value: number | null,
+  ) => void;
+}
+
 export interface DomainSettingsValue {
   /** First-class domain registry from the data dump. */
   readonly domains: readonly Domain[];
@@ -457,6 +552,13 @@ export interface DomainSettingsValue {
 
   /** AIC sub-state (the first category). Future categories sit alongside. */
   readonly aic: AicSubState;
+
+  /**
+   * Raw-material limits sub-state. Inputs are persisted and editable,
+   * but not yet consumed by the calc layer (warning emission and LP
+   * constraints land with the future solver-enforcement workstream).
+   */
+  readonly rawLimits: RawLimitsSubState;
 }
 
 export function useDomainSettings(): DomainSettingsValue {
@@ -514,6 +616,21 @@ export function useDomainSettings(): DomainSettingsValue {
     return pickLatestActive(initialActive);
   });
 
+  // Raw-material limit overrides. Loaded from persistence with the
+  // defensive (item, domain)-validity filter already applied by
+  // `loadFromStorage`. Absence of a key = uncapped.
+  const [rawLimitOverrides, setRawLimitOverrides] = useState<
+    ReadonlyMap<string, number>
+  >(() => {
+    const persisted = loadFromStorage();
+    if (!persisted?.rawLimits) return new Map();
+    const out = new Map<string, number>();
+    for (const r of persisted.rawLimits.overrides) {
+      out.set(rawLimitKey(r.itemId, r.domainId), r.value);
+    }
+    return out;
+  });
+
   // Derived: active domains (allDomains - inactive). Pinned domains
   // can never be in `inactiveDomains` (the toggler refuses) so they're
   // always active here.
@@ -538,8 +655,15 @@ export function useDomainSettings(): DomainSettingsValue {
       inactiveDomains,
       capOverrides,
       currentDomain,
+      rawLimitOverrides,
     });
-  }, [researched, inactiveDomains, capOverrides, currentDomain]);
+  }, [
+    researched,
+    inactiveDomains,
+    capOverrides,
+    currentDomain,
+    rawLimitOverrides,
+  ]);
 
   // Derived: AIC selectors (domain-aware where applicable).
   const unlockedFacilities = useMemo(
@@ -745,6 +869,19 @@ export function useDomainSettings(): DomainSettingsValue {
     [],
   );
 
+  const setRawLimitOverride = useCallback(
+    (itemId: ItemId, domainId: DomainId, value: number | null) => {
+      setRawLimitOverrides((prev) => {
+        const next = new Map(prev);
+        const key = rawLimitKey(itemId, domainId);
+        if (value === null || !Number.isFinite(value)) next.delete(key);
+        else next.set(key, value);
+        return next;
+      });
+    },
+    [],
+  );
+
   const aic: AicSubState = useMemo(
     () => ({
       nodes: aicNodes,
@@ -780,6 +917,14 @@ export function useDomainSettings(): DomainSettingsValue {
     ],
   );
 
+  const rawLimits: RawLimitsSubState = useMemo(
+    () => ({
+      overrides: rawLimitOverrides,
+      setRawLimitOverride,
+    }),
+    [rawLimitOverrides, setRawLimitOverride],
+  );
+
   return {
     domains: domainData,
     activeDomains,
@@ -788,5 +933,6 @@ export function useDomainSettings(): DomainSettingsValue {
     currentDomain,
     setCurrentDomain,
     aic,
+    rawLimits,
   };
 }

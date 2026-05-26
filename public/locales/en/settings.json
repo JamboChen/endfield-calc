@@ -11,6 +11,13 @@
       "switchedToFallback": "Switched to {{name}} factory"
     }
   },
+  "rawLimits": {
+    "title": "Raw material limits",
+    "placeholder": "—",
+    "unitSuffix": "/min",
+    "inputAria": "{{name}} limit (items per minute)",
+    "reset": "Reset"
+  },
   "aic": {
     "intro": "Choose which AIC technologies you've researched. This filters the items and formulas available to your plans.",
     "activateAll": "Activate all",

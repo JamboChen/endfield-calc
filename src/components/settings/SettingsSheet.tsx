@@ -16,7 +16,9 @@ import type { Domain, DomainId } from "@/types/domain";
 
 import { AicPlanCard } from "./AicPlanCard";
 import { DomainSection } from "./DomainSection";
+import { RawLimitsCard } from "./RawLimitsCard";
 import { RegionPicker } from "./RegionPicker";
+import { rawAvailabilityByDomain } from "@/data";
 
 interface SettingsSheetProps {
   open: boolean;
@@ -33,6 +35,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     currentDomain,
     setCurrentDomain,
     aic,
+    rawLimits,
   } = useDomainSettingsContext();
 
   const orderedDomains = useMemo<readonly Domain[]>(
@@ -208,6 +211,8 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
           {orderedDomains.map((domain) => {
             const isActive = activeDomains.has(domain.id);
             const groups = groupsByDomain.get(domain.id) ?? [];
+            const availableRaws =
+              rawAvailabilityByDomain.get(domain.id) ?? new Set();
             return (
               <DomainSection
                 key={domain.id}
@@ -234,6 +239,12 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                     onActivateRaiseNodes={aic.activateNodes}
                   />
                 ))}
+                <RawLimitsCard
+                  domainId={domain.id}
+                  availableRaws={availableRaws}
+                  overrides={rawLimits.overrides}
+                  onSetLimit={rawLimits.setRawLimitOverride}
+                />
               </DomainSection>
             );
           })}

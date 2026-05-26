@@ -11,6 +11,13 @@
       "switchedToFallback": "已切换至 {{name}} 工厂"
     }
   },
+  "rawLimits": {
+    "title": "原料上限",
+    "placeholder": "—",
+    "unitSuffix": "/分钟",
+    "inputAria": "{{name}} 上限（每分钟数量）",
+    "reset": "重置"
+  },
   "aic": {
     "intro": "选择您已研究的 AIC 科技。此设置将筛选方案中可用的物品与配方。",
     "activateAll": "全部激活",

@@ -11,6 +11,13 @@
       "switchedToFallback": "{{name}} 공장으로 전환했습니다"
     }
   },
+  "rawLimits": {
+    "title": "원자재 한도",
+    "placeholder": "—",
+    "unitSuffix": "/분",
+    "inputAria": "{{name}} 한도 (분당 개수)",
+    "reset": "재설정"
+  },
   "aic": {
     "intro": "연구한 AIC 기술을 선택하세요. 이 설정에 따라 플랜에 사용 가능한 아이템과 공식이 필터링됩니다.",
     "activateAll": "모두 활성화",
