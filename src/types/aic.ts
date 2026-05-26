@@ -64,8 +64,8 @@ type AicTechId = string & { readonly __brand: "AicTechId" };
  *   In Step 2 these filter recipes whose `formulaGroupId` belongs to a
  *   locked mode.
  * - `capRaise` — corresponds to upstream `actionType: 5123`. Adds `delta`
- *   to the facility's per-domain placement cap (`Facility.cap.increments`).
- *   In Step 1 these are display-only; Step 5 (future) would enforce.
+ *   to the facility's per-domain placement cap. In Step 1 these are
+ *   display-only; Step 5 (future) would enforce.
  *
  * Nodes whose upstream action falls outside this set are filtered out at
  * extraction time — they never reach `AicNode` instances.

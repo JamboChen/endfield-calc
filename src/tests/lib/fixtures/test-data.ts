@@ -67,12 +67,10 @@ export const mockItems: Item[] = [
 // inert. `MIX_POOL_1` carries a `cacheSlots` to keep it eligible for
 // Phase 3 in tests that touch pool recipes.
 const baseFacility = {
-  numId: 0,
   category: 0,
   buffersIn: { belt: [], pipe: [] },
   buffersOut: { belt: [], pipe: [] },
   domains: [],
-  cap: null,
 };
 export const mockFacilities: Facility[] = [
   { ...baseFacility, id: FacilityId.FURNANCE_1, powerConsumption: 10, tier: 1 },

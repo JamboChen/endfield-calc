@@ -43,14 +43,12 @@ const recipe = (
 });
 const facility = (id: string, opts: Partial<Facility> = {}): Facility => ({
   id: id as FacilityId,
-  numId: 0,
   tier: 1,
   category: 0,
   powerConsumption: 0,
   buffersIn: { belt: [], pipe: [] },
   buffersOut: { belt: [], pipe: [] },
   domains: [],
-  cap: null,
   ...opts,
 });
 

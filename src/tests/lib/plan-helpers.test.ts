@@ -272,7 +272,6 @@ const xRecipe: Recipe = {
 
 const facility: Facility = {
   id: "mix_pool_2" as FacilityId,
-  numId: 81,
   powerConsumption: 100,
   tier: 3,
   category: 27,
@@ -280,7 +279,6 @@ const facility: Facility = {
   buffersOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
   cacheSlots: 8,
   domains: [],
-  cap: null,
 };
 
 const baseNode = (): ProductionNode => ({
