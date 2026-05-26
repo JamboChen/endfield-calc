@@ -20,7 +20,11 @@ import {
   computeRecipeAvailability,
 } from "./lib/aic-research-helpers";
 import { computeRecipeReachability } from "./lib/recipe-reachability";
-import { bootstrapFacilities, forcedRawMaterials } from "./data";
+import {
+  bootstrapFacilities,
+  forcedRawMaterials,
+  rawAvailabilityByDomain,
+} from "./data";
 import type { FacilityId, ItemId } from "./types";
 
 /**
@@ -80,6 +84,18 @@ function AppContent() {
   //
   // The intermediate AIC-only set is scoped to this memo only. Auto-
   // prune downstream operates on the strict `availableRecipes` outputs.
+  // Per-region raw-material set used as the reachability closure's root.
+  // Falls back to the global `forcedRawMaterials` defensively — only
+  // hit if `currentDomain` isn't a known key in `rawAvailabilityByDomain`
+  // (data corruption / future-region rollout). The map is the
+  // single-source-of-truth for "what raws are sourceable in this region";
+  // see `src/data/index.ts` for the per-region rules.
+  const regionRawMaterials = useMemo(
+    () =>
+      rawAvailabilityByDomain.get(settings.currentDomain) ?? forcedRawMaterials,
+    [settings.currentDomain],
+  );
+
   const { availableRecipes, reachableItems } = useMemo(() => {
     // Intersect AIC-unlocked with region-permitted facilities so
     // recipes whose host facility is locked to a region the player
@@ -97,7 +113,7 @@ function AppContent() {
     ).availableRecipes;
     const { runnableRecipes, reachableItems } = computeRecipeReachability(
       aicFiltered,
-      forcedRawMaterials,
+      regionRawMaterials,
       bootstrapFacilities,
     );
     return { availableRecipes: runnableRecipes, reachableItems };
@@ -105,6 +121,7 @@ function AppContent() {
     settings.aic.unlockedFacilities,
     settings.aic.unlockedModes,
     settings.currentDomain,
+    regionRawMaterials,
   ]);
 
   // Items the picker may show as targets: those reachable via the AIC-

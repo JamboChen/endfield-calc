@@ -3,6 +3,7 @@ import { facilities } from "./facilities";
 import { recipes } from "./recipes";
 import { FacilityId } from "@/types/constants";
 import type { ItemId } from "@/types";
+import type { DomainId } from "@/types/domain";
 
 /**
  * Per-raw-material configuration assigning a source facility. The
@@ -56,6 +57,63 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
 const forcedRawMaterials: ReadonlySet<ItemId> = new Set(
   rawMaterialSources.keys(),
 );
+
+/**
+ * Per-region raw-material availability. A raw appears in a region's set
+ * only when the player can physically source it there.
+ *
+ * Two distinct sourcing models, each with a different rule:
+ *
+ *   - **Solid raws** are tied to discrete in-world POIs (the
+ *     `int_minerbase_*` interactive types — confirmed in
+ *     `InteractiveMarkDataTable.json` from the upstream data dump).
+ *     POI placements are scene-data, NOT in `TableCfg`, so no auto-
+ *     extraction is possible. Hand-curated per region from observed
+ *     in-game inventory:
+ *       Valley IV (domain_1): originium, ferrium (iron), amethyst (quartz)
+ *       Wuling    (domain_2): originium, ferrium (iron), cuprium (copper)
+ *
+ *   - **Liquid raws** are tied to pump deployability. Both `pump_1`
+ *     and `pump_2` carry `Facility.domains: ["domain_2"]` (set in the
+ *     facility schema refactor), so liquids appear in Wuling's set
+ *     only. The drift-detection test in
+ *     `region-raw-availability.test.ts` enforces this invariant — if a
+ *     pump's `Facility.domains` ever changes, that test fails until
+ *     this map is updated.
+ *
+ * The calc layer (`App.tsx` `availableRecipes` memo) threads
+ * `rawAvailabilityByDomain.get(currentDomain)` into
+ * `computeRecipeReachability` in place of the global `forcedRawMaterials`,
+ * so recipes whose chain traces back to an unavailable raw fall out of
+ * `availableRecipes` for the current region. Downstream, the existing
+ * auto-prune in `useProductionPlan` removes targets that become
+ * unreachable.
+ *
+ * `forcedRawMaterials` stays the global "items with no producer" set
+ * used by `flow-solver.ts` / `graph-builder.ts`. The per-region set is
+ * a narrower availability layer applied only at the reachability stage.
+ */
+const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
+  new Map<DomainId, ReadonlySet<ItemId>>([
+    [
+      "domain_1" as DomainId,
+      new Set<ItemId>([
+        "item_originium_ore",
+        "item_iron_ore",
+        "item_quartz_sand",
+      ]),
+    ],
+    [
+      "domain_2" as DomainId,
+      new Set<ItemId>([
+        "item_originium_ore",
+        "item_iron_ore",
+        "item_copper_ore",
+        "item_liquid_water",
+        "item_liquid_acid",
+      ]),
+    ],
+  ]);
 
 /**
  * Raw materials whose consumption is treated as **zero-cost** in the LP
@@ -134,6 +192,7 @@ export {
   recipes,
   rawMaterialSources,
   forcedRawMaterials,
+  rawAvailabilityByDomain,
   costlessRaws,
   forcedDisposalItems,
   bootstrapFacilities,
