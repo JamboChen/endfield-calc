@@ -1,12 +1,6 @@
 import { calculateProductionPlan } from "@/lib/calculator";
 import { initHighs, isHighsReady } from "@/lib/highs-singleton";
-import {
-  items,
-  recipes,
-  facilities,
-  forcedRawMaterials,
-  MAX_TARGETS,
-} from "@/data";
+import { items, recipes, facilities, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
@@ -264,6 +258,7 @@ function formatPlanWarning(
  */
 export function useProductionPlan(
   availableRecipes: readonly Recipe[],
+  regionRawMaterials: ReadonlySet<ItemId>,
   facilityCaps?: ReadonlyMap<FacilityId, number>,
 ) {
   const { t } = useTranslation("app");
@@ -350,7 +345,12 @@ export function useProductionPlan(
       items,
       availableRecipes,
       facilities,
-      { recipeOverrides, manualRawMaterials, facilityCaps },
+      {
+        rawMaterials: regionRawMaterials,
+        recipeOverrides,
+        manualRawMaterials,
+        facilityCaps,
+      },
     )
       .then((result) => {
         // Cancelled means a newer calc has started (or unmount). Leave
@@ -375,6 +375,7 @@ export function useProductionPlan(
     recipeOverrides,
     manualRawMaterials,
     availableRecipes,
+    regionRawMaterials,
     facilityCaps,
     t,
   ]);
@@ -437,19 +438,19 @@ export function useProductionPlan(
     for (const itemId of manualRawMaterials) {
       // Keep a manual raw iff the item is either producible (in
       // `reachableProducibleItems`, i.e. an output of at least one
-      // recipe in the strict `availableRecipes` set) OR a forced raw
-      // (always-available — pin is redundant but harmless).
+      // recipe in the strict `availableRecipes` set) OR a region-
+      // available raw (always-available in the current factory — pin
+      // is redundant but harmless).
       //
       // Drop pins on items that are completely unreachable: no
-      // available recipe produces them AND they aren't a forced raw.
-      // Rationale: a manual-raw pin on an unproducible item is
-      // meaningless — there's no chain to override. Since
-      // `availableRecipes` is chain-filtered upstream (App layer),
-      // a producibility check here naturally excludes recipes whose
-      // own chain is broken.
+      // available recipe produces them AND they aren't a regional raw.
+      // Rationale: a manual-raw pin on an unsourceable item in the
+      // current region is meaningless — there's no chain to override.
+      // Cuprium-in-Valley-IV pins get dropped here; the user gets a
+      // toast and the affected target (if any) is auto-pruned too.
       if (
         reachableProducibleItems.has(itemId) ||
-        forcedRawMaterials.has(itemId)
+        regionRawMaterials.has(itemId)
       ) {
         nextRaws.add(itemId);
       } else {
@@ -485,6 +486,7 @@ export function useProductionPlan(
     targets,
     recipeOverrides,
     manualRawMaterials,
+    regionRawMaterials,
     t,
   ]);
 

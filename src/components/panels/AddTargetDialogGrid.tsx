@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import type { Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getItemName } from "@/lib/i18n-helpers";
-import { forcedRawMaterials, MAX_TARGETS } from "@/data";
+import { MAX_TARGETS } from "@/data";
 import { tierClasses } from "@/lib/tier-styles";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +26,13 @@ export type AddTargetDialogGridProps = {
   onOpenChange: (open: boolean) => void;
   items: Item[];
   existingTargetIds: ItemId[];
+  /**
+   * Items the calc treats as raws in the current region — they're
+   * filtered out of the picker so users don't accidentally pick a raw
+   * as a production target. App.tsx passes
+   * `rawAvailabilityByDomain.get(currentDomain)`.
+   */
+  regionRawMaterials: ReadonlySet<ItemId>;
   onBatchAddTargets: (targets: QueuedItem[]) => void;
 };
 
@@ -36,6 +43,7 @@ export default function AddTargetDialogGrid({
   onOpenChange,
   items,
   existingTargetIds,
+  regionRawMaterials,
   onBatchAddTargets,
 }: AddTargetDialogGridProps) {
   const { t } = useTranslation("dialog");
@@ -68,9 +76,9 @@ export default function AddTargetDialogGrid({
       (item) =>
         !existingSet.has(item.id) &&
         item.asTarget !== false &&
-        !forcedRawMaterials.has(item.id),
+        !regionRawMaterials.has(item.id),
     );
-  }, [items, existingTargetIds]);
+  }, [items, existingTargetIds, regionRawMaterials]);
 
   /* Pre-computed lowercase names to avoid repeated i18n lookups while typing */
   const searchIndex = useMemo(

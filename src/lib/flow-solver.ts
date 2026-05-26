@@ -1,9 +1,5 @@
 import type { ItemId, RecipeId } from "@/types";
-import {
-  forcedRawMaterials,
-  forcedDisposalItems,
-  costlessRaws,
-} from "@/data";
+import { forcedDisposalItems, costlessRaws } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { solveLP, type LPInput, type LPItemConstraint } from "./lp-solver";
 import type {
@@ -88,8 +84,14 @@ export async function calculateFlows(
   }
 
   // --- Build per-item constraints over every item in the graph ---
+  //
+  // `graph.rawMaterials` already includes the per-region raw set the
+  // caller passed to `buildBipartiteGraph` (plus any chain-leaf items
+  // auto-detected during traversal). We union with `manualRawMaterials`
+  // here for the rare case where the user pinned a manual raw on an
+  // item the graph didn't visit; in practice graph traversal covers
+  // every reachable item so this is defensive.
   const rawMaterials = new Set<ItemId>();
-  for (const r of forcedRawMaterials) rawMaterials.add(r);
   for (const r of graph.rawMaterials) rawMaterials.add(r);
   if (manualRawMaterials) {
     for (const r of manualRawMaterials) rawMaterials.add(r);

@@ -64,6 +64,12 @@ import type {
   FacilityId,
 } from "@/types";
 
+// Test-only raw-material set: all items the canonical source-facility
+// map knows about. Equivalent to the old global `forcedRawMaterials`
+// (now removed); used as a default for tests that don't care about
+// region-specific availability.
+const ALL_RAWS: ReadonlySet<ItemId> = new Set(rawMaterialSources.keys());
+
 describe("computeGreedyAllocation", () => {
   test("single producer, single consumer — direct assignment", async () => {
     const result = computeGreedyAllocation(
@@ -550,6 +556,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     expect(totals.perFacility.get(FacilityIdEnum.MIX_POOL_2)).toBe(1);
@@ -563,6 +571,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const expandedDirectCount = plan.bins
@@ -585,6 +595,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
     const sumByBin = buildBinActivitySums(plan);
@@ -608,6 +620,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const binTotal = plan.bins.reduce(
@@ -624,6 +638,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
     const sumByBin = buildBinActivitySums(plan);
@@ -651,6 +667,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const sumByBin = buildBinActivitySums(plan);
     const xirconBin = plan.bins.find((b) =>
@@ -677,6 +695,8 @@ describe("aggregateBinTotals (real data)", () => {
         items,
         recipes,
         facilities,
+      
+        { rawMaterials: ALL_RAWS },
       );
       const sumByBin = buildBinActivitySums(plan);
       for (const bin of plan.bins) {
@@ -694,6 +714,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
     expect(totals.multiFormulaBaselineBuildings)
@@ -706,6 +728,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
     const facilityById = new Map(facilities.map((f) => [f.id, f]));
@@ -725,6 +749,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const sum = Array.from(totals.perFacility.values()).reduce(
@@ -740,6 +766,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
     const sum = Array.from(totals.perFacility.values()).reduce(
@@ -810,6 +838,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const furnaceCount = totals.perFacility.get(
@@ -828,6 +858,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: false });
     const furnaceCount = totals.perFacility.get(
@@ -849,6 +881,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const fractional = aggregateBinTotals(plan, facilities, items, {
@@ -870,6 +904,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const ceiledTotals = aggregateBinTotals(plan, facilities, items, {
       ceilMode: true,
@@ -888,6 +924,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const facilityById = new Map(facilities.map((f) => [f.id, f]));
@@ -910,6 +948,8 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
     const fractional = aggregateBinTotals(plan, facilities, items, {
@@ -942,6 +982,8 @@ describe("aggregateBinTotals.rawPerFacility", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
       ceilMode: false,
@@ -964,6 +1006,8 @@ describe("aggregateBinTotals.rawPerFacility", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const ceiled = aggregateBinTotals(plan, facilities, items, {
       ceilMode: true,
@@ -991,6 +1035,8 @@ describe("aggregateBinTotals.rawPerFacility", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
       ceilMode: true,
@@ -1119,6 +1165,8 @@ describe("computeOverCapWarnings (integration)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
       ceilMode: true,
@@ -1168,6 +1216,8 @@ describe("computeOverCapWarnings (integration)", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
       ceilMode: true,

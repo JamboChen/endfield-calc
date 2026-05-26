@@ -46,21 +46,11 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
 ]);
 
 /**
- * Back-compat alias for the legacy `Set<ItemId>` API. Derived from
- * `rawMaterialSources` keys. Solver layer (`flow-solver.ts`,
- * `graph-builder.ts`) and the AddTargetDialog use `.has()` / `for...of`
- * which both work on `ReadonlySet`.
- *
- * IMPORTANT: do not iterate this set to compute source-facility info
- * — use `rawMaterialSources` directly. The set carries no source data.
- */
-const forcedRawMaterials: ReadonlySet<ItemId> = new Set(
-  rawMaterialSources.keys(),
-);
-
-/**
  * Per-region raw-material availability. A raw appears in a region's set
- * only when the player can physically source it there.
+ * only when the player can physically source it there. **This map is
+ * the sole source of truth for "what counts as a raw"** — the calc
+ * layer receives the per-`currentDomain` set explicitly, and tests
+ * construct their own raw sets when they need different semantics.
  *
  * Two distinct sourcing models, each with a different rule:
  *
@@ -81,17 +71,19 @@ const forcedRawMaterials: ReadonlySet<ItemId> = new Set(
  *     pump's `Facility.domains` ever changes, that test fails until
  *     this map is updated.
  *
- * The calc layer (`App.tsx` `availableRecipes` memo) threads
- * `rawAvailabilityByDomain.get(currentDomain)` into
- * `computeRecipeReachability` in place of the global `forcedRawMaterials`,
- * so recipes whose chain traces back to an unavailable raw fall out of
- * `availableRecipes` for the current region. Downstream, the existing
- * auto-prune in `useProductionPlan` removes targets that become
- * unreachable.
+ * Invariants asserted by `region-raw-availability.test.ts`:
+ *   1. Soundness — every per-region raw has a `rawMaterialSources` entry.
+ *   2. Completeness — every `rawMaterialSources` key appears in at least
+ *      one region's set (a new raw added without region mapping would
+ *      be unreachable everywhere; the test catches this drift).
+ *   3. Coverage — every domain in the registry has an entry here, so
+ *      `App.tsx`'s `regionRawMaterials.get(currentDomain)!` is safe.
  *
- * `forcedRawMaterials` stays the global "items with no producer" set
- * used by `flow-solver.ts` / `graph-builder.ts`. The per-region set is
- * a narrower availability layer applied only at the reachability stage.
+ * The calc layer (`App.tsx` → `useProductionPlan` →
+ * `calculateProductionPlan`) receives the per-`currentDomain` set as
+ * an explicit `rawMaterials` parameter. No code path imports this
+ * constant directly except `App.tsx`, the picker, and the persistence
+ * defensive filter in `useDomainSettings`.
  */
 const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
   new Map<DomainId, ReadonlySet<ItemId>>([
@@ -117,10 +109,17 @@ const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
 
 /**
  * Raw materials whose consumption is treated as **zero-cost** in the LP
- * objective. Derived as `items.filter(isLiquid) ∩ forcedRawMaterials` —
- * currently `{item_liquid_water, item_liquid_acid}`. Both are pumped via
+ * objective. Derived as `items.filter(isLiquid) ∩ rawMaterialSources.keys()`
+ * — currently `{item_liquid_water, item_liquid_acid}`. Both are pumped via
  * dedicated source facilities with effectively unbounded throughput and
  * trivial power.
+ *
+ * This is a TYPE classification (region-independent): the LP-side
+ * zero-cost bias applies wherever the recipe runs. A water-consuming
+ * recipe in Wuling pays zero raw-cost regardless of how many pumps
+ * actually deliver the water. Per-region availability (whether water
+ * is reachable here at all) is the orthogonal concern owned by
+ * `rawAvailabilityByDomain`.
  *
  * Rationale: prior to this set, the LP's raw-cost objective biased
  * selection against recipes that happened to consume water/acid (e.g.
@@ -136,11 +135,13 @@ const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
  * their input cost zero introduces no new asymmetry.
  *
  * Auto-extends if game data adds a new liquid raw — the derivation
- * lives next to `forcedRawMaterials` and uses the same source of truth.
+ * uses `rawMaterialSources` as the anchor.
  */
 const costlessRaws: ReadonlySet<ItemId> = new Set(
   items
-    .filter((item) => item.isLiquid === true && forcedRawMaterials.has(item.id))
+    .filter(
+      (item) => item.isLiquid === true && rawMaterialSources.has(item.id),
+    )
     .map((item) => item.id),
 );
 
@@ -191,7 +192,6 @@ export {
   facilities,
   recipes,
   rawMaterialSources,
-  forcedRawMaterials,
   rawAvailabilityByDomain,
   costlessRaws,
   forcedDisposalItems,

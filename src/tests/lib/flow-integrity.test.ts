@@ -5,9 +5,15 @@ import {
   mapPlanToFlowBinFused,
   mapPlanToFlowBinFusedSeparated,
 } from "@/components/mappers/bin-fused-mapper";
-import { items, recipes, facilities } from "@/data";
+import { items, recipes, facilities, rawMaterialSources} from "@/data";
 import type { FacilityId, ItemId, ProductionDependencyGraph } from "@/types";
 import type { Edge, Node } from "@xyflow/react";
+
+// Test-only raw-material set: all items the canonical source-facility
+// map knows about. Equivalent to the old global `forcedRawMaterials`
+// (now removed); used as a default for tests that don't care about
+// region-specific availability.
+const ALL_RAWS: ReadonlySet<ItemId> = new Set(rawMaterialSources.keys());
 
 function checkIntegrity(nodes: Node[], edges: Edge[]) {
   const ids = new Set(nodes.map((n) => n.id));
@@ -39,6 +45,8 @@ describe("flow mapper integrity", () => {
         items,
         recipes,
         facilities,
+      
+        { rawMaterials: ALL_RAWS },
       );
       plans.set(c.name, { plan, targetRates: new Map([[c.targetId, c.rate]]) });
     }
@@ -88,6 +96,8 @@ describe("Phase 3 bin-aware integrity", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     for (const node of plan.nodes.values()) {
       if (node.type !== "recipe") continue;
@@ -119,6 +129,8 @@ describe("Prefill chip rendering across views", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const targetRates = new Map<ItemId, number>([
       ["item_plant_moss_powder_1" as ItemId, 30],
@@ -161,6 +173,8 @@ describe("Prefill chip rendering across views", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const targetRates = new Map<ItemId, number>([
       ["item_plant_moss_powder_1" as ItemId, 30],
@@ -204,6 +218,8 @@ describe("Prefill chip rendering across views", () => {
       items,
       recipes,
       facilities,
+    
+      { rawMaterials: ALL_RAWS },
     );
     const targetRates = new Map<ItemId, number>([
       ["item_xiranite_poly" as ItemId, 60],

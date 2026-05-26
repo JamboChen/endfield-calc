@@ -2,17 +2,30 @@
  * Tests for `rawAvailabilityByDomain` and its integration with the
  * per-region recipe reachability filter.
  *
- * Three layers of coverage:
+ * Four layers of coverage:
  *
  *   1. **Data shape** — exact-set snapshot of each region's expected
  *      raws. Catches accidental edits to `src/data/index.ts`.
  *
- *   2. **Drift detection** — liquid availability in
+ *   2. **Invariants** vs `rawMaterialSources`:
+ *      a. **Soundness** — every per-region raw has a `rawMaterialSources`
+ *         entry. Catches the case where someone adds a raw to a region
+ *         without binding it to a source facility.
+ *      b. **Completeness** — every `rawMaterialSources` key appears in
+ *         at least one region. Catches the future-patch drift where a
+ *         new raw is added to the source-facility map but no region
+ *         lists it as available, silently making it unreachable
+ *         everywhere.
+ *      c. **Coverage** — every domain in the registry has an entry
+ *         here, so `App.tsx`'s `rawAvailabilityByDomain.get(currentDomain)!`
+ *         is safe.
+ *
+ *   3. **Drift detection** — liquid availability in
  *      `rawAvailabilityByDomain` is gated by the source pump's
  *      `Facility.domains`. If pumps move regions in a future schema
  *      refresh, this test fails until the data is updated.
  *
- *   3. **Reachability integration** — full-pipeline tests against the
+ *   4. **Reachability integration** — full-pipeline tests against the
  *      real game data: a Cuprium-dependent target (and a transitively-
  *      Cuprium-dependent target) become unreachable when planning in
  *      Valley IV; symmetric for Amethyst in Wuling; bbflower planter
@@ -22,13 +35,13 @@
 import { describe, test, expect } from "vitest";
 import {
   facilities,
-  forcedRawMaterials,
   items,
   rawAvailabilityByDomain,
   rawMaterialSources,
   recipes,
   bootstrapFacilities,
 } from "@/data";
+import { domains } from "@/data/aic-plans";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
 import type { DomainId } from "@/types/domain";
 import { ItemId } from "@/types/constants";
@@ -62,14 +75,42 @@ describe("rawAvailabilityByDomain — data shape", () => {
       ]),
     );
   });
+});
 
-  test("every per-region raw is a member of the global forcedRawMaterials set", () => {
-    // Subset sanity — the per-region map never introduces new "raws",
-    // it only narrows the global set.
+describe("rawAvailabilityByDomain — invariants vs rawMaterialSources", () => {
+  test("soundness: every per-region raw has a rawMaterialSources entry", () => {
+    // A raw that appears in a region but has no source-facility binding
+    // is unsourceable in practice; the data layer would render this
+    // broken state.
     for (const [, set] of rawAvailabilityByDomain) {
       for (const itemId of set) {
-        expect(forcedRawMaterials.has(itemId)).toBe(true);
+        expect(rawMaterialSources.has(itemId)).toBe(true);
       }
+    }
+  });
+
+  test("completeness: every raw in rawMaterialSources appears in at least one region", () => {
+    // Catches the future-patch drift case: a new raw added to
+    // rawMaterialSources but no region lists it as available — the
+    // raw would be unreachable everywhere, silently. The completeness
+    // invariant forces the data author to map it to at least one
+    // region (or remove the source-facility binding).
+    const union = new Set<ItemId>();
+    for (const [, set] of rawAvailabilityByDomain) {
+      for (const itemId of set) union.add(itemId);
+    }
+    for (const itemId of rawMaterialSources.keys()) {
+      expect(union.has(itemId)).toBe(true);
+    }
+  });
+
+  test("coverage: every domain in the registry has an entry here", () => {
+    // App.tsx uses `rawAvailabilityByDomain.get(currentDomain)!`
+    // (non-null assertion) — this invariant makes the assertion safe.
+    // If a new domain is added to `domains` without a corresponding
+    // entry here, this test fails before the non-null bites users.
+    for (const d of domains) {
+      expect(rawAvailabilityByDomain.has(d.id)).toBe(true);
     }
   });
 });

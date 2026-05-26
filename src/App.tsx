@@ -20,11 +20,7 @@ import {
   computeRecipeAvailability,
 } from "./lib/aic-research-helpers";
 import { computeRecipeReachability } from "./lib/recipe-reachability";
-import {
-  bootstrapFacilities,
-  forcedRawMaterials,
-  rawAvailabilityByDomain,
-} from "./data";
+import { bootstrapFacilities, rawAvailabilityByDomain } from "./data";
 import type { FacilityId, ItemId } from "./types";
 
 /**
@@ -64,12 +60,12 @@ function AppContent() {
   //   1. `computeRecipeAvailability` filters the full game-data recipes
   //      by AIC unlock state (facility unlock + mode unlock).
   //   2. `computeRecipeReachability` further filters to recipes whose
-  //      inputs are reachable from `forcedRawMaterials` via the AIC-
+  //      inputs are reachable from the per-region raw set via the AIC-
   //      filtered set, with one exception: recipes on `bootstrap
   //      Facilities` (e.g. Seed-Picking Unit) are unconditionally
   //      runnable when the facility is unlocked. This handles the
-  //      planter↔seedcollector cycle that has no entry from forced
-  //      raws — in-game the player seeds the cycle externally. See
+  //      planter↔seedcollector cycle that has no entry from raws —
+  //      in-game the player seeds the cycle externally. See
   //      `bootstrapFacilities` in `@/data` for the rationale.
   //
   // Recipes with broken chains AND no bootstrap exception (e.g.
@@ -84,15 +80,15 @@ function AppContent() {
   //
   // The intermediate AIC-only set is scoped to this memo only. Auto-
   // prune downstream operates on the strict `availableRecipes` outputs.
-  // Per-region raw-material set used as the reachability closure's root.
-  // Falls back to the global `forcedRawMaterials` defensively — only
-  // hit if `currentDomain` isn't a known key in `rawAvailabilityByDomain`
-  // (data corruption / future-region rollout). The map is the
-  // single-source-of-truth for "what raws are sourceable in this region";
-  // see `src/data/index.ts` for the per-region rules.
+
+  // Per-region raw-material set used as the reachability closure's root
+  // AND threaded through `useProductionPlan` → `calculateProductionPlan`
+  // as the LP/graph raw classification. The non-null assertion is safe
+  // by the "coverage" invariant in `region-raw-availability.test.ts`
+  // (every domain in the registry has an entry here); the picker only
+  // exposes `activeDomains`-valid regions to `setCurrentDomain`.
   const regionRawMaterials = useMemo(
-    () =>
-      rawAvailabilityByDomain.get(settings.currentDomain) ?? forcedRawMaterials,
+    () => rawAvailabilityByDomain.get(settings.currentDomain)!,
     [settings.currentDomain],
   );
 
@@ -191,7 +187,7 @@ function AppContent() {
     isLoading,
     pinnedItemIds,
     ineffectivePins,
-  } = useProductionPlan(availableRecipes, facilityCaps);
+  } = useProductionPlan(availableRecipes, regionRawMaterials, facilityCaps);
 
   const targetRates = useMemo(
     () => new Map(targets.map((t) => [t.itemId as ItemId, t.rate])),
@@ -277,6 +273,7 @@ function AppContent() {
         onOpenChange={setDialogOpen}
         items={targetableItems}
         existingTargetIds={targets.map((t) => t.itemId)}
+        regionRawMaterials={regionRawMaterials}
         onBatchAddTargets={handleBatchAddTargets}
       />
 

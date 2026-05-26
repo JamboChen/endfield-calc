@@ -134,9 +134,9 @@ function injectDisposalRecipes(
  * matter where the LP routed the actual flow.
  *
  * **Important**: `rawMaterials` MUST be the plan's runtime raw set
- * (typically `graph.rawMaterials`, the union of `forcedRawMaterials`,
+ * (typically `graph.rawMaterials`, the union of the per-region raw set,
  * user-supplied `manualRawMaterials`, and any LP-extended SCC feeder
- * raws). Passing `forcedRawMaterials` alone misses user-marked manual
+ * raws). Passing the per-region set alone misses user-marked manual
  * raws and produces false-positive prefill chips.
  *
  * **Anti-pattern**: do not iterate over ALL recipes in `recipeMap`;
@@ -306,12 +306,12 @@ function tarjanScc<T>(
  *
  * **`rawMaterials` parameter contract**: production callers pass the
  * plan's `graph.rawMaterials` (built by `graph-builder` as the union of
- * `forcedRawMaterials` + `manualRawMaterials` + any LP-extended feeder
- * raws). This is the single source of truth for "what counts as raw in
- * THIS plan", and the bootability fixpoint reads it directly — no
- * import of `forcedRawMaterials` here. Tests pass whatever raw set
- * matches the synthetic scenario (typically `new Set<ItemId>()` when
- * the fixture's items aren't game-data raws).
+ * the per-region raw set + `manualRawMaterials` + any LP-extended
+ * feeder raws). This is the single source of truth for "what counts as
+ * raw in THIS plan", and the bootability fixpoint reads it directly —
+ * no global raw-set import. Tests pass whatever raw set matches the
+ * synthetic scenario (typically `new Set<ItemId>()` when the fixture's
+ * items aren't game-data raws).
  */
 export function propagatePrefillCandidates(
   bins: Bin[],
@@ -876,6 +876,12 @@ function buildProductionGraph(
  * stable as new optional concerns are added (e.g. `facilityCaps` in
  * Step 2 of the AIC Plan feature).
  *
+ * - `rawMaterials`: items the calc treats as having no producer
+ *   (infinite supply for LP). REQUIRED. App.tsx passes the per-
+ *   `currentDomain` set from `rawAvailabilityByDomain`; tests pass
+ *   whatever raw set matches their synthetic recipe shape. Future work
+ *   will add a peer `rawCaps?: ReadonlyMap<ItemId, number>` to bound
+ *   per-raw consumption in items/min once solver enforcement lands.
  * - `recipeOverrides`: user's per-item recipe choice (e.g. picking
  *   `pool_xiranite_poly_2` over `pool_xiranite_poly_1`). Item id → recipe id.
  * - `manualRawMaterials`: items the user explicitly pinned as raw
@@ -887,6 +893,7 @@ function buildProductionGraph(
  *   warning into `plan.warnings` rather than failing.
  */
 export interface CalculateProductionPlanOptions {
+  rawMaterials: ReadonlySet<ItemId>;
   recipeOverrides?: Map<ItemId, RecipeId>;
   manualRawMaterials?: Set<ItemId>;
   facilityCaps?: ReadonlyMap<FacilityId, number>;
@@ -897,13 +904,14 @@ export async function calculateProductionPlan(
   items: readonly Item[],
   recipes: readonly Recipe[],
   facilities: readonly Facility[],
-  options?: CalculateProductionPlanOptions,
+  options: CalculateProductionPlanOptions,
 ): Promise<ProductionDependencyGraph> {
   if (targets.length === 0) throw new Error("No targets specified");
 
-  const recipeOverrides = options?.recipeOverrides;
-  const manualRawMaterials = options?.manualRawMaterials;
-  const facilityCaps = options?.facilityCaps;
+  const rawMaterials = options.rawMaterials;
+  const recipeOverrides = options.recipeOverrides;
+  const manualRawMaterials = options.manualRawMaterials;
+  const facilityCaps = options.facilityCaps;
 
   const maps: ProductionMaps = {
     itemMap: new Map(items.map((i) => [i.id, i])),
@@ -923,6 +931,7 @@ export async function calculateProductionPlan(
   const graph = buildBipartiteGraph(
     targets,
     maps,
+    rawMaterials,
     recipeOverrides,
     manualRawMaterials,
   );
