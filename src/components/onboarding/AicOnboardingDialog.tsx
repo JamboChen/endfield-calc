@@ -143,7 +143,11 @@ export function AicOnboardingDialog() {
     if (fallback) setStagedCurrent(fallback.id);
   }, [pickerOptions, stagedCurrent]);
 
-  const hideRegionPicker = pickerOptions.length <= 1;
+  // Render the picker even when only one option remains (i.e. Wuling
+  // unticked → Valley IV only). Disabling rather than hiding prevents a
+  // layout shift mid-dialog and mirrors RegionPicker's settings-sheet
+  // pattern.
+  const isTrivialRegionPick = pickerOptions.length <= 1;
 
   // Trigger gate: read localStorage post-mount. Hidden on SSR.
   useEffect(() => {
@@ -317,53 +321,52 @@ export function AicOnboardingDialog() {
           </p>
         </div>
 
-        {!hideRegionPicker && (
-          <div className="space-y-1.5">
-            <label
-              htmlFor="onboarding-region-picker"
-              className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+        <div className="space-y-1.5">
+          <label
+            htmlFor="onboarding-region-picker"
+            className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+          >
+            {t("onboarding:region.label", {
+              defaultValue: "Currently building in",
+            })}
+          </label>
+          <Select
+            value={stagedCurrent}
+            onValueChange={(value) => setStagedCurrent(value as DomainId)}
+            disabled={isTrivialRegionPick}
+          >
+            <SelectTrigger
+              id="onboarding-region-picker"
+              className="w-full pl-3 gap-2 border-l-4"
+              style={(() => {
+                const d = pickerOptions.find((x) => x.id === stagedCurrent);
+                return d ? { borderLeftColor: `#${d.color}` } : undefined;
+              })()}
             >
-              {t("onboarding:region.label", {
-                defaultValue: "Currently building in",
-              })}
-            </label>
-            <Select
-              value={stagedCurrent}
-              onValueChange={(value) => setStagedCurrent(value as DomainId)}
-            >
-              <SelectTrigger
-                id="onboarding-region-picker"
-                className="w-full pl-3 gap-2 border-l-4"
-                style={(() => {
-                  const d = pickerOptions.find((x) => x.id === stagedCurrent);
-                  return d ? { borderLeftColor: `#${d.color}` } : undefined;
-                })()}
-              >
-                <SelectValue
-                  placeholder={t("onboarding:region.placeholder", {
-                    defaultValue: "Select region",
-                  })}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {pickerOptions.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    <span
-                      aria-hidden="true"
-                      className="inline-block size-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: `#${d.color}` }}
-                    />
-                    <span className="truncate">
-                      {t(`domain:domains.${d.id}.name`, {
-                        defaultValue: d.id,
-                      })}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+              <SelectValue
+                placeholder={t("onboarding:region.placeholder", {
+                  defaultValue: "Select region",
+                })}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {pickerOptions.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  <span
+                    aria-hidden="true"
+                    className="inline-block size-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: `#${d.color}` }}
+                  />
+                  <span className="truncate">
+                    {t(`domain:domains.${d.id}.name`, {
+                      defaultValue: d.id,
+                    })}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         <p className="text-xs text-muted-foreground">{t("onboarding:hint")}</p>
 
