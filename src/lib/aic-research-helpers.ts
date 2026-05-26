@@ -10,7 +10,7 @@
 import { aicGroups, aicNodes, facilityBaseCaps, recipesByTech } from "@/data/aic-plans";
 import type { AicGroupId, AicNode, AicTechId, FacilityBaseCap } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
-import type { FacilityId, Recipe, RecipeId } from "@/types";
+import type { Facility, FacilityId, Recipe, RecipeId } from "@/types";
 import { FacilityId as FacilityIdEnum } from "@/types/constants";
 
 /**
@@ -86,6 +86,44 @@ export function computeUnlockedFacilities(
     }
     out.add(node.action.facilityId);
     for (const extra of node.additionalFacilities) out.add(extra);
+  }
+  return out;
+}
+
+/**
+ * Facilities currently available for placement given the AIC-unlock
+ * set and the user's selected factory region (`currentDomain`).
+ *
+ * The intersection of two filters:
+ *   - **AIC**: `unlockedFacilities` (already domain-aware via
+ *     `computeUnlockedFacilities`'s `activeDomains` arg).
+ *   - **Region**: `Facility.domains` is empty (placeable anywhere) OR
+ *     includes `currentDomain` (region-restricted to a set that
+ *     contains the player's current factory location).
+ *
+ * Pure. The intended call site is `App.tsx`'s `availableRecipes` memo,
+ * which feeds the filtered set into `computeRecipeAvailability` so the
+ * downstream calc / picker pipeline sees only region-appropriate
+ * recipes. Facilities NOT in this set still exist in `facilities` and
+ * remain visible in informational surfaces (e.g. the AIC tree, where
+ * Wuling-only facilities still show their research state when planning
+ * a Valley IV factory) — only recipe usability is gated.
+ */
+export function computeAvailableFacilities(
+  unlockedFacilities: ReadonlySet<FacilityId>,
+  facilities: readonly Facility[],
+  currentDomain: DomainId,
+): ReadonlySet<FacilityId> {
+  const facilityById = new Map<FacilityId, Facility>();
+  for (const f of facilities) facilityById.set(f.id, f);
+
+  const out = new Set<FacilityId>();
+  for (const id of unlockedFacilities) {
+    const f = facilityById.get(id);
+    if (!f) continue; // defensive: id without a Facility entry
+    if (f.domains.length === 0 || f.domains.includes(currentDomain)) {
+      out.add(id);
+    }
   }
   return out;
 }

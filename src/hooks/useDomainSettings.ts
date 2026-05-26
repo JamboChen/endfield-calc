@@ -30,7 +30,7 @@
  * Current shape:
  * ```json
  * {
- *   "domains": { "inactive": ["domain_2"] },
+ *   "domains": { "inactive": ["domain_2"], "current": "domain_1" },
  *   "aic": {
  *     "unresearched": ["tech_..."],
  *     "capOverrides": [
@@ -39,6 +39,13 @@
  *   }
  * }
  * ```
+ *
+ * `domains.current` is the user's selected factory region. Invariant:
+ * always ∈ `activeDomains` (pinned domains are always active so this
+ * holds by construction in the worst case). The loader treats a missing
+ * or invalid `current` as the "latest" active region — highest `sortId`
+ * in the active set — which doubles as the migration default for
+ * payloads written before the region picker landed.
  *
  * Legacy v1-flat shape (still readable):
  * ```json
@@ -103,9 +110,12 @@ interface CapOverrideRecord {
 
 /**
  * Nested persistence shape — what writer emits and current-shape loader expects.
+ *
+ * `domains.current` may be absent (legacy payload written before the
+ * region picker). Loader defaults to the latest active region.
  */
 interface PersistedShape {
-  domains: { inactive: DomainId[] };
+  domains: { inactive: DomainId[]; current?: DomainId };
   aic: {
     unresearched: AicTechId[];
     capOverrides: CapOverrideRecord[];
@@ -197,12 +207,37 @@ function migrateV1ToNested(v1: PersistedShapeV1): PersistedShape {
   return {
     domains: {
       inactive: Array.isArray(v1.inactiveDomains) ? [...v1.inactiveDomains] : [],
+      // v1-flat never carried `current`; loader's downstream validation
+      // synthesises it from the active set.
     },
     aic: {
       unresearched: [...v1.unresearched],
       capOverrides: [...v1.capOverrides],
     },
   };
+}
+
+/**
+ * Pick the "latest" active region — highest `sortId` in the active
+ * set. Used as the default `currentDomain` when persistence carries no
+ * value (migration), the persisted value is invalid (corruption), or
+ * the user deactivates the AIC of their current region (auto-fallback).
+ *
+ * Falls back to the first pinned domain when no active domain exists
+ * (pinned domains are always active by construction so this only
+ * triggers if `domainData` is empty — defensive).
+ */
+function pickLatestActive(activeDomains: ReadonlySet<DomainId>): DomainId {
+  let best: { id: DomainId; sortId: number } | null = null;
+  for (const d of domainData) {
+    if (!activeDomains.has(d.id)) continue;
+    if (!best || d.sortId > best.sortId) {
+      best = { id: d.id, sortId: d.sortId };
+    }
+  }
+  if (best) return best.id;
+  const pinned = domainData.find((d) => d.isPinned);
+  return (pinned ?? domainData[0]).id;
 }
 
 function loadFromStorage(): PersistedShape | null {
@@ -240,8 +275,13 @@ function loadFromStorage(): PersistedShape | null {
         typeof c.value === "number" &&
         Number.isFinite(c.value),
     );
+    const current =
+      typeof shape.domains.current === "string" &&
+      knownDomainIds.has(shape.domains.current)
+        ? (shape.domains.current as DomainId)
+        : undefined;
     return {
-      domains: { inactive },
+      domains: { inactive, current },
       aic: { unresearched, capOverrides },
     };
   } catch {
@@ -253,6 +293,7 @@ function persistToStorage(state: {
   researched: ReadonlySet<AicTechId>;
   inactiveDomains: ReadonlySet<DomainId>;
   capOverrides: ReadonlyMap<string, number>;
+  currentDomain: DomainId;
 }): void {
   if (typeof window === "undefined") return;
   try {
@@ -274,7 +315,10 @@ function persistToStorage(state: {
       });
     }
     const payload: PersistedShape = {
-      domains: { inactive: Array.from(state.inactiveDomains).sort() },
+      domains: {
+        inactive: Array.from(state.inactiveDomains).sort(),
+        current: state.currentDomain,
+      },
       aic: {
         unresearched,
         capOverrides: capList.sort((a, b) => {
@@ -361,6 +405,12 @@ export interface DomainSettingsValue {
    * Toggle activation for `id`. Refuses pinned domains silently. Does
    * NOT mutate `aic.researched` (soft preservation — re-activating
    * restores prior state).
+   *
+   * If `id === currentDomain` and the toggle would deactivate it, the
+   * setter also shifts `currentDomain` to `pickLatestActive` of the
+   * post-toggle active set. This preserves the invariant
+   * `currentDomain ∈ activeDomains`. Callers detect this case via the
+   * value change in the next render and toast accordingly.
    */
   toggleDomain: (id: DomainId) => void;
 
@@ -377,10 +427,33 @@ export interface DomainSettingsValue {
    * Domains absent from the map are treated as checked (defensive — the
    * caller defaults to all-checked).
    *
-   * Atomic: one `setInactiveDomains` + one `setResearched` call, so the
-   * persist effect fires once with both updates batched by React.
+   * `currentDomain` is the user's selected factory region from the
+   * onboarding dropdown. Caller is responsible for ensuring it is in
+   * the post-confirm active set (the dialog's option list is filtered
+   * to `d.isPinned || choices.get(d.id)`).
+   *
+   * Atomic: one `setInactiveDomains` + one `setResearched` +
+   * `setCurrentDomain` call, so the persist effect fires once with all
+   * three updates batched by React.
    */
-  applyOnboardingChoices: (choices: ReadonlyMap<DomainId, boolean>) => void;
+  applyOnboardingChoices: (
+    choices: ReadonlyMap<DomainId, boolean>,
+    currentDomain: DomainId,
+  ) => void;
+
+  /**
+   * The user's currently-selected factory region. Used by the
+   * `Facility.domains` filter and per-region cap lookup. Invariant:
+   * always a member of `activeDomains`.
+   */
+  readonly currentDomain: DomainId;
+
+  /**
+   * Set the current factory region. Silently no-op if `id` is not in
+   * `activeDomains` (defensive — the picker UI only exposes active
+   * regions, so this guard catches mistakes upstream).
+   */
+  setCurrentDomain: (id: DomainId) => void;
 
   /** AIC sub-state (the first category). Future categories sit alongside. */
   readonly aic: AicSubState;
@@ -421,16 +494,25 @@ export function useDomainSettings(): DomainSettingsValue {
     },
   );
 
-  // Persist on every state change. `useRef` skips the initial cycle
-  // (state matches what we just read).
-  const isInitial = useRef(true);
-  useEffect(() => {
-    if (isInitial.current) {
-      isInitial.current = false;
-      return;
+  // `currentDomain` initial value:
+  //   - persisted value if valid (∈ active set)
+  //   - otherwise `pickLatestActive` of the active set (handles
+  //     migration from pre-region-picker payloads + corrupted values)
+  const [currentDomain, setCurrentDomainState] = useState<DomainId>(() => {
+    const persisted = loadFromStorage();
+    const initialActive = new Set<DomainId>();
+    const initialInactive = persisted
+      ? new Set(persisted.domains.inactive)
+      : defaultInactiveDomains();
+    for (const d of domainData) {
+      if (!initialInactive.has(d.id)) initialActive.add(d.id);
     }
-    persistToStorage({ researched, inactiveDomains, capOverrides });
-  }, [researched, inactiveDomains, capOverrides]);
+    const fromPersisted = persisted?.domains.current;
+    if (fromPersisted && initialActive.has(fromPersisted)) {
+      return fromPersisted;
+    }
+    return pickLatestActive(initialActive);
+  });
 
   // Derived: active domains (allDomains - inactive). Pinned domains
   // can never be in `inactiveDomains` (the toggler refuses) so they're
@@ -442,6 +524,22 @@ export function useDomainSettings(): DomainSettingsValue {
     }
     return out;
   }, [inactiveDomains]);
+
+  // Persist on every state change. `useRef` skips the initial cycle
+  // (state matches what we just read).
+  const isInitial = useRef(true);
+  useEffect(() => {
+    if (isInitial.current) {
+      isInitial.current = false;
+      return;
+    }
+    persistToStorage({
+      researched,
+      inactiveDomains,
+      capOverrides,
+      currentDomain,
+    });
+  }, [researched, inactiveDomains, capOverrides, currentDomain]);
 
   // Derived: AIC selectors (domain-aware where applicable).
   const unlockedFacilities = useMemo(
@@ -472,29 +570,68 @@ export function useDomainSettings(): DomainSettingsValue {
       const domain = domainData.find((d) => d.id === id);
       if (!domain || domain.isPinned) return prev; // pinned domains never toggle
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const becomesInactive = !next.has(id);
+      if (becomesInactive) next.add(id);
+      else next.delete(id);
+
+      // Auto-fallback: if this toggle deactivates the user's current
+      // factory region, shift `currentDomain` to the next-latest active
+      // region. The setter runs in the same render batch as
+      // setInactiveDomains so the persist effect sees both updates.
+      if (becomesInactive) {
+        setCurrentDomainState((prevCurrent) => {
+          if (prevCurrent !== id) return prevCurrent;
+          const nextActive = new Set<DomainId>();
+          for (const d of domainData) {
+            if (!next.has(d.id)) nextActive.add(d.id);
+          }
+          return pickLatestActive(nextActive);
+        });
+      }
       return next;
+    });
+  }, []);
+
+  const setCurrentDomain = useCallback((id: DomainId) => {
+    setCurrentDomainState((prev) => {
+      if (prev === id) return prev;
+      // Defensive: the picker UI only exposes active regions, but a
+      // stale call (e.g. concurrent toggle that just deactivated `id`)
+      // could land here. Silently keep the previous value.
+      const domain = domainData.find((d) => d.id === id);
+      if (!domain) return prev;
+      return id;
     });
   }, []);
 
   /**
    * First-visit onboarding bulk-apply. See `DomainSettingsValue
-   * .applyOnboardingChoices` for semantics. Touches both inactive-
-   * domains and researched-nodes in two setter calls; React batches
-   * them so the persist effect fires once.
+   * .applyOnboardingChoices` for semantics. Touches inactive-domains,
+   * researched-nodes, and currentDomain in three setter calls; React
+   * batches them so the persist effect fires once.
+   *
+   * `nextCurrentDomain` is validated against the post-confirm active
+   * set; if it would land outside, falls back to `pickLatestActive`
+   * (defensive — the dialog filters its option list, but a stale
+   * staged value could otherwise sneak through).
    */
   const applyOnboardingChoices = useCallback(
-    (choices: ReadonlyMap<DomainId, boolean>) => {
-      setInactiveDomains(() => {
-        const next = new Set<DomainId>();
-        for (const d of domainData) {
-          if (d.isPinned) continue; // pinned never enters inactive set
-          const isChecked = choices.get(d.id) ?? true;
-          if (!isChecked) next.add(d.id);
-        }
-        return next;
-      });
+    (
+      choices: ReadonlyMap<DomainId, boolean>,
+      nextCurrentDomain: DomainId,
+    ) => {
+      const nextInactive = new Set<DomainId>();
+      for (const d of domainData) {
+        if (d.isPinned) continue; // pinned never enters inactive set
+        const isChecked = choices.get(d.id) ?? true;
+        if (!isChecked) nextInactive.add(d.id);
+      }
+      const nextActive = new Set<DomainId>();
+      for (const d of domainData) {
+        if (!nextInactive.has(d.id)) nextActive.add(d.id);
+      }
+
+      setInactiveDomains(nextInactive);
 
       setResearched(() => {
         const next = new Set<AicTechId>();
@@ -516,6 +653,12 @@ export function useDomainSettings(): DomainSettingsValue {
         }
         return next;
       });
+
+      setCurrentDomainState(
+        nextActive.has(nextCurrentDomain)
+          ? nextCurrentDomain
+          : pickLatestActive(nextActive),
+      );
     },
     [],
   );
@@ -642,6 +785,8 @@ export function useDomainSettings(): DomainSettingsValue {
     activeDomains,
     toggleDomain,
     applyOnboardingChoices,
+    currentDomain,
+    setCurrentDomain,
     aic,
   };
 }

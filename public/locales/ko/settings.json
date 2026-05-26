@@ -1,8 +1,18 @@
 {
   "title": "설정",
   "open": "설정 열기",
+  "region": {
+    "label": "현재 공장 지역",
+    "picker": {
+      "placeholder": "지역 선택",
+      "ariaLabel": "현재 공장 지역 선택"
+    },
+    "toast": {
+      "switchedToFallback": "{{name}} 공장으로 전환했습니다"
+    }
+  },
   "aic": {
-    "intro": "연구한 AIC 기술을 선택하세요. 향후 업데이트에서 플랜에 사용 가능한 아이템과 공식이 이 설정에 따라 필터링됩니다.",
+    "intro": "연구한 AIC 기술을 선택하세요. 이 설정에 따라 플랜에 사용 가능한 아이템과 공식이 필터링됩니다.",
     "activateAll": "모두 활성화",
     "activateLayer": "이 계층 활성화",
     "resetDefaults": "기본값으로 재설정",

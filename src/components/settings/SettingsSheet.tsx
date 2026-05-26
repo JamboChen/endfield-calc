@@ -16,6 +16,7 @@ import type { Domain, DomainId } from "@/types/domain";
 
 import { AicPlanCard } from "./AicPlanCard";
 import { DomainSection } from "./DomainSection";
+import { RegionPicker } from "./RegionPicker";
 
 interface SettingsSheetProps {
   open: boolean;
@@ -25,7 +26,14 @@ interface SettingsSheetProps {
 export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
   const { t } = useTranslation(["settings", "aic", "domain"]);
 
-  const { domains, activeDomains, toggleDomain, aic } = useDomainSettingsContext();
+  const {
+    domains,
+    activeDomains,
+    toggleDomain,
+    currentDomain,
+    setCurrentDomain,
+    aic,
+  } = useDomainSettingsContext();
 
   const orderedDomains = useMemo<readonly Domain[]>(
     () => [...domains].sort((a, b) => a.sortId - b.sortId),
@@ -43,14 +51,47 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     return out;
   }, [aicGroups]);
 
-  // Domain activation is silent — the switch flip is its own visual
-  // feedback (no toast needed). State preservation across deactivation
-  // is implicit in `toggleDomain`'s soft semantics.
+  // Domain activation is silent in the normal case — the switch flip is
+  // its own visual feedback. EXCEPT when deactivating the user's current
+  // factory region: the hook auto-falls-back `currentDomain` to the
+  // next-latest active region, and we surface that as a toast so the
+  // change isn't silent.
   const handleToggleDomain = useCallback(
     (domain: Domain) => {
+      const willAutoFallback =
+        !domain.isPinned &&
+        domain.id === currentDomain &&
+        activeDomains.has(domain.id);
       toggleDomain(domain.id);
+      if (willAutoFallback) {
+        // The auto-fallback target = `pickLatestActive(activeDomains \ {id})`.
+        // We can't read it from the hook synchronously here (state has
+        // batched but hasn't re-rendered), so compute the same way the
+        // hook does: highest `sortId` in the remaining active set.
+        let next: Domain | undefined;
+        for (const d of domains) {
+          if (d.id === domain.id) continue;
+          if (!activeDomains.has(d.id)) continue;
+          if (!next || d.sortId > next.sortId) next = d;
+        }
+        // Pinned domain is always active by construction, so `next` is
+        // never undefined in practice; the fallback keeps types happy.
+        const fallbackName = next
+          ? t(`domains.${next.id}.name`, {
+              ns: "domain",
+              defaultValue: next.id,
+            })
+          : "";
+        toast.info(
+          t("region.toast.switchedToFallback", {
+            ns: "settings",
+            name: fallbackName,
+            defaultValue: `Switched to ${fallbackName} factory`,
+          }),
+        );
+      }
     },
-    [toggleDomain],
+    [toggleDomain, currentDomain, activeDomains, domains, t],
   );
 
   const handleActivateGroup = useCallback(
@@ -158,6 +199,12 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          <RegionPicker
+            domains={domains}
+            activeDomains={activeDomains}
+            currentDomain={currentDomain}
+            onChange={setCurrentDomain}
+          />
           {orderedDomains.map((domain) => {
             const isActive = activeDomains.has(domain.id);
             const groups = groupsByDomain.get(domain.id) ?? [];

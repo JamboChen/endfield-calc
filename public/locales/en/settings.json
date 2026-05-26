@@ -1,8 +1,18 @@
 {
   "title": "Settings",
   "open": "Open settings",
+  "region": {
+    "label": "Current factory region",
+    "picker": {
+      "placeholder": "Select region",
+      "ariaLabel": "Select current factory region"
+    },
+    "toast": {
+      "switchedToFallback": "Switched to {{name}} factory"
+    }
+  },
   "aic": {
-    "intro": "Choose which AIC technologies you've researched. In a future update, this will filter the items and formulas available to your plans.",
+    "intro": "Choose which AIC technologies you've researched. This filters the items and formulas available to your plans.",
     "activateAll": "Activate all",
     "activateLayer": "Activate layer",
     "resetDefaults": "Reset to defaults",

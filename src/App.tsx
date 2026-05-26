@@ -15,7 +15,10 @@ import AppFooter from "./components/layout/AppFooter";
 import { ThemeProvider, useTheme } from "./components/ui/theme-provider";
 import { DomainSettingsProvider } from "./contexts/DomainSettingsProvider";
 import { useDomainSettingsContext } from "./contexts/domain-settings-context";
-import { computeRecipeAvailability } from "./lib/aic-research-helpers";
+import {
+  computeAvailableFacilities,
+  computeRecipeAvailability,
+} from "./lib/aic-research-helpers";
 import { computeRecipeReachability } from "./lib/recipe-reachability";
 import { bootstrapFacilities, forcedRawMaterials } from "./data";
 import type { FacilityId, ItemId } from "./types";
@@ -78,9 +81,18 @@ function AppContent() {
   // The intermediate AIC-only set is scoped to this memo only. Auto-
   // prune downstream operates on the strict `availableRecipes` outputs.
   const { availableRecipes, reachableItems } = useMemo(() => {
+    // Intersect AIC-unlocked with region-permitted facilities so
+    // recipes whose host facility is locked to a region the player
+    // isn't currently building in drop from `availableRecipes`. See
+    // `computeAvailableFacilities` for the rule.
+    const availableFacilities = computeAvailableFacilities(
+      settings.aic.unlockedFacilities,
+      facilities,
+      settings.currentDomain,
+    );
     const aicFiltered = computeRecipeAvailability(
       recipes,
-      settings.aic.unlockedFacilities,
+      availableFacilities,
       settings.aic.unlockedModes,
     ).availableRecipes;
     const { runnableRecipes, reachableItems } = computeRecipeReachability(
@@ -89,7 +101,11 @@ function AppContent() {
       bootstrapFacilities,
     );
     return { availableRecipes: runnableRecipes, reachableItems };
-  }, [settings.aic.unlockedFacilities, settings.aic.unlockedModes]);
+  }, [
+    settings.aic.unlockedFacilities,
+    settings.aic.unlockedModes,
+    settings.currentDomain,
+  ]);
 
   // Items the picker may show as targets: those reachable via the AIC-
   // and chain-filtered recipe set. Forced raws are in `reachableItems`
@@ -108,6 +124,13 @@ function AppContent() {
   // MIP via `useProductionPlan` → `calculateProductionPlan({ facilityCaps })`.
   // Facilities without entries in `effectiveCaps` are uncapped (omitted
   // from the map entirely — the packer treats absence as no constraint).
+  //
+  // NOTE: summing across active domains (rather than restricting to the
+  // user's `currentDomain`) is preserved pending empirical clarification
+  // of whether cap-raise techs are per-region or account-wide. Today
+  // only `xiranite_oven_1` is capped, and it's locked to `domain_2`,
+  // so the question is moot. Revisit if/when a second-region-capped
+  // facility surfaces and we can observe in-game behaviour.
   const facilityCaps = useMemo(() => {
     const out = new Map<FacilityId, number>();
     for (const [facilityId, perDomain] of settings.aic.effectiveCaps) {

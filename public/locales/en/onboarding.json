@@ -6,5 +6,9 @@
   "hint": "You can change this anytime in Settings.",
   "confirmButton": "Continue",
   "statusActive": "Active",
-  "statusInactive": "Off"
+  "statusInactive": "Off",
+  "region": {
+    "label": "Currently building in",
+    "placeholder": "Select region"
+  }
 }

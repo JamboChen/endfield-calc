@@ -1,8 +1,18 @@
 {
   "title": "設定",
   "open": "開啟設定",
+  "region": {
+    "label": "目前的工廠區域",
+    "picker": {
+      "placeholder": "選擇區域",
+      "ariaLabel": "選擇目前的工廠區域"
+    },
+    "toast": {
+      "switchedToFallback": "已切換至 {{name}} 工廠"
+    }
+  },
   "aic": {
-    "intro": "選擇您已研究的 AIC 科技。在未來版本中，此設定將篩選方案中可用的物品與配方。",
+    "intro": "選擇您已研究的 AIC 科技。此設定將篩選方案中可用的物品與配方。",
     "activateAll": "全部啟動",
     "activateLayer": "啟動該層",
     "resetDefaults": "恢復預設",

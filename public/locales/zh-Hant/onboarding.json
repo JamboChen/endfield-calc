@@ -6,5 +6,9 @@
   "hint": "你可以隨時在設定中變更。",
   "confirmButton": "繼續",
   "statusActive": "啟用",
-  "statusInactive": "關閉"
+  "statusInactive": "關閉",
+  "region": {
+    "label": "目前建設區域",
+    "placeholder": "選擇區域"
+  }
 }

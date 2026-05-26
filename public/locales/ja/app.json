@@ -1,6 +1,6 @@
 {
-  "autoPruneSummary_one": "現在のAIC設定で生産できない項目 {{count}} 件を削除しました。",
-  "autoPruneSummary_other": "現在のAIC設定で生産できない項目 {{count}} 件を削除しました。",
+  "autoPruneSummary_one": "現在の設定で生産できない項目 {{count}} 件を削除しました。",
+  "autoPruneSummary_other": "現在の設定で生産できない項目 {{count}} 件を削除しました。",
   "ceilMode": "施設数を切り上げ",
   "twoEndAlignment": "両端整列",
   "binFusion": "レシピをグループ化",

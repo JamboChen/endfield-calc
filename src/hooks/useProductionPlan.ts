@@ -469,8 +469,8 @@ export function useProductionPlan(
         count: total,
         defaultValue:
           total === 1
-            ? "Removed 1 item no longer producible by your current AIC settings."
-            : `Removed ${total} items no longer producible by your current AIC settings.`,
+            ? "Removed 1 item no longer producible by your current settings."
+            : `Removed ${total} items no longer producible by your current settings.`,
       }),
     );
     // The effect is idempotent against its own output: when the setters

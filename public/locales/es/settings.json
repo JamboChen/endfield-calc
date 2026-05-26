@@ -1,8 +1,18 @@
 {
   "title": "Configuración",
   "open": "Abrir configuración",
+  "region": {
+    "label": "Región actual de la fábrica",
+    "picker": {
+      "placeholder": "Selecciona región",
+      "ariaLabel": "Selecciona la región actual de la fábrica"
+    },
+    "toast": {
+      "switchedToFallback": "Se cambió a la fábrica de {{name}}"
+    }
+  },
   "aic": {
-    "intro": "Elige qué tecnologías de la CAI has investigado. En una futura actualización, esto filtrará los objetos y fórmulas disponibles en tus planes.",
+    "intro": "Elige qué tecnologías de la CAI has investigado. Esto filtra los objetos y fórmulas disponibles en tus planes.",
     "activateAll": "Activar todo",
     "activateLayer": "Activar capa",
     "resetDefaults": "Restablecer valores predeterminados",

@@ -1,6 +1,6 @@
 {
-  "autoPruneSummary_one": "Removed {{count}} item no longer producible by your current AIC settings.",
-  "autoPruneSummary_other": "Removed {{count}} items no longer producible by your current AIC settings.",
+  "autoPruneSummary_one": "Removed {{count}} item no longer producible by your current settings.",
+  "autoPruneSummary_other": "Removed {{count}} items no longer producible by your current settings.",
   "ceilMode": "Round up facilities",
   "twoEndAlignment": "Align inputs/outputs",
   "binFusion": "Group formulas",

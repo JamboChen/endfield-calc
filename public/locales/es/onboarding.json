@@ -6,5 +6,9 @@
   "hint": "Puedes cambiarlo en cualquier momento desde Configuración.",
   "confirmButton": "Continuar",
   "statusActive": "Activo",
-  "statusInactive": "Inactivo"
+  "statusInactive": "Inactivo",
+  "region": {
+    "label": "Actualmente construyendo en",
+    "placeholder": "Selecciona región"
+  }
 }
