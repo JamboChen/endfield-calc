@@ -82,23 +82,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
+import { pickLatestActive } from "@/hooks/useDomainSettings";
 import { cn } from "@/lib/utils";
 import type { Domain, DomainId } from "@/types/domain";
 
 const STORAGE_KEY = "endfield-calc:onboarding-v1";
-
-/**
- * Pick the "latest" region from a set — highest `sortId`. Used to seed
- * the onboarding region dropdown so the default matches the player's
- * most-recently-progressed region (e.g. all-checked → Wuling).
- */
-function pickLatestSortId(domains: readonly Domain[]): Domain | undefined {
-  let best: Domain | undefined;
-  for (const d of domains) {
-    if (!best || d.sortId > best.sortId) best = d;
-  }
-  return best;
-}
 
 export function AicOnboardingDialog() {
   const { t } = useTranslation(["onboarding", "domain"]);
@@ -133,8 +121,16 @@ export function AicOnboardingDialog() {
   // Staged `currentDomain` — defaults to the latest (highest-sortId)
   // option. Auto-adjusts when the picker option list changes (e.g. user
   // unticks the currently-staged region → fall back to next-latest).
-  const [stagedCurrent, setStagedCurrent] = useState<DomainId>(
-    () => pickLatestSortId(domains)?.id ?? domains[0].id,
+  //
+  // First render: dialog starts with everything checked, so the staged
+  // active set equals the full domain registry. `pickLatestActive` is
+  // the shared "latest active" helper from `useDomainSettings` — using
+  // it here keeps onboarding + settings + hook all in lockstep if the
+  // tie-breaking rule ever changes. Assumes `domains` from the context
+  // is the module-static `domainData` (which `pickLatestActive`
+  // iterates internally), which is currently invariant.
+  const [stagedCurrent, setStagedCurrent] = useState<DomainId>(() =>
+    pickLatestActive(new Set(domains.map((d) => d.id))),
   );
   useEffect(() => {
     const stillAvailable = pickerOptions.some((d) => d.id === stagedCurrent);
