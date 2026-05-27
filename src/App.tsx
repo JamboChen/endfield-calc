@@ -84,14 +84,24 @@ function AppContent() {
 
   // Per-region raw-material set used as the reachability closure's root
   // AND threaded through `useProductionPlan` → `calculateProductionPlan`
-  // as the LP/graph raw classification. The non-null assertion is safe
-  // by the "coverage" invariant in `region-raw-availability.test.ts`
-  // (every domain in the registry has an entry here); the picker only
-  // exposes `activeDomains`-valid regions to `setCurrentDomain`.
-  const regionRawMaterials = useMemo(
-    () => rawAvailabilityByDomain.get(settings.currentDomain)!,
-    [settings.currentDomain],
-  );
+  // as the LP/graph raw classification. The "coverage" invariant in
+  // `region-raw-availability.test.ts` guarantees every domain in the
+  // registry has an entry here, so this `.get()` should never miss in
+  // practice. Graceful fallback (empty set + dev warn) defends against
+  // catastrophic data drift — a new domain landing without its raw
+  // mapping would otherwise crash the app on render.
+  const regionRawMaterials = useMemo(() => {
+    const set = rawAvailabilityByDomain.get(settings.currentDomain);
+    if (set) return set;
+    if (import.meta.env?.DEV) {
+      console.warn(
+        `[App] rawAvailabilityByDomain missing entry for ${settings.currentDomain}; ` +
+          "falling back to empty set. This violates the coverage invariant — " +
+          "check region-raw-availability.test.ts for the failing case.",
+      );
+    }
+    return new Set<ItemId>();
+  }, [settings.currentDomain]);
 
   const { availableRecipes, reachableItems } = useMemo(() => {
     // Intersect AIC-unlocked with region-permitted facilities so
