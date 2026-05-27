@@ -654,21 +654,101 @@ export function useProductionPlan(
     return out;
   }, [overCapWarnings]);
 
-  // Derive warning messages from invalid cycles (with translated item names)
-  // plus any non-fatal warnings the calculator surfaced (e.g. packer
-  // fallback warnings from `multi-formula-packing`) plus facility-cap
-  // overflows detected here at the aggregate layer.
+  // Collect overridden item IDs from invalid cycles for table row styling.
+  // Only the items whose recipe override caused the cycle get highlighted,
+  // not every item caught in the cycle.
+  const invalidCycleItemIds = useMemo(() => {
+    const ids = new Set<ItemId>();
+    if (plan) {
+      for (const ic of plan.invalidCycles) {
+        ic.overriddenItemIds.forEach((id) => ids.add(id as ItemId));
+      }
+    }
+    return ids;
+  }, [plan]);
+
+  // View-specific data: computed in view layer hooks. Both receive
+  // the shared `aggregates` so the table footer and stats panel
+  // cannot drift — single source of truth, single compute per render.
+  // `facilityOverCapMap` flows through stats so the side-panel
+  // `<ProductionStats>` card can apply destructive styling to
+  // over-cap facility cards.
+  const stats = useProductionStats(
+    displayPlan,
+    aggregates,
+    facilityOverCapMap,
+    manualRawMaterials,
+    items,
+  );
+  const tableData = useProductionTable(
+    displayPlan,
+    aggregates,
+    // Narrow the recipe set the override dropdown searches over: only
+    // recipes that are AIC-unlocked AND have reachable input chains
+    // can be valid alternatives. Same canonical set the calc uses.
+    availableRecipes,
+    manualRawMaterials,
+    invalidCycleItemIds,
+  );
+
+  // Per-raw-item cap overflow detection. Mirrors `overCapWarnings`
+  // exactly, but on the raw-materials side: compares the plan's
+  // post-pack `stats.rawMaterialRequirements` (items/min consumption)
+  // against the user's `rawMaterialCaps`. The LP layer additionally
+  // adds slack-based upper-bound constraints (see `lp-solver.ts`), so
+  // the LP biases toward conservation; this surfaces any residual
+  // overage to the user.
+  //
+  // **No entry in `rawMaterialCaps` = no limit**, structurally
+  // enforced by `computeRawOverCapWarnings` iterating the caps map
+  // rather than the requirements map.
+  const rawOverCapWarnings = useMemo<readonly PlanWarning[]>(
+    () =>
+      computeRawOverCapWarnings(
+        stats.rawMaterialRequirements,
+        rawMaterialCaps,
+      ),
+    [stats.rawMaterialRequirements, rawMaterialCaps],
+  );
+
+  // Per-item map for the side-panel `<ProductionStats>` raw-materials
+  // list red-tint + tooltip. Mirrors `facilityOverCapMap` shape.
+  const rawMaterialOverCapMap = useMemo<
+    ReadonlyMap<ItemId, { used: number; cap: number }>
+  >(() => {
+    const out = new Map<ItemId, { used: number; cap: number }>();
+    for (const w of rawOverCapWarnings) {
+      if (w.kind === "raw-over-cap") {
+        out.set(w.itemId, { used: w.used, cap: w.cap });
+      }
+    }
+    return out;
+  }, [rawOverCapWarnings]);
+
+  // Derive warning messages from invalid cycles (with translated item
+  // names) plus any non-fatal warnings the calculator surfaced (e.g.
+  // packer fallback warnings from `multi-formula-packing`) plus
+  // facility-cap overflows AND raw-cap overflows detected here at the
+  // aggregate layer.
   //
   // Cycle warnings only fire for cycles caused by user recipe overrides
   // — pre-existing unsolvable cycles in the game data are not actionable
-  // and are skipped. Structured warnings (packer + cap) are formatted
-  // here with `ceilMode` + i18n via `formatPlanWarning`.
+  // and are skipped. Structured warnings (packer + facility cap + raw
+  // cap) are formatted here with `ceilMode` + i18n via
+  // `formatPlanWarning`.
   //
-  // Cap detection uses `aggregates.rawPerFacility` (mode-independent
-  // raw LP counts), so it uniformly covers recipe bins AND pickup-point
-  // source facilities (pump_1, pump_2, unloader_1) — the latter being
-  // absent from `plan.bins` and therefore invisible to the packer's
-  // earlier cap check.
+  // Facility-cap detection uses `aggregates.rawPerFacility` (mode-
+  // independent raw LP counts), so it uniformly covers recipe bins AND
+  // pickup-point source facilities (pump_1, pump_2, unloader_1) — the
+  // latter being absent from `plan.bins` and therefore invisible to
+  // the packer's earlier cap check. Raw-cap detection uses post-pack
+  // `stats.rawMaterialRequirements` so it reflects the ceiled plan.
+  //
+  // Single unified memo so the consumer (`AppContent` → production
+  // view) sees one array. Was previously two memos (`warnings` +
+  // `warningsWithRawCaps`) because `rawOverCapWarnings` depended on
+  // `stats`; the memo reordering done in this commit moves `stats`
+  // earlier, allowing a single memo here.
   const warnings: string[] = useMemo(() => {
     if (!plan) return [];
     const cycleWarnings = plan.invalidCycles
@@ -725,98 +805,24 @@ export function useProductionPlan(
       formatPlanWarning(w, ceilMode, t, facilities, items),
     );
 
-    return [...cycleWarnings, ...planWarnings, ...capWarnings];
-  }, [plan, overCapWarnings, recipeOverrides, ceilMode, t]);
-
-  // Collect overridden item IDs from invalid cycles for table row styling.
-  // Only the items whose recipe override caused the cycle get highlighted,
-  // not every item caught in the cycle.
-  const invalidCycleItemIds = useMemo(() => {
-    const ids = new Set<ItemId>();
-    if (plan) {
-      for (const ic of plan.invalidCycles) {
-        ic.overriddenItemIds.forEach((id) => ids.add(id as ItemId));
-      }
-    }
-    return ids;
-  }, [plan]);
-
-  // View-specific data: computed in view layer hooks. Both receive
-  // the shared `aggregates` so the table footer and stats panel
-  // cannot drift — single source of truth, single compute per render.
-  // `facilityOverCapMap` flows through stats so the side-panel
-  // `<ProductionStats>` card can apply destructive styling to
-  // over-cap facility cards.
-  const stats = useProductionStats(
-    displayPlan,
-    aggregates,
-    facilityOverCapMap,
-    manualRawMaterials,
-    items,
-  );
-  const tableData = useProductionTable(
-    displayPlan,
-    aggregates,
-    // Narrow the recipe set the override dropdown searches over: only
-    // recipes that are AIC-unlocked AND have reachable input chains
-    // can be valid alternatives. Same canonical set the calc uses.
-    availableRecipes,
-    manualRawMaterials,
-    invalidCycleItemIds,
-  );
-
-  // Per-raw-item cap overflow detection. Mirrors `overCapWarnings`
-  // exactly, but on the raw-materials side: compares the plan's
-  // post-pack `stats.rawMaterialRequirements` (items/min consumption)
-  // against the user's `rawMaterialCaps`. The LP layer additionally
-  // adds slack-based upper-bound constraints (see `lp-solver.ts`), so
-  // the LP biases toward conservation; this surfaces any residual
-  // overage to the user.
-  //
-  // **No entry in `rawMaterialCaps` = no limit**, structurally
-  // enforced by `computeRawOverCapWarnings` iterating the caps map
-  // rather than the requirements map.
-  //
-  // Computed AFTER `stats` (and the warnings memo above) because it
-  // needs `stats.rawMaterialRequirements`. The raw-cap warning
-  // strings are concatenated into `warnings` via the
-  // `warningsWithRawCaps` memo below — single source of truth still
-  // applies (one memo per concern; consumer sees one array).
-  const rawOverCapWarnings = useMemo<readonly PlanWarning[]>(
-    () =>
-      computeRawOverCapWarnings(
-        stats.rawMaterialRequirements,
-        rawMaterialCaps,
-      ),
-    [stats.rawMaterialRequirements, rawMaterialCaps],
-  );
-
-  // Per-item map for the side-panel `<ProductionStats>` raw-materials
-  // list red-tint + tooltip. Mirrors `facilityOverCapMap` shape.
-  const rawMaterialOverCapMap = useMemo<
-    ReadonlyMap<ItemId, { used: number; cap: number }>
-  >(() => {
-    const out = new Map<ItemId, { used: number; cap: number }>();
-    for (const w of rawOverCapWarnings) {
-      if (w.kind === "raw-over-cap") {
-        out.set(w.itemId, { used: w.used, cap: w.cap });
-      }
-    }
-    return out;
-  }, [rawOverCapWarnings]);
-
-  // Extend the warnings array with formatted `raw-over-cap` strings.
-  // Two-stage assembly is needed because `rawOverCapWarnings`
-  // depends on `stats` (which is computed after the original
-  // `warnings` memo). User-facing: still a single array exposed
-  // via the hook's return; consumer doesn't see the staging.
-  const warningsWithRawCaps = useMemo<string[]>(() => {
-    if (rawOverCapWarnings.length === 0) return warnings;
-    const rawCapStrings = rawOverCapWarnings.map((w) =>
+    const rawCapWarnings = rawOverCapWarnings.map((w) =>
       formatPlanWarning(w, ceilMode, t, facilities, items),
     );
-    return [...warnings, ...rawCapStrings];
-  }, [warnings, rawOverCapWarnings, ceilMode, t]);
+
+    return [
+      ...cycleWarnings,
+      ...planWarnings,
+      ...capWarnings,
+      ...rawCapWarnings,
+    ];
+  }, [
+    plan,
+    overCapWarnings,
+    rawOverCapWarnings,
+    recipeOverrides,
+    ceilMode,
+    t,
+  ]);
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
     setTargets((prev) =>
@@ -958,7 +964,7 @@ export function useProductionPlan(
     tableData,
     stats,
     error,
-    warnings: warningsWithRawCaps,
+    warnings,
     rawMaterialOverCapMap,
     ceilMode,
     setCeilMode,

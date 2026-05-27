@@ -610,75 +610,113 @@ export interface DomainSettingsValue {
   readonly rawLimits: RawLimitsSubState;
 }
 
-export function useDomainSettings(): DomainSettingsValue {
-  const [inactiveDomains, setInactiveDomains] = useState<
-    ReadonlySet<DomainId>
-  >(() => {
-    const persisted = loadFromStorage();
-    if (persisted) return new Set(persisted.domains.inactive);
-    return defaultInactiveDomains();
-  });
+/**
+ * Compose the hook's initial state in a single pass over the persisted
+ * payload. Previously each `useState` initializer called
+ * `loadFromStorage` independently — 5× JSON parse + 5× defensive
+ * filter walks on every mount. This consolidates the work and the
+ * filter passes that share the same payload.
+ *
+ * Side effect of consolidation: every initial-state field is derived
+ * from THE SAME persisted snapshot, removing any chance of subtle
+ * drift if a future change makes `loadFromStorage` non-deterministic
+ * (e.g. by reading mtime or a clock).
+ */
+function composeInitialState(): {
+  inactiveDomains: Set<DomainId>;
+  researched: Set<AicTechId>;
+  capOverrides: Map<string, number>;
+  currentDomain: DomainId;
+  rawLimitOverrides: Map<string, number>;
+} {
+  const persisted = loadFromStorage();
 
-  const [researched, setResearched] = useState<ReadonlySet<AicTechId>>(() => {
-    const persisted = loadFromStorage();
-    if (persisted) {
-      return deriveResearchedFromUnresearched(persisted.aic.unresearched);
+  // ── inactiveDomains
+  const inactiveDomains = persisted
+    ? new Set(persisted.domains.inactive)
+    : defaultInactiveDomains();
+
+  // ── researched
+  const researched = persisted
+    ? deriveResearchedFromUnresearched(persisted.aic.unresearched)
+    : (() => {
+        // First-run: active-domain nodes all researched, inactive-domain
+        // nodes only `alreadyUnlocked: true`.
+        const initialActive = new Set<DomainId>();
+        for (const d of domainData) {
+          if (!inactiveDomains.has(d.id)) initialActive.add(d.id);
+        }
+        return initialResearchedSet(initialActive);
+      })();
+
+  // ── capOverrides
+  const capOverrides = new Map<string, number>();
+  if (persisted) {
+    for (const c of persisted.aic.capOverrides) {
+      capOverrides.set(capKey(c.facilityId, c.domainId), c.value);
     }
-    // First-run: active-domain nodes all researched, inactive-domain
-    // nodes only `alreadyUnlocked: true`.
-    const initialActive = new Set<DomainId>();
-    for (const d of domainData) {
-      if (!defaultInactiveDomains().has(d.id)) initialActive.add(d.id);
-    }
-    return initialResearchedSet(initialActive);
-  });
+  }
 
-  const [capOverrides, setCapOverrides] = useState<ReadonlyMap<string, number>>(
-    () => {
-      const persisted = loadFromStorage();
-      if (!persisted) return new Map();
-      const out = new Map<string, number>();
-      for (const c of persisted.aic.capOverrides) {
-        out.set(capKey(c.facilityId, c.domainId), c.value);
-      }
-      return out;
-    },
-  );
-
-  // `currentDomain` initial value:
+  // ── currentDomain
   //   - persisted value if valid (∈ active set)
   //   - otherwise `pickLatestActive` of the active set (handles
   //     migration from pre-region-picker payloads + corrupted values)
-  const [currentDomain, setCurrentDomainState] = useState<DomainId>(() => {
-    const persisted = loadFromStorage();
-    const initialActive = new Set<DomainId>();
-    const initialInactive = persisted
-      ? new Set(persisted.domains.inactive)
-      : defaultInactiveDomains();
-    for (const d of domainData) {
-      if (!initialInactive.has(d.id)) initialActive.add(d.id);
-    }
-    const fromPersisted = persisted?.domains.current;
-    if (fromPersisted && initialActive.has(fromPersisted)) {
-      return fromPersisted;
-    }
-    return pickLatestActive(initialActive);
-  });
+  const initialActive = new Set<DomainId>();
+  for (const d of domainData) {
+    if (!inactiveDomains.has(d.id)) initialActive.add(d.id);
+  }
+  const fromPersisted = persisted?.domains.current;
+  const currentDomain =
+    fromPersisted && initialActive.has(fromPersisted)
+      ? fromPersisted
+      : pickLatestActive(initialActive);
 
-  // Raw-material limit overrides. Loaded from persistence with the
-  // defensive (item, domain)-validity filter already applied by
-  // `loadFromStorage`. Absence of a key = uncapped.
+  // ── rawLimitOverrides
+  //   Loader's defensive (item, domain)-validity filter is already
+  //   applied; absence of a key here = uncapped.
+  const rawLimitOverrides = new Map<string, number>();
+  if (persisted?.rawLimits) {
+    for (const r of persisted.rawLimits.overrides) {
+      rawLimitOverrides.set(rawLimitKey(r.itemId, r.domainId), r.value);
+    }
+  }
+
+  return {
+    inactiveDomains,
+    researched,
+    capOverrides,
+    currentDomain,
+    rawLimitOverrides,
+  };
+}
+
+export function useDomainSettings(): DomainSettingsValue {
+  // Compose all initial state from a single persisted snapshot. The
+  // closure captures `initial` for the duration of the mount; the
+  // five useState calls below read from it without re-invoking the
+  // loader. After mount, `initial` is unreachable (no closures
+  // outlive the function body).
+  const initial = useMemo(composeInitialState, []);
+
+  const [inactiveDomains, setInactiveDomains] = useState<
+    ReadonlySet<DomainId>
+  >(initial.inactiveDomains);
+
+  const [researched, setResearched] = useState<ReadonlySet<AicTechId>>(
+    initial.researched,
+  );
+
+  const [capOverrides, setCapOverrides] = useState<ReadonlyMap<string, number>>(
+    initial.capOverrides,
+  );
+
+  const [currentDomain, setCurrentDomainState] = useState<DomainId>(
+    initial.currentDomain,
+  );
+
   const [rawLimitOverrides, setRawLimitOverrides] = useState<
     ReadonlyMap<string, number>
-  >(() => {
-    const persisted = loadFromStorage();
-    if (!persisted?.rawLimits) return new Map();
-    const out = new Map<string, number>();
-    for (const r of persisted.rawLimits.overrides) {
-      out.set(rawLimitKey(r.itemId, r.domainId), r.value);
-    }
-    return out;
-  });
+  >(initial.rawLimitOverrides);
 
   // Derived: active domains (allDomains - inactive). Pinned domains
   // can never be in `inactiveDomains` (the toggler refuses) so they're

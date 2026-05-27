@@ -370,36 +370,24 @@ const buildModel = (
   // coexist without interference.
   const rawCapSlackVarMap = new Map<string, ItemId>();
   if (input.rawCaps && input.rawCaps.size > 0) {
+    // Phase 1: build constraint + slack-var entries for each valid cap.
+    // Keep `itemId → constraintName` index so the recipe-walk below
+    // can locate the right constraint by item id in O(1).
+    const capConstraintByItem = new Map<ItemId, string>();
     let capIdx = 0;
     for (const [itemId, cap] of input.rawCaps) {
-      // Defensive: skip invalid caps (the App-layer aggregation already
-      // filters these, but the LP itself shouldn't crash on a bad input).
+      // Defensive: skip invalid caps (the App-layer aggregation
+      // already filters these, but the LP itself shouldn't crash on
+      // a bad input).
       if (!Number.isFinite(cap) || cap < 0) continue;
       const constraintName = `rawcap_${capIdx}_${itemId}`;
       const slackName = `rawcap_slack_${capIdx}_${itemId}`;
       capIdx++;
       // Constraint: Σ (input_rate × x_recipe) − slack ≤ cap
-      // The recipe coefficients are added in the loop below; slack
-      // coefficient is −1 (added when the slack variable is built).
+      // The recipe coefficients are added in Phase 2 below; the slack
+      // variable's −1 coefficient is set here.
       constraints[constraintName] = { max: cap };
-      // For each recipe, add its consumption rate of this raw to the
-      // constraint LHS. Recipes that don't consume the raw contribute 0.
-      for (const [varName, recipeId] of recipeIndexMap.entries()) {
-        const recipe = input.recipes.find((r) => r.id === recipeId);
-        if (!recipe) continue;
-        let consumption = 0;
-        for (const inp of recipe.inputs) {
-          if (inp.itemId === itemId) {
-            consumption += calcRate(inp.amount, recipe.craftingTime);
-          }
-        }
-        if (consumption > 0) {
-          variables[varName][constraintName] = consumption;
-        }
-      }
-      // Slack variable: coefficient -1 on the constraint (allows
-      // consumption > cap by exactly the slack value), penalized in
-      // every lex objective.
+      capConstraintByItem.set(itemId, constraintName);
       rawCapSlackVarMap.set(slackName, itemId);
       variables[slackName] = {
         [constraintName]: -1,
@@ -407,6 +395,30 @@ const buildModel = (
         buildingCount: SLACK_PENALTY,
         power: SLACK_PENALTY,
       };
+    }
+
+    // Phase 2: walk each recipe exactly once; for each input, look up
+    // the matching cap constraint and append the per-facility
+    // consumption rate to that recipe variable's coefficient column.
+    //
+    // Complexity: O(R × I) where R = recipes, I = avg inputs/recipe.
+    // The previous nested form was O(C × R²) due to a `recipes.find`
+    // inside the cap loop. With ~150 active recipes and ~6 caps the
+    // old form did ~135k operations per pass × 3 lex passes; the
+    // new form is ~3k × 3 = 9k.
+    if (capConstraintByItem.size > 0) {
+      input.recipes.forEach((recipe, idx) => {
+        const varName = `x_${idx}`;
+        for (const inp of recipe.inputs) {
+          const constraintName = capConstraintByItem.get(inp.itemId);
+          if (!constraintName) continue;
+          const consumption = calcRate(inp.amount, recipe.craftingTime);
+          // A recipe could in principle list the same input twice
+          // (the input shape allows duplicates). Sum contributions.
+          variables[varName][constraintName] =
+            (variables[varName][constraintName] ?? 0) + consumption;
+        }
+      });
     }
   }
 
