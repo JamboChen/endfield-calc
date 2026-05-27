@@ -9,6 +9,7 @@
   "cycleWarning": "{{overriddenItems}} 所选配方形成了无法维持所需产量的生产循环。受影响物品：{{affectedItems}}。",
   "cycleWarningNoAffected": "{{overriddenItems}} 所选配方形成了无法维持所需产量的生产循环。",
   "facilityOverCap": "{{facility}}：超出上限 ({{displayCount}} / {{cap}})。",
+  "rawOverCap": "{{item}}：超出上限 ({{used}}/分 / {{cap}}/分)。",
   "packerOverrideInfeasible": "在「{{facility}}」上选用的配方「{{recipe}}」没有可行的容器形状——打包器已退回为该配方使用独立建筑。",
   "packerFallback": "由于约束配置不可行，多配方建筑打包器已退回为每个配方使用独立建筑。",
   "footer": {

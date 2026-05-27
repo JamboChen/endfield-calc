@@ -9,6 +9,7 @@
   "cycleWarning": "{{overriddenItems}} で選択されたレシピは、必要な生産量を維持できない生産ループを形成しています。影響を受けるアイテム：{{affectedItems}}。",
   "cycleWarningNoAffected": "{{overriddenItems}} で選択されたレシピは、必要な生産量を維持できない生産ループを形成しています。",
   "facilityOverCap": "{{facility}}: 上限超過 ({{displayCount}} / {{cap}})。",
+  "rawOverCap": "{{item}}: 上限超過 ({{used}}/分 / {{cap}}/分)。",
   "packerOverrideInfeasible": "施設「{{facility}}」のレシピ「{{recipe}}」に有効な配置パターンがありません — パッカーはこのレシピを単独建物にフォールバックしました。",
   "packerFallback": "制約条件が解決できないため、複数レシピ建物パッカーはレシピごとの単独建物にフォールバックしました。",
   "footer": {

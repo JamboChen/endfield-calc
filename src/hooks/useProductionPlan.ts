@@ -7,6 +7,7 @@ import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
 import type {
   Facility,
   FacilityId,
+  Item,
   ItemId,
   Recipe,
   RecipeId,
@@ -26,6 +27,7 @@ import {
 import {
   aggregateBinTotals,
   computeOverCapWarnings,
+  computeRawOverCapWarnings,
 } from "@/lib/plan-helpers";
 import { formatCount, getItemById } from "@/lib/utils";
 
@@ -210,10 +212,16 @@ function formatPlanWarning(
   ceilMode: boolean,
   t: TFunction,
   facilitiesArr: readonly Facility[],
+  itemsArr: readonly Item[],
 ): string {
   const lookupFacilityName = (id: FacilityId): string => {
     const facility = facilitiesArr.find((f) => f.id === id);
     return facility ? getFacilityName(facility) : id;
+  };
+
+  const lookupItemName = (id: ItemId): string => {
+    const item = itemsArr.find((i) => i.id === id);
+    return item ? getItemName(item) : id;
   };
 
   switch (w.kind) {
@@ -234,6 +242,16 @@ function formatPlanWarning(
       });
     case "packer-fallback":
       return t("packerFallback");
+    case "raw-over-cap":
+      // Mirrors `facilityOverCap`: short numeric form
+      // `{item}: limit exceeded ({used}/min / {cap}/min)`.
+      // Always items/min; no ceilMode applies (caps are intrinsically
+      // rate-based, not building-count-based).
+      return t("rawOverCap", {
+        item: lookupItemName(w.itemId),
+        used: w.used.toFixed(1),
+        cap: w.cap,
+      });
   }
 }
 
@@ -255,11 +273,20 @@ function formatPlanWarning(
  * domains of `effectiveCaps[facilityId][domainId]`). Passed into
  * `calculateProductionPlan` → Phase 5 MIP. Optional and undefined when
  * the user has no caps configured.
+ *
+ * `rawMaterialCaps` is the per-(raw item) cap for the current region,
+ * in items/min. Passed into `calculateProductionPlan` → LP (which adds
+ * slack-based upper-bound constraints) AND used here to compute
+ * `raw-over-cap` PlanWarnings against post-pack
+ * `rawMaterialRequirements`. **No entry in this map = no limit** for
+ * that item; items the user hasn't capped don't appear here and don't
+ * trigger warnings. Optional and undefined when nothing is capped.
  */
 export function useProductionPlan(
   availableRecipes: readonly Recipe[],
   regionRawMaterials: ReadonlySet<ItemId>,
   facilityCaps?: ReadonlyMap<FacilityId, number>,
+  rawMaterialCaps?: ReadonlyMap<ItemId, number>,
 ) {
   const { t } = useTranslation("app");
 
@@ -347,6 +374,7 @@ export function useProductionPlan(
       facilities,
       {
         rawMaterials: regionRawMaterials,
+        rawCaps: rawMaterialCaps,
         recipeOverrides,
         manualRawMaterials,
         facilityCaps,
@@ -377,6 +405,7 @@ export function useProductionPlan(
     availableRecipes,
     regionRawMaterials,
     facilityCaps,
+    rawMaterialCaps,
     t,
   ]);
 
@@ -689,11 +718,11 @@ export function useProductionPlan(
       });
 
     const planWarnings = (plan.warnings ?? []).map((w) =>
-      formatPlanWarning(w, ceilMode, t, facilities),
+      formatPlanWarning(w, ceilMode, t, facilities, items),
     );
 
     const capWarnings = overCapWarnings.map((w) =>
-      formatPlanWarning(w, ceilMode, t, facilities),
+      formatPlanWarning(w, ceilMode, t, facilities, items),
     );
 
     return [...cycleWarnings, ...planWarnings, ...capWarnings];
@@ -735,6 +764,59 @@ export function useProductionPlan(
     manualRawMaterials,
     invalidCycleItemIds,
   );
+
+  // Per-raw-item cap overflow detection. Mirrors `overCapWarnings`
+  // exactly, but on the raw-materials side: compares the plan's
+  // post-pack `stats.rawMaterialRequirements` (items/min consumption)
+  // against the user's `rawMaterialCaps`. The LP layer additionally
+  // adds slack-based upper-bound constraints (see `lp-solver.ts`), so
+  // the LP biases toward conservation; this surfaces any residual
+  // overage to the user.
+  //
+  // **No entry in `rawMaterialCaps` = no limit**, structurally
+  // enforced by `computeRawOverCapWarnings` iterating the caps map
+  // rather than the requirements map.
+  //
+  // Computed AFTER `stats` (and the warnings memo above) because it
+  // needs `stats.rawMaterialRequirements`. The raw-cap warning
+  // strings are concatenated into `warnings` via the
+  // `warningsWithRawCaps` memo below — single source of truth still
+  // applies (one memo per concern; consumer sees one array).
+  const rawOverCapWarnings = useMemo<readonly PlanWarning[]>(
+    () =>
+      computeRawOverCapWarnings(
+        stats.rawMaterialRequirements,
+        rawMaterialCaps,
+      ),
+    [stats.rawMaterialRequirements, rawMaterialCaps],
+  );
+
+  // Per-item map for the side-panel `<ProductionStats>` raw-materials
+  // list red-tint + tooltip. Mirrors `facilityOverCapMap` shape.
+  const rawMaterialOverCapMap = useMemo<
+    ReadonlyMap<ItemId, { used: number; cap: number }>
+  >(() => {
+    const out = new Map<ItemId, { used: number; cap: number }>();
+    for (const w of rawOverCapWarnings) {
+      if (w.kind === "raw-over-cap") {
+        out.set(w.itemId, { used: w.used, cap: w.cap });
+      }
+    }
+    return out;
+  }, [rawOverCapWarnings]);
+
+  // Extend the warnings array with formatted `raw-over-cap` strings.
+  // Two-stage assembly is needed because `rawOverCapWarnings`
+  // depends on `stats` (which is computed after the original
+  // `warnings` memo). User-facing: still a single array exposed
+  // via the hook's return; consumer doesn't see the staging.
+  const warningsWithRawCaps = useMemo<string[]>(() => {
+    if (rawOverCapWarnings.length === 0) return warnings;
+    const rawCapStrings = rawOverCapWarnings.map((w) =>
+      formatPlanWarning(w, ceilMode, t, facilities, items),
+    );
+    return [...warnings, ...rawCapStrings];
+  }, [warnings, rawOverCapWarnings, ceilMode, t]);
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
     setTargets((prev) =>
@@ -876,7 +958,8 @@ export function useProductionPlan(
     tableData,
     stats,
     error,
-    warnings,
+    warnings: warningsWithRawCaps,
+    rawMaterialOverCapMap,
     ceilMode,
     setCeilMode,
     binFusion,

@@ -23,6 +23,7 @@ type PortraitDrawerProps = {
   totalPickupPoints: number;
   rawMaterialPickupPoints: Map<ItemId, number>;
   facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>;
+  rawMaterialOverCapMap: ReadonlyMap<ItemId, { used: number; cap: number }>;
   error: string | null;
   ceilMode?: boolean;
   onTargetChange: (index: number, rate: number) => void;
@@ -41,6 +42,7 @@ export default function PortraitDrawer({
   totalPickupPoints,
   rawMaterialPickupPoints,
   facilityOverCapMap,
+  rawMaterialOverCapMap,
   error,
   ceilMode = false,
   onTargetChange,
@@ -115,6 +117,7 @@ export default function PortraitDrawer({
             totalPickupPoints={totalPickupPoints}
             rawMaterialPickupPoints={rawMaterialPickupPoints}
             facilityOverCapMap={facilityOverCapMap}
+            rawMaterialOverCapMap={rawMaterialOverCapMap}
             facilities={facilities}
             items={items}
             error={error}

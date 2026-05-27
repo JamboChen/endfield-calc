@@ -291,6 +291,43 @@ export function computeOverCapWarnings(
 }
 
 /**
+ * Detect raw-material cap overflows.
+ *
+ * Pure function. Iterates `rawCaps` (not `rawMaterialRequirements`) so
+ * caps for items absent from the plan's demand are skipped naturally
+ * (no consumption → no warning). **Items not present in `rawCaps` are
+ * unconstrained** ("no entry = no limit"); they don't appear in the
+ * iteration so no warning can possibly fire for them.
+ *
+ * Mirrors `computeOverCapWarnings` precisely:
+ *   - Comparison: `used > cap + EPSILON` (absorbs LP solver float drift).
+ *   - Negative / non-finite caps are skipped defensively.
+ *   - Detection threshold is invariant to `ceilMode` — display
+ *     formatting in the warning consumer applies that.
+ *
+ * Mode-of-emission: this runs at the hook layer (`useProductionPlan`)
+ * AFTER packing completes, comparing post-pack `rawMaterialRequirements`
+ * against the user's caps. The LP layer separately adds slack-based
+ * upper-bound constraints (see `lp-solver.ts`); the two work together
+ * — the LP biases toward conservation, this surfaces residual overage.
+ */
+export function computeRawOverCapWarnings(
+  rawMaterialRequirements: ReadonlyMap<ItemId, number>,
+  rawCaps: ReadonlyMap<ItemId, number> | undefined,
+): PlanWarning[] {
+  if (!rawCaps || rawCaps.size === 0) return [];
+  const warnings: PlanWarning[] = [];
+  const EPSILON = 1e-9;
+  for (const [itemId, cap] of rawCaps) {
+    if (!Number.isFinite(cap) || cap < 0) continue;
+    const used = rawMaterialRequirements.get(itemId) ?? 0;
+    if (used <= cap + EPSILON) continue;
+    warnings.push({ kind: "raw-over-cap", itemId, used, cap });
+  }
+  return warnings;
+}
+
+/**
  * Byproduct entry as rendered by `CustomProductionNode`. `amount` is the
  * recipe-level per-cycle amount when sourced from a recipe's outputs;
  * meaningless (0) when sourced from a bin's aggregated `externalOutputs`,

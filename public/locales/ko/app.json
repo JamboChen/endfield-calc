@@ -9,6 +9,7 @@
   "cycleWarning": "{{overriddenItems}}에 선택된 공식이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다. 영향받는 아이템: {{affectedItems}}.",
   "cycleWarningNoAffected": "{{overriddenItems}}에 선택된 공식이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다.",
   "facilityOverCap": "{{facility}}: 상한 초과 ({{displayCount}} / {{cap}}).",
+  "rawOverCap": "{{item}}: 상한 초과 ({{used}}/분 / {{cap}}/분).",
   "packerOverrideInfeasible": "시설 \"{{facility}}\"의 공식 \"{{recipe}}\"에 유효한 배치 패턴이 없어, 패커가 이 공식을 개별 건물로 폴백했습니다.",
   "packerFallback": "제약 조건을 해결할 수 없어, 다중 공식 건물 패커가 공식별 개별 건물로 폴백했습니다.",
   "footer": {

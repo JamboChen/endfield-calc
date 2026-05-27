@@ -66,6 +66,7 @@ export async function calculateFlows(
   targetRates: Map<ItemId, number>,
   maps: ProductionMaps,
   manualRawMaterials?: Set<ItemId>,
+  rawCaps?: ReadonlyMap<ItemId, number>,
 ): Promise<{ flowData: FlowData; invalidSCCs: InvalidSCCInfo[] }> {
   const recipesList = Array.from(graph.recipeNodes.values()).map(
     (r) => r.recipe,
@@ -140,6 +141,7 @@ export async function calculateFlows(
     itemConstraints,
     rawMaterials,
     costlessRaws,
+    rawCaps,
     facilityMap: maps.facilityMap,
   };
 

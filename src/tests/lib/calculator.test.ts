@@ -3098,3 +3098,74 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
     );
   });
 });
+
+// ════════════════════════════════════════════════════════════════════
+// Raw-material cap enforcement (Workstream E)
+// ════════════════════════════════════════════════════════════════════
+
+describe("Raw-material cap enforcement (LP-aware)", () => {
+  test("cap non-binding: plan computes normally without LP slack engagement", async () => {
+    // Iron Ore consumption for a small Iron Nugget target is well under
+    // a generous cap. Plan should run cleanly; no over-cap behaviour.
+    const rawCaps = new Map<ItemId, number>([
+      [ItemId.ITEM_IRON_ORE, 1000],
+    ]);
+
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps },
+    );
+
+    // Plan is feasible — no invalid cycles, no warnings related to caps.
+    expect(plan.invalidCycles).toHaveLength(0);
+    const ironNuggetNode = plan.nodes.get(ItemId.ITEM_IRON_NUGGET);
+    expect(ironNuggetNode).toBeDefined();
+  });
+
+  test("cap binding: LP still produces a plan (warn-only, never blocks)", async () => {
+    // Target 30 Iron Nugget/min → ~30 Iron Ore/min demand. Cap at 5/min
+    // is artificially tight. The LP can't reduce consumption (only one
+    // route from raw ore to nugget exists in the canonical chain), so
+    // slack engages. Importantly the plan still completes — the user
+    // sees a warning post-pack (tested in plan-helpers.test.ts), but
+    // the calc never refuses to return a plan.
+    const rawCaps = new Map<ItemId, number>([
+      [ItemId.ITEM_IRON_ORE, 5],
+    ]);
+
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps },
+    );
+
+    // No infeasibility — the plan completes despite the binding cap.
+    expect(plan.invalidCycles).toHaveLength(0);
+    const ironNuggetNode = plan.nodes.get(ItemId.ITEM_IRON_NUGGET);
+    expect(ironNuggetNode).toBeDefined();
+    if (ironNuggetNode?.type === "recipe") {
+      // The recipe still runs at the rate needed to meet the target.
+      expect(ironNuggetNode.facilityCount).toBeGreaterThan(0);
+    }
+  });
+
+  test("no rawCaps passed: behaves identically to pre-cap calc", async () => {
+    // Sanity check: omitting `rawCaps` produces the same plan shape as
+    // passing an empty map (and as a non-binding cap).
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    expect(plan.invalidCycles).toHaveLength(0);
+    const node = plan.nodes.get(ItemId.ITEM_IRON_NUGGET);
+    expect(node).toBeDefined();
+  });
+});

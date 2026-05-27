@@ -879,9 +879,16 @@ function buildProductionGraph(
  * - `rawMaterials`: items the calc treats as having no producer
  *   (infinite supply for LP). REQUIRED. App.tsx passes the per-
  *   `currentDomain` set from `rawAvailabilityByDomain`; tests pass
- *   whatever raw set matches their synthetic recipe shape. Future work
- *   will add a peer `rawCaps?: ReadonlyMap<ItemId, number>` to bound
- *   per-raw consumption in items/min once solver enforcement lands.
+ *   whatever raw set matches their synthetic recipe shape.
+ * - `rawCaps`: per-(raw item) upper bound on aggregate consumption rate
+ *   in items/min. Optional. **Absence of a key = no limit** for that
+ *   item (LP treats it as infinite-supply, the existing rawMaterials
+ *   behaviour). When provided per-key, the LP adds a soft constraint
+ *   `Σ consumption ≤ cap + slack` with slack penalized by
+ *   `SLACK_PENALTY`. The LP biases toward recipes that conserve the
+ *   capped raw; when no combination respects the cap, slack absorbs
+ *   the overage. Residual overage is surfaced post-pack via
+ *   `computeRawOverCapWarnings` (mirrors `facility-over-cap`).
  * - `recipeOverrides`: user's per-item recipe choice (e.g. picking
  *   `pool_xiranite_poly_2` over `pool_xiranite_poly_1`). Item id → recipe id.
  * - `manualRawMaterials`: items the user explicitly pinned as raw
@@ -894,6 +901,7 @@ function buildProductionGraph(
  */
 export interface CalculateProductionPlanOptions {
   rawMaterials: ReadonlySet<ItemId>;
+  rawCaps?: ReadonlyMap<ItemId, number>;
   recipeOverrides?: Map<ItemId, RecipeId>;
   manualRawMaterials?: Set<ItemId>;
   facilityCaps?: ReadonlyMap<FacilityId, number>;
@@ -909,6 +917,7 @@ export async function calculateProductionPlan(
   if (targets.length === 0) throw new Error("No targets specified");
 
   const rawMaterials = options.rawMaterials;
+  const rawCaps = options.rawCaps;
   const recipeOverrides = options.recipeOverrides;
   const manualRawMaterials = options.manualRawMaterials;
   const facilityCaps = options.facilityCaps;
@@ -948,6 +957,7 @@ export async function calculateProductionPlan(
     targetRatesMap,
     maps,
     manualRawMaterials,
+    rawCaps,
   );
 
   if (invalidSCCs.length === 0 && import.meta.env?.DEV) {

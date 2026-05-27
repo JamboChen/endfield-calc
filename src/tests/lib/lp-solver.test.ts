@@ -371,3 +371,155 @@ describe("solveLP", () => {
     ).toBeCloseTo(1, 5);
   });
 });
+
+describe("solveLP — raw-cap enforcement", () => {
+  // r1: 1 raw → 1 out (30/min/fac). Demand = 30 out/min → 1 fac → 30 raw/min.
+  const buildSingleRecipeInput = (
+    rawCaps?: ReadonlyMap<ItemId, number>,
+  ): LPInput => {
+    const r1 = makeRecipe(
+      "r1",
+      [{ itemId: "raw" as ItemId, amount: 1 }],
+      [{ itemId: "out" as ItemId, amount: 1 }],
+    );
+    return {
+      recipes: [r1],
+      itemConstraints: new Map([
+        ["out" as ItemId, { type: "min", rhs: 30 }],
+        ["raw" as ItemId, { type: "min", rhs: 0 }],
+      ]),
+      rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
+      rawCaps,
+      facilityMap: facMap,
+    };
+  };
+
+  test("cap non-binding (cap > demand): no slack engages", async () => {
+    // Demand = 30 raw/min; cap = 100. Slack should be zero.
+    const result = await solveLP(
+      buildSingleRecipeInput(new Map([["raw" as ItemId, 100]])),
+    );
+    if (!result.feasible) throw new Error("expected feasible");
+    expect(result.rawCapOveruse.size).toBe(0);
+    expect(result.facilityCounts.get("r1" as RecipeId)).toBeCloseTo(1, 5);
+  });
+
+  test("cap binding (cap < demand): slack reports the overage", async () => {
+    // Demand = 30 raw/min; cap = 10. The LP can't reduce consumption
+    // (only one recipe), so slack absorbs 20/min.
+    const result = await solveLP(
+      buildSingleRecipeInput(new Map([["raw" as ItemId, 10]])),
+    );
+    if (!result.feasible) throw new Error("expected feasible");
+    expect(result.rawCapOveruse.get("raw" as ItemId)).toBeCloseTo(20, 3);
+    // The plan still completes — target met, recipe runs.
+    expect(result.facilityCounts.get("r1" as RecipeId)).toBeCloseTo(1, 5);
+  });
+
+  test("cap = 0: slack absorbs full consumption", async () => {
+    const result = await solveLP(
+      buildSingleRecipeInput(new Map([["raw" as ItemId, 0]])),
+    );
+    if (!result.feasible) throw new Error("expected feasible");
+    expect(result.rawCapOveruse.get("raw" as ItemId)).toBeCloseTo(30, 3);
+  });
+
+  test("no rawCaps: behaves as if no constraint was added", async () => {
+    const result = await solveLP(buildSingleRecipeInput(undefined));
+    if (!result.feasible) throw new Error("expected feasible");
+    expect(result.rawCapOveruse.size).toBe(0);
+  });
+
+  test("empty rawCaps: behaves as if no constraint was added", async () => {
+    const result = await solveLP(buildSingleRecipeInput(new Map()));
+    if (!result.feasible) throw new Error("expected feasible");
+    expect(result.rawCapOveruse.size).toBe(0);
+  });
+
+  test("recipe choice biased by cap: cap-friendly recipe wins when alternatives exist", async () => {
+    // rA: 1 raw → 1 out (consumes 30 raw/min for 30 out/min)
+    // rB: 3 raw → 1 out (consumes 90 raw/min for 30 out/min)
+    // Without caps: LP picks rA (lower rawCost).
+    // With cap=15: even rA can't fit, but LP still picks rA over rB
+    // (rA's overage = 15; rB's overage = 75; LP minimizes slack).
+    const rA = makeRecipe(
+      "rA",
+      [{ itemId: "raw" as ItemId, amount: 1 }],
+      [{ itemId: "out" as ItemId, amount: 1 }],
+    );
+    const rB = makeRecipe(
+      "rB",
+      [{ itemId: "raw" as ItemId, amount: 3 }],
+      [{ itemId: "out" as ItemId, amount: 1 }],
+    );
+    const input: LPInput = {
+      recipes: [rA, rB],
+      itemConstraints: new Map([
+        ["out" as ItemId, { type: "min", rhs: 30 }],
+        ["raw" as ItemId, { type: "min", rhs: 0 }],
+      ]),
+      rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
+      rawCaps: new Map([["raw" as ItemId, 15]]),
+      facilityMap: facMap,
+    };
+    const result = await solveLP(input);
+    if (!result.feasible) throw new Error("expected feasible");
+    // LP picks rA (1 fac), not rB.
+    expect(result.facilityCounts.get("rA" as RecipeId)).toBeCloseTo(1, 5);
+    expect(result.facilityCounts.get("rB" as RecipeId) ?? 0).toBeCloseTo(0, 5);
+    // Slack absorbs 30 − 15 = 15.
+    expect(result.rawCapOveruse.get("raw" as ItemId)).toBeCloseTo(15, 3);
+  });
+
+  test("multi-cap independence: each cap reports its own overage", async () => {
+    // r1: raw1 + raw2 → out (1 of each per 1 out)
+    // Demand = 30 out → 30 raw1 + 30 raw2.
+    // raw1 cap = 10 → overage 20; raw2 cap = 20 → overage 10.
+    const r1 = makeRecipe(
+      "r1",
+      [
+        { itemId: "raw1" as ItemId, amount: 1 },
+        { itemId: "raw2" as ItemId, amount: 1 },
+      ],
+      [{ itemId: "out" as ItemId, amount: 1 }],
+    );
+    const input: LPInput = {
+      recipes: [r1],
+      itemConstraints: new Map([
+        ["out" as ItemId, { type: "min", rhs: 30 }],
+        ["raw1" as ItemId, { type: "min", rhs: 0 }],
+        ["raw2" as ItemId, { type: "min", rhs: 0 }],
+      ]),
+      rawMaterials: new Set(["raw1" as ItemId, "raw2" as ItemId]),
+      costlessRaws: new Set(),
+      rawCaps: new Map([
+        ["raw1" as ItemId, 10],
+        ["raw2" as ItemId, 20],
+      ]),
+      facilityMap: facMap,
+    };
+    const result = await solveLP(input);
+    if (!result.feasible) throw new Error("expected feasible");
+    expect(result.rawCapOveruse.get("raw1" as ItemId)).toBeCloseTo(20, 3);
+    expect(result.rawCapOveruse.get("raw2" as ItemId)).toBeCloseTo(10, 3);
+  });
+
+  test("invalid cap values (negative, NaN) are silently skipped", async () => {
+    // Defensive: lp-solver itself skips invalid caps to avoid crashing
+    // on bad input. The App layer + setter already filter, but the LP
+    // shouldn't be the only line of defense.
+    const result = await solveLP(
+      buildSingleRecipeInput(
+        new Map([
+          ["raw" as ItemId, -5], // negative
+          ["other_raw" as ItemId, NaN], // not-a-number
+        ]),
+      ),
+    );
+    if (!result.feasible) throw new Error("expected feasible");
+    // No slack engaged because no caps were actually applied.
+    expect(result.rawCapOveruse.size).toBe(0);
+  });
+});

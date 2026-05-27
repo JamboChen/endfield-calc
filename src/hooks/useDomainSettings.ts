@@ -297,7 +297,10 @@ function loadFromStorage(): PersistedShape | null {
 
     // Raw-limit overrides — drop entries whose (itemId, domainId) is
     // not in `rawAvailabilityByDomain` (e.g. game patch removed a raw
-    // from a region, or the persisted state predates the data).
+    // from a region, or the persisted state predates the data). Also
+    // drop negative values and non-finite values defensively (the
+    // setter rejects them, but a hand-edited localStorage could carry
+    // them through).
     const rawLimitOverrides = Array.isArray(shape.rawLimits?.overrides)
       ? shape.rawLimits.overrides.filter(
           (r): r is RawLimitOverrideRecord => {
@@ -307,7 +310,8 @@ function loadFromStorage(): PersistedShape | null {
               typeof r.itemId !== "string" ||
               typeof r.domainId !== "string" ||
               typeof r.value !== "number" ||
-              !Number.isFinite(r.value)
+              !Number.isFinite(r.value) ||
+              r.value < 0
             )
               return false;
             const regionSet = rawAvailabilityByDomain.get(
@@ -874,8 +878,15 @@ export function useDomainSettings(): DomainSettingsValue {
       setRawLimitOverrides((prev) => {
         const next = new Map(prev);
         const key = rawLimitKey(itemId, domainId);
-        if (value === null || !Number.isFinite(value)) next.delete(key);
-        else next.set(key, value);
+        // Reject null, non-finite (NaN / Infinity), and negative values.
+        // The UI also rejects these at input time; this is the hook-
+        // layer safety net so any caller (URL load, programmatic set,
+        // etc.) hits the same gate.
+        if (value === null || !Number.isFinite(value) || value < 0) {
+          next.delete(key);
+        } else {
+          next.set(key, value);
+        }
         return next;
       });
     },

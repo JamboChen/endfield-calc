@@ -6,6 +6,7 @@ import {
   computeGreedyAllocation,
   computeNodeByproducts,
   computeOverCapWarnings,
+  computeRawOverCapWarnings,
 } from "@/lib/plan-helpers";
 import { items, recipes, facilities, rawMaterialSources } from "@/data";
 import { getRawSourceRate } from "@/lib/utils";
@@ -1147,6 +1148,110 @@ describe("computeOverCapWarnings", () => {
     const raw = new Map<FacilityId, number>();
     const caps = new Map([[FAC_A, 1]]);
     expect(computeOverCapWarnings(raw, caps)).toEqual([]);
+  });
+});
+
+describe("computeRawOverCapWarnings", () => {
+  // Synthetic item ids for unit-level tests.
+  const ITEM_A = "item_a" as ItemId;
+  const ITEM_B = "item_b" as ItemId;
+  const ITEM_C = "item_c" as ItemId;
+
+  test("returns empty array when rawCaps is undefined (no entry = no limit)", () => {
+    const requirements = new Map([[ITEM_A, 50]]);
+    expect(computeRawOverCapWarnings(requirements, undefined)).toEqual([]);
+  });
+
+  test("returns empty array when rawCaps is an empty map (no limits set)", () => {
+    const requirements = new Map([[ITEM_A, 50]]);
+    expect(computeRawOverCapWarnings(requirements, new Map())).toEqual([]);
+  });
+
+  test("no entry in rawCaps = no warning even when consumption exists", () => {
+    // ITEM_B has a cap; ITEM_A does not. Only ITEM_B can emit a warning.
+    const requirements = new Map([
+      [ITEM_A, 100], // uncapped, large consumption
+      [ITEM_B, 20], // capped at 10
+    ]);
+    const caps = new Map([[ITEM_B, 10]]);
+    const warnings = computeRawOverCapWarnings(requirements, caps);
+    expect(warnings).toHaveLength(1);
+    if (warnings[0].kind === "raw-over-cap") {
+      expect(warnings[0].itemId).toBe(ITEM_B);
+    }
+  });
+
+  test("emits warning when used strictly exceeds cap", () => {
+    const requirements = new Map([[ITEM_A, 50]]);
+    const caps = new Map([[ITEM_A, 30]]);
+    const warnings = computeRawOverCapWarnings(requirements, caps);
+    expect(warnings).toHaveLength(1);
+    const w = warnings[0];
+    expect(w.kind).toBe("raw-over-cap");
+    if (w.kind === "raw-over-cap") {
+      expect(w.itemId).toBe(ITEM_A);
+      expect(w.used).toBe(50);
+      expect(w.cap).toBe(30);
+    }
+  });
+
+  test("no warning when used equals cap exactly", () => {
+    const requirements = new Map([[ITEM_A, 30]]);
+    const caps = new Map([[ITEM_A, 30]]);
+    expect(computeRawOverCapWarnings(requirements, caps)).toEqual([]);
+  });
+
+  test("no warning when used is within EPSILON of cap (LP float drift)", () => {
+    const requirements = new Map([[ITEM_A, 30 + 5e-10]]);
+    const caps = new Map([[ITEM_A, 30]]);
+    expect(computeRawOverCapWarnings(requirements, caps)).toEqual([]);
+  });
+
+  test("skips non-finite cap entries defensively", () => {
+    const requirements = new Map([[ITEM_A, 50]]);
+    const caps = new Map([[ITEM_A, NaN]]);
+    expect(computeRawOverCapWarnings(requirements, caps)).toEqual([]);
+  });
+
+  test("skips negative cap entries defensively", () => {
+    const requirements = new Map([[ITEM_A, 50]]);
+    const caps = new Map([[ITEM_A, -10]]);
+    expect(computeRawOverCapWarnings(requirements, caps)).toEqual([]);
+  });
+
+  test("emits one warning per over-cap raw, ignoring under-cap ones", () => {
+    const requirements = new Map([
+      [ITEM_A, 50], // over (cap 30)
+      [ITEM_B, 20], // under (cap 30)
+      [ITEM_C, 40], // exact (cap 40)
+    ]);
+    const caps = new Map([
+      [ITEM_A, 30],
+      [ITEM_B, 30],
+      [ITEM_C, 40],
+    ]);
+    const warnings = computeRawOverCapWarnings(requirements, caps);
+    expect(warnings).toHaveLength(1);
+    if (warnings[0].kind === "raw-over-cap") {
+      expect(warnings[0].itemId).toBe(ITEM_A);
+    }
+  });
+
+  test("item in caps but absent from requirements → uses 0 → no warning (cap >= 0)", () => {
+    const requirements = new Map<ItemId, number>();
+    const caps = new Map([[ITEM_A, 30]]);
+    expect(computeRawOverCapWarnings(requirements, caps)).toEqual([]);
+  });
+
+  test("cap = 0: any positive consumption emits a warning", () => {
+    const requirements = new Map([[ITEM_A, 0.001]]);
+    const caps = new Map([[ITEM_A, 0]]);
+    const warnings = computeRawOverCapWarnings(requirements, caps);
+    expect(warnings).toHaveLength(1);
+    if (warnings[0].kind === "raw-over-cap") {
+      expect(warnings[0].cap).toBe(0);
+      expect(warnings[0].used).toBeCloseTo(0.001, 5);
+    }
   });
 });
 

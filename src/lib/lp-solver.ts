@@ -143,6 +143,23 @@ export type LPInput = {
    * planter no-water). See `src/data/index.ts:costlessRaws`.
    */
   costlessRaws: ReadonlySet<ItemId>;
+  /**
+   * Per-(raw item) upper bound on aggregate consumption rate, in
+   * items/min. **Optional**: absent or empty means no caps enforced.
+   * Items NOT in this map are unconstrained — the LP treats them as
+   * infinite-supply (the existing rawMaterials behaviour).
+   *
+   * For each `(itemId, cap)` entry, the LP gains a soft constraint
+   *   `Σ (input_rate × x_recipe) ≤ cap + slack`,  slack ≥ 0
+   * with `slack` penalized by `SLACK_PENALTY` in every lex objective.
+   * The LP biases toward recipes that conserve the capped raw; if no
+   * combination respects the cap, slack engages and the overage is
+   * reported per-item in `LPSolution.rawCapOveruse`.
+   *
+   * Mirrors the disposal-slack pattern below. The two slack systems
+   * coexist (separate variable namespaces, both penalized).
+   */
+  rawCaps?: ReadonlyMap<ItemId, number>;
   /** Facility lookup for power-cost computation. */
   facilityMap: Map<FacilityId, Facility>;
 };
@@ -152,6 +169,16 @@ export type LPSolution = {
   facilityCounts: Map<RecipeId, number>;
   /** Per-item deficit to propagate to upstream producers (only populated for items with `type: "disposal-slack"` in the input). */
   disposalDeficits: Map<ItemId, number>;
+  /**
+   * Per-item raw-cap overage (slack value > EPSILON), in items/min.
+   * Only populated for items in `LPInput.rawCaps` where the LP engaged
+   * slack because no recipe combination respected the cap. Callers
+   * surface as `raw-over-cap` PlanWarnings — but the canonical warning
+   * source is post-pack `rawMaterialRequirements` vs `rawCaps`
+   * (mirrors `facility-over-cap`); this field is informational for
+   * debugging / tests.
+   */
+  rawCapOveruse: Map<ItemId, number>;
   totalRawCost: number;
   /**
    * Total fractional facility count (Σ x_r over recipe variables; slack
@@ -253,6 +280,7 @@ const buildModel = (
   model: LPModel;
   recipeIndexMap: Map<string, RecipeId>;
   disposalSlackVarMap: Map<string, ItemId>;
+  rawCapSlackVarMap: Map<string, ItemId>;
 } => {
   // Stable variable names: x_<index>; map back to RecipeId via the index map.
   // Raw materials are excluded from balance constraints — their consumption
@@ -318,19 +346,77 @@ const buildModel = (
     };
   }
 
+  // Add raw-cap constraints + slack variables.
+  //
+  // For each (rawItem, cap) in `input.rawCaps`:
+  //   constraint:  Σ (input_rate × x_recipe) - rawCapSlack ≤ cap
+  //   slack ≥ 0, penalized in every lex objective by SLACK_PENALTY
+  //
+  // Net behavior: the LP biases toward recipes that conserve the capped
+  // raw (any recipe choice that exceeds the cap forces non-zero slack,
+  // which the SLACK_PENALTY in every lex objective discourages); only
+  // when no recipe combination fits does slack engage, absorbing the
+  // overage. The slack value is reported per-item as `rawCapOveruse`
+  // in the LPSolution and surfaced (in the calc layer) as warnings.
+  //
+  // **Variable namespace**: `rawcap_slack_*` is distinct from the
+  // `slack_*` namespace used by disposal-slack. The two slack systems
+  // coexist without interference.
+  const rawCapSlackVarMap = new Map<string, ItemId>();
+  if (input.rawCaps && input.rawCaps.size > 0) {
+    let capIdx = 0;
+    for (const [itemId, cap] of input.rawCaps) {
+      // Defensive: skip invalid caps (the App-layer aggregation already
+      // filters these, but the LP itself shouldn't crash on a bad input).
+      if (!Number.isFinite(cap) || cap < 0) continue;
+      const constraintName = `rawcap_${capIdx}_${itemId}`;
+      const slackName = `rawcap_slack_${capIdx}_${itemId}`;
+      capIdx++;
+      // Constraint: Σ consumption - slack ≤ cap
+      constraints[constraintName] = { max: cap };
+      // For each recipe, add its consumption rate of this raw to the
+      // constraint LHS. Recipes that don't consume the raw contribute 0.
+      for (const [varName, recipeId] of recipeIndexMap.entries()) {
+        const recipe = input.recipes.find((r) => r.id === recipeId);
+        if (!recipe) continue;
+        let consumption = 0;
+        for (const inp of recipe.inputs) {
+          if (inp.itemId === itemId) {
+            consumption += calcRate(inp.amount, recipe.craftingTime);
+          }
+        }
+        if (consumption > 0) {
+          variables[varName][constraintName] = consumption;
+        }
+      }
+      // Slack variable: coefficient -1 on the constraint (allows
+      // consumption > cap by exactly the slack value), penalized in
+      // every lex objective.
+      rawCapSlackVarMap.set(slackName, itemId);
+      variables[slackName] = {
+        [constraintName]: -1,
+        rawCost: SLACK_PENALTY,
+        buildingCount: SLACK_PENALTY,
+        power: SLACK_PENALTY,
+      };
+    }
+  }
+
   // Lex caps: every previously-optimised objective gets an upper-bound
   // constraint here, so the current pass cannot regress on prior wins.
-  // Slack vars are EXCLUDED from cap coefficients — they carry
-  // SLACK_PENALTY in `rawCost` / `power` but `previousCaps[obj]` is
-  // recipe-only (slack penalty isn't summed into a pass's reported total).
-  // Including slack would force caps to ~tolerance and block feasibility
-  // whenever an earlier pass had slack > 0. Slack is independently
-  // minimised via SLACK_PENALTY in each pass's own objective.
+  // Slack vars (both disposal-slack and rawcap-slack) are EXCLUDED from
+  // cap coefficients — they carry SLACK_PENALTY in `rawCost` / `power`
+  // but `previousCaps[obj]` is recipe-only (slack penalty isn't summed
+  // into a pass's reported total). Including slack would force caps to
+  // ~tolerance and block feasibility whenever an earlier pass had slack
+  // > 0. Slack is independently minimised via SLACK_PENALTY in each
+  // pass's own objective.
   for (const [capObj, capValue] of previousCaps.entries()) {
     const capName = `lex_cap_${capObj}`;
     constraints[capName] = { max: capValue + LEX_TOLERANCE[capObj] };
     for (const [varName, coefs] of Object.entries(variables)) {
       if (disposalSlackVarMap.has(varName)) continue;
+      if (rawCapSlackVarMap.has(varName)) continue;
       coefs[capName] = coefs[capObj] ?? 0;
     }
   }
@@ -344,12 +430,14 @@ const buildModel = (
     },
     recipeIndexMap,
     disposalSlackVarMap,
+    rawCapSlackVarMap,
   };
 };
 
 type ExtractedSolution = {
   facilityCounts: Map<RecipeId, number>;
   disposalDeficits: Map<ItemId, number>;
+  rawCapOveruse: Map<ItemId, number>;
   totalRaw: number;
   totalBuildings: number;
   totalPower: number;
@@ -359,6 +447,7 @@ const extractSolution = (
   rawResult: Record<string, number | boolean | undefined>,
   recipeIndexMap: Map<string, RecipeId>,
   disposalSlackVarMap: Map<string, ItemId>,
+  rawCapSlackVarMap: Map<string, ItemId>,
   recipes: Recipe[],
   facilityMap: Map<FacilityId, Facility>,
   rawMaterials: Set<ItemId>,
@@ -393,7 +482,24 @@ const extractSolution = (
     }
   }
 
-  return { facilityCounts, disposalDeficits, totalRaw, totalBuildings, totalPower };
+  // Raw-cap slack values → per-item overage. Only entries above the
+  // numerical epsilon are reported (rules out float drift near zero).
+  const rawCapOveruse = new Map<ItemId, number>();
+  for (const [varName, itemId] of rawCapSlackVarMap.entries()) {
+    const v = rawResult[varName];
+    if (typeof v === "number" && v > LP_EPSILON) {
+      rawCapOveruse.set(itemId, v);
+    }
+  }
+
+  return {
+    facilityCounts,
+    disposalDeficits,
+    rawCapOveruse,
+    totalRaw,
+    totalBuildings,
+    totalPower,
+  };
 };
 
 /** Map a `LexObjective` to its corresponding total in an extracted solution. */
@@ -415,6 +521,7 @@ const finaliseSolution = (sol: ExtractedSolution): LPSolution => ({
   feasible: true,
   facilityCounts: sol.facilityCounts,
   disposalDeficits: sol.disposalDeficits,
+  rawCapOveruse: sol.rawCapOveruse,
   totalRawCost: sol.totalRaw,
   totalBuildingCount: sol.totalBuildings,
   totalPower: sol.totalPower,
@@ -451,6 +558,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       feasible: true,
       facilityCounts: new Map(),
       disposalDeficits: new Map(),
+      rawCapOveruse: new Map(),
       totalRawCost: 0,
       totalBuildingCount: 0,
       totalPower: 0,
@@ -462,11 +570,8 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
 
   for (let passIdx = 0; passIdx < LEX_ORDER.length; passIdx++) {
     const objective = LEX_ORDER[passIdx];
-    const { model, recipeIndexMap, disposalSlackVarMap } = buildModel(
-      input,
-      objective,
-      caps,
-    );
+    const { model, recipeIndexMap, disposalSlackVarMap, rawCapSlackVarMap } =
+      buildModel(input, objective, caps);
 
     let result: Record<string, number | boolean | undefined>;
     try {
@@ -509,6 +614,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       result,
       recipeIndexMap,
       disposalSlackVarMap,
+      rawCapSlackVarMap,
       input.recipes,
       input.facilityMap,
       input.rawMaterials,

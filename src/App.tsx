@@ -21,6 +21,7 @@ import {
 } from "./lib/aic-research-helpers";
 import { computeRecipeReachability } from "./lib/recipe-reachability";
 import { bootstrapFacilities, rawAvailabilityByDomain } from "./data";
+import { parseRawLimitKey } from "./lib/raw-limits-helpers";
 import type { FacilityId, ItemId } from "./types";
 
 /**
@@ -160,6 +161,35 @@ function AppContent() {
     return out;
   }, [settings.aic.effectiveCaps, settings.activeDomains]);
 
+  // Aggregated per-(raw item) cap for the current factory region, in
+  // items/min. Single-region lookup at `currentDomain` (raws are
+  // physically tied to per-region resource POIs / pump deployability,
+  // so summing across active domains is semantically wrong — caps
+  // never aggregate across regions).
+  //
+  // **Defense-in-depth sanity filter**: drop entries with non-finite
+  // or negative values. The hook setter + loader already reject these,
+  // but a hand-edited localStorage entry or a future programmatic
+  // setter could sneak past — this final gate keeps invalid values
+  // out of the LP / warning surface entirely.
+  //
+  // **"No entry = no limit"**: items the user hasn't capped for the
+  // current region don't appear here. The calc treats them as
+  // unconstrained (LP infinite-supply, no over-cap warning possible).
+  // Threaded into `useProductionPlan` → `calculateProductionPlan`
+  // ({ rawCaps }) and into the warning surface.
+  const rawMaterialCaps = useMemo(() => {
+    const out = new Map<ItemId, number>();
+    for (const [key, value] of settings.rawLimits.overrides) {
+      if (!Number.isFinite(value) || value < 0) continue;
+      const parsed = parseRawLimitKey(key);
+      if (!parsed) continue;
+      if (parsed.domainId !== settings.currentDomain) continue;
+      out.set(parsed.itemId, value);
+    }
+    return out;
+  }, [settings.rawLimits.overrides, settings.currentDomain]);
+
   const {
     targets,
     dialogOpen,
@@ -169,6 +199,7 @@ function AppContent() {
     stats,
     error,
     warnings,
+    rawMaterialOverCapMap,
     handleTargetChange,
     handleTargetRemove,
     handleBatchAddTargets,
@@ -187,7 +218,12 @@ function AppContent() {
     isLoading,
     pinnedItemIds,
     ineffectivePins,
-  } = useProductionPlan(availableRecipes, regionRawMaterials, facilityCaps);
+  } = useProductionPlan(
+    availableRecipes,
+    regionRawMaterials,
+    facilityCaps,
+    rawMaterialCaps,
+  );
 
   const targetRates = useMemo(
     () => new Map(targets.map((t) => [t.itemId as ItemId, t.rate])),
@@ -217,6 +253,7 @@ function AppContent() {
                 totalPickupPoints={stats.totalPickupPoints}
                 rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
                 facilityOverCapMap={stats.facilityOverCapMap}
+                rawMaterialOverCapMap={rawMaterialOverCapMap}
                 error={error}
                 ceilMode={ceilMode}
                 onTargetChange={handleTargetChange}
@@ -260,6 +297,7 @@ function AppContent() {
           totalPickupPoints={stats.totalPickupPoints}
           rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
           facilityOverCapMap={stats.facilityOverCapMap}
+          rawMaterialOverCapMap={rawMaterialOverCapMap}
           error={error}
           ceilMode={ceilMode}
           onTargetChange={handleTargetChange}

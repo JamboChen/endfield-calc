@@ -164,19 +164,23 @@ function RawLimitRow({
     hasOverride ? String(value) : "",
   );
 
-  // Mirror `AicFacilityLimits.tsx`'s parsing: parseInt with explicit
-  // base-10, finite check, empty → clear override. No range validation
-  // (negative values would parse but the future enforcement layer
-  // owns whether to reject them).
+  // parseInt with explicit base-10, finite check, empty → clear
+  // override. Negative values are rejected here (the input also carries
+  // HTML5 `min="0"` as a browser-level hint, but commitDraft is the
+  // real gate). The hook setter, loader, and App.tsx aggregation all
+  // independently reject negative values — this is the first of the
+  // four defense layers.
   const commitDraft = () => {
     if (draft === "") {
       onSetLimit(item.id, domainId, null);
       return;
     }
     const v = parseInt(draft, 10);
-    if (Number.isFinite(v)) {
+    if (Number.isFinite(v) && v >= 0) {
       onSetLimit(item.id, domainId, v);
     } else {
+      // Invalid (NaN or negative) — revert draft to previous value
+      // (empty if no prior override). No state change applied.
       setDraft(hasOverride ? String(value) : "");
     }
   };
@@ -198,6 +202,7 @@ function RawLimitRow({
         <Input
           type="number"
           inputMode="numeric"
+          min={0}
           value={draft}
           placeholder={t("rawLimits.placeholder", {
             ns: "settings",
