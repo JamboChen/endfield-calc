@@ -553,7 +553,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
@@ -568,7 +567,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
@@ -592,7 +590,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
@@ -617,7 +614,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
@@ -635,7 +631,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
@@ -664,7 +659,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const sumByBin = buildBinActivitySums(plan);
@@ -692,7 +686,6 @@ describe("aggregateBinTotals (real data)", () => {
         items,
         recipes,
         facilities,
-      
         { rawMaterials: ALL_RAWS },
       );
       const sumByBin = buildBinActivitySums(plan);
@@ -711,7 +704,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
@@ -725,7 +717,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
@@ -746,7 +737,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
@@ -763,7 +753,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items);
@@ -835,7 +824,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
@@ -855,7 +843,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: false });
@@ -878,7 +865,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
@@ -901,7 +887,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const ceiledTotals = aggregateBinTotals(plan, facilities, items, {
@@ -921,7 +906,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
@@ -945,7 +929,6 @@ describe("aggregateBinTotals (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
@@ -979,7 +962,6 @@ describe("aggregateBinTotals.rawPerFacility", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
@@ -1003,7 +985,6 @@ describe("aggregateBinTotals.rawPerFacility", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const ceiled = aggregateBinTotals(plan, facilities, items, {
@@ -1032,7 +1013,6 @@ describe("aggregateBinTotals.rawPerFacility", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
@@ -1280,7 +1260,6 @@ describe("computeOverCapWarnings (integration)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
@@ -1331,7 +1310,6 @@ describe("computeOverCapWarnings (integration)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {

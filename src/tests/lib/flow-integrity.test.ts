@@ -40,7 +40,6 @@ describe("flow mapper integrity", () => {
         items,
         recipes,
         facilities,
-      
         { rawMaterials: ALL_RAWS },
       );
       plans.set(c.name, { plan, targetRates: new Map([[c.targetId, c.rate]]) });
@@ -91,7 +90,6 @@ describe("Phase 3 bin-aware integrity", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     for (const node of plan.nodes.values()) {
@@ -124,7 +122,6 @@ describe("Prefill chip rendering across views", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const targetRates = new Map<ItemId, number>([
@@ -168,7 +165,6 @@ describe("Prefill chip rendering across views", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const targetRates = new Map<ItemId, number>([
@@ -213,7 +209,6 @@ describe("Prefill chip rendering across views", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const targetRates = new Map<ItemId, number>([

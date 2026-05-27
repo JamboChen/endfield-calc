@@ -158,7 +158,6 @@ describe("AIC integration: recipe availability + calculator", () => {
       items,
       availableRecipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 

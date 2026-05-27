@@ -74,7 +74,6 @@ describe("Simple Production Plan", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -91,7 +90,6 @@ describe("Simple Production Plan", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -129,7 +127,6 @@ describe("Simple Production Plan", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -150,7 +147,6 @@ describe("Simple Production Plan", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -168,7 +164,6 @@ describe("Multiple Recipe Selection", () => {
       mockItems,
       multiRecipeItems,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -308,7 +303,6 @@ describe("Multiple Targets", () => {
       mockItems,
       [...simpleRecipes, ...complexRecipes],
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -330,7 +324,6 @@ describe("Complex Dependencies", () => {
       mockItems,
       complexRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -364,7 +357,6 @@ describe("Cycle Detection", () => {
       mockItems,
       cycleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -381,7 +373,6 @@ describe("Cycle Detection", () => {
       mockItems,
       cycleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -452,7 +443,6 @@ describe("Edge Cases", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const sandNode = getItemNode(plan, ItemId.ITEM_QUARTZ_SAND);
@@ -466,7 +456,6 @@ describe("Edge Cases", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -484,7 +473,6 @@ describe("Edge Cases", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const producer = getProducer(plan, ItemId.ITEM_IRON_POWDER);
@@ -499,7 +487,6 @@ describe("Edge Cases", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const producer = getProducer(plan, ItemId.ITEM_IRON_POWDER);
@@ -523,7 +510,6 @@ describe("Recipe Output Amounts", () => {
       mockItems,
       [recipe],
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -545,7 +531,6 @@ describe("Byproduct Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -563,7 +548,6 @@ describe("Byproduct Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -580,7 +564,6 @@ describe("Byproduct Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -609,7 +592,6 @@ describe("Byproduct Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -645,7 +627,6 @@ describe("Byproduct with SCC Cycle", () => {
       mockItems,
       byproductSCCRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -684,7 +665,6 @@ describe("Byproduct with SCC Cycle", () => {
       mockItems,
       byproductSCCRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -704,7 +684,6 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -732,7 +711,6 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -753,7 +731,6 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -776,7 +753,6 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -796,7 +772,6 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -837,7 +812,6 @@ describe("Stress Tests", () => {
       items,
       recipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -870,7 +844,6 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -901,7 +874,6 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -923,7 +895,6 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -945,7 +916,6 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -963,7 +933,6 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -997,7 +966,6 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -1037,7 +1005,6 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     expect(plan.invalidCycles).toEqual([]);
@@ -1094,7 +1061,6 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     expect(plan.invalidCycles).toEqual([]);
@@ -1134,7 +1100,6 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -1182,7 +1147,6 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -1212,7 +1176,6 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -1247,7 +1210,6 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
@@ -1298,7 +1260,6 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const waterNode = plan.nodes.get(ItemId.ITEM_LIQUID_WATER);
@@ -1331,7 +1292,6 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const ironNode = plan.nodes.get(ItemId.ITEM_IRON_ORE);
@@ -1361,7 +1321,6 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
@@ -1407,7 +1366,6 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const waterNode = plan.nodes.get(ItemId.ITEM_LIQUID_WATER);
@@ -1471,7 +1429,6 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -1523,7 +1480,6 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -1625,7 +1581,6 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     for (const bin of plan.bins) {
@@ -1652,7 +1607,6 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -1818,7 +1772,6 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
           typeof calculateProductionPlan
         >[2],
         facilities,
-      
         { rawMaterials: ALL_RAWS },
       );
       // Sewage has only one producer (xircon_prod, in cycle) → non-bootable.
@@ -2321,7 +2274,6 @@ describe("Jade Gourd disposal sink at non-integer rates", () => {
         items,
         recipes,
         facilities,
-      
         { rawMaterials: ALL_RAWS },
       );
 
@@ -2360,7 +2312,6 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -2432,7 +2383,6 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -2451,7 +2401,6 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     // Every recipe with non-zero facilityCount in the plan should have a
@@ -2479,7 +2428,6 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -2518,7 +2466,6 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -2568,7 +2515,6 @@ describe("Issue #68 — Xiranite over-production", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
 
@@ -2628,7 +2574,6 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
-      
         { rawMaterials: ALL_RAWS },
       );
       for (const bin of plan.bins) {
@@ -2651,7 +2596,6 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
-      
         { rawMaterials: ALL_RAWS },
       );
       for (const bin of plan.bins) {
@@ -2728,7 +2672,6 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
-      
         { rawMaterials: ALL_RAWS },
       );
       const recipesOfInterest: RecipeId[] = [
@@ -2780,7 +2723,6 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
-      
         { rawMaterials: ALL_RAWS },
       );
       // The packer may split X recipe across multiple variants (e.g.,
@@ -2821,7 +2763,6 @@ describe("Xircon bin-fusion integrity (real data)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     const xirconBin = plan.bins.find((b) =>
@@ -2865,7 +2806,6 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
-      
         { rawMaterials: ALL_RAWS },
       );
       totals.push(
@@ -2900,7 +2840,6 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     expect(plan.invalidCycles).toEqual([]);
@@ -2933,7 +2872,6 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
       items,
       recipes,
       facilities,
-    
       { rawMaterials: ALL_RAWS },
     );
     expect(plan.invalidCycles).toEqual([]);
