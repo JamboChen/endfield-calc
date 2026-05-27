@@ -196,7 +196,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
             {t("aic.intro", {
               ns: "settings",
               defaultValue:
-                "Choose which AIC technologies you've researched. In a future update, this will filter the items and recipes available to your plans.",
+                "Choose which AIC technologies you've researched. This filters the items and formulas available to your plans.",
             })}
           </SheetDescription>
         </SheetHeader>

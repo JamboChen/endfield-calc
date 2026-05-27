@@ -170,13 +170,19 @@ export type LPSolution = {
   /** Per-item deficit to propagate to upstream producers (only populated for items with `type: "disposal-slack"` in the input). */
   disposalDeficits: Map<ItemId, number>;
   /**
-   * Per-item raw-cap overage (slack value > EPSILON), in items/min.
+   * Per-item raw-cap overage (slack value > LP_EPSILON), in items/min.
    * Only populated for items in `LPInput.rawCaps` where the LP engaged
-   * slack because no recipe combination respected the cap. Callers
-   * surface as `raw-over-cap` PlanWarnings — but the canonical warning
-   * source is post-pack `rawMaterialRequirements` vs `rawCaps`
-   * (mirrors `facility-over-cap`); this field is informational for
-   * debugging / tests.
+   * slack because no recipe combination respected the cap.
+   *
+   * **Informational only — not the canonical warning source.** The
+   * production `raw-over-cap` PlanWarnings come from post-pack
+   * comparison of `stats.rawMaterialRequirements` against `rawCaps`
+   * (in `plan-helpers.computeRawOverCapWarnings`); that source
+   * reflects the integer-ceiled bin allocation while LP slack is
+   * fractional and pre-packing. The two sources usually agree but
+   * diverge by ceiling effects. Exposed here for tests and the dev-
+   * mode logging in `flow-solver.ts`; production code should not
+   * consume this directly.
    */
   rawCapOveruse: Map<ItemId, number>;
   totalRawCost: number;
@@ -372,7 +378,9 @@ const buildModel = (
       const constraintName = `rawcap_${capIdx}_${itemId}`;
       const slackName = `rawcap_slack_${capIdx}_${itemId}`;
       capIdx++;
-      // Constraint: Σ consumption - slack ≤ cap
+      // Constraint: Σ (input_rate × x_recipe) − slack ≤ cap
+      // The recipe coefficients are added in the loop below; slack
+      // coefficient is −1 (added when the slack variable is built).
       constraints[constraintName] = { max: cap };
       // For each recipe, add its consumption rate of this raw to the
       // constraint LHS. Recipes that don't consume the raw contribute 0.

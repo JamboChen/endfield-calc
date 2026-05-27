@@ -12,13 +12,15 @@ paths:
 
 # Raw materials, source facilities, and transport
 
-The data layer is small and authoritative. `src/data/index.ts` exports five raw-related symbols (verified):
+The data layer is small and authoritative. `src/data/index.ts` exports these raw-related symbols (verified):
 
-- `rawMaterialSources: Map<ItemId, RawSourceConfig>` (line 38) — binds each raw to its in-game source facility + optional `ratePerMinute` override.
-- `forcedRawMaterials: ReadonlySet<ItemId>` (line 56) — derived from `rawMaterialSources.keys()`. Back-compat API for `.has()` / `for...of`.
-- `costlessRaws: ReadonlySet<ItemId>` (line 83) — `items.filter(isLiquid) ∩ forcedRawMaterials`. Currently `{item_liquid_water, item_liquid_acid}`. Auto-extends.
-- `forcedDisposalItems: Set<ItemId>` (line 93) — items that must net to zero (`{item_liquid_sewage, item_liquid_xiranite_lowpoly, item_liquid_xiranite_poly}`).
-- `bootstrapFacilities: ReadonlySet<FacilityId>` (line 127) — facilities whose recipes bypass the chain-reachability check (currently `{seedcollector_1}`). See `.claude/rules/solver.md` for semantics.
+- `rawMaterialSources: Map<ItemId, RawSourceConfig>` — binds each raw to its in-game source facility + optional `ratePerMinute` override. Canonical "what items are raws" anchor.
+- `rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>>` — per-region raw availability. **Sole source of truth for "what counts as a raw in this plan"**: App.tsx threads `.get(currentDomain)` into the calc layer as the `rawMaterials` parameter. Subset-of-rawMaterialSources by invariant; tests enforce both soundness + completeness.
+- `costlessRaws: ReadonlySet<ItemId>` — `items.filter(isLiquid) ∩ rawMaterialSources.keys()`. Currently `{item_liquid_water, item_liquid_acid}`. Auto-extends. TYPE classification (region-independent); the LP zero-cost bias applies wherever the recipe runs.
+- `forcedDisposalItems: Set<ItemId>` — items that must net to zero (`{item_liquid_sewage, item_liquid_xiranite_lowpoly, item_liquid_xiranite_poly}`).
+- `bootstrapFacilities: ReadonlySet<FacilityId>` — facilities whose recipes bypass the chain-reachability check (currently `{seedcollector_1}`). See `.claude/rules/solver.md` for semantics.
+
+**Removed**: `forcedRawMaterials` (the global "all raws" Set) was dropped in the per-region refactor. Tests use `new Set(rawMaterialSources.keys())` as the convenience equivalent (extracted to `src/tests/lib/utils.ts` as `ALL_RAWS`); production code receives `rawMaterials` as an explicit parameter at every calc-layer call site.
 
 ## Source-facility assignment rules (verified)
 
@@ -59,8 +61,8 @@ One pipe carries two pumps' worth of flow (120 vs 60). Pickup count uses `getRaw
 
 ## DO NOT
 
-- DO NOT add to `rawMaterialSources` / `forcedRawMaterials` without confirming the item has no in-game production recipe AND picking a real source facility. Wrong additions silently break upstream chains. Solids → `unloader_1`; liquids → `pump_1` (most) or `pump_2` (acid).
-- DO NOT iterate `forcedRawMaterials` to compute source-facility info — use `rawMaterialSources.get(itemId)` directly. The Set is back-compat only and carries no source data.
+- DO NOT add to `rawMaterialSources` without confirming the item has no in-game production recipe AND picking a real source facility. Wrong additions silently break upstream chains. Solids → `unloader_1`; liquids → `pump_1` (most) or `pump_2` (acid). Adding to `rawMaterialSources` also requires adding to at least one region in `rawAvailabilityByDomain` (the completeness test fails loudly otherwise).
+- DO NOT reach for a global "all raws" Set — there isn't one anymore. The per-region `rawAvailabilityByDomain.get(currentDomain)` is threaded explicitly through the calc layer; consumers receive it as a parameter.
 - DO NOT pass `item` to `getPickupPointCount`. Signature is `(demandRate, perFacilityRate)` — get `perFacilityRate` from `getRawSourceRate(itemId, item)` so pump-rate overrides are honoured.
 - DO NOT pass transport capacity directly to `getPickupPointCount`. Pumps (60/min) are slower than pipes (120/min); the source-rate abstraction is the right concept.
 - DO NOT re-sum pickup power at callers of `aggregateBinTotals`. It's already folded in.

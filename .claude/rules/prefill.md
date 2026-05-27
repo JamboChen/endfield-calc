@@ -22,7 +22,7 @@ When a plan contains a recipe-level cycle whose tight back-and-forth has no exte
 
 ## `computeBootableItems` (`calculator.ts:155`)
 
-Fixpoint over the active recipe set: start with `rawMaterials`, repeatedly add outputs of recipes whose inputs are all bootable. The `rawMaterials` parameter is the plan's `graph.rawMaterials` — union of `forcedRawMaterials` + user-supplied `manualRawMaterials` (URL `m=`) + items chain-terminated by AIC/override constraints. **NOT** `forcedRawMaterials` alone.
+Fixpoint over the active recipe set: start with `rawMaterials`, repeatedly add outputs of recipes whose inputs are all bootable. The `rawMaterials` parameter is the plan's `graph.rawMaterials` — union of the per-region raw set (passed into `buildBipartiteGraph`) + user-supplied `manualRawMaterials` (URL `m=`) + items chain-terminated by AIC/override constraints. **NOT** the per-region set alone.
 
 ## Result storage (two levels)
 
@@ -45,5 +45,5 @@ Fixpoint over the active recipe set: start with `rawMaterials`, repeatedly add o
 - DO NOT filter intra-bin cycle items per-item against `bin.externalInputs`. The cycle bootstraps from EITHER side — a single externally-supplied half is sufficient. Phase 1's per-CYCLE external-entry check (skip iff ANY cycle item is in `externalInputs`) is the right granularity.
 - DO NOT detect intra-bin cycles via pair iteration over the recipe-graph SCC. Intra-bin cycle structure is a property of the bin's local recipe graph; a 3-recipe intra-bin cycle has no 2-cycle sub-pair and would be missed. Use Phase 1's per-bin Tarjan.
 - DO NOT emit an inter-bin prefill chip for a 2-cycle when EITHER of its items is reachable from raws via the active recipe set. The "both non-bootable" guard in Phase 2 is the contract.
-- DO NOT pass `forcedRawMaterials` directly to `propagatePrefillCandidates`. The plan's `graph.rawMaterials` (built by `graph-builder` as the union of `forcedRawMaterials` + `manualRawMaterials` + chain-terminated items) is the authoritative raw set. Passing the wrong one silently drops manual `m=` URL flags and emits false-positive chips.
+- DO NOT pass a per-region raw set directly to `propagatePrefillCandidates`. The plan's `graph.rawMaterials` (built by `graph-builder` as the union of the per-region raw set + `manualRawMaterials` + chain-terminated items) is the authoritative raw set. Passing the per-region set alone silently drops manual `m=` URL flags and emits false-positive chips.
 - DO NOT iterate `scc.recipes` without filtering to `activeRecipeIds`. Inactive alternatives sit in the SCC's recipe set but don't run; walking them trips `[resolveBinInfo]` warnings.

@@ -1,23 +1,39 @@
 /**
  * Owns user-controlled per-domain settings.
  *
- * Step 1 ships this hook with calc-side behaviour **dormant**: the menu
- * UI persists and reads research state, but `disabledFacilities` is not
- * yet threaded into `calculateProductionPlan`. That wiring lands in Step 2.
+ * # Reach
+ *
+ * Drives three live calc-layer concerns:
+ *   - **AIC research filter**: `aic.unlockedFacilities` + `aic.unlockedModes`
+ *     thread into `computeAvailableFacilities` (App.tsx) to narrow the
+ *     recipe set the calc sees.
+ *   - **Per-facility caps**: `aic.effectiveCaps`, aggregated across
+ *     active domains by App.tsx, feeds the Phase 5 MIP packer.
+ *   - **Per-(item, region) raw material limits**: `rawLimits.overrides`,
+ *     filtered to `currentDomain` by App.tsx, feeds the LP as slack-
+ *     based upper-bound constraints AND the post-pack warning surface.
+ *
+ * Also drives the user's selected factory region (`currentDomain`),
+ * which gates the region-aware reachability closure + `Facility.domains`
+ * filter in App.tsx.
  *
  * # Architecture
  *
- * The hook is intentionally structured as a "domain-settings umbrella":
- * domain-level concerns (which domains are active) live at the top of the
- * return value; per-category sub-states (today: just AIC) are nested
- * under their own keys. Future categories (region limits, power budget,
- * etc.) add new peer sub-objects without disturbing today's AIC API.
+ * The hook is structured as a "domain-settings umbrella": domain-level
+ * concerns (which domains are active, which region the user is
+ * building in) live at the top of the return value; per-category sub-
+ * states are nested under their own keys (`aic`, `rawLimits`). Future
+ * categories (power budget, bandwidth limits, etc.) add new peer sub-
+ * objects without disturbing existing call sites.
  *
  * ```typescript
- * const { domains, activeDomains, toggleDomain, aic } = useDomainSettings();
+ * const {
+ *   domains, activeDomains, toggleDomain,
+ *   currentDomain, setCurrentDomain,
+ *   aic, rawLimits,
+ * } = useDomainSettings();
  * aic.researched.has(techId);
- * aic.toggleNode(techId);
- * // future: regionLimits.bandwidthOverride(domainId, value);
+ * rawLimits.setRawLimitOverride(itemId, domainId, 30);
  * ```
  *
  * # Persistence
@@ -36,6 +52,11 @@
  *     "capOverrides": [
  *       { "facilityId": "...", "domainId": "...", "value": 5 }
  *     ]
+ *   },
+ *   "rawLimits": {
+ *     "overrides": [
+ *       { "itemId": "...", "domainId": "...", "value": 30 }
+ *     ]
  *   }
  * }
  * ```
@@ -43,9 +64,10 @@
  * `domains.current` is the user's selected factory region. Invariant:
  * always ∈ `activeDomains` (pinned domains are always active so this
  * holds by construction in the worst case). The loader treats a missing
- * or invalid `current` as the "latest" active region — highest `sortId`
- * in the active set — which doubles as the migration default for
- * payloads written before the region picker landed.
+ * or invalid `current` (unknown id OR known-but-inactive) as the
+ * "latest" active region — highest `sortId` in the active set — which
+ * doubles as the migration default for payloads written before the
+ * region picker landed.
  *
  * Legacy v1-flat shape (still readable):
  * ```json
@@ -60,15 +82,22 @@
  * # Default state (no localStorage)
  *
  * - `inactiveDomains` = `{ d ∈ domains : !d.isPinned }` → today `{ domain_2 }`.
+ * - `currentDomain` = pinned domain (overridden by onboarding's region
+ *   picker on first-visit confirm).
  * - `researched` = for each node: researched iff its domain is active OR
- *   `node.alreadyUnlocked`. Active domains get the Step-1 "everything
+ *   `node.alreadyUnlocked`. Active domains get the "everything
  *   researched" default; inactive domains get the game-default subset.
+ * - `rawLimits.overrides` = empty (no caps configured).
  *
  * # Soft deactivation
  *
  * `toggleDomain` toggles an entry in/out of `inactiveDomains` and leaves
  * `researched` untouched. Re-activating a domain restores prior research
  * state automatically. Pinned domains (Valley IV) refuse deactivation.
+ * When the toggle would deactivate `currentDomain`, the setter auto-
+ * shifts `currentDomain` to `pickLatestActive` of the post-toggle set
+ * (preserving the invariant); SettingsSheet detects the shift and
+ * toasts the user.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -463,16 +492,21 @@ export interface AicSubState {
  * `DomainSettingsValue`. Models the user's per-(item, domain) upper
  * limit on raw consumption, in **items/min**.
  *
- * As of this commit the values are persisted and edited via the UI,
- * but NOT yet consumed by the calc layer (no warning emission, no LP
- * constraint). The future solver-enforcement workstream will read
- * `overrides`, compute a per-region aggregated cap map from it via
- * `currentDomain` lookup, and surface either warnings or hard
- * constraints (TBD).
+ * Consumed by the calc layer in two places (App.tsx aggregates the
+ * overrides filtered to `currentDomain` into a `Map<ItemId, number>`,
+ * threaded down):
+ *   1. **LP-aware enforcement** — `lp-solver.ts` adds soft upper-bound
+ *      constraints `Σ consumption ≤ cap + slack` with `SLACK_PENALTY`.
+ *      The LP biases toward recipes that conserve the capped raw.
+ *   2. **Post-pack warning surface** — `computeRawOverCapWarnings`
+ *      emits `raw-over-cap` PlanWarnings; ProductionStats applies red
+ *      tint + tooltip on over-cap raw rows.
  *
  * Storage is per-(item, domain) so the user can pre-configure caps
  * for any region for forward planning, matching how `facilityBaseCaps`
- * works.
+ * works. Aggregation at lookup time uses `currentDomain` only — raw
+ * caps are inherently per-region (resource POIs / pump deployability)
+ * so summing across active domains is semantically wrong.
  */
 export interface RawLimitsSubState {
   /**

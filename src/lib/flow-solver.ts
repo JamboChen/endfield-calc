@@ -86,12 +86,20 @@ export async function calculateFlows(
 
   // --- Build per-item constraints over every item in the graph ---
   //
-  // `graph.rawMaterials` already includes the per-region raw set the
-  // caller passed to `buildBipartiteGraph` (plus any chain-leaf items
-  // auto-detected during traversal). We union with `manualRawMaterials`
-  // here for the rare case where the user pinned a manual raw on an
-  // item the graph didn't visit; in practice graph traversal covers
-  // every reachable item so this is defensive.
+  // `graph.rawMaterials` already includes:
+  //   - items in the per-region raw set the caller passed to
+  //     `buildBipartiteGraph` that were visited during target-rooted
+  //     traversal, AND
+  //   - chain-leaf items auto-detected during traversal (items with
+  //     no surviving producer recipe).
+  //
+  // We union with `manualRawMaterials` to cover manual-raw pins on
+  // items NOT reached by target traversal (e.g. user pinned a raw on
+  // an item then deleted the target that consumed it — the pin
+  // remains in state but the item never enters the graph). These
+  // items don't appear in any recipe constraint, so adding them is
+  // a no-op for the LP, but the union keeps `rawMaterials` semantically
+  // complete for callers that inspect it.
   const rawMaterials = new Set<ItemId>();
   for (const r of graph.rawMaterials) rawMaterials.add(r);
   if (manualRawMaterials) {

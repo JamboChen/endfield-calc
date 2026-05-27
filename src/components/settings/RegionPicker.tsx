@@ -33,10 +33,10 @@ interface RegionPickerProps {
  * choice is trivial and the dropdown affordance would mislead users
  * into thinking other regions exist.
  *
- * The picker only exposes regions the user has marked active. Selecting
- * a region that isn't active is therefore impossible by construction;
- * the hook's `setCurrentDomain` carries a defensive check for the same
- * invariant.
+ * The picker only exposes regions the user has marked active. The hook's
+ * `setCurrentDomain` additionally validates that the id is in
+ * `activeDomains`, so the invariant `currentDomain ∈ activeDomains` is
+ * preserved even if a future caller bypasses the UI.
  */
 export function RegionPicker({
   domains,
