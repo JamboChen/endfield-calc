@@ -5,15 +5,10 @@ import {
   mapPlanToFlowBinFused,
   mapPlanToFlowBinFusedSeparated,
 } from "@/components/mappers/bin-fused-mapper";
-import { items, recipes, facilities, rawMaterialSources} from "@/data";
+import { items, recipes, facilities } from "@/data";
 import type { FacilityId, ItemId, ProductionDependencyGraph } from "@/types";
 import type { Edge, Node } from "@xyflow/react";
-
-// Test-only raw-material set: all items the canonical source-facility
-// map knows about. Equivalent to the old global `forcedRawMaterials`
-// (now removed); used as a default for tests that don't care about
-// region-specific availability.
-const ALL_RAWS: ReadonlySet<ItemId> = new Set(rawMaterialSources.keys());
+import { ALL_RAWS } from "./utils";
 
 function checkIntegrity(nodes: Node[], edges: Edge[]) {
   const ids = new Set(nodes.map((n) => n.id));

@@ -19,7 +19,8 @@ import { calculateProductionPlan } from "@/lib/calculator";
 import { pickBinHeadlineOutput } from "@/lib/plan-helpers";
 import { mapPlanToFlowBinFused, mapPlanToFlowBinFusedSeparated } from "@/components/mappers/bin-fused-mapper";
 import { createRawMaterialId, createTargetSinkId } from "@/lib/node-keys";
-import { items, recipes, facilities, rawMaterialSources} from "@/data";
+import { items, recipes, facilities } from "@/data";
+import { ALL_RAWS } from "./utils";
 import { ItemId, RecipeId } from "@/types/constants";
 import {
   mockItems,
@@ -35,12 +36,6 @@ import type {
   RecipeId as RecipeIdType,
   FacilityId as FacilityIdType,
 } from "@/types";
-
-// Test-only raw-material set: all items the canonical source-facility
-// map knows about. Equivalent to the old global `forcedRawMaterials`
-// (now removed); used as a default for tests that don't care about
-// region-specific availability.
-const ALL_RAWS: ReadonlySet<ItemId> = new Set(rawMaterialSources.keys());
 
 const mkItem = (id: string, opts: Partial<Item> = {}): Item => ({
   id: id as ItemIdType,

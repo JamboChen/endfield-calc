@@ -27,11 +27,11 @@ interface RawLimitsCardProps {
   /** Domain this card is for (i.e. the parent `DomainSection`'s domain). */
   domainId: DomainId;
   /**
-   * Raws available in this domain (from `rawAvailabilityByDomain`).
+   * Raws available in this region (from `rawAvailabilityByDomain`).
    * The card iterates this set, filtered to non-liquid items only —
    * liquids are deliberately hidden from the UI per the locked design.
    */
-  availableRaws: ReadonlySet<ItemId>;
+  regionRawMaterials: ReadonlySet<ItemId>;
   /**
    * All current overrides across every (item, domain) pair. The card
    * reads its own region's entries; writing is via `onSetLimit`.
@@ -54,11 +54,12 @@ interface RawLimitsCardProps {
  * future per-domain settings categories follow this sibling-card
  * pattern.
  *
- * The card iterates `availableRaws` filtered by `!isLiquid` (liquids
- * are hidden — they're costless in the LP and their per-region
- * presence is governed by pump deployability, not user-configurable
- * limits). If the filtered set is empty, the card renders nothing
- * (defensive — no domain currently has zero non-liquid raws).
+ * The card iterates `regionRawMaterials` filtered by `!isLiquid`
+ * (liquids are hidden — they're costless in the LP and their per-
+ * region presence is governed by pump deployability, not user-
+ * configurable limits). If the filtered set is empty, the card
+ * renders nothing (defensive — no domain currently has zero non-
+ * liquid raws).
  *
  * Limit values are in **items/min** and may be fractional (a pump
  * that runs once every 2 minutes is 0.5/min — physically meaningful).
@@ -70,7 +71,7 @@ interface RawLimitsCardProps {
  */
 export function RawLimitsCard({
   domainId,
-  availableRaws,
+  regionRawMaterials,
   overrides,
   onSetLimit,
 }: RawLimitsCardProps) {
@@ -81,7 +82,7 @@ export function RawLimitsCard({
   // Hide liquids per the locked design.
   const rows = useMemo<Item[]>(() => {
     const out: Item[] = [];
-    for (const id of availableRaws) {
+    for (const id of regionRawMaterials) {
       const item = ITEMS_BY_ID.get(id);
       if (!item) continue;
       if (item.isLiquid === true) continue;
@@ -95,7 +96,7 @@ export function RawLimitsCard({
       ),
     );
     return out;
-  }, [availableRaws, t]);
+  }, [regionRawMaterials, t]);
 
   if (rows.length === 0) return null;
 

@@ -11,8 +11,10 @@ import {
 } from "@/components/ui/sheet";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { previewActivationDelta } from "@/lib/aic-cascade";
+import { pickLatestActive } from "@/hooks/useDomainSettings";
 import type { AicGroupId, AicLayerId, AicTechId } from "@/types/aic";
 import type { Domain, DomainId } from "@/types/domain";
+import type { ItemId } from "@/types";
 
 import { AicPlanCard } from "./AicPlanCard";
 import { DomainSection } from "./DomainSection";
@@ -69,14 +71,13 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
       if (willAutoFallback) {
         // The auto-fallback target = `pickLatestActive(activeDomains \ {id})`.
         // We can't read it from the hook synchronously here (state has
-        // batched but hasn't re-rendered), so compute the same way the
-        // hook does: highest `sortId` in the remaining active set.
-        let next: Domain | undefined;
-        for (const d of domains) {
-          if (d.id === domain.id) continue;
-          if (!activeDomains.has(d.id)) continue;
-          if (!next || d.sortId > next.sortId) next = d;
-        }
+        // batched but hasn't re-rendered), so call the same helper the
+        // hook does — keeps both sides in lockstep if the tie-breaking
+        // rule ever changes.
+        const nextActive = new Set(activeDomains);
+        nextActive.delete(domain.id);
+        const nextId = pickLatestActive(nextActive);
+        const next = domains.find((d) => d.id === nextId);
         // Pinned domain is always active by construction, so `next` is
         // never undefined in practice; the fallback keeps types happy.
         const fallbackName = next
@@ -211,8 +212,8 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
           {orderedDomains.map((domain) => {
             const isActive = activeDomains.has(domain.id);
             const groups = groupsByDomain.get(domain.id) ?? [];
-            const availableRaws =
-              rawAvailabilityByDomain.get(domain.id) ?? new Set();
+            const regionRawMaterials =
+              rawAvailabilityByDomain.get(domain.id) ?? new Set<ItemId>();
             return (
               <DomainSection
                 key={domain.id}
@@ -241,7 +242,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
                 ))}
                 <RawLimitsCard
                   domainId={domain.id}
-                  availableRaws={availableRaws}
+                  regionRawMaterials={regionRawMaterials}
                   overrides={rawLimits.overrides}
                   onSetLimit={rawLimits.setRawLimitOverride}
                 />

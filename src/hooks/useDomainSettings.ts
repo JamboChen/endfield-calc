@@ -269,8 +269,13 @@ function migrateV1ToNested(v1: PersistedShapeV1): PersistedShape {
  * Falls back to the first pinned domain when no active domain exists
  * (pinned domains are always active by construction so this only
  * triggers if `domainData` is empty — defensive).
+ *
+ * Exported so `SettingsSheet` can compute the same fallback target
+ * pre-emptively (to surface a toast) without depending on a re-render
+ * to read the post-toggle `currentDomain`. Single source of truth for
+ * the "latest active" semantic — UI must not re-implement.
  */
-function pickLatestActive(activeDomains: ReadonlySet<DomainId>): DomainId {
+export function pickLatestActive(activeDomains: ReadonlySet<DomainId>): DomainId {
   let best: { id: DomainId; sortId: number } | null = null;
   for (const d of domainData) {
     if (!activeDomains.has(d.id)) continue;

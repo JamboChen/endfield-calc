@@ -29,13 +29,7 @@ import {
   byproductSCCRecipes,
   xirconRecipes,
 } from "./fixtures/test-data";
-import { rawMaterialSources } from "@/data";
-
-// Test-only raw-material set: all items the canonical source-facility
-// map knows about. Equivalent to the old global `forcedRawMaterials`
-// (now removed); used as a default for tests that don't care about
-// region-specific availability.
-const ALL_RAWS: ReadonlySet<ItemId> = new Set(rawMaterialSources.keys());
+import { ALL_RAWS } from "./utils";
 
 const getNode = (
   graph: ProductionDependencyGraph,

@@ -24,18 +24,13 @@ import {
   recipes,
   facilities,
   bootstrapFacilities,
-  rawMaterialSources,
 } from "@/data";
 import { aicGroups, aicNodes } from "@/data/aic-plans";
 import type { AicTechId } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
 import { FacilityId, ItemId } from "@/types/constants";
 
-// Test-only raw-material set: all items the canonical source-facility
-// map knows about. Equivalent to the old global `forcedRawMaterials`
-// (now removed); used as a default for tests that don't care about
-// region-specific availability.
-const ALL_RAWS: ReadonlySet<ItemId> = new Set(rawMaterialSources.keys());
+import { ALL_RAWS } from "./utils";
 
 /**
  * Helper: derive a fully-unlocked research set from `aicNodes`. Mimics
