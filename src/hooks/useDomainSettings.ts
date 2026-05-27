@@ -318,9 +318,20 @@ function loadFromStorage(): PersistedShape | null {
         typeof c.value === "number" &&
         Number.isFinite(c.value),
     );
+    // Validate `domains.current` against the post-filter active set
+    // (not just known-domain membership). The invariant
+    // `currentDomain ∈ activeDomains` is documented at the top of this
+    // file and relied on by `App.tsx`'s non-null assertion at the
+    // `regionRawMaterials` memo. Treating known-but-inactive as
+    // invalid here forces the downstream initializer + the
+    // setCurrentDomain setter to converge on the same rule, removing
+    // a latent footgun where the loader returns a "valid" current
+    // that points to an inactive domain.
+    const inactiveSet = new Set<string>(inactive);
     const current =
       typeof shape.domains.current === "string" &&
-      knownDomainIds.has(shape.domains.current)
+      knownDomainIds.has(shape.domains.current) &&
+      !inactiveSet.has(shape.domains.current)
         ? (shape.domains.current as DomainId)
         : undefined;
 
@@ -754,17 +765,26 @@ export function useDomainSettings(): DomainSettingsValue {
     });
   }, []);
 
-  const setCurrentDomain = useCallback((id: DomainId) => {
-    setCurrentDomainState((prev) => {
-      if (prev === id) return prev;
-      // Defensive: the picker UI only exposes active regions, but a
-      // stale call (e.g. concurrent toggle that just deactivated `id`)
-      // could land here. Silently keep the previous value.
-      const domain = domainData.find((d) => d.id === id);
-      if (!domain) return prev;
-      return id;
-    });
-  }, []);
+  const setCurrentDomain = useCallback(
+    (id: DomainId) => {
+      setCurrentDomainState((prev) => {
+        if (prev === id) return prev;
+        // Validate that the target is a known domain AND is currently
+        // active. The picker UI only exposes active regions, but a
+        // stale call (e.g. concurrent toggle that just deactivated
+        // `id`, or a programmatic caller that bypasses the UI) could
+        // land here. Silently keep the previous value rather than
+        // breaking the `currentDomain ∈ activeDomains` invariant —
+        // App.tsx's `regionRawMaterials.get(currentDomain)!` and the
+        // `Facility.domains` filter both rely on this.
+        const domain = domainData.find((d) => d.id === id);
+        if (!domain) return prev;
+        if (inactiveDomains.has(id)) return prev;
+        return id;
+      });
+    },
+    [inactiveDomains],
+  );
 
   /**
    * First-visit onboarding bulk-apply. See `DomainSettingsValue
