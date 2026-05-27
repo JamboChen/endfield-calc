@@ -195,6 +195,16 @@ export async function calculateFlows(
         Object.fromEntries(result.disposalDeficits),
       );
     }
+    if (result.rawCapOveruse.size > 0) {
+      // Mirror of the disposal-deficits log: the LP found a feasible
+      // solution by spending cap-slack — the plan exceeds at least one
+      // user-set raw-material limit. Informational only; over-cap
+      // warnings already surface in the UI via `computeRawOverCapWarnings`.
+      console.warn(
+        `[GLOBAL_FLOW] Raw-cap overuse:`,
+        Object.fromEntries(result.rawCapOveruse),
+      );
+    }
     detectMixedStrategies(graph, result.facilityCounts);
   }
 
