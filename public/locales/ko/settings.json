@@ -16,7 +16,8 @@
     "placeholder": "—",
     "unitSuffix": "/분",
     "inputAria": "{{name}} 한도 (분당 개수)",
-    "reset": "재설정"
+    "reset": "재설정",
+    "invalidValue": "한도는 0 이상의 숫자여야 합니다 — 값이 저장되지 않았습니다."
   },
   "aic": {
     "intro": "연구한 AIC 기술을 선택하세요. 이 설정에 따라 플랜에 사용 가능한 아이템과 공식이 필터링됩니다.",

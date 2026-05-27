@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import {
   Collapsible,
@@ -14,6 +15,13 @@ import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import { cn } from "@/lib/utils";
 import type { Item, ItemId } from "@/types";
 import type { DomainId } from "@/types/domain";
+
+// Module-scope item index. `items` is a static module import, so the
+// Map can be built once at module load rather than every render. (Used
+// by `RawLimitsCard`'s `rows` memo and the row-level lookups.)
+const ITEMS_BY_ID: ReadonlyMap<ItemId, Item> = new Map(
+  items.map((i) => [i.id, i] as const),
+);
 
 interface RawLimitsCardProps {
   /** Domain this card is for (i.e. the parent `DomainSection`'s domain). */
@@ -52,12 +60,13 @@ interface RawLimitsCardProps {
  * limits). If the filtered set is empty, the card renders nothing
  * (defensive — no domain currently has zero non-liquid raws).
  *
- * Limit values are in **items/min**. Inputs are persisted via
- * `useDomainSettings.rawLimits` but NOT YET consumed by the calc
- * layer — the future solver-enforcement workstream activates them as
- * warnings / LP constraints. Until then, typing a limit and watching
- * a plan exceed it does nothing visible. Intentional gap; release
- * notes / docs cover the disclaimer.
+ * Limit values are in **items/min** and may be fractional (a pump
+ * that runs once every 2 minutes is 0.5/min — physically meaningful).
+ * Inputs are persisted via `useDomainSettings.rawLimits` and consumed
+ * by the calc layer in two places: (1) as soft LP upper-bound
+ * constraints (via `lp-solver.ts` slack vars), and (2) as `raw-over-
+ * cap` PlanWarnings post-pack. Over-cap items render with red tint in
+ * the ProductionStats raw-materials list.
  */
 export function RawLimitsCard({
   domainId,
@@ -71,10 +80,9 @@ export function RawLimitsCard({
   // Resolve the iterable list of Item objects for the card's rows.
   // Hide liquids per the locked design.
   const rows = useMemo<Item[]>(() => {
-    const itemsById = new Map(items.map((i) => [i.id, i] as const));
     const out: Item[] = [];
     for (const id of availableRaws) {
-      const item = itemsById.get(id);
+      const item = ITEMS_BY_ID.get(id);
       if (!item) continue;
       if (item.isLiquid === true) continue;
       out.push(item);
@@ -164,24 +172,42 @@ function RawLimitRow({
     hasOverride ? String(value) : "",
   );
 
-  // parseInt with explicit base-10, finite check, empty → clear
-  // override. Negative values are rejected here (the input also carries
-  // HTML5 `min="0"` as a browser-level hint, but commitDraft is the
-  // real gate). The hook setter, loader, and App.tsx aggregation all
-  // independently reject negative values — this is the first of the
-  // four defense layers.
+  // Sync the local draft when `value` changes externally — e.g. the
+  // user clicks the Reset button (which clears via `onSetLimit(null)`),
+  // or a future write path (import / URL load) mutates the override.
+  // Without this effect, the draft would diverge from the persisted
+  // value and the next blur would write the stale draft back.
+  useEffect(() => {
+    setDraft(value !== undefined ? String(value) : "");
+  }, [value]);
+
+  // parseFloat with finite + non-negative check, empty → clear
+  // override. Fractional caps are intentional: per-min rates are
+  // physically fractional (a pump cycling every 2 minutes is 0.5/min).
+  //
+  // Negative / NaN inputs are rejected here AND toast-warn the user
+  // so the silent-revert behaviour doesn't confuse them. The HTML5
+  // `min={0}` on the Input is a browser-level hint; this is the
+  // real gate. The hook setter, loader, and App.tsx aggregation all
+  // independently reject negative values — defense in depth.
   const commitDraft = () => {
     if (draft === "") {
       onSetLimit(item.id, domainId, null);
       return;
     }
-    const v = parseInt(draft, 10);
+    const v = parseFloat(draft);
     if (Number.isFinite(v) && v >= 0) {
       onSetLimit(item.id, domainId, v);
     } else {
-      // Invalid (NaN or negative) — revert draft to previous value
-      // (empty if no prior override). No state change applied.
+      // Invalid (NaN or negative) — revert draft AND notify the user.
       setDraft(hasOverride ? String(value) : "");
+      toast.warning(
+        t("rawLimits.invalidValue", {
+          ns: "settings",
+          defaultValue:
+            "Limit must be a non-negative number — value not saved.",
+        }),
+      );
     }
   };
 
@@ -201,8 +227,9 @@ function RawLimitRow({
       <div className="flex items-center gap-1 shrink-0">
         <Input
           type="number"
-          inputMode="numeric"
+          inputMode="decimal"
           min={0}
+          step="any"
           value={draft}
           placeholder={t("rawLimits.placeholder", {
             ns: "settings",

@@ -16,7 +16,8 @@
     "placeholder": "—",
     "unitSuffix": "/min",
     "inputAria": "{{name}} limit (items per minute)",
-    "reset": "Reset"
+    "reset": "Reset",
+    "invalidValue": "Limit must be a non-negative number — value not saved."
   },
   "aic": {
     "intro": "Choose which AIC technologies you've researched. This filters the items and formulas available to your plans.",

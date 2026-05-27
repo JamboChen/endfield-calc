@@ -147,8 +147,22 @@ const ProductionStats = memo(function ProductionStats({
                     const overCap = facilityOverCapMap.get(
                       facility.id as FacilityId,
                     );
+                    const overCapAriaLabel = overCap
+                      ? t("facilityCapExceeded", {
+                          used: formatCount(overCap.used, ceilMode),
+                          cap: overCap.cap,
+                        })
+                      : undefined;
                     const card = (
                       <div
+                        // Over-cap cards are made focusable + carry an
+                        // explicit aria-label so screen-reader and
+                        // keyboard users get the same info as the hover
+                        // tooltip. Non-over-cap cards stay un-focusable
+                        // (no useful interaction).
+                        tabIndex={overCap ? 0 : undefined}
+                        role={overCap ? "status" : undefined}
+                        aria-label={overCapAriaLabel}
                         className={cn(
                           "space-y-0.5 p-2 border bg-card",
                           overCap
@@ -188,12 +202,7 @@ const ProductionStats = memo(function ProductionStats({
                     return (
                       <Tooltip key={facility.id}>
                         <TooltipTrigger asChild>{card}</TooltipTrigger>
-                        <TooltipContent>
-                          {t("facilityCapExceeded", {
-                            used: formatCount(overCap.used, ceilMode),
-                            cap: overCap.cap,
-                          })}
-                        </TooltipContent>
+                        <TooltipContent>{overCapAriaLabel}</TooltipContent>
                       </Tooltip>
                     );
                   })}
@@ -227,8 +236,21 @@ const ProductionStats = memo(function ProductionStats({
                           ? getFacilityName(sourceFacility)
                           : t("pickupPoints");
                         const overCap = rawMaterialOverCapMap.get(item.id);
+                        const overCapAriaLabel = overCap
+                          ? t("rawCapExceeded", {
+                              used: overCap.used.toFixed(1),
+                              cap: overCap.cap,
+                            })
+                          : undefined;
                         const card = (
                           <div
+                            // Same a11y pattern as facility-over-cap
+                            // cards: focusable + aria-labelled so
+                            // screen readers + keyboard nav surface
+                            // the over-cap detail.
+                            tabIndex={overCap ? 0 : undefined}
+                            role={overCap ? "status" : undefined}
+                            aria-label={overCapAriaLabel}
                             className={cn(
                               "space-y-0.5 p-2 border bg-card",
                               overCap
@@ -271,12 +293,7 @@ const ProductionStats = memo(function ProductionStats({
                         return (
                           <Tooltip key={item.id}>
                             <TooltipTrigger asChild>{card}</TooltipTrigger>
-                            <TooltipContent>
-                              {t("rawCapExceeded", {
-                                used: overCap.used.toFixed(1),
-                                cap: overCap.cap,
-                              })}
-                            </TooltipContent>
+                            <TooltipContent>{overCapAriaLabel}</TooltipContent>
                           </Tooltip>
                         );
                       })}

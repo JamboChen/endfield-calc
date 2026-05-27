@@ -16,7 +16,8 @@
     "placeholder": "—",
     "unitSuffix": "/min",
     "inputAria": "Límite de {{name}} (objetos por minuto)",
-    "reset": "Restablecer"
+    "reset": "Restablecer",
+    "invalidValue": "El límite debe ser un número no negativo — valor no guardado."
   },
   "aic": {
     "intro": "Elige qué tecnologías de la CAI has investigado. Esto filtra los objetos y fórmulas disponibles en tus planes.",

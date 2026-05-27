@@ -16,7 +16,8 @@
     "placeholder": "—",
     "unitSuffix": "/分鐘",
     "inputAria": "{{name}} 上限（每分鐘數量）",
-    "reset": "重置"
+    "reset": "重置",
+    "invalidValue": "上限必須為非負數 — 未儲存。"
   },
   "aic": {
     "intro": "選擇您已研究的 AIC 科技。此設定將篩選方案中可用的物品與配方。",
