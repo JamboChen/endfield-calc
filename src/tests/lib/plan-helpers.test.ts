@@ -1195,6 +1195,20 @@ describe("computeRawOverCapWarnings", () => {
     }
   });
 
+  test("emits warning when used exceeds cap by fractional amount (12.5 vs 10)", () => {
+    // LP outputs are fractional; the warning must fire even on a
+    // sub-unit overage. Mirrors the facility-over-cap parity test.
+    const requirements = new Map([[ITEM_A, 12.5]]);
+    const caps = new Map([[ITEM_A, 10]]);
+    const warnings = computeRawOverCapWarnings(requirements, caps);
+    expect(warnings).toHaveLength(1);
+    const w = warnings[0];
+    if (w.kind === "raw-over-cap") {
+      expect(w.used).toBeCloseTo(12.5, 5);
+      expect(w.cap).toBe(10);
+    }
+  });
+
   test("no warning when used equals cap exactly", () => {
     const requirements = new Map([[ITEM_A, 30]]);
     const caps = new Map([[ITEM_A, 30]]);

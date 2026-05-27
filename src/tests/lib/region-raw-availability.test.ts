@@ -210,6 +210,19 @@ describe("rawAvailabilityByDomain — reachability integration", () => {
 
     expect(valley.reachableItems.has(ItemId.ITEM_COPPER_CMPT)).toBe(false);
     expect(wuling.reachableItems.has(ItemId.ITEM_COPPER_CMPT)).toBe(true);
+
+    // Also pin the failure-chain assumption: the canonical producer
+    // `component_copper_cmpt_1` must be non-runnable in Valley IV
+    // (because its inputs trace back to Cuprium). If a future patch
+    // adds an alternative producer that doesn't need Cuprium, this
+    // would silently flip and the reachableItems assertion above
+    // would still pass for the wrong reason.
+    expect(
+      valley.runnableRecipes.some((r) => r.id === "component_copper_cmpt_1"),
+    ).toBe(false);
+    expect(
+      wuling.runnableRecipes.some((r) => r.id === "component_copper_cmpt_1"),
+    ).toBe(true);
   });
 
   test("Buckflower planter recipe (no liquid input) stays reachable in Valley IV", () => {

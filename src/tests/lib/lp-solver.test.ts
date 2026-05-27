@@ -509,17 +509,74 @@ describe("solveLP — raw-cap enforcement", () => {
   test("invalid cap values (negative, NaN) are silently skipped", async () => {
     // Defensive: lp-solver itself skips invalid caps to avoid crashing
     // on bad input. The App layer + setter already filter, but the LP
-    // shouldn't be the only line of defense.
-    const result = await solveLP(
-      buildSingleRecipeInput(
-        new Map([
-          ["raw" as ItemId, -5], // negative
-          ["other_raw" as ItemId, NaN], // not-a-number
-        ]),
-      ),
-    );
+    // shouldn't be the only line of defense. Both invalid values
+    // target items present in `rawMaterials`, so the test exercises
+    // the rejection path on caps that would otherwise be active.
+    const result = await solveLP({
+      ...buildSingleRecipeInput(),
+      rawMaterials: new Set(["raw" as ItemId, "raw_other" as ItemId]),
+      rawCaps: new Map([
+        ["raw" as ItemId, -5], // negative
+        ["raw_other" as ItemId, NaN], // not-a-number
+      ]),
+    });
     if (!result.feasible) throw new Error("expected feasible");
     // No slack engaged because no caps were actually applied.
     expect(result.rawCapOveruse.size).toBe(0);
+  });
+
+  test("lex-cap excludes rawcap-slack — power minimization works under forced rawcap slack", async () => {
+    // Regression for the rawcap_slack lex-inclusion bug analogous to
+    // the disposal-slack regression at lp-solver.test.ts:323. Before
+    // the exclusion at lp-solver.ts:419, the lex_rawCost cap would
+    // include the rawcap_slack's coefficient — pass-2 (buildingCount)
+    // would then become infeasible whenever slack > 0, falling back
+    // to pass-1 and skipping power minimization. Among raw-degenerate
+    // recipes the solver then picked by declaration order.
+    //
+    // Setup: 2 power-asymmetric recipes with identical raw cost, plus
+    // a binding raw cap forcing slack > 0. Recipes ordered
+    // [expensive, cheap] to expose the bug if the exclusion regresses.
+    const rExpensive = makeRecipe(
+      "rExpensive",
+      [{ itemId: "raw" as ItemId, amount: 1 }],
+      [{ itemId: "out" as ItemId, amount: 1 }],
+      2,
+      FAC_HEAVY.id, // power 50
+    );
+    const rCheap = makeRecipe(
+      "rCheap",
+      [{ itemId: "raw" as ItemId, amount: 1 }],
+      [{ itemId: "out" as ItemId, amount: 1 }],
+      2,
+      FAC.id, // power 10
+    );
+
+    const input: LPInput = {
+      recipes: [rExpensive, rCheap],
+      itemConstraints: new Map([
+        ["out" as ItemId, { type: "min", rhs: 30 }],
+        ["raw" as ItemId, { type: "min", rhs: 0 }],
+      ]),
+      rawMaterials: new Set(["raw" as ItemId]),
+      costlessRaws: new Set(),
+      // Demand = 30 raw/min; cap = 1. Forces slack ≈ 29 regardless of
+      // recipe choice (both recipes have identical raw cost).
+      rawCaps: new Map([["raw" as ItemId, 1]]),
+      facilityMap: facMap,
+    };
+    const result = await solveLP(input);
+    if (!result.feasible) throw new Error("expected feasible");
+
+    // Power-minimal pick: rCheap (FAC, 10W). Without the rawcap-slack
+    // exclusion at lp-solver.ts:419, the fallback would pick
+    // rExpensive (FAC_HEAVY, 50W) due to declaration order.
+    expect(result.facilityCounts.get("rCheap" as RecipeId)).toBeCloseTo(1, 5);
+    expect(
+      result.facilityCounts.get("rExpensive" as RecipeId) ?? 0,
+    ).toBeCloseTo(0, 5);
+    expect(result.totalPower).toBeCloseTo(10, 1);
+    // Slack should engage with overage = demand − cap = 30 − 1 = 29.
+    expect(result.rawCapOveruse.get("raw" as ItemId)).toBeCloseTo(29, 3);
   });
 });
