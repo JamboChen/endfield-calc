@@ -91,6 +91,28 @@ export function computeUnlockedFacilities(
 }
 
 /**
+ * Per-array facility index cache. WeakMap keyed by the facilities
+ * array reference; in production callers always pass the same
+ * module-static `@/data` array, so the cache hits on every render.
+ * Synthetic test arrays GC normally as their describes complete.
+ */
+const FACILITY_INDEX_CACHE = new WeakMap<
+  readonly Facility[],
+  ReadonlyMap<FacilityId, Facility>
+>();
+
+function getFacilityIndex(
+  facilities: readonly Facility[],
+): ReadonlyMap<FacilityId, Facility> {
+  let idx = FACILITY_INDEX_CACHE.get(facilities);
+  if (!idx) {
+    idx = new Map(facilities.map((f) => [f.id, f] as const));
+    FACILITY_INDEX_CACHE.set(facilities, idx);
+  }
+  return idx;
+}
+
+/**
  * Facilities currently available for placement given the AIC-unlock
  * set and the user's selected factory region (`currentDomain`).
  *
@@ -108,14 +130,17 @@ export function computeUnlockedFacilities(
  * remain visible in informational surfaces (e.g. the AIC tree, where
  * Wuling-only facilities still show their research state when planning
  * a Valley IV factory) — only recipe usability is gated.
+ *
+ * The `facilities → Map` index is WeakMap-cached per array reference,
+ * so the prod call site (always `@/data`'s static export) builds the
+ * Map exactly once for the app's lifetime.
  */
 export function computeAvailableFacilities(
   unlockedFacilities: ReadonlySet<FacilityId>,
   facilities: readonly Facility[],
   currentDomain: DomainId,
 ): ReadonlySet<FacilityId> {
-  const facilityById = new Map<FacilityId, Facility>();
-  for (const f of facilities) facilityById.set(f.id, f);
+  const facilityById = getFacilityIndex(facilities);
 
   const out = new Set<FacilityId>();
   for (const id of unlockedFacilities) {
