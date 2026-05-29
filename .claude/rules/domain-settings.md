@@ -52,7 +52,7 @@ paths:
 
 ## Per-plan reset
 
-`aic.resetGroupToDefaults(groupId)` resets only that group's nodes to `researched.has(n.id) === n.alreadyUnlocked`. Other groups untouched. `aic.isAtDefaultsByGroup.get(groupId)` drives the Reset button visibility in `AicPlanCard`.
+`aic.resetGroupToDefaults(groupId)` resets only that group's nodes to `researched.has(n.id) === n.alreadyUnlocked`. Other groups untouched. `aic.isAtDefaultsByGroup.get(groupId)` drives the Reset button visibility in `AicPlanContent` (the Plan sub-tab body).
 
 ## Facility caps + over-cap warnings (verified pipeline)
 
@@ -78,11 +78,16 @@ paths:
 
 ## UI components (`src/components/settings/`)
 
-- `DomainSection.tsx` — generic outer wrapper per domain. Hosts the activation `Switch` (hidden if `domain.isPinned`), accent stripe (`domain.color`), arbitrary child cards. When inactive: `opacity-50 pointer-events-none` (soft preservation — DOM kept intact).
-- `AicPlanCard.tsx` — one category card hosted inside a `DomainSection`. AIC-specific.
-- `AicLayer.tsx`, `AicNodeRow.tsx`, `AicFacilityLimits.tsx` — sub-components.
-- `SettingsSheet.tsx` — top-level container.
-- Future cards (e.g. `RegionLimitsCard`) follow the same sibling-within-DomainSection pattern.
+The panel is a region **navigator + sub-tabs** (the old per-domain
+`DomainSection` accordion is retired).
+
+- `SettingsSheet.tsx` — top-level container. Owns local `editingDomain` (the "Configuring" context), initialised to `currentDomain`, re-synced on each closed→open transition (the sheet stays mounted), and guarded by `resolveEditingDomain` (`src/lib/settings-helpers.ts`) when a region is deactivated mid-session. Composes `RegionNavMenu` + `RegionConfigTabs` and owns the toast-wrapped AIC handlers (cascade deltas, prereq warning, reset).
+- `RegionNavMenu.tsx` — dropdown that is both region navigator and roster. Per-row `Switch` toggles activation (hidden for the pinned/home region); clicking a name sets `editingDomain`; activating an inactive region auto-selects it. Owns the deactivate-current-factory fallback toast (moved here from `SettingsSheet`).
+- `RegionConfigTabs.tsx` — Plan / Limits / Raws sub-tabs for the edited region, with word-labeled count badges derived via `settings-helpers` (`countAicResearched` / `countCustomizedCaps` / `countRawSourced`).
+- `AicPlanContent.tsx`, `FacilityLimitsContent.tsx`, `RawLimitsContent.tsx` — chrome-less tab bodies. `CapTargetRow` (in FacilityLimitsContent) and `RawLimitRow` (in RawLimitsContent) are internal. Per-row resets removed: Raws has a tab-level "Clear all"; Limits has a per-building "Reset to base limit" (unresearch cap-raises via `aic.deactivateNodes` + clear override).
+- `AicLayer.tsx`, `AicNodeRow.tsx` — AIC sub-components, reused as-is.
+- `RegionPicker.tsx` — current-factory-region picker; mounted in `AppHeader` (interim home), not in Settings.
+- A new per-domain category adds a sub-tab to `RegionConfigTabs` (state still nests under a new `useDomainSettings` sub-object, as below).
 
 ## DO NOT
 

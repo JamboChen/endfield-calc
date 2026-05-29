@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import type { AicNode, AicTechId } from "@/types/aic";
 import { facilities, items, recipes } from "@/data";
 import { recipesByTech } from "@/data/aic-plans";
+import { facilityIconUrl } from "@/lib/facility-icons";
 import { getRecipeName } from "@/lib/i18n-helpers";
 import type { FacilityId, RecipeId } from "@/types";
 
@@ -19,18 +20,6 @@ interface AicNodeRowProps {
   node: AicNode;
   researched: ReadonlySet<AicTechId>;
   onToggle: (id: AicTechId) => void;
-}
-
-const FACILITY_ICON_FALLBACK: Partial<Record<string, string>> = {
-  // Depot Bus tech ships under `loader_1` but the asset on disk lives
-  // under `unloader_1.png`. Both facilities are unlocked together, so
-  // the unloader icon is the right visual cue.
-  loader_1: "unloader_1",
-};
-
-function facilityIconUrl(facilityId: string): string {
-  const slug = FACILITY_ICON_FALLBACK[facilityId] ?? facilityId;
-  return `${import.meta.env.BASE_URL}images/facilities/${slug}.png`;
 }
 
 // O(1) lookup tables for the recipe-list tooltip. Built once at module

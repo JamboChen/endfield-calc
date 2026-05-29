@@ -1,8 +1,12 @@
 {
   "title": "设置",
   "open": "打开设置",
+  "intro": "为每个区域配置 AIC 研究方案、设施上限与原料速率。在下方选择要配置的区域；开关用于将区域加入或移出你的清单。",
   "regions": {
-    "groupLabel": "区域"
+    "configuringLabel": "正在配置",
+    "yourRegions": "你的区域",
+    "notInRoster": "未加入清单",
+    "factoryMarker": "工厂"
   },
   "region": {
     "label": "当前工厂区域",
@@ -14,20 +18,29 @@
       "switchedToFallback": "已切换至 {{name}} 工厂"
     }
   },
+  "tabs": {
+    "plan": "方案",
+    "limits": "上限",
+    "raws": "资源"
+  },
+  "status": {
+    "researched": "已研究 {{done}} / {{total}}",
+    "customized": "已自定义 {{n}}",
+    "sourced": "已获取 {{done}} / {{total}}"
+  },
   "rawLimits": {
-    "title": "原料上限",
-    "help": "为该区域的方案设置可用的采集速率。若尚未获得某种原料，请留空 — 计算器将把它标记为瓶颈。",
-    "sourcesBadge": "{{count}}/{{total}}",
-    "placeholder": "—",
+    "help": "留空表示该资源供应无限。填入数值可设置限额。",
+    "clearAll": "全部清除",
+    "placeholder": "∞",
     "unitSuffix": "/分钟",
     "inputAria": "{{name}} 上限（每分钟数量）",
-    "reset": "重置",
-    "invalidValue": "上限必须为非负数 — 未保存。"
+    "invalidValue": "上限必须为非负数。未保存。"
   },
   "aic": {
-    "intro": "选择您已研究的 AIC 科技。此设置将筛选方案中可用的物品与配方。",
     "activateAll": "全部激活",
     "activateLayer": "激活该层",
+    "expandAll": "全部展开",
+    "collapseAll": "全部折叠",
     "resetDefaults": "恢复默认",
     "capDeltaLabel": "上限",
     "row": {
@@ -41,11 +54,10 @@
       "ariaAlwaysAvailable": "{{name}}，始终可用"
     },
     "facilityLimits": {
-      "title": "设施上限",
       "gameCap": "游戏上限",
       "customCap": "自定义",
       "effective": "实际",
-      "reset": "重置为游戏上限"
+      "resetToBase": "重置为基础上限"
     },
     "domain": {
       "toggleActivate": "激活 {{name}}",

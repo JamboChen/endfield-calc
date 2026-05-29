@@ -491,6 +491,14 @@ export interface AicSubState {
    */
   activateNodes: (ids: readonly AicTechId[]) => void;
   /**
+   * Generic deactivator — removes the given ids and cascades to every
+   * dependent that would lose a prereq (game-default `alreadyUnlocked`
+   * nodes are preserved). Peer to `activateNodes`; used by the Facility
+   * Limits per-building "Reset to base limit" action to drop every
+   * researched cap-raise for one facility in a single cascade-safe pass.
+   */
+  deactivateNodes: (ids: readonly AicTechId[]) => void;
+  /**
    * Per-plan reset: nodes in this group are set to their game-default
    * state (`researched.has(n.id) === n.alreadyUnlocked`). Other groups
    * are untouched.
@@ -942,6 +950,20 @@ export function useDomainSettings(): DomainSettingsValue {
   }, []);
 
   /**
+   * Generic node deactivator — cascades over the given ids and their
+   * transitive dependents in a single pure pass (see `cascadeDeactivate`).
+   * Atomic: avoids the re-activation bug that looping single-node
+   * `toggleNode` calls would hit on a cap-raise chain. Used by the
+   * Facility Limits per-building "Reset to base limit" action.
+   */
+  const deactivateNodes = useCallback((ids: readonly AicTechId[]) => {
+    setResearched((prev) => {
+      if (ids.length === 0) return prev;
+      return cascadeDeactivate(ids, prev, aicNodes);
+    });
+  }, []);
+
+  /**
    * Per-plan Reset: for nodes in this group, set researched-state to
    * `node.alreadyUnlocked`. Other groups untouched.
    */
@@ -1006,6 +1028,7 @@ export function useDomainSettings(): DomainSettingsValue {
       activateLayer,
       activateGroup,
       activateNodes,
+      deactivateNodes,
       resetGroupToDefaults,
       setCapOverride,
     }),
@@ -1020,6 +1043,7 @@ export function useDomainSettings(): DomainSettingsValue {
       activateLayer,
       activateGroup,
       activateNodes,
+      deactivateNodes,
       resetGroupToDefaults,
       setCapOverride,
     ],

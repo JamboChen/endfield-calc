@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ChevronDown, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -9,7 +9,12 @@ import {
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { AicLayer as AicLayerType, AicNode, AicTechId } from "@/types/aic";
+import type {
+  AicLayerId,
+  AicLayer as AicLayerType,
+  AicNode,
+  AicTechId,
+} from "@/types/aic";
 
 import { AicNodeRow } from "./AicNodeRow";
 
@@ -17,6 +22,10 @@ interface AicLayerProps {
   layer: AicLayerType;
   nodes: readonly AicNode[];
   researched: ReadonlySet<AicTechId>;
+  /** Controlled expand state — owned by `AicPlanGroup` so an
+   * expand/collapse-all toggle can drive every layer at once. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onToggle: (id: AicTechId) => void;
   onActivateLayer: () => void;
 }
@@ -25,14 +34,12 @@ function AicLayerSection({
   layer,
   nodes,
   researched,
+  open,
+  onOpenChange,
   onToggle,
   onActivateLayer,
 }: AicLayerProps) {
   const { t } = useTranslation(["aic", "settings"]);
-
-  // Layers with <= 2 nodes auto-expand (no point hiding 1 row behind a chevron).
-  const initialOpen = nodes.length <= 2;
-  const [open, setOpen] = useState(initialOpen);
 
   // Count facility-unlock + mode-unlock nodes only — cap-raises live in the
   // Facility-limits section, so they shouldn't double up the layer count.
@@ -57,7 +64,7 @@ function AicLayerSection({
   }
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <Collapsible open={open} onOpenChange={onOpenChange}>
       <div
         className={cn(
           "rounded-md border border-border/60 bg-background/40",
@@ -160,6 +167,9 @@ interface AicLayerListProps {
   layers: readonly AicLayerType[];
   nodesByLayer: ReadonlyMap<string, AicNode[]>;
   researched: ReadonlySet<AicTechId>;
+  /** Ids of currently-expanded layers (controlled by `AicPlanGroup`). */
+  openLayers: ReadonlySet<AicLayerId>;
+  onLayerOpenChange: (layerId: AicLayerId, open: boolean) => void;
   onToggleNode: (id: AicTechId) => void;
   onActivateLayer: (layerId: string) => void;
 }
@@ -171,6 +181,8 @@ export function AicLayerList({
   layers,
   nodesByLayer,
   researched,
+  openLayers,
+  onLayerOpenChange,
   onToggleNode,
   onActivateLayer,
 }: AicLayerListProps) {
@@ -189,6 +201,8 @@ export function AicLayerList({
             layer={layer}
             nodes={layerNodes}
             researched={researched}
+            open={openLayers.has(layer.id)}
+            onOpenChange={(o) => onLayerOpenChange(layer.id, o)}
             onToggle={onToggleNode}
             onActivateLayer={() => onActivateLayer(layer.id)}
           />

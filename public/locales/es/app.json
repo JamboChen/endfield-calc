@@ -10,7 +10,7 @@
   "cycleWarningNoAffected": "La fórmula seleccionada para {{overriddenItems}} crea un ciclo de producción que no puede mantener la producción requerida.",
   "facilityOverCap": "{{facility}}: límite excedido ({{displayCount}} / {{cap}}).",
   "rawOverCap": "{{item}}: límite excedido ({{used}}/min / {{cap}}/min).",
-  "packerOverrideInfeasible": "La fórmula \"{{recipe}}\" en la instalación \"{{facility}}\" no tiene una forma de contenedor válida — el empaquetador recurrió a edificios individuales por fórmula.",
+  "packerOverrideInfeasible": "La fórmula \"{{recipe}}\" en la instalación \"{{facility}}\" no tiene una forma de contenedor válida. El empaquetador recurrió a edificios individuales por fórmula.",
   "packerFallback": "El empaquetador de edificios multifórmula recurrió a edificios individuales por fórmula debido a una configuración de restricciones inviable.",
   "footer": {
     "feedback": "Comentarios y sugerencias:",

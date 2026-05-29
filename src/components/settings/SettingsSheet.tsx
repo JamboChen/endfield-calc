@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -11,17 +11,12 @@ import {
 } from "@/components/ui/sheet";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { previewActivationDelta } from "@/lib/aic-cascade";
-import { pickLatestActive } from "@/hooks/useDomainSettings";
+import { resolveEditingDomain } from "@/lib/settings-helpers";
 import type { AicGroupId, AicLayerId, AicTechId } from "@/types/aic";
-import type { Domain, DomainId } from "@/types/domain";
-import type { ItemId } from "@/types";
+import type { DomainId } from "@/types/domain";
 
-import { AicFacilityLimits } from "./AicFacilityLimits";
-import { AicPlanCard } from "./AicPlanCard";
-import { DomainSection } from "./DomainSection";
-import { RawLimitsCard } from "./RawLimitsCard";
-import { RegionPicker } from "./RegionPicker";
-import { rawAvailabilityByDomain } from "@/data";
+import { RegionConfigTabs } from "./RegionConfigTabs";
+import { RegionNavMenu } from "./RegionNavMenu";
 
 interface SettingsSheetProps {
   open: boolean;
@@ -31,94 +26,35 @@ interface SettingsSheetProps {
 export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
   const { t } = useTranslation(["settings", "aic", "domain"]);
 
-  const {
-    domains,
+  const { activeDomains, currentDomain, aic } = useDomainSettingsContext();
+
+  // Local "Configuring" context — decoupled from the factory region.
+  const [editingDomain, setEditingDomain] = useState<DomainId>(currentDomain);
+
+  // Re-sync the editing context to the factory region on each
+  // closed→open transition. The sheet stays mounted (AppHeader owns
+  // `open`), so the useState initializer runs only once at app load —
+  // this effect is what actually keeps "defaults to currentDomain on
+  // open" true across sessions of opening the sheet.
+  const prevOpen = useRef(open);
+  useEffect(() => {
+    if (open && !prevOpen.current) setEditingDomain(currentDomain);
+    prevOpen.current = open;
+  }, [open, currentDomain]);
+
+  // Guard against the edited region being deactivated mid-session: fall
+  // back to the factory region (always active by the hook's invariant).
+  const editing = resolveEditingDomain(
+    editingDomain,
     activeDomains,
-    toggleDomain,
     currentDomain,
-    setCurrentDomain,
-    aic,
-    rawLimits,
-  } = useDomainSettingsContext();
-
-  const orderedDomains = useMemo<readonly Domain[]>(
-    () => [...domains].sort((a, b) => a.sortId - b.sortId),
-    [domains],
-  );
-
-  const aicGroups = aic.groups;
-  const groupsByDomain = useMemo(() => {
-    const out = new Map<DomainId, typeof aicGroups[number][]>();
-    for (const group of aicGroups) {
-      const bucket = out.get(group.domainId) ?? [];
-      bucket.push(group);
-      out.set(group.domainId, bucket);
-    }
-    return out;
-  }, [aicGroups]);
-
-  // Per-domain cap-raise node lists. Cap-raise nodes are AIC techs that
-  // ship in some AIC plan (groupId) but logically affect a `(facility,
-  // domain)` cap. Aggregating them at the domain level lets us render
-  // ONE `AicFacilityLimits` card per region as a sibling of the AIC plan
-  // card(s) — instead of one nested inside each plan card.
-  const aicNodes = aic.nodes;
-  const capRaiseNodesByDomain = useMemo(() => {
-    const out = new Map<DomainId, typeof aicNodes[number][]>();
-    for (const node of aicNodes) {
-      if (node.action.kind !== "capRaise") continue;
-      const bucket = out.get(node.action.domainId) ?? [];
-      bucket.push(node);
-      out.set(node.action.domainId, bucket);
-    }
-    return out;
-  }, [aicNodes]);
-
-  // Domain activation is silent in the normal case — the switch flip is
-  // its own visual feedback. EXCEPT when deactivating the user's current
-  // factory region: the hook auto-falls-back `currentDomain` to the
-  // next-latest active region, and we surface that as a toast so the
-  // change isn't silent.
-  const handleToggleDomain = useCallback(
-    (domain: Domain) => {
-      const willAutoFallback =
-        !domain.isPinned &&
-        domain.id === currentDomain &&
-        activeDomains.has(domain.id);
-      toggleDomain(domain.id);
-      if (willAutoFallback) {
-        // The auto-fallback target = `pickLatestActive(activeDomains \ {id})`.
-        // We can't read it from the hook synchronously here (state has
-        // batched but hasn't re-rendered), so call the same helper the
-        // hook does — keeps both sides in lockstep if the tie-breaking
-        // rule ever changes.
-        const nextActive = new Set(activeDomains);
-        nextActive.delete(domain.id);
-        const nextId = pickLatestActive(nextActive);
-        const next = domains.find((d) => d.id === nextId);
-        // Pinned domain is always active by construction, so `next` is
-        // never undefined in practice; the fallback keeps types happy.
-        const fallbackName = next
-          ? t(`domains.${next.id}.name`, {
-              ns: "domain",
-              defaultValue: next.id,
-            })
-          : "";
-        toast.info(
-          t("region.toast.switchedToFallback", {
-            ns: "settings",
-            name: fallbackName,
-            defaultValue: `Switched to ${fallbackName} factory`,
-          }),
-        );
-      }
-    },
-    [toggleDomain, currentDomain, activeDomains, domains, t],
   );
 
   const handleActivateGroup = useCallback(
     (groupId: AicGroupId) => {
-      const targets = aic.nodes.filter((n) => n.groupId === groupId).map((n) => n.id);
+      const targets = aic.nodes
+        .filter((n) => n.groupId === groupId)
+        .map((n) => n.id);
       const delta = previewActivationDelta(targets, aic.researched, aic.nodes);
       aic.activateGroup(groupId);
       if (delta.primary + delta.prereqs > 0) {
@@ -205,88 +141,36 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-md md:max-w-lg lg:max-w-[600px] p-0 gap-0 flex flex-col"
+        className="w-full md:max-w-2xl lg:max-w-3xl max-w-[92vw] p-0 gap-0 flex flex-col"
       >
         <SheetHeader className="px-5 pt-5 pb-4 border-b">
           <SheetTitle className="text-lg">
             {t("title", { ns: "settings", defaultValue: "Settings" })}
           </SheetTitle>
           <SheetDescription className="text-xs">
-            {t("aic.intro", {
+            {t("intro", {
               ns: "settings",
               defaultValue:
-                "Choose which AIC technologies you've researched. This filters the items and formulas available to your plans.",
+                "Configure each region's AIC research plan, facility limits, and raw-material rates. Pick a region to configure below; the switches add or remove regions from your roster.",
             })}
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
-          <RegionPicker
-            domains={domains}
-            activeDomains={activeDomains}
-            currentDomain={currentDomain}
-            onChange={setCurrentDomain}
+        <div className="px-4 py-3 border-b border-border/60">
+          <RegionNavMenu
+            editingDomain={editing}
+            onEditingDomainChange={setEditingDomain}
           />
-          <div className="mt-4 pt-4 border-t border-border/60">
-            <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-3">
-              {t("regions.groupLabel", {
-                ns: "settings",
-                defaultValue: "Regions",
-              })}
-            </h2>
-            <div className="space-y-3">
-              {orderedDomains.map((domain) => {
-                const isActive = activeDomains.has(domain.id);
-                const groups = groupsByDomain.get(domain.id) ?? [];
-                const domainCapRaiseNodes =
-                  capRaiseNodesByDomain.get(domain.id) ?? [];
-                const regionRawMaterials =
-                  rawAvailabilityByDomain.get(domain.id) ?? new Set<ItemId>();
-                return (
-                  <DomainSection
-                    key={domain.id}
-                    domain={domain}
-                    isActive={isActive}
-                    onToggle={() => handleToggleDomain(domain)}
-                  >
-                    {groups.map((group) => (
-                      <AicPlanCard
-                        key={group.id}
-                        group={group}
-                        layers={aic.layers}
-                        nodes={aic.nodes}
-                        researched={aic.researched}
-                        isAtDefaults={
-                          aic.isAtDefaultsByGroup.get(group.id) ?? false
-                        }
-                        onToggleNode={handleToggleNode}
-                        onActivateLayer={handleActivateLayer}
-                        onActivateGroup={() => handleActivateGroup(group.id)}
-                        onResetGroup={() => handleResetGroup(group.id)}
-                      />
-                    ))}
-                    <AicFacilityLimits
-                      domainId={domain.id}
-                      capRaiseNodes={domainCapRaiseNodes}
-                      researched={aic.researched}
-                      baseCaps={aic.baseCaps}
-                      capOverrides={aic.capOverrides}
-                      effectiveCaps={aic.effectiveCaps}
-                      onToggle={handleToggleNode}
-                      onSetCapOverride={aic.setCapOverride}
-                      onActivateRaiseNodes={aic.activateNodes}
-                    />
-                    <RawLimitsCard
-                      domainId={domain.id}
-                      regionRawMaterials={regionRawMaterials}
-                      overrides={rawLimits.overrides}
-                      onSetLimit={rawLimits.setRawLimitOverride}
-                    />
-                  </DomainSection>
-                );
-              })}
-            </div>
-          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <RegionConfigTabs
+            editingDomain={editing}
+            onToggleNode={handleToggleNode}
+            onActivateLayer={handleActivateLayer}
+            onActivateGroup={handleActivateGroup}
+            onResetGroup={handleResetGroup}
+          />
         </div>
       </SheetContent>
     </Sheet>

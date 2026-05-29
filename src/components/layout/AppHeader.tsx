@@ -26,6 +26,8 @@ import {
 import { SiGithub, SiDiscord, SiTencentqq } from "react-icons/si";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SettingsSheet } from "@/components/settings/SettingsSheet";
+import { RegionPicker } from "@/components/settings/RegionPicker";
+import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 
 interface AppHeaderProps {
   onLanguageChange: (lang: string) => void;
@@ -55,6 +57,10 @@ export default function AppHeader({ onLanguageChange, onSavePlan, onOpenPlan }: 
   const { theme, setTheme } = useTheme();
   const currentLang = resolveDisplayLang(i18n.language);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Current factory region picker — relocated out of Settings. Interim
+  // home in the header; final placement TBD.
+  const { domains, activeDomains, currentDomain, setCurrentDomain } =
+    useDomainSettingsContext();
 
   return (
     <div className="flex flex-col gap-2">
@@ -193,6 +199,15 @@ export default function AppHeader({ onLanguageChange, onSavePlan, onOpenPlan }: 
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="max-w-xs">
+        <RegionPicker
+          domains={domains}
+          activeDomains={activeDomains}
+          currentDomain={currentDomain}
+          onChange={setCurrentDomain}
+        />
       </div>
 
       <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
