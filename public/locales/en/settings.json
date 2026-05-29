@@ -1,6 +1,9 @@
 {
   "title": "Settings",
   "open": "Open settings",
+  "regions": {
+    "groupLabel": "Regions"
+  },
   "region": {
     "label": "Current factory region",
     "picker": {
@@ -13,6 +16,8 @@
   },
   "rawLimits": {
     "title": "Raw material limits",
+    "help": "Set the extraction rate available to plans in this region. Leave a row blank if you don't have access yet — the planner will flag it as a bottleneck.",
+    "sourcesBadge": "{{count}}/{{total}}",
     "placeholder": "—",
     "unitSuffix": "/min",
     "inputAria": "{{name}} limit (items per minute)",

@@ -1,6 +1,9 @@
 {
   "title": "設定",
   "open": "設定を開く",
+  "regions": {
+    "groupLabel": "リージョン"
+  },
   "region": {
     "label": "現在の工場のリージョン",
     "picker": {
@@ -13,6 +16,8 @@
   },
   "rawLimits": {
     "title": "素材の上限",
+    "help": "このリージョンでプランに使用可能な採取速度を設定します。まだ入手できない素材は空欄のままにしてください — プランナーがボトルネックとして表示します。",
+    "sourcesBadge": "{{count}}/{{total}}",
     "placeholder": "—",
     "unitSuffix": "/分",
     "inputAria": "{{name}} の上限 (個/分)",

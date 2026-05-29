@@ -10,25 +10,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AicLayerList } from "./AicLayer";
-import { AicFacilityLimits } from "./AicFacilityLimits";
 import type {
   AicGroup,
   AicLayer,
   AicNode,
   AicTechId,
-  FacilityBaseCap,
 } from "@/types/aic";
-import type { DomainId } from "@/types/domain";
-import type { FacilityId } from "@/types";
 
 interface AicPlanCardProps {
   group: AicGroup;
   layers: readonly AicLayer[];
   nodes: readonly AicNode[];
   researched: ReadonlySet<AicTechId>;
-  baseCaps: readonly FacilityBaseCap[];
-  capOverrides: ReadonlyMap<string, number>;
-  effectiveCaps: ReadonlyMap<FacilityId, ReadonlyMap<DomainId, number>>;
   /**
    * Per-plan "at defaults" flag. When true, the Reset button hides — the
    * plan is already in its game-default state, so resetting is a no-op.
@@ -39,44 +32,27 @@ interface AicPlanCardProps {
   onActivateLayer: (layerId: string) => void;
   onActivateGroup: () => void;
   onResetGroup: () => void;
-  onSetCapOverride: (
-    facilityId: FacilityId,
-    domainId: DomainId,
-    value: number | null,
-  ) => void;
-  /**
-   * Bulk-activate a set of cap-raise tech ids (with prereq cascade).
-   * Wired by the per-facility Check button inside `AicFacilityLimits`.
-   * Forwarded as-is from the parent hook's `activateNodes`.
-   */
-  onActivateRaiseNodes: (ids: readonly AicTechId[]) => void;
 }
 
 /**
- * One AIC Plan card — sits inside a `DomainSection`. The card itself is
- * AIC-specific (renders the plan's layers + facility-limits); the parent
- * `DomainSection` handles the domain-level chrome (activation toggle,
- * accent stripe, name).
- *
- * Future per-domain settings categories should follow the same pattern:
- * create a sibling card component (e.g. `RegionLimitsCard`) hosted inside
- * the same `DomainSection`.
+ * One AIC Plan card — sits inside a `DomainSection` as one of several
+ * sibling sub-section cards (AIC Plan, Facility limits, Raw materials).
+ * This card is AIC-specific: it renders the plan's layer tree of
+ * researchable techs. Cap-raise techs are handled separately by the
+ * sibling `AicFacilityLimits` card at the domain level (since caps are
+ * per-domain, not per-AIC-plan). The parent `DomainSection` carries the
+ * domain-level chrome (activation toggle, accent stripe, region name).
  */
 export function AicPlanCard({
   group,
   layers,
   nodes,
   researched,
-  baseCaps,
-  capOverrides,
-  effectiveCaps,
   isAtDefaults,
   onToggleNode,
   onActivateLayer,
   onActivateGroup,
   onResetGroup,
-  onSetCapOverride,
-  onActivateRaiseNodes,
 }: AicPlanCardProps) {
   const { t } = useTranslation(["aic", "settings"]);
   const [open, setOpen] = useState(false);
@@ -91,35 +67,31 @@ export function AicPlanCard({
     [nodes, group.id],
   );
 
-  // Bucket nodes by layer for the layer list (capRaise nodes go to the
-  // Facility-limits section instead).
-  const { nodesByLayer, capRaiseNodes, researchableCount, researchedCount } =
-    useMemo(() => {
-      const byLayer = new Map<string, AicNode[]>();
-      const caps: AicNode[] = [];
-      let total = 0;
-      let done = 0;
-      for (const node of groupNodes) {
-        if (node.action.kind === "capRaise") {
-          caps.push(node);
-          continue;
-        }
-        total++;
-        if (researched.has(node.id)) done++;
-        let bucket = byLayer.get(node.layerId);
-        if (!bucket) {
-          bucket = [];
-          byLayer.set(node.layerId, bucket);
-        }
-        bucket.push(node);
+  // Bucket nodes by layer for the layer list. Cap-raise nodes are skipped
+  // here — they're rendered by the sibling `AicFacilityLimits` card at
+  // the domain level, and counting them in this plan's progress badge
+  // would conflate two unrelated user actions.
+  const { nodesByLayer, researchableCount, researchedCount } = useMemo(() => {
+    const byLayer = new Map<string, AicNode[]>();
+    let total = 0;
+    let done = 0;
+    for (const node of groupNodes) {
+      if (node.action.kind === "capRaise") continue;
+      total++;
+      if (researched.has(node.id)) done++;
+      let bucket = byLayer.get(node.layerId);
+      if (!bucket) {
+        bucket = [];
+        byLayer.set(node.layerId, bucket);
       }
-      return {
-        nodesByLayer: byLayer,
-        capRaiseNodes: caps,
-        researchableCount: total,
-        researchedCount: done,
-      };
-    }, [groupNodes, researched]);
+      bucket.push(node);
+    }
+    return {
+      nodesByLayer: byLayer,
+      researchableCount: total,
+      researchedCount: done,
+    };
+  }, [groupNodes, researched]);
 
   const groupName = t(`groups.${group.id}.name`, {
     ns: "aic",
@@ -135,12 +107,7 @@ export function AicPlanCard({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div
-        className={cn(
-          "rounded-lg border bg-card/60 backdrop-blur-sm",
-          open && "shadow-sm",
-        )}
-      >
+      <div className={cn("rounded-md border bg-card/60", open && "shadow-sm")}>
         {/*
          * Header hosts the expand-trigger plus two inline action buttons
          * (Activate all + Reset). Buttons are siblings of the trigger in a
@@ -158,7 +125,7 @@ export function AicPlanCard({
             <button
               type="button"
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-3 min-h-[52px]",
+                "w-full flex items-center gap-2 px-3 py-2 min-h-[44px]",
                 // Reserve trailing space so the count badge doesn't crash
                 // into the action buttons. Two buttons = ~5rem trailing pad.
                 "pr-[5.5rem]",
@@ -174,11 +141,9 @@ export function AicPlanCard({
                   open ? "rotate-0" : "-rotate-90",
                 )}
               />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold leading-tight">
-                  {groupName}
-                </div>
-              </div>
+              <span className="text-sm font-medium flex-1 min-w-0 truncate">
+                {groupName}
+              </span>
               <span
                 className={cn(
                   "text-[11px] tabular-nums font-medium rounded px-2 py-0.5 shrink-0",
@@ -245,8 +210,7 @@ export function AicPlanCard({
           </div>
         </div>
         <CollapsibleContent>
-          <div className="px-3 pb-3 pt-1 space-y-3">
-            {/* Layer stack */}
+          <div className="px-3 pb-3 pt-1">
             <AicLayerList
               layers={groupLayers}
               nodesByLayer={nodesByLayer}
@@ -254,20 +218,6 @@ export function AicPlanCard({
               onToggleNode={onToggleNode}
               onActivateLayer={onActivateLayer}
             />
-
-            {/* Facility limits section */}
-            {capRaiseNodes.length > 0 && (
-              <AicFacilityLimits
-                capRaiseNodes={capRaiseNodes}
-                researched={researched}
-                baseCaps={baseCaps}
-                capOverrides={capOverrides}
-                effectiveCaps={effectiveCaps}
-                onToggle={onToggleNode}
-                onSetCapOverride={onSetCapOverride}
-                onActivateRaiseNodes={onActivateRaiseNodes}
-              />
-            )}
           </div>
         </CollapsibleContent>
       </div>

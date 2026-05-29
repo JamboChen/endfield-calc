@@ -1,6 +1,9 @@
 {
   "title": "设置",
   "open": "打开设置",
+  "regions": {
+    "groupLabel": "区域"
+  },
   "region": {
     "label": "当前工厂区域",
     "picker": {
@@ -13,6 +16,8 @@
   },
   "rawLimits": {
     "title": "原料上限",
+    "help": "为该区域的方案设置可用的采集速率。若尚未获得某种原料，请留空 — 计算器将把它标记为瓶颈。",
+    "sourcesBadge": "{{count}}/{{total}}",
     "placeholder": "—",
     "unitSuffix": "/分钟",
     "inputAria": "{{name}} 上限（每分钟数量）",

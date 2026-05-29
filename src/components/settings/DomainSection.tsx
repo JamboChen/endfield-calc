@@ -95,7 +95,7 @@ export function DomainSection({
                   open ? "rotate-0" : "-rotate-90",
                 )}
               />
-              <h3 className="flex-1 text-sm font-semibold tracking-tight truncate">
+              <h3 className="flex-1 min-w-0 text-sm font-semibold tracking-tight truncate">
                 {domainName}
               </h3>
             </button>
@@ -128,12 +128,12 @@ export function DomainSection({
           )}
         </div>
         <CollapsibleContent>
-          <div className="px-3 pb-3 pt-1">
+          <div className="px-3 pb-3 pt-1 space-y-3">
             {isActive ? (
               children
             ) : (
               <div
-                className="opacity-50 pointer-events-none select-none"
+                className="opacity-50 pointer-events-none select-none space-y-3"
                 aria-hidden="true"
               >
                 {children}

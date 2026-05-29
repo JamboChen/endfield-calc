@@ -1,6 +1,9 @@
 {
   "title": "Configuración",
   "open": "Abrir configuración",
+  "regions": {
+    "groupLabel": "Regiones"
+  },
   "region": {
     "label": "Región actual de la fábrica",
     "picker": {
@@ -13,6 +16,8 @@
   },
   "rawLimits": {
     "title": "Límites de materia prima",
+    "help": "Establece la tasa de extracción disponible para los planes en esta región. Deja la fila en blanco si aún no tienes acceso al material — el planificador lo marcará como cuello de botella.",
+    "sourcesBadge": "{{count}}/{{total}}",
     "placeholder": "—",
     "unitSuffix": "/min",
     "inputAria": "Límite de {{name}} (objetos por minuto)",

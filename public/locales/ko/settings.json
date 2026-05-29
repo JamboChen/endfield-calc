@@ -1,6 +1,9 @@
 {
   "title": "설정",
   "open": "설정 열기",
+  "regions": {
+    "groupLabel": "지역"
+  },
   "region": {
     "label": "현재 공장 지역",
     "picker": {
@@ -13,6 +16,8 @@
   },
   "rawLimits": {
     "title": "원자재 한도",
+    "help": "이 지역의 플랜에 사용 가능한 채취 속도를 설정하세요. 아직 접근할 수 없는 자재는 비워 두세요 — 플래너가 병목으로 표시합니다.",
+    "sourcesBadge": "{{count}}/{{total}}",
     "placeholder": "—",
     "unitSuffix": "/분",
     "inputAria": "{{name}} 한도 (분당 개수)",

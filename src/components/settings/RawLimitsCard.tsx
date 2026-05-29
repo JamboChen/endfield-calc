@@ -49,23 +49,23 @@ interface RawLimitsCardProps {
 }
 
 /**
- * One raw-material limits card — sits inside a `DomainSection` as a
- * sibling of `AicPlanCard`. Per the comment at `AicPlanCard.tsx`:55-63,
- * future per-domain settings categories follow this sibling-card
- * pattern.
+ * One raw-material limits card — sits inside a `DomainSection` as one of
+ * three sibling sub-section cards (AIC Plan, Facility limits, Raw
+ * materials). The card iterates `regionRawMaterials` filtered by
+ * `!isLiquid` (liquids are hidden — they're costless in the LP and
+ * their per-region presence is governed by pump deployability, not
+ * user-configurable limits). If the filtered set is empty, the card
+ * renders nothing (defensive — no domain currently has zero non-liquid
+ * raws).
  *
- * The card iterates `regionRawMaterials` filtered by `!isLiquid`
- * (liquids are hidden — they're costless in the LP and their per-
- * region presence is governed by pump deployability, not user-
- * configurable limits). If the filtered set is empty, the card
- * renders nothing (defensive — no domain currently has zero non-
- * liquid raws).
+ * Layout: a 2-column grid of material rows (single column on narrow
+ * widths). Each row hosts a swatch-framed item icon, the localised
+ * item name, a per-min numeric input, and an inline Reset button (only
+ * shown when an override is actually set, to declutter empty rows).
+ * Limit values are in items/min and may be fractional.
  *
- * Limit values are in **items/min** and may be fractional (a pump
- * that runs once every 2 minutes is 0.5/min — physically meaningful).
- * Inputs are persisted via `useDomainSettings.rawLimits` and consumed
- * by the calc layer in two places: (1) as soft LP upper-bound
- * constraints (via `lp-solver.ts` slack vars), and (2) as `raw-over-
+ * Persistence: inputs are written through `useDomainSettings.rawLimits`
+ * and consumed by the calc layer as soft LP upper-bounds + `raw-over-
  * cap` PlanWarnings post-pack. Over-cap items render with red tint in
  * the ProductionStats raw-materials list.
  */
@@ -98,11 +98,23 @@ export function RawLimitsCard({
     return out;
   }, [regionRawMaterials, t]);
 
+  // Count of rows with a non-null override. Drives the section header
+  // badge's emerald-vs-muted tint and the "{{count}}/{{total}}" text.
+  // Updates reactively as the user edits rows because `overrides` is
+  // the parent-owned map and `domainId` scopes the key.
+  const sourcedCount = useMemo(() => {
+    let count = 0;
+    for (const item of rows) {
+      if (overrides.has(rawLimitKey(item.id, domainId))) count++;
+    }
+    return count;
+  }, [rows, overrides, domainId]);
+
   if (rows.length === 0) return null;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="rounded-md border border-dashed border-border/70 bg-background/40">
+      <div className={cn("rounded-md border bg-card/60", open && "shadow-sm")}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
@@ -120,28 +132,49 @@ export function RawLimitsCard({
                 open ? "rotate-0" : "-rotate-90",
               )}
             />
-            <span className="text-sm font-medium flex-1 min-w-0">
+            <span className="text-sm font-medium flex-1 min-w-0 truncate">
               {t("rawLimits.title", {
                 ns: "settings",
                 defaultValue: "Raw material limits",
               })}
             </span>
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {rows.length}
+            <span
+              className={cn(
+                "text-[11px] tabular-nums font-medium rounded px-2 py-0.5 shrink-0",
+                sourcedCount > 0
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {t("rawLimits.sourcesBadge", {
+                ns: "settings",
+                count: sourcedCount,
+                total: rows.length,
+                defaultValue: "{{count}}/{{total}}",
+              })}
             </span>
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="px-3 pb-3 pt-1 space-y-2">
-            {rows.map((item) => (
-              <RawLimitRow
-                key={item.id}
-                item={item}
-                domainId={domainId}
-                value={overrides.get(rawLimitKey(item.id, domainId))}
-                onSetLimit={onSetLimit}
-              />
-            ))}
+          <div className="px-3 pb-3 pt-1 space-y-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {t("rawLimits.help", {
+                ns: "settings",
+                defaultValue:
+                  "Set the extraction rate available to plans in this region. Leave a row blank if you don't have access yet — the planner will flag it as a bottleneck.",
+              })}
+            </p>
+            <div className="flex flex-col gap-1">
+              {rows.map((item) => (
+                <RawLimitRow
+                  key={item.id}
+                  item={item}
+                  domainId={domainId}
+                  value={overrides.get(rawLimitKey(item.id, domainId))}
+                  onSetLimit={onSetLimit}
+                />
+              ))}
+            </div>
           </div>
         </CollapsibleContent>
       </div>
@@ -213,16 +246,35 @@ function RawLimitRow({
   };
 
   return (
-    <div className="flex items-center gap-2 rounded-md bg-muted/30 p-2">
-      {item.iconUrl && (
-        <img
-          src={item.iconUrl}
-          alt=""
-          aria-hidden="true"
-          className="size-5 object-contain shrink-0"
-        />
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-md py-1.5 px-1.5",
+        hasOverride
+          ? "bg-muted/30"
+          : "bg-transparent hover:bg-muted/20 transition-colors",
       )}
-      <span className="text-sm font-medium flex-1 min-w-0 truncate">
+    >
+      <span
+        className={cn(
+          "flex items-center justify-center size-7 shrink-0 rounded border bg-background",
+          hasOverride ? "border-border" : "border-border/50",
+        )}
+        aria-hidden="true"
+      >
+        {item.iconUrl && (
+          <img
+            src={item.iconUrl}
+            alt=""
+            className="size-5 object-contain"
+          />
+        )}
+      </span>
+      <span
+        className={cn(
+          "text-sm flex-1 min-w-0 truncate",
+          hasOverride ? "font-medium" : "text-muted-foreground",
+        )}
+      >
         {itemName}
       </span>
       <div className="flex items-center gap-1 shrink-0">
@@ -238,7 +290,16 @@ function RawLimitRow({
           })}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commitDraft}
-          className="h-7 w-20 text-xs tabular-nums"
+          className={cn(
+            "h-7 w-20 text-xs tabular-nums",
+            // Hide native number-input spinner arrows: rate values are
+            // typed, not incremented click-by-click, and the arrows eat
+            // ~16px of visible digit space inside the box.
+            "[appearance:textfield]",
+            "[&::-webkit-outer-spin-button]:appearance-none",
+            "[&::-webkit-inner-spin-button]:appearance-none",
+            "[&::-webkit-inner-spin-button]:m-0",
+          )}
           aria-label={t("rawLimits.inputAria", {
             ns: "settings",
             name: itemName,
@@ -255,7 +316,7 @@ function RawLimitRow({
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="size-7 text-muted-foreground hover:text-foreground"
+          className="size-6 text-muted-foreground hover:text-foreground"
           onClick={() => {
             setDraft("");
             onSetLimit(item.id, domainId, null);

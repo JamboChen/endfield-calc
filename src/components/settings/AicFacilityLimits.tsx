@@ -21,6 +21,18 @@ import type { DomainId } from "@/types/domain";
 import type { FacilityId } from "@/types";
 
 interface AicFacilityLimitsProps {
+  /**
+   * The domain this card represents. Used to scope `targets` so each
+   * region's card only lists its own facility caps — without it, the
+   * iteration over `baseCaps` (registry-wide) would surface every
+   * region's targets on every card.
+   */
+  domainId: DomainId;
+  /**
+   * Cap-raise nodes for this domain (aggregated across all AIC plans in
+   * the domain by the parent `SettingsSheet`). Nodes for other domains
+   * are filtered out before they reach this component.
+   */
   capRaiseNodes: readonly AicNode[];
   researched: ReadonlySet<AicTechId>;
   baseCaps: readonly FacilityBaseCap[];
@@ -53,6 +65,7 @@ interface CapTarget {
 }
 
 export function AicFacilityLimits({
+  domainId,
   capRaiseNodes,
   researched,
   baseCaps,
@@ -66,10 +79,14 @@ export function AicFacilityLimits({
   const [open, setOpen] = useState(false);
 
   // Collate cap-raise nodes by (facility, domain) and pair with base caps.
+  // Filtered to the current domain so each region's card surfaces only
+  // its own targets — `baseCaps` is a global registry across every
+  // (facility, domain) pair.
   const targets = useMemo<CapTarget[]>(() => {
     const byKey = new Map<string, CapTarget>();
 
     for (const base of baseCaps) {
+      if (base.domainId !== domainId) continue;
       byKey.set(capKey(base.facilityId, base.domainId), {
         facilityId: base.facilityId,
         domainId: base.domainId,
@@ -80,6 +97,7 @@ export function AicFacilityLimits({
 
     for (const node of capRaiseNodes) {
       if (node.action.kind !== "capRaise") continue;
+      if (node.action.domainId !== domainId) continue;
       const key = capKey(node.action.facilityId, node.action.domainId);
       let entry = byKey.get(key);
       if (!entry) {
@@ -103,18 +121,16 @@ export function AicFacilityLimits({
       });
     }
 
-    return Array.from(byKey.values()).sort((a, b) => {
-      if (a.facilityId !== b.facilityId)
-        return a.facilityId.localeCompare(b.facilityId);
-      return a.domainId.localeCompare(b.domainId);
-    });
-  }, [capRaiseNodes, baseCaps]);
+    return Array.from(byKey.values()).sort((a, b) =>
+      a.facilityId.localeCompare(b.facilityId),
+    );
+  }, [capRaiseNodes, baseCaps, domainId]);
 
   if (targets.length === 0) return null;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="rounded-md border border-dashed border-border/70 bg-background/40">
+      <div className={cn("rounded-md border bg-card/60", open && "shadow-sm")}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
@@ -132,13 +148,13 @@ export function AicFacilityLimits({
                 open ? "rotate-0" : "-rotate-90",
               )}
             />
-            <span className="text-sm font-medium flex-1 min-w-0">
+            <span className="text-sm font-medium flex-1 min-w-0 truncate">
               {t("aic.facilityLimits.title", {
                 ns: "settings",
                 defaultValue: "Facility limits",
               })}
             </span>
-            <span className="text-[11px] tabular-nums text-muted-foreground">
+            <span className="text-[11px] tabular-nums font-medium rounded px-2 py-0.5 bg-muted text-muted-foreground shrink-0">
               {targets.length}
             </span>
           </button>

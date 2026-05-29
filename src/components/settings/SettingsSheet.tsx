@@ -16,6 +16,7 @@ import type { AicGroupId, AicLayerId, AicTechId } from "@/types/aic";
 import type { Domain, DomainId } from "@/types/domain";
 import type { ItemId } from "@/types";
 
+import { AicFacilityLimits } from "./AicFacilityLimits";
 import { AicPlanCard } from "./AicPlanCard";
 import { DomainSection } from "./DomainSection";
 import { RawLimitsCard } from "./RawLimitsCard";
@@ -55,6 +56,23 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     }
     return out;
   }, [aicGroups]);
+
+  // Per-domain cap-raise node lists. Cap-raise nodes are AIC techs that
+  // ship in some AIC plan (groupId) but logically affect a `(facility,
+  // domain)` cap. Aggregating them at the domain level lets us render
+  // ONE `AicFacilityLimits` card per region as a sibling of the AIC plan
+  // card(s) — instead of one nested inside each plan card.
+  const aicNodes = aic.nodes;
+  const capRaiseNodesByDomain = useMemo(() => {
+    const out = new Map<DomainId, typeof aicNodes[number][]>();
+    for (const node of aicNodes) {
+      if (node.action.kind !== "capRaise") continue;
+      const bucket = out.get(node.action.domainId) ?? [];
+      bucket.push(node);
+      out.set(node.action.domainId, bucket);
+    }
+    return out;
+  }, [aicNodes]);
 
   // Domain activation is silent in the normal case — the switch flip is
   // its own visual feedback. EXCEPT when deactivating the user's current
@@ -202,53 +220,73 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 py-4">
           <RegionPicker
             domains={domains}
             activeDomains={activeDomains}
             currentDomain={currentDomain}
             onChange={setCurrentDomain}
           />
-          {orderedDomains.map((domain) => {
-            const isActive = activeDomains.has(domain.id);
-            const groups = groupsByDomain.get(domain.id) ?? [];
-            const regionRawMaterials =
-              rawAvailabilityByDomain.get(domain.id) ?? new Set<ItemId>();
-            return (
-              <DomainSection
-                key={domain.id}
-                domain={domain}
-                isActive={isActive}
-                onToggle={() => handleToggleDomain(domain)}
-              >
-                {groups.map((group) => (
-                  <AicPlanCard
-                    key={group.id}
-                    group={group}
-                    layers={aic.layers}
-                    nodes={aic.nodes}
-                    researched={aic.researched}
-                    baseCaps={aic.baseCaps}
-                    capOverrides={aic.capOverrides}
-                    effectiveCaps={aic.effectiveCaps}
-                    isAtDefaults={aic.isAtDefaultsByGroup.get(group.id) ?? false}
-                    onToggleNode={handleToggleNode}
-                    onActivateLayer={handleActivateLayer}
-                    onActivateGroup={() => handleActivateGroup(group.id)}
-                    onResetGroup={() => handleResetGroup(group.id)}
-                    onSetCapOverride={aic.setCapOverride}
-                    onActivateRaiseNodes={aic.activateNodes}
-                  />
-                ))}
-                <RawLimitsCard
-                  domainId={domain.id}
-                  regionRawMaterials={regionRawMaterials}
-                  overrides={rawLimits.overrides}
-                  onSetLimit={rawLimits.setRawLimitOverride}
-                />
-              </DomainSection>
-            );
-          })}
+          <div className="mt-4 pt-4 border-t border-border/60">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-3">
+              {t("regions.groupLabel", {
+                ns: "settings",
+                defaultValue: "Regions",
+              })}
+            </h2>
+            <div className="space-y-3">
+              {orderedDomains.map((domain) => {
+                const isActive = activeDomains.has(domain.id);
+                const groups = groupsByDomain.get(domain.id) ?? [];
+                const domainCapRaiseNodes =
+                  capRaiseNodesByDomain.get(domain.id) ?? [];
+                const regionRawMaterials =
+                  rawAvailabilityByDomain.get(domain.id) ?? new Set<ItemId>();
+                return (
+                  <DomainSection
+                    key={domain.id}
+                    domain={domain}
+                    isActive={isActive}
+                    onToggle={() => handleToggleDomain(domain)}
+                  >
+                    {groups.map((group) => (
+                      <AicPlanCard
+                        key={group.id}
+                        group={group}
+                        layers={aic.layers}
+                        nodes={aic.nodes}
+                        researched={aic.researched}
+                        isAtDefaults={
+                          aic.isAtDefaultsByGroup.get(group.id) ?? false
+                        }
+                        onToggleNode={handleToggleNode}
+                        onActivateLayer={handleActivateLayer}
+                        onActivateGroup={() => handleActivateGroup(group.id)}
+                        onResetGroup={() => handleResetGroup(group.id)}
+                      />
+                    ))}
+                    <AicFacilityLimits
+                      domainId={domain.id}
+                      capRaiseNodes={domainCapRaiseNodes}
+                      researched={aic.researched}
+                      baseCaps={aic.baseCaps}
+                      capOverrides={aic.capOverrides}
+                      effectiveCaps={aic.effectiveCaps}
+                      onToggle={handleToggleNode}
+                      onSetCapOverride={aic.setCapOverride}
+                      onActivateRaiseNodes={aic.activateNodes}
+                    />
+                    <RawLimitsCard
+                      domainId={domain.id}
+                      regionRawMaterials={regionRawMaterials}
+                      overrides={rawLimits.overrides}
+                      onSetLimit={rawLimits.setRawLimitOverride}
+                    />
+                  </DomainSection>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </SheetContent>
     </Sheet>
