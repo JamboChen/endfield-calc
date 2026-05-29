@@ -1,0 +1,107 @@
+{
+  "groups": {
+    "tech_group_jinlong": {
+      "name": "武陵工业计划"
+    },
+    "tech_group_tundra": {
+      "name": "基础工业计划"
+    }
+  },
+  "layers": {
+    "tech_group_jinlong_liquid": {
+      "name": "武陵工业一期"
+    },
+    "tech_group_jinlong_copper": {
+      "name": "武陵工业二期"
+    },
+    "tech_group_jinlong_acid": {
+      "name": "武陵工业三期"
+    },
+    "tech_group_tundra_originium": {
+      "name": "基础工业一期"
+    },
+    "tech_group_tundra_quartz": {
+      "name": "基础工业二期"
+    },
+    "tech_group_tundra_iron": {
+      "name": "基础工业三期"
+    }
+  },
+  "nodes": {
+    "tech_jinlong_1_dismantler_1": {
+      "name": "拆解技术"
+    },
+    "tech_jinlong_1_filling_mode_1": {
+      "name": "液体灌装"
+    },
+    "tech_jinlong_1_mix_1": {
+      "name": "溶解与反应"
+    },
+    "tech_jinlong_1_planter_mode_1": {
+      "name": "水培种植"
+    },
+    "tech_jinlong_1_pump_1": {
+      "name": "液体探采"
+    },
+    "tech_jinlong_1_xiranite_oven_1": {
+      "name": "息壤生成"
+    },
+    "tech_jinlong_1_xiranite_oven_amount_1": {
+      "name": "洪炉扩容Ⅰ"
+    },
+    "tech_jinlong_2_furnance_mode_1": {
+      "name": "液辅熔炼"
+    },
+    "tech_jinlong_2_liquid_cleaner_1": {
+      "name": "废水处理"
+    },
+    "tech_jinlong_2_xiranite_oven_amount_2": {
+      "name": "洪炉扩容II"
+    },
+    "tech_jinlong_3_liquid_purifier_1": {
+      "name": "提纯技术"
+    },
+    "tech_jinlong_3_mix_2": {
+      "name": "扩容反应"
+    },
+    "tech_jinlong_3_pump_2": {
+      "name": "耐酸技术"
+    },
+    "tech_jinlong_3_xiranite_enr_formula": {
+      "name": "洪炉扩容III"
+    },
+    "tech_jinlong_3_xiranite_oven_amount_3": {
+      "name": "洪炉扩容IV"
+    },
+    "tech_tundra_1_cmpt_1": {
+      "name": "零件制造"
+    },
+    "tech_tundra_1_furnance_1": {
+      "name": "基础精炼"
+    },
+    "tech_tundra_1_grinder_1": {
+      "name": "基础粉碎"
+    },
+    "tech_tundra_1_shaper_1": {
+      "name": "物品塑形"
+    },
+    "tech_tundra_1_winder_1": {
+      "name": "装备工艺"
+    },
+    "tech_tundra_2_asm_1": {
+      "name": "封装工艺"
+    },
+    "tech_tundra_2_field_1": {
+      "name": "仓库存取线"
+    },
+    "tech_tundra_2_filling_1": {
+      "name": "固体灌装"
+    },
+    "tech_tundra_2_plant_1": {
+      "name": "培植工艺"
+    },
+    "tech_tundra_3_thickener_1": {
+      "name": "研磨工艺"
+    }
+  }
+}

@@ -1,19 +1,39 @@
 import { calculateProductionPlan } from "@/lib/calculator";
 import { initHighs, isHighsReady } from "@/lib/highs-singleton";
-import { items, recipes, facilities, MAX_TARGETS } from "@/data";
+import {
+  items,
+  recipes,
+  facilities,
+  forcedRawMaterials,
+  MAX_TARGETS,
+} from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { toast } from "sonner";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
 import type {
+  Facility,
+  FacilityId,
   ItemId,
+  Recipe,
   RecipeId,
+  PlanWarning,
   ProductionDependencyGraph,
   ProductionGraphNode,
 } from "@/types";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useProductionStats } from "./useProductionStats";
 import { useProductionTable } from "./useProductionTable";
-import { getItemName, getFacilityName } from "@/lib/i18n-helpers";
-import { getItemById } from "@/lib/utils";
+import {
+  getItemName,
+  getFacilityName,
+  getRecipeName,
+} from "@/lib/i18n-helpers";
+import {
+  aggregateBinTotals,
+  computeOverCapWarnings,
+} from "@/lib/plan-helpers";
+import { formatCount, getItemById } from "@/lib/utils";
 
 interface SavedPlan {
   version: string;
@@ -158,7 +178,74 @@ function serializeHash(
 }
 
 
-export function useProductionPlan() {
+/**
+ * Format one structured `PlanWarning` into a display string.
+ *
+ * The single point where `ceilMode` (UI preference) and i18n strings
+ * are applied to packer/calc-emitted warnings. Keeps the data layer
+ * (`multi-formula-packing.ts`, `calculator.ts`) free of display state.
+ *
+ * Plural rules: i18next uses the `count` param for `_one` / `_other`
+ * (and `_few` / `_many` in Russian). We pass `Math.ceil(used)` as
+ * `count` so plurals classify on the integer physical count regardless
+ * of `ceilMode`; the human-readable `displayCount` (which respects
+ * `ceilMode`) drives the visible number.
+ */
+function formatPlanWarning(
+  w: PlanWarning,
+  ceilMode: boolean,
+  t: TFunction,
+  facilitiesArr: readonly Facility[],
+): string {
+  const lookupFacilityName = (id: FacilityId): string => {
+    const facility = facilitiesArr.find((f) => f.id === id);
+    return facility ? getFacilityName(facility) : id;
+  };
+
+  switch (w.kind) {
+    case "facility-over-cap":
+      // Short numeric form: `{facility}: cap exceeded ({displayCount} / {cap})`.
+      // `displayCount` respects user's `ceilMode` toggle for parity with
+      // the side-panel card count + tooltip. No plural classification
+      // needed — the format string has no pluralizable noun.
+      return t("facilityOverCap", {
+        facility: lookupFacilityName(w.facilityId),
+        displayCount: formatCount(w.used, ceilMode),
+        cap: w.cap,
+      });
+    case "packer-override-infeasible":
+      return t("packerOverrideInfeasible", {
+        recipe: getRecipeName(w.recipeId),
+        facility: lookupFacilityName(w.facilityId),
+      });
+    case "packer-fallback":
+      return t("packerFallback");
+  }
+}
+
+/**
+ * Plan/recipe-calc state hook.
+ *
+ * `availableRecipes` is the AIC-filtered subset of game-data recipes
+ * derived in `App.tsx` from the user's current research / domain
+ * activation state. The calc, the auto-prune effect, and the
+ * recipe-override picker all operate on this set; recipes outside it
+ * cannot run in this plan.
+ *
+ * Why threaded as args instead of read from a global: the App layer
+ * is the single source of truth that combines game data with user
+ * settings. Globals would re-introduce cross-module state and break
+ * the auto-prune signal.
+ *
+ * `facilityCaps` is the per-facility aggregated cap (sum across active
+ * domains of `effectiveCaps[facilityId][domainId]`). Passed into
+ * `calculateProductionPlan` → Phase 5 MIP. Optional and undefined when
+ * the user has no caps configured.
+ */
+export function useProductionPlan(
+  availableRecipes: readonly Recipe[],
+  facilityCaps?: ReadonlyMap<FacilityId, number>,
+) {
   const { t } = useTranslation("app");
 
   const initialState = useMemo(() => parseHash(), []);
@@ -241,10 +328,9 @@ export function useProductionPlan() {
     calculateProductionPlan(
       targets,
       items,
-      recipes,
+      availableRecipes,
       facilities,
-      recipeOverrides,
-      manualRawMaterials,
+      { recipeOverrides, manualRawMaterials, facilityCaps },
     )
       .then((result) => {
         // Cancelled means a newer calc has started (or unmount). Leave
@@ -263,7 +349,124 @@ export function useProductionPlan() {
     return () => {
       cancelled = true;
     };
-  }, [solverReady, targets, recipeOverrides, manualRawMaterials, t]);
+  }, [
+    solverReady,
+    targets,
+    recipeOverrides,
+    manualRawMaterials,
+    availableRecipes,
+    facilityCaps,
+    t,
+  ]);
+
+  // Auto-prune effect.
+  //
+  // When `availableRecipes` shrinks (user toggled a tech off, deactivated
+  // a domain, etc., or loaded a URL/file plan whose targets reference
+  // facilities the current settings don't unlock), drop any state that
+  // can no longer be honoured:
+  //   - targets whose item is not produced by any available recipe
+  //   - recipeOverrides whose chosen recipe is no longer available
+  //   - manualRawMaterials whose item exists in `items` but is neither
+  //     a forced raw nor producible (defensive — the user's pin is
+  //     respected unless the chain is genuinely broken)
+  //
+  // Fires a single sonner toast summarising the total removed. The
+  // initial-mount fire-once is intentional: it surfaces "your URL/file
+  // plan was incompatible with your saved AIC settings" without a
+  // dedicated import-warning code path.
+  //
+  // **One render cycle**: this effect's setters fire after the first
+  // render; React re-renders the hook with pruned state, then the calc
+  // effect runs against clean inputs. A user may briefly see "error"
+  // state if the calc effect raced to render first, but it self-heals
+  // on the next render.
+  const reachableProducibleItems = useMemo(() => {
+    const out = new Set<ItemId>();
+    for (const r of availableRecipes) {
+      for (const o of r.outputs) out.add(o.itemId);
+    }
+    return out;
+  }, [availableRecipes]);
+
+  const availableRecipeIds = useMemo(
+    () => new Set(availableRecipes.map((r) => r.id)),
+    [availableRecipes],
+  );
+
+  useEffect(() => {
+    let removedTargets = 0;
+    let removedOverrides = 0;
+    let removedRaws = 0;
+
+    const nextTargets = targets.filter((t) =>
+      reachableProducibleItems.has(t.itemId),
+    );
+    removedTargets = targets.length - nextTargets.length;
+
+    const nextOverrides = new Map<ItemId, RecipeId>();
+    for (const [itemId, recipeId] of recipeOverrides) {
+      if (availableRecipeIds.has(recipeId)) {
+        nextOverrides.set(itemId, recipeId);
+      } else {
+        removedOverrides++;
+      }
+    }
+
+    const nextRaws = new Set<ItemId>();
+    for (const itemId of manualRawMaterials) {
+      // Keep a manual raw iff the item is either producible (in
+      // `reachableProducibleItems`, i.e. an output of at least one
+      // recipe in the strict `availableRecipes` set) OR a forced raw
+      // (always-available — pin is redundant but harmless).
+      //
+      // Drop pins on items that are completely unreachable: no
+      // available recipe produces them AND they aren't a forced raw.
+      // Rationale: a manual-raw pin on an unproducible item is
+      // meaningless — there's no chain to override. Since
+      // `availableRecipes` is chain-filtered upstream (App layer),
+      // a producibility check here naturally excludes recipes whose
+      // own chain is broken.
+      if (
+        reachableProducibleItems.has(itemId) ||
+        forcedRawMaterials.has(itemId)
+      ) {
+        nextRaws.add(itemId);
+      } else {
+        removedRaws++;
+      }
+    }
+
+    const total = removedTargets + removedOverrides + removedRaws;
+    if (total === 0) return;
+
+    if (removedTargets > 0) setTargets(nextTargets);
+    if (removedOverrides > 0) setRecipeOverrides(nextOverrides);
+    if (removedRaws > 0) setManualRawMaterials(nextRaws);
+
+    toast.info(
+      t("autoPruneSummary", {
+        count: total,
+        defaultValue:
+          total === 1
+            ? "Removed 1 item no longer producible by your current AIC settings."
+            : `Removed ${total} items no longer producible by your current AIC settings.`,
+      }),
+    );
+    // The effect is idempotent against its own output: when the setters
+    // above fire, `targets` / `recipeOverrides` / `manualRawMaterials`
+    // change identity → effect re-runs → recomputes the prune against
+    // already-pruned state → `total === 0` → early return above, no
+    // double toast. So declaring the full dep set is safe (and
+    // ESLint-honest) — the second pass exits before any state writes.
+  }, [
+    reachableProducibleItems,
+    availableRecipeIds,
+    targets,
+    recipeOverrides,
+    manualRawMaterials,
+    t,
+  ]);
 
   // Debounced overlay visibility: only flip true if `isCalculating`
   // stays true for >300ms. Sub-300ms calcs (the common case at
@@ -327,11 +530,67 @@ export function useProductionPlan() {
     return { ...plan, nodes: activeNodes, edges: activeEdges } as ProductionDependencyGraph;
   }, [plan]);
 
+  // Single canonical `BinAggregates` per plan / ceilMode change. Lifted
+  // here from `useProductionStats` + `useProductionTable` so the heavy
+  // walk runs once per render (was twice — both view hooks called it
+  // independently). Threaded down to both view hooks AND consumed by
+  // the cap-overflow detection below.
+  //
+  // `displayPlan` (post-zero-filter) is intentionally used here so the
+  // aggregates align with what the table/stats render. `plan.bins`
+  // stays the same between `plan` and `displayPlan` (Phase 3 emits
+  // bins only for positive-demand recipes), so the bin-walk is
+  // identical; the pickup-point fold uses `node.productionRate` on
+  // raw nodes which the filter preserves for raws.
+  const aggregates = useMemo(
+    () =>
+      displayPlan
+        ? aggregateBinTotals(displayPlan, facilities, items, { ceilMode })
+        : null,
+    [displayPlan, ceilMode],
+  );
+
+  // Structured cap-overflow signals. Lifted to its own memo so two
+  // downstream consumers (the warnings string memo + the per-facility
+  // map for the side-panel visual indicator) share one computation.
+  const overCapWarnings = useMemo<readonly PlanWarning[]>(
+    () =>
+      aggregates
+        ? computeOverCapWarnings(aggregates.rawPerFacility, facilityCaps)
+        : [],
+    [aggregates, facilityCaps],
+  );
+
+  // Per-facility map for the side-panel `<ProductionStats>` card
+  // styling — `Map<FacilityId, { used; cap }>` indexed for O(1) lookup
+  // per facility card. Empty when no facility is over its cap.
+  const facilityOverCapMap = useMemo<
+    ReadonlyMap<FacilityId, { used: number; cap: number }>
+  >(() => {
+    const out = new Map<FacilityId, { used: number; cap: number }>();
+    for (const w of overCapWarnings) {
+      if (w.kind === "facility-over-cap") {
+        out.set(w.facilityId, { used: w.used, cap: w.cap });
+      }
+    }
+    return out;
+  }, [overCapWarnings]);
+
   // Derive warning messages from invalid cycles (with translated item names)
   // plus any non-fatal warnings the calculator surfaced (e.g. packer
-  // fallback warnings from `multi-formula-packing`). Cycle warnings only
-  // fire for cycles caused by user recipe overrides — pre-existing
-  // unsolvable cycles in the game data are not actionable and are skipped.
+  // fallback warnings from `multi-formula-packing`) plus facility-cap
+  // overflows detected here at the aggregate layer.
+  //
+  // Cycle warnings only fire for cycles caused by user recipe overrides
+  // — pre-existing unsolvable cycles in the game data are not actionable
+  // and are skipped. Structured warnings (packer + cap) are formatted
+  // here with `ceilMode` + i18n via `formatPlanWarning`.
+  //
+  // Cap detection uses `aggregates.rawPerFacility` (mode-independent
+  // raw LP counts), so it uniformly covers recipe bins AND pickup-point
+  // source facilities (pump_1, pump_2, unloader_1) — the latter being
+  // absent from `plan.bins` and therefore invisible to the packer's
+  // earlier cap check.
   const warnings: string[] = useMemo(() => {
     if (!plan) return [];
     const cycleWarnings = plan.invalidCycles
@@ -380,8 +639,16 @@ export function useProductionPlan() {
         });
       });
 
-    return [...cycleWarnings, ...(plan.warnings ?? [])];
-  }, [plan, recipeOverrides, t]);
+    const planWarnings = (plan.warnings ?? []).map((w) =>
+      formatPlanWarning(w, ceilMode, t, facilities),
+    );
+
+    const capWarnings = overCapWarnings.map((w) =>
+      formatPlanWarning(w, ceilMode, t, facilities),
+    );
+
+    return [...cycleWarnings, ...planWarnings, ...capWarnings];
+  }, [plan, overCapWarnings, recipeOverrides, ceilMode, t]);
 
   // Collect overridden item IDs from invalid cycles for table row styling.
   // Only the items whose recipe override caused the cycle get highlighted,
@@ -396,23 +663,29 @@ export function useProductionPlan() {
     return ids;
   }, [plan]);
 
-  // View-specific data: computed in view layer hooks
+  // View-specific data: computed in view layer hooks. Both receive
+  // the shared `aggregates` so the table footer and stats panel
+  // cannot drift — single source of truth, single compute per render.
+  // `facilityOverCapMap` flows through stats so the side-panel
+  // `<ProductionStats>` card can apply destructive styling to
+  // over-cap facility cards.
   const stats = useProductionStats(
     displayPlan,
+    aggregates,
+    facilityOverCapMap,
     manualRawMaterials,
-    facilities,
     items,
-    ceilMode,
   );
   const tableData = useProductionTable(
     displayPlan,
-    recipes,
+    aggregates,
+    // Narrow the recipe set the override dropdown searches over: only
+    // recipes that are AIC-unlocked AND have reachable input chains
+    // can be valid alternatives. Same canonical set the calc uses.
+    availableRecipes,
     recipeOverrides,
     manualRawMaterials,
-    facilities,
-    items,
     invalidCycleItemIds,
-    ceilMode,
   );
 
   const handleTargetChange = useCallback((index: number, rate: number) => {

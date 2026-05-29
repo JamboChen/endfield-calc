@@ -25,12 +25,12 @@
       "outputRate": "Output/min",
       "power": "Power",
       "rawMaterial": "Raw Material",
-      "recipe": "Recipe"
+      "recipe": "Formula"
     },
     "manualRawMaterial": "Raw Material (Manually Marked)",
     "markAsRawMaterial": "Mark as raw material",
     "noData": "No data",
-    "noRecipe": "No recipe",
+    "noRecipe": "No formula",
     "rawMaterial": "Raw Material",
     "unmarkRawMaterial": "Unmark",
     "bin": {
@@ -40,13 +40,13 @@
       "buildingsExplain": "{{n}} buildings shared across {{m}} formulas",
       "grouped": "grouped",
       "powerSharedExplain": "Power counted on the bin's primary row.",
-      "spanning": "Recipe split across {{count}} bin shapes:"
+      "spanning": "Formula split across {{count}} bin shapes:"
     },
     "totals": {
       "buildings": "Total buildings",
       "power": "Total power",
       "viaGrouping": "via grouping",
-      "savingsExplain": "Buildings saved by packing recipes into shared multi-formula buildings."
+      "savingsExplain": "Buildings saved by packing formulas into shared multi-formula buildings."
     }
   },
   "tree": {
@@ -86,7 +86,7 @@
     "portUtilization": "Ports: {{liqIn}}/{{liqInCap}} liq in · {{liqOut}}/{{liqOutCap}} liq out · {{beltOut}}/{{beltOutCap}} belt out",
     "prefillZoneLabel": "Prefill",
     "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
-    "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
+    "prefillCardTooltip": "This building's formulas form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
     "prefillCandidates": "Prefill candidates"
   }
 }

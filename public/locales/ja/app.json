@@ -1,4 +1,6 @@
 {
+  "autoPruneSummary_one": "現在のAIC設定で生産できない項目 {{count}} 件を削除しました。",
+  "autoPruneSummary_other": "現在のAIC設定で生産できない項目 {{count}} 件を削除しました。",
   "ceilMode": "施設数を切り上げ",
   "twoEndAlignment": "両端整列",
   "binFusion": "レシピをグループ化",
@@ -6,6 +8,9 @@
   "calculationError": "生産計画の計算中にエラーが発生しました。目標とレシピの上書きを確認してください。",
   "cycleWarning": "{{overriddenItems}} で選択されたレシピは、必要な生産量を維持できない生産ループを形成しています。影響を受けるアイテム：{{affectedItems}}。",
   "cycleWarningNoAffected": "{{overriddenItems}} で選択されたレシピは、必要な生産量を維持できない生産ループを形成しています。",
+  "facilityOverCap": "{{facility}}: 上限超過 ({{displayCount}} / {{cap}})。",
+  "packerOverrideInfeasible": "施設「{{facility}}」のレシピ「{{recipe}}」に有効な配置パターンがありません — パッカーはこのレシピを単独建物にフォールバックしました。",
+  "packerFallback": "制約条件が解決できないため、複数レシピ建物パッカーはレシピごとの単独建物にフォールバックしました。",
   "footer": {
     "feedback": "フィードバック・ご提案:",
     "trademark": "アークナイツ：エンドフィールドはHypergryphの商標です。本ツールはHypergryphとは無関係であり、公認されていません。",

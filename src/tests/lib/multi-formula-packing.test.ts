@@ -639,10 +639,19 @@ describe("packBins", () => {
       });
       // Fallback path: per-recipe singletons.
       expect(r.bins.length).toBeGreaterThan(0);
-      // Warnings populated.
+      // Structured warnings populated.
       expect(r.warnings.length).toBeGreaterThan(0);
-      // Warning mentions the pinned recipe id.
-      expect(r.warnings.some((w) => w.includes("lx_2_no_buf"))).toBe(true);
+      // Warning of kind `packer-override-infeasible` mentions the pinned recipe id.
+      const pinWarnings = r.warnings.filter(
+        (w) => w.kind === "packer-override-infeasible",
+      );
+      expect(
+        pinWarnings.some(
+          (w) =>
+            w.kind === "packer-override-infeasible" &&
+            w.recipeId === ("lx_2_no_buf" as RecipeId),
+        ),
+      ).toBe(true);
     });
   });
 
@@ -1184,6 +1193,136 @@ describe("packBins", () => {
         expect(bin.variantId).toBeDefined();
         expect(bin.variantId.length).toBeGreaterThan(0);
       }
+    });
+
+    describe("facility cap MIP behavior", () => {
+      // Cap-overflow WARNING emission moved to the
+      // `useProductionPlan` layer via `computeOverCapWarnings` against
+      // `aggregateBinTotals.rawPerFacility` — tested in
+      // `plan-helpers.test.ts`. These tests focus on the MIP
+      // constraint's effect on the packer's actual decisions
+      // (twin-shifting, retry-without-caps fallback, no spurious
+      // warnings).
+      test("cap unset (undefined) yields identical output to baseline", async () => {
+        const slotDemands = new Map<RecipeId, number>([
+          ["lx_1" as RecipeId, 4],
+          ["xe_1" as RecipeId, 4],
+          ["x_1" as RecipeId, 2],
+        ]);
+        const baseline = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+        });
+        const withUndefinedCaps = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps: undefined,
+        });
+        const withEmptyCaps = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps: new Map(),
+        });
+
+        const totalBuildings = (r: { bins: { buildingCount: number }[] }) =>
+          r.bins.reduce((s, b) => s + Math.ceil(b.buildingCount), 0);
+        expect(totalBuildings(withUndefinedCaps)).toBe(totalBuildings(baseline));
+        expect(totalBuildings(withEmptyCaps)).toBe(totalBuildings(baseline));
+        // No packer-level warnings on any of the variants.
+        expect(baseline.warnings).toEqual([]);
+        expect(withUndefinedCaps.warnings).toEqual([]);
+        expect(withEmptyCaps.warnings).toEqual([]);
+      });
+
+      test("cap that's already met by the optimal solution does not change the result", async () => {
+        // Baseline picks 4 Expanded buildings (mix_pool_2). Setting the
+        // Expanded cap to 4 is exactly tight; MIP returns the same
+        // solution.
+        const slotDemands = new Map<RecipeId, number>([
+          ["lx_1" as RecipeId, 4],
+          ["xe_1" as RecipeId, 4],
+          ["x_1" as RecipeId, 2],
+        ]);
+        const facilityCaps = new Map<FacilityId, number>([
+          ["mix_pool_2" as FacilityId, 4],
+        ]);
+        const r = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps,
+        });
+        const expandedCount = r.bins
+          .filter((b) => b.facilityId === ("mix_pool_2" as FacilityId))
+          .reduce((s, b) => s + b.buildingCount, 0);
+        expect(expandedCount).toBeLessThanOrEqual(4);
+        // Packer emits no warnings; cap detection lives downstream.
+        expect(r.warnings).toEqual([]);
+      });
+
+      test("cap on the cheaper facility shifts demand to the twin", async () => {
+        // Baseline: Expanded buildings @ 100W. Cap Expanded at 0 → MIP
+        // must use Reactor instead. Twin (Reactor) absorbs the
+        // constraint cleanly; no warning needed.
+        const slotDemands = new Map<RecipeId, number>([
+          ["lx_1" as RecipeId, 2],
+          ["xe_1" as RecipeId, 2],
+        ]);
+        const facilityCaps = new Map<FacilityId, number>([
+          ["mix_pool_2" as FacilityId, 0],
+        ]);
+        const r = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps,
+        });
+        // No Expanded usage.
+        const expandedBins = r.bins.filter(
+          (b) => b.facilityId === ("mix_pool_2" as FacilityId),
+        );
+        expect(expandedBins.length).toBe(0);
+        // Slot coverage holds for LX and XE.
+        const slotsByRecipe = new Map<string, number>();
+        for (const bin of r.bins) {
+          for (const rid of bin.recipeIds) {
+            slotsByRecipe.set(
+              rid,
+              (slotsByRecipe.get(rid) ?? 0) + bin.buildingCount,
+            );
+          }
+        }
+        expect(slotsByRecipe.get("lx_1") ?? 0).toBeGreaterThanOrEqual(2);
+        expect(slotsByRecipe.get("xe_1") ?? 0).toBeGreaterThanOrEqual(2);
+        expect(r.warnings).toEqual([]);
+      });
+
+      test("cap that's structurally infeasible falls back to retry-without-caps without packer-level warning", async () => {
+        // Cap BOTH facilities at zero → MIP-with-caps fails; retry
+        // without caps solves; packer returns the over-cap bins with
+        // NO `facility-over-cap` warning emitted (those live downstream
+        // in `useProductionPlan` now).
+        const slotDemands = new Map<RecipeId, number>([
+          ["lx_1" as RecipeId, 2],
+          ["xe_1" as RecipeId, 2],
+          ["x_1" as RecipeId, 1],
+        ]);
+        const facilityCaps = new Map<FacilityId, number>([
+          ["mix_pool_1" as FacilityId, 0],
+          ["mix_pool_2" as FacilityId, 0],
+        ]);
+        const r = await packBins({
+          recipeSlotDemands: slotDemands,
+          ...buildMaps(items, recipes, facilities),
+          facilityCaps,
+        });
+        // Bins emitted (retry succeeded).
+        expect(r.bins.length).toBeGreaterThan(0);
+        // No facility-over-cap warning at the packer level — the
+        // detection now lives at the aggregator layer.
+        const capWarnings = r.warnings.filter(
+          (w) => w.kind === "facility-over-cap",
+        );
+        expect(capWarnings.length).toBe(0);
+      });
     });
   });
 });

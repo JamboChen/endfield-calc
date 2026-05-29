@@ -1,0 +1,43 @@
+{
+  "title": "설정",
+  "open": "설정 열기",
+  "aic": {
+    "intro": "연구한 AIC 기술을 선택하세요. 향후 업데이트에서 플랜에 사용 가능한 아이템과 공식이 이 설정에 따라 필터링됩니다.",
+    "activateAll": "모두 활성화",
+    "activateLayer": "이 계층 활성화",
+    "resetDefaults": "기본값으로 재설정",
+    "capDeltaLabel": "최대",
+    "row": {
+      "alwaysAvailable": "항상 사용 가능 (게임 기본)",
+      "showDescription": "설명 표시",
+      "showRecipes": "잠금 해제된 공식 표시",
+      "unlocksLabel": "잠금 해제",
+      "ariaResearched": "{{name}}, 연구됨",
+      "ariaAvailable": "{{name}}, 연구 가능",
+      "ariaLocked": "{{name}}, 선행 조건 미충족",
+      "ariaAlwaysAvailable": "{{name}}, 항상 사용 가능"
+    },
+    "facilityLimits": {
+      "title": "시설 한도",
+      "gameCap": "게임 한도",
+      "customCap": "사용자 지정",
+      "effective": "실효",
+      "reset": "게임 한도로 재설정"
+    },
+    "domain": {
+      "toggleActivate": "{{name}} 활성화",
+      "toggleDeactivate": "{{name}} 비활성화"
+    },
+    "toast": {
+      "activatedGroup_zero": "새로 활성화된 시설 없음",
+      "activatedGroup_one": "시설 {{primary}}개 활성화됨",
+      "activatedGroup_other": "시설 {{primary}}개 활성화됨",
+      "activatedGroupWithPrereqs": "시설 {{primary}}개 활성화됨 (선행 {{prereqs}}개 포함)",
+      "activatedLayer": "시설 {{primary}}개 활성화됨",
+      "activatedLayerWithPrereqs": "시설 {{primary}}개 활성화됨 (선행 {{prereqs}}개 포함)",
+      "resetDefaults": "게임 기본값으로 재설정함",
+      "resetGroup": "플랜을 기본값으로 재설정함",
+      "prereqsRequired": "먼저 선행 기술을 연구하세요."
+    }
+  }
+}

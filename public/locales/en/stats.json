@@ -1,4 +1,5 @@
 {
+  "facilityCapExceeded": "Limit exceeded ({{used}} / {{cap}})",
   "pickupPoints": "Pickup Ports",
   "productionSteps": "Production Steps",
   "rawMaterialUsage": "Raw Material Usage",

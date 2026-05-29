@@ -67,6 +67,38 @@ const forcedDisposalItems = new Set<ItemId>([
   "item_liquid_xiranite_poly",
 ]);
 
+/**
+ * Facilities whose recipes bypass the recipe-reachability chain check.
+ * When a bootstrap facility is unlocked (present in `availableRecipes`
+ * after the AIC filter), all of its recipes are unconditionally marked
+ * `runnable` and their outputs join `reachableItems` before the normal
+ * fixpoint runs in `computeRecipeReachability`.
+ *
+ * Use case: the Seed-Picking Unit (`seedcollector_1`) produces seeds
+ * from plants and consumes plants made by the planter. The planter ↔
+ * seedcollector cycle has no entry from forced raws, so the chain
+ * closure would mark both as blocked. The game mechanics allow the
+ * player to externally seed the cycle (wild plant collection, market
+ * purchases, starting inventory). Modeling seedcollector as bootstrap-
+ * capable mirrors this.
+ *
+ * The prefill-detection layer (`computeBootableItems` in
+ * `calculator.ts`) intentionally does NOT use bootstrap. Its
+ * "Planter ↔ Seedcollector" cycle warning still fires correctly —
+ * bootstrap is a *planning-layer* concept ("can the user configure
+ * this plan?"), prefill is a *runtime-execution* concept ("does the
+ * cycle need a kickstart at startup?"). Both are simultaneously true.
+ *
+ * Adding to this set: any facility whose recipes the game considers
+ * "always usable when the building exists, regardless of where the
+ * inputs come from". Source facilities (`pump_*`, `unloader_*`)
+ * don't belong here — they're modeled as raw sources via
+ * `rawMaterialSources`, not recipe-running facilities.
+ */
+const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
+  FacilityId.SEEDCOLLECTOR_1,
+]);
+
 export {
   items,
   facilities,
@@ -74,6 +106,7 @@ export {
   rawMaterialSources,
   forcedRawMaterials,
   forcedDisposalItems,
+  bootstrapFacilities,
   MAX_TARGETS,
 };
 export type { RawSourceConfig };

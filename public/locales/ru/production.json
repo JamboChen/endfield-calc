@@ -25,12 +25,12 @@
       "outputRate": "Производство/мин",
       "power": "Энергия",
       "rawMaterial": "Сырье",
-      "recipe": "Рецепт"
+      "recipe": "Формула"
     },
     "manualRawMaterial": "Сырье (Отмечено вручную)",
     "markAsRawMaterial": "Пометить как сырье",
     "noData": "Нет данных",
-    "noRecipe": "Нет рецепта",
+    "noRecipe": "Нет формулы",
     "rawMaterial": "Сырье",
     "unmarkRawMaterial": "Снять отметку",
     "bin": {
@@ -40,13 +40,13 @@
       "buildingsExplain": "{{n}} зданий объединяют {{m}} формул",
       "grouped": "сгруппировано",
       "powerSharedExplain": "Энергия учитывается только в основной строке группы.",
-      "spanning": "Рецепт распределён по {{count}} вариантам групп:"
+      "spanning": "Формула распределена по {{count}} вариантам групп:"
     },
     "totals": {
       "buildings": "Всего зданий",
       "power": "Всего энергии",
       "viaGrouping": "за счёт группировки",
-      "savingsExplain": "Здания, сэкономленные за счёт упаковки рецептов в общие многоформульные здания."
+      "savingsExplain": "Здания, сэкономленные за счёт упаковки формул в общие многоформульные здания."
     }
   },
   "tree": {
@@ -85,7 +85,7 @@
     "portUtilization": "Порты: {{liqIn}}/{{liqInCap}} жидк. вх · {{liqOut}}/{{liqOutCap}} жидк. вых · {{beltOut}}/{{beltOutCap}} лент. вых",
     "prefillZoneLabel": "Prefill",
     "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
-    "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
+    "prefillCardTooltip": "This building's formulas form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
     "prefillCandidates": "Prefill candidates"
   }
 }

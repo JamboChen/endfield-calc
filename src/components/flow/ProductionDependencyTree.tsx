@@ -200,11 +200,12 @@ type ProductionDependencyTreeProps = {
   plan: ProductionDependencyGraph | null;
   items: Item[];
   /**
-   * All recipes — required when `binFusion` is on and the bin-fused
-   * merged mapper is used; the mapper looks up bin-constituent recipe
-   * objects to render headline / sister metadata.
+   * Available recipes — chain-filtered set from App.tsx. Used by the
+   * bin-fused merged mapper to look up bin-constituent recipe objects
+   * for headline / sister metadata. Safe to narrow: the calc only
+   * emitted plans containing recipes from this set.
    */
-  recipes: Recipe[];
+  recipes: readonly Recipe[];
   facilities: Facility[];
   visualizationMode?: VisualizationMode;
   targetRates?: Map<ItemId, number>;

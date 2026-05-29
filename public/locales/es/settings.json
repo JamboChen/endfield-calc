@@ -1,0 +1,43 @@
+{
+  "title": "Configuración",
+  "open": "Abrir configuración",
+  "aic": {
+    "intro": "Elige qué tecnologías de la CAI has investigado. En una futura actualización, esto filtrará los objetos y fórmulas disponibles en tus planes.",
+    "activateAll": "Activar todo",
+    "activateLayer": "Activar capa",
+    "resetDefaults": "Restablecer valores predeterminados",
+    "capDeltaLabel": "máx",
+    "row": {
+      "alwaysAvailable": "Siempre disponible (predeterminado del juego)",
+      "showDescription": "Mostrar descripción",
+      "showRecipes": "Mostrar fórmulas desbloqueadas",
+      "unlocksLabel": "Desbloquea",
+      "ariaResearched": "{{name}}, investigado",
+      "ariaAvailable": "{{name}}, disponible para investigar",
+      "ariaLocked": "{{name}}, prerrequisitos no cumplidos",
+      "ariaAlwaysAvailable": "{{name}}, siempre disponible"
+    },
+    "facilityLimits": {
+      "title": "Límites de instalaciones",
+      "gameCap": "Límite del juego",
+      "customCap": "Personalizado",
+      "effective": "Efectivo",
+      "reset": "Restablecer al límite del juego"
+    },
+    "domain": {
+      "toggleActivate": "Activar {{name}}",
+      "toggleDeactivate": "Desactivar {{name}}"
+    },
+    "toast": {
+      "activatedGroup_zero": "Ninguna instalación nueva activada",
+      "activatedGroup_one": "Activada {{primary}} instalación",
+      "activatedGroup_other": "Activadas {{primary}} instalaciones",
+      "activatedGroupWithPrereqs": "Activadas {{primary}} instalaciones (+{{prereqs}} prerrequisitos)",
+      "activatedLayer": "Activadas {{primary}} instalaciones",
+      "activatedLayerWithPrereqs": "Activadas {{primary}} instalaciones (+{{prereqs}} prerrequisitos)",
+      "resetDefaults": "Restablecido a los valores del juego",
+      "resetGroup": "Plan restablecido a los valores predeterminados",
+      "prereqsRequired": "Investiga primero la tecnología prerrequisito."
+    }
+  }
+}

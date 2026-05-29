@@ -1,0 +1,10 @@
+{
+  "title": "Configura tus planes del CAI",
+  "description": "Marca los planes que has investigado en el juego.",
+  "warningLabel": "Advertencia",
+  "warning": "Al desmarcar un plan del CAI se bloquean sus fórmulas. Los objetos de tu plan actual que necesiten esas fórmulas serán eliminados.",
+  "hint": "Puedes cambiarlo en cualquier momento desde Configuración.",
+  "confirmButton": "Continuar",
+  "statusActive": "Activo",
+  "statusInactive": "Inactivo"
+}

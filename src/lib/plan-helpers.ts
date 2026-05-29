@@ -7,6 +7,7 @@ import type {
   Facility,
   FacilityId,
   ItemId,
+  PlanWarning,
   RecipeId,
   Item,
   Recipe,
@@ -60,6 +61,22 @@ export type BinAggregates = {
    * least one bin. Used by the stats panel's per-facility breakdown.
    */
   perFacility: Map<FacilityId, number>;
+  /**
+   * Per-facility-id sum of RAW LP-derived counts (mode-independent).
+   * Sum of `bin.buildingCount` across bins + fractional pickup-point
+   * counts for source facilities. NOT ceilMode-adjusted — this is the
+   * canonical "theoretical capacity required" value, used by
+   * `computeOverCapWarnings` to detect facility-cap overflow.
+   *
+   * Distinct from `perFacility` (which applies ceilMode for display):
+   * - `perFacility` answers "what should the UI show?".
+   * - `rawPerFacility` answers "what does the LP say is needed?".
+   *
+   * The two values agree only when every bin has integer buildingCount
+   * AND ceilMode is on. The cap-warning helper uses `rawPerFacility`
+   * because cap detection should be invariant to display preferences.
+   */
+  rawPerFacility: Map<FacilityId, number>;
   /**
    * Σ `Math.max(1, Math.ceil(bin.buildingCount))` for bins on
    * multi-formula-eligible facilities (those with `cacheSlots` defined).
@@ -149,6 +166,7 @@ export function aggregateBinTotals(
   let totalPower = 0;
   let multiFormulaActualBuildings = 0;
   const perFacility = new Map<FacilityId, number>();
+  const rawPerFacility = new Map<FacilityId, number>();
 
   for (const bin of plan.bins) {
     const facility = facilityById.get(bin.facilityId);
@@ -163,6 +181,10 @@ export function aggregateBinTotals(
     perFacility.set(
       facility.id,
       (perFacility.get(facility.id) ?? 0) + effectiveBuildings,
+    );
+    rawPerFacility.set(
+      facility.id,
+      (rawPerFacility.get(facility.id) ?? 0) + bin.buildingCount,
     );
     if (facility.cacheSlots != null) {
       // Always-ceiled — groupedSavings is a physical-buildings comparison.
@@ -201,6 +223,10 @@ export function aggregateBinTotals(
       facility.id,
       (perFacility.get(facility.id) ?? 0) + effectivePickups,
     );
+    rawPerFacility.set(
+      facility.id,
+      (rawPerFacility.get(facility.id) ?? 0) + fractionalPickups,
+    );
   }
 
   let multiFormulaBaselineBuildings = 0;
@@ -215,9 +241,53 @@ export function aggregateBinTotals(
     totalBuildings,
     totalPower,
     perFacility,
+    rawPerFacility,
     multiFormulaActualBuildings,
     multiFormulaBaselineBuildings,
   };
+}
+
+/**
+ * Detect facility-cap overflows.
+ *
+ * Pure function. Iterates `facilityCaps` (not `rawPerFacility`) so caps
+ * on facilities absent from the plan are skipped naturally. Uses raw
+ * LP-derived counts to keep detection invariant to the user's `ceilMode`
+ * preference — the warning displays differently in different modes, but
+ * the detection threshold is the same.
+ *
+ * Comparison: `used > cap + EPSILON`. Caps are integer by construction
+ * (`parseInt`-guarded at the UI input); the EPSILON absorbs LP solver
+ * float drift. NO ceil on the comparison — that would spuriously fire
+ * for fractional caps if they ever become supported.
+ *
+ * Coverage:
+ *   - Multi-formula MIP-packed bins (e.g. mix_pool_2 / Expanded Crucible).
+ *   - Single-formula singleton bins (e.g. xiranite_oven_1 / Forge of the Sky).
+ *   - Pickup-point source facilities (pump_1, pump_2, unloader_1) —
+ *     these were the architectural gap of the packer-side check; now
+ *     covered uniformly through `rawPerFacility`.
+ *
+ * The MIP cap constraint inside `multi-formula-packing.ts:solvePacking`
+ * is the FIRST line of defence — it tries to find a packing that
+ * respects caps. This function is the SECOND line: when the MIP gives
+ * up (cap infeasible, retries without caps) OR when singletons /
+ * pickups push a facility over its cap, this surfaces the violation.
+ */
+export function computeOverCapWarnings(
+  rawPerFacility: ReadonlyMap<FacilityId, number>,
+  facilityCaps: ReadonlyMap<FacilityId, number> | undefined,
+): PlanWarning[] {
+  if (!facilityCaps || facilityCaps.size === 0) return [];
+  const warnings: PlanWarning[] = [];
+  const EPSILON = 1e-9;
+  for (const [facilityId, cap] of facilityCaps) {
+    if (!Number.isFinite(cap) || cap < 0) continue;
+    const used = rawPerFacility.get(facilityId) ?? 0;
+    if (used <= cap + EPSILON) continue;
+    warnings.push({ kind: "facility-over-cap", facilityId, used, cap });
+  }
+  return warnings;
 }
 
 /**
@@ -328,7 +398,7 @@ export function computeNodeByproducts(
 export function pickBinHeadlineOutput(
   bin: Bin,
   items: Item[],
-  recipes: Recipe[],
+  recipes: readonly Recipe[],
   targetItemIds: Set<ItemId>,
 ): { itemId: ItemId; recipeId: RecipeId } | null {
   if (bin.externalOutputs.length === 0) return null;

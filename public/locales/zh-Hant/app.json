@@ -1,4 +1,6 @@
 {
+  "autoPruneSummary_one": "已移除 {{count}} 個當前 AIC 設定無法生產的項目。",
+  "autoPruneSummary_other": "已移除 {{count}} 個當前 AIC 設定無法生產的項目。",
   "ceilMode": "設施數向上取整",
   "twoEndAlignment": "兩端對齊",
   "binFusion": "配方分組",
@@ -6,6 +8,9 @@
   "calculationError": "計算生產計畫時發生錯誤。請檢查您的目標產出和配方覆蓋設定。",
   "cycleWarning": "{{overriddenItems}} 所選配方形成了無法維持所需產量的生產循環。受影響物品：{{affectedItems}}。",
   "cycleWarningNoAffected": "{{overriddenItems}} 所選配方形成了無法維持所需產量的生產循環。",
+  "facilityOverCap": "{{facility}}：超出上限 ({{displayCount}} / {{cap}})。",
+  "packerOverrideInfeasible": "在「{{facility}}」上選用的配方「{{recipe}}」沒有可行的容器形狀——打包器已退回為該配方使用獨立建築。",
+  "packerFallback": "由於約束配置不可行，多配方建築打包器已退回為每個配方使用獨立建築。",
   "footer": {
     "feedback": "反饋與建議：",
     "trademark": "明日方舟：終末地 是鷹角網絡的商標。本工具與鷹角網絡無關，未獲其認可。",

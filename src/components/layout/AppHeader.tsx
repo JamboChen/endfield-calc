@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Select,
@@ -14,9 +15,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "../ui/theme-provider";
-import { MessageCircle, Sun, Moon, Save, FolderOpen } from "lucide-react";
+import {
+  MessageCircle,
+  Sun,
+  Moon,
+  Save,
+  FolderOpen,
+  Settings,
+} from "lucide-react";
 import { SiGithub, SiDiscord, SiTencentqq } from "react-icons/si";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SettingsSheet } from "@/components/settings/SettingsSheet";
 
 interface AppHeaderProps {
   onLanguageChange: (lang: string) => void;
@@ -42,9 +51,10 @@ function resolveDisplayLang(lang: string): string {
 }
 
 export default function AppHeader({ onLanguageChange, onSavePlan, onOpenPlan }: AppHeaderProps) {
-  const { t, i18n } = useTranslation("app");
+  const { t, i18n } = useTranslation(["app", "settings"]);
   const { theme, setTheme } = useTheme();
   const currentLang = resolveDisplayLang(i18n.language);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-2">
@@ -135,6 +145,24 @@ export default function AppHeader({ onLanguageChange, onSavePlan, onOpenPlan }: 
             <span>GitHub</span>
           </a>
 
+          {/* Settings (AIC Plan) */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSettingsOpen(true)}
+                className="h-9 w-9 p-0"
+                aria-label={t("open", { ns: "settings", defaultValue: "Open settings" })}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t("title", { ns: "settings", defaultValue: "Settings" })}
+            </TooltipContent>
+          </Tooltip>
+
           <Button
             variant="ghost"
             size="sm"
@@ -166,6 +194,8 @@ export default function AppHeader({ onLanguageChange, onSavePlan, onOpenPlan }: 
           </Select>
         </div>
       </div>
+
+      <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }

@@ -24,7 +24,7 @@ interface ProductionViewTabsProps {
   plan: ProductionDependencyGraph | null;
   tableData: ProductionTableData;
   items: Item[];
-  recipes: Recipe[];
+  recipes: readonly Recipe[];
   facilities: Facility[];
   activeTab: "table" | "tree";
   onTabChange: (tab: "table" | "tree") => void;

@@ -5,11 +5,15 @@ import {
   buildBinActivitySums,
   computeGreedyAllocation,
   computeNodeByproducts,
+  computeOverCapWarnings,
 } from "@/lib/plan-helpers";
 import { items, recipes, facilities, rawMaterialSources } from "@/data";
 import { getRawSourceRate } from "@/lib/utils";
 import { ItemId as ItemIdEnum, FacilityId as FacilityIdEnum } from "@/types/constants";
-import type { ProductionDependencyGraph } from "@/types";
+import type {
+  PlanWarning,
+  ProductionDependencyGraph,
+} from "@/types";
 
 /**
  * Source-facility (pickup-point) contribution that `aggregateBinTotals`
@@ -921,5 +925,288 @@ describe("aggregateBinTotals (real data)", () => {
     );
     expect(Number.isInteger(ceiled.multiFormulaActualBuildings)).toBe(true);
     expect(Number.isInteger(ceiled.multiFormulaBaselineBuildings)).toBe(true);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// rawPerFacility — mode-independent raw LP counts (covers cap detection)
+// ════════════════════════════════════════════════════════════════════
+
+describe("aggregateBinTotals.rawPerFacility", () => {
+  test("recipe bin contributes raw bin.buildingCount (not ceiled)", async () => {
+    // Iron Powder 15/min targets the grinder recipe. The exact
+    // grinder rate depends on real game data; what matters here is
+    // that the value is STRICTLY FRACTIONAL (< 1) AND matches the
+    // ceilMode=false display value (which uses meanActivity, equal
+    // to bin.buildingCount for singletons).
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_IRON_POWDER, rate: 15 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const totals = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: false,
+    });
+    const grinderRaw = totals.rawPerFacility.get(FacilityIdEnum.GRINDER_1);
+    expect(grinderRaw).toBeDefined();
+    // Strictly fractional — no ceil applied.
+    expect(grinderRaw!).toBeGreaterThan(0);
+    expect(grinderRaw!).toBeLessThan(1);
+    // ceilMode=false display value matches raw for singletons.
+    const grinderDisplay = totals.perFacility.get(FacilityIdEnum.GRINDER_1);
+    expect(grinderDisplay).toBeCloseTo(grinderRaw!, 9);
+  });
+
+  test("rawPerFacility is identical between ceilMode=true and ceilMode=false", async () => {
+    // Critical invariant: rawPerFacility is the canonical LP-derived
+    // count, used by cap detection. It must NOT respond to ceilMode.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const ceiled = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: true,
+    });
+    const fractional = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: false,
+    });
+    // Both maps should have the same set of keys with the same values.
+    expect([...ceiled.rawPerFacility.keys()].sort()).toEqual(
+      [...fractional.rawPerFacility.keys()].sort(),
+    );
+    for (const [facilityId, value] of ceiled.rawPerFacility) {
+      expect(fractional.rawPerFacility.get(facilityId)).toBeCloseTo(value, 9);
+    }
+  });
+
+  test("pickup-point source facility contributes fractional count (not ceiled)", async () => {
+    // Iron Powder 15/min → 0.25 grinder × consumes 0.25 ore at 1/min/bldg.
+    // unloader_1 (Depot Unloader) raw rate is 30/min/facility (belt cap).
+    // 0.25 ore/min ÷ 30/min/pickup = 0.00833... fractional pickups.
+    // We just assert that rawPerFacility[unloader_1] is FRACTIONAL (not
+    // ceiled to 1) when the demand is below 1 pickup.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_IRON_POWDER, rate: 15 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const totals = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: true,
+    });
+    const unloaderRaw = totals.rawPerFacility.get(FacilityIdEnum.UNLOADER_1);
+    expect(unloaderRaw).toBeDefined();
+    // Must be strictly fractional (< 1), confirming no ceiling applied.
+    expect(unloaderRaw!).toBeLessThan(1);
+    expect(unloaderRaw!).toBeGreaterThan(0);
+    // Compare against the perFacility view with ceilMode=true, which
+    // SHOULD ceil to 1.
+    const unloaderDisplay = totals.perFacility.get(FacilityIdEnum.UNLOADER_1);
+    expect(unloaderDisplay).toBe(1);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// computeOverCapWarnings — pure cap-detection helper
+// ════════════════════════════════════════════════════════════════════
+
+describe("computeOverCapWarnings", () => {
+  // Synthetic facility ids for unit-level tests.
+  const FAC_A = "fac_a" as FacilityId;
+  const FAC_B = "fac_b" as FacilityId;
+  const FAC_C = "fac_c" as FacilityId;
+
+  test("returns empty array when facilityCaps is undefined", () => {
+    const raw = new Map([[FAC_A, 5]]);
+    expect(computeOverCapWarnings(raw, undefined)).toEqual([]);
+  });
+
+  test("returns empty array when facilityCaps is an empty map", () => {
+    const raw = new Map([[FAC_A, 5]]);
+    expect(computeOverCapWarnings(raw, new Map())).toEqual([]);
+  });
+
+  test("emits warning when used strictly exceeds cap (integer)", () => {
+    const raw = new Map([[FAC_A, 3]]);
+    const caps = new Map([[FAC_A, 1]]);
+    const warnings = computeOverCapWarnings(raw, caps);
+    expect(warnings).toHaveLength(1);
+    const w = warnings[0];
+    expect(w.kind).toBe("facility-over-cap");
+    if (w.kind === "facility-over-cap") {
+      expect(w.facilityId).toBe(FAC_A);
+      expect(w.used).toBe(3);
+      expect(w.cap).toBe(1);
+    }
+  });
+
+  test("emits warning when used exceeds cap by fractional amount (1.5 vs 1)", () => {
+    const raw = new Map([[FAC_A, 1.5]]);
+    const caps = new Map([[FAC_A, 1]]);
+    const warnings = computeOverCapWarnings(raw, caps);
+    expect(warnings).toHaveLength(1);
+    const w = warnings[0];
+    if (w.kind === "facility-over-cap") {
+      expect(w.used).toBe(1.5);
+    }
+  });
+
+  test("no warning when used equals cap exactly", () => {
+    const raw = new Map([[FAC_A, 4]]);
+    const caps = new Map([[FAC_A, 4]]);
+    expect(computeOverCapWarnings(raw, caps)).toEqual([]);
+  });
+
+  test("no warning when used is within EPSILON of cap (LP float drift)", () => {
+    // LP solutions may return values like 4.0000000001 instead of 4.0.
+    // EPSILON = 1e-9 absorbs this; values within drift are treated as
+    // meeting the cap, not exceeding.
+    const raw = new Map([[FAC_A, 4 + 5e-10]]);
+    const caps = new Map([[FAC_A, 4]]);
+    expect(computeOverCapWarnings(raw, caps)).toEqual([]);
+  });
+
+  test("skips non-finite cap entries defensively", () => {
+    const raw = new Map([[FAC_A, 10]]);
+    const caps = new Map([[FAC_A, NaN]]);
+    expect(computeOverCapWarnings(raw, caps)).toEqual([]);
+  });
+
+  test("skips negative cap entries defensively", () => {
+    const raw = new Map([[FAC_A, 10]]);
+    const caps = new Map([[FAC_A, -1]]);
+    expect(computeOverCapWarnings(raw, caps)).toEqual([]);
+  });
+
+  test("emits one warning per over-cap facility, ignoring under-cap ones", () => {
+    const raw = new Map([
+      [FAC_A, 5],
+      [FAC_B, 2],
+      [FAC_C, 10],
+    ]);
+    const caps = new Map([
+      [FAC_A, 4], // over
+      [FAC_B, 3], // under
+      [FAC_C, 10], // exact
+    ]);
+    const warnings = computeOverCapWarnings(raw, caps);
+    expect(warnings).toHaveLength(1);
+    if (warnings[0].kind === "facility-over-cap") {
+      expect(warnings[0].facilityId).toBe(FAC_A);
+    }
+  });
+
+  test("facility in caps but absent from rawPerFacility → uses 0 → no warning (cap >= 0)", () => {
+    const raw = new Map<FacilityId, number>();
+    const caps = new Map([[FAC_A, 1]]);
+    expect(computeOverCapWarnings(raw, caps)).toEqual([]);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// End-to-end cap detection: real-data integration
+// ════════════════════════════════════════════════════════════════════
+
+describe("computeOverCapWarnings (integration)", () => {
+  test("single-formula facility scenario: Forge of the Sky cap 1, target Xiranite Powder 60/min → warning", async () => {
+    // Pins the user-reported bug from the cap-enforcement work:
+    // xiranite_oven_1 has no `cacheSlots`, so its recipes flow through
+    // emitSingletonBins and bypass the MIP. The post-aggregator
+    // detection MUST catch this case via `rawPerFacility`.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POWDER, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const totals = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: true,
+    });
+    const caps = new Map<FacilityId, number>([
+      [FacilityIdEnum.XIRANITE_OVEN_1, 1],
+    ]);
+    const warnings: PlanWarning[] = computeOverCapWarnings(
+      totals.rawPerFacility,
+      caps,
+    );
+    expect(warnings).toHaveLength(1);
+    const w = warnings[0];
+    expect(w.kind).toBe("facility-over-cap");
+    if (w.kind === "facility-over-cap") {
+      expect(w.facilityId).toBe(FacilityIdEnum.XIRANITE_OVEN_1);
+      // xiranite_oven_xiranite_powder_1 craftingTime=2 → 30/min/bldg.
+      // 60/min target → 2 buildings.
+      expect(w.used).toBeCloseTo(2, 6);
+      expect(w.cap).toBe(1);
+    }
+  });
+
+  test("pickup-point source facility scenario: pump_2 cap 1, plan with high acid demand → warning (closes architectural gap)", async () => {
+    // Acid source: pump_2 (60/min/pump). Cap at 1 → 1 pump's worth
+    // (60/min) is OK; more than 60/min triggers the warning. This was
+    // the architectural gap the packer-side check missed because
+    // source facilities never appear in `plan.bins`.
+    //
+    // Drive enough acid demand by targeting recipes that consume acid.
+    // Use a dismantler recipe: dismantler_copper_acid_1 inputs include
+    // item_fbottle_copper_acid; we'll just target the acid raw directly
+    // to keep the test self-contained.
+    //
+    // Simplest path: target an item whose chain pulls a lot of acid.
+    // Looking at real data: most recipes that consume acid are dismantler
+    // recipes. A direct acid target won't pull (it's a raw, calc treats
+    // it as a leaf). But the rawPerFacility still records the raw demand
+    // if there's a consumer.
+    //
+    // To make this test deterministic without sprawling chain math,
+    // synthesize: target Liquid Acid directly (it's a forced raw, so
+    // calc sets `productionRate = userTargetRate`). With acid demand
+    // 150/min, pump_2 (60/min) needs 2.5 pickups → over cap 1.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_LIQUID_ACID, rate: 150 }],
+      items,
+      recipes,
+      facilities,
+    );
+    const totals = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: true,
+    });
+    const pumpRaw = totals.rawPerFacility.get(FacilityIdEnum.PUMP_2);
+    expect(pumpRaw).toBeDefined();
+    // 150/min ÷ 60/min/pump = 2.5
+    expect(pumpRaw!).toBeCloseTo(2.5, 6);
+    const caps = new Map<FacilityId, number>([
+      [FacilityIdEnum.PUMP_2, 1],
+    ]);
+    const warnings = computeOverCapWarnings(totals.rawPerFacility, caps);
+    expect(warnings).toHaveLength(1);
+    const w = warnings[0];
+    if (w.kind === "facility-over-cap") {
+      expect(w.facilityId).toBe(FacilityIdEnum.PUMP_2);
+      expect(w.used).toBeCloseTo(2.5, 6);
+      expect(w.cap).toBe(1);
+    }
+  });
+
+  test("multi-formula twin shift: MIP picks mix_pool_1 when mix_pool_2 capped at 0 → no warning", async () => {
+    // When the MIP successfully shifts demand between twins to respect
+    // the cap, the aggregator sees the post-shift bins. No `mix_pool_2`
+    // bins exist; `rawPerFacility[mix_pool_2]` is 0; cap check passes.
+    //
+    // Note: this requires the MIP to be in play AND the cap to be
+    // threaded. We're testing the helper here, so we'll manually
+    // construct the rawPerFacility map matching what a successful
+    // twin-shift would produce.
+    const raw = new Map<FacilityId, number>([
+      [FacilityIdEnum.MIX_POOL_1, 4], // demand absorbed by twin
+      // mix_pool_2 absent (zero usage)
+    ]);
+    const caps = new Map<FacilityId, number>([
+      [FacilityIdEnum.MIX_POOL_2, 0],
+    ]);
+    expect(computeOverCapWarnings(raw, caps)).toEqual([]);
   });
 });

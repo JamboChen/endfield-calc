@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import TargetItemsGrid, { type ProductionTarget } from "./TargetItemsGrid";
 import ProductionStats from "../production/ProductionStats";
-import type { Facility, Item, ItemId } from "@/types";
+import type { Facility, FacilityId, Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
 
 type LeftPanelProps = {
@@ -17,6 +17,7 @@ type LeftPanelProps = {
   facilityRequirements: Map<string, number>;
   totalPickupPoints: number;
   rawMaterialPickupPoints: Map<ItemId, number>;
+  facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>;
   error: string | null;
   ceilMode?: boolean;
   onTargetChange: (index: number, rate: number) => void;
@@ -34,6 +35,7 @@ const LeftPanel = memo(function LeftPanel({
   facilityRequirements,
   totalPickupPoints,
   rawMaterialPickupPoints,
+  facilityOverCapMap,
   error,
   ceilMode = false,
   onTargetChange,
@@ -98,6 +100,7 @@ const LeftPanel = memo(function LeftPanel({
         facilityRequirements={facilityRequirements}
         totalPickupPoints={totalPickupPoints}
         rawMaterialPickupPoints={rawMaterialPickupPoints}
+        facilityOverCapMap={facilityOverCapMap}
         facilities={facilities}
         items={items}
         error={error}

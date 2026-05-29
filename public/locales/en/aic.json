@@ -1,0 +1,107 @@
+{
+  "groups": {
+    "tech_group_jinlong": {
+      "name": "WULING AIC PLAN"
+    },
+    "tech_group_tundra": {
+      "name": "BASIC AIC PLAN"
+    }
+  },
+  "layers": {
+    "tech_group_jinlong_liquid": {
+      "name": "Wuling AIC I"
+    },
+    "tech_group_jinlong_copper": {
+      "name": "Wuling AIC II"
+    },
+    "tech_group_jinlong_acid": {
+      "name": "Wuling AIC III"
+    },
+    "tech_group_tundra_originium": {
+      "name": "Basic AIC I"
+    },
+    "tech_group_tundra_quartz": {
+      "name": "Basic AIC II"
+    },
+    "tech_group_tundra_iron": {
+      "name": "Basic AIC III"
+    }
+  },
+  "nodes": {
+    "tech_jinlong_1_dismantler_1": {
+      "name": "Separation Technique"
+    },
+    "tech_jinlong_1_filling_mode_1": {
+      "name": "Fluid Filler"
+    },
+    "tech_jinlong_1_mix_1": {
+      "name": "Liquid Reaction"
+    },
+    "tech_jinlong_1_planter_mode_1": {
+      "name": "Hydroponics"
+    },
+    "tech_jinlong_1_pump_1": {
+      "name": "Fluid Pumping"
+    },
+    "tech_jinlong_1_xiranite_oven_1": {
+      "name": "Xiranite Forging"
+    },
+    "tech_jinlong_1_xiranite_oven_amount_1": {
+      "name": "Forge Expansion I"
+    },
+    "tech_jinlong_2_furnance_mode_1": {
+      "name": "Liquid Refining"
+    },
+    "tech_jinlong_2_liquid_cleaner_1": {
+      "name": "Water Treatment Unit"
+    },
+    "tech_jinlong_2_xiranite_oven_amount_2": {
+      "name": "Forge Expansion II"
+    },
+    "tech_jinlong_3_liquid_purifier_1": {
+      "name": "Purification"
+    },
+    "tech_jinlong_3_mix_2": {
+      "name": "Expanded Reaction"
+    },
+    "tech_jinlong_3_pump_2": {
+      "name": "Acid Resistance"
+    },
+    "tech_jinlong_3_xiranite_enr_formula": {
+      "name": "Forge Expansion III"
+    },
+    "tech_jinlong_3_xiranite_oven_amount_3": {
+      "name": "Forge Expansion IV"
+    },
+    "tech_tundra_1_cmpt_1": {
+      "name": "Parts Fitting"
+    },
+    "tech_tundra_1_furnance_1": {
+      "name": "Refine I"
+    },
+    "tech_tundra_1_grinder_1": {
+      "name": "Shredding I"
+    },
+    "tech_tundra_1_shaper_1": {
+      "name": "Material Moulding"
+    },
+    "tech_tundra_1_winder_1": {
+      "name": "Gearing Tech"
+    },
+    "tech_tundra_2_asm_1": {
+      "name": "Packaging Tech"
+    },
+    "tech_tundra_2_field_1": {
+      "name": "Depot Bus"
+    },
+    "tech_tundra_2_filling_1": {
+      "name": "Solid Filling"
+    },
+    "tech_tundra_2_plant_1": {
+      "name": "Planting"
+    },
+    "tech_tundra_3_thickener_1": {
+      "name": "Grinding"
+    }
+  }
+}

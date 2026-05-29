@@ -1,0 +1,107 @@
+{
+  "groups": {
+    "tech_group_jinlong": {
+      "name": "PLAN DEL CAI DE WULING"
+    },
+    "tech_group_tundra": {
+      "name": "PLAN DEL CAI BÁSICO"
+    }
+  },
+  "layers": {
+    "tech_group_jinlong_liquid": {
+      "name": "CAI I DE Wuling"
+    },
+    "tech_group_jinlong_copper": {
+      "name": "CAI II DE Wuling"
+    },
+    "tech_group_jinlong_acid": {
+      "name": "CAI III de Wuling"
+    },
+    "tech_group_tundra_originium": {
+      "name": "CAI básico I"
+    },
+    "tech_group_tundra_quartz": {
+      "name": "CAI básico II"
+    },
+    "tech_group_tundra_iron": {
+      "name": "CAI básico III"
+    }
+  },
+  "nodes": {
+    "tech_jinlong_1_dismantler_1": {
+      "name": "Técnica de separación"
+    },
+    "tech_jinlong_1_filling_mode_1": {
+      "name": "Rellenador de fluidos"
+    },
+    "tech_jinlong_1_mix_1": {
+      "name": "Reacción líquida"
+    },
+    "tech_jinlong_1_planter_mode_1": {
+      "name": "Hidroponía"
+    },
+    "tech_jinlong_1_pump_1": {
+      "name": "Bombeo de fluidos"
+    },
+    "tech_jinlong_1_xiranite_oven_1": {
+      "name": "Forjado de Xiranita"
+    },
+    "tech_jinlong_1_xiranite_oven_amount_1": {
+      "name": "Expansión de la Forja I"
+    },
+    "tech_jinlong_2_furnance_mode_1": {
+      "name": "Refinado líquido"
+    },
+    "tech_jinlong_2_liquid_cleaner_1": {
+      "name": "Unidad de tratamiento de agua"
+    },
+    "tech_jinlong_2_xiranite_oven_amount_2": {
+      "name": "Expansión de la Forja II"
+    },
+    "tech_jinlong_3_liquid_purifier_1": {
+      "name": "Purificación"
+    },
+    "tech_jinlong_3_mix_2": {
+      "name": "Reacción expandida"
+    },
+    "tech_jinlong_3_pump_2": {
+      "name": "Resistencia al ácido"
+    },
+    "tech_jinlong_3_xiranite_enr_formula": {
+      "name": "Expansión de la forja III"
+    },
+    "tech_jinlong_3_xiranite_oven_amount_3": {
+      "name": "Expansión de la forja IV"
+    },
+    "tech_tundra_1_cmpt_1": {
+      "name": "Ajuste de piezas"
+    },
+    "tech_tundra_1_furnance_1": {
+      "name": "Refinar I"
+    },
+    "tech_tundra_1_grinder_1": {
+      "name": "Trituración I"
+    },
+    "tech_tundra_1_shaper_1": {
+      "name": "Moldeado de materiales"
+    },
+    "tech_tundra_1_winder_1": {
+      "name": "Tecnología de engranajes"
+    },
+    "tech_tundra_2_asm_1": {
+      "name": "Tecnología de empaquetado"
+    },
+    "tech_tundra_2_field_1": {
+      "name": "Unidad de transporte de depósito"
+    },
+    "tech_tundra_2_filling_1": {
+      "name": "Relleno sólido"
+    },
+    "tech_tundra_2_plant_1": {
+      "name": "Cultivo"
+    },
+    "tech_tundra_3_thickener_1": {
+      "name": "Pulverizado"
+    }
+  }
+}

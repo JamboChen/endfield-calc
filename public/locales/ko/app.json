@@ -1,11 +1,16 @@
 {
+  "autoPruneSummary_one": "현재 AIC 설정으로 생산할 수 없는 항목 {{count}}개를 제거했습니다.",
+  "autoPruneSummary_other": "현재 AIC 설정으로 생산할 수 없는 항목 {{count}}개를 제거했습니다.",
   "ceilMode": "시설 수 올림",
   "twoEndAlignment": "입출력 양끝 정렬",
-  "binFusion": "제조법 그룹화",
-  "binFusionTooltip": "같은 건물에서 작동하는 제조법을 카드 하나로 묶습니다.",
-  "calculationError": "생산 계획 계산 중 오류가 발생했습니다. 목표와 제조법 설정을 확인하세요.",
-  "cycleWarning": "{{overriddenItems}}에 선택된 제조법이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다. 영향받는 아이템: {{affectedItems}}.",
-  "cycleWarningNoAffected": "{{overriddenItems}}에 선택된 제조법이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다.",
+  "binFusion": "공식 그룹화",
+  "binFusionTooltip": "같은 건물에서 작동하는 공식을 카드 하나로 묶습니다.",
+  "calculationError": "생산 계획 계산 중 오류가 발생했습니다. 목표와 공식 설정을 확인하세요.",
+  "cycleWarning": "{{overriddenItems}}에 선택된 공식이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다. 영향받는 아이템: {{affectedItems}}.",
+  "cycleWarningNoAffected": "{{overriddenItems}}에 선택된 공식이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다.",
+  "facilityOverCap": "{{facility}}: 상한 초과 ({{displayCount}} / {{cap}}).",
+  "packerOverrideInfeasible": "시설 \"{{facility}}\"의 공식 \"{{recipe}}\"에 유효한 배치 패턴이 없어, 패커가 이 공식을 개별 건물로 폴백했습니다.",
+  "packerFallback": "제약 조건을 해결할 수 없어, 다중 공식 건물 패커가 공식별 개별 건물로 폴백했습니다.",
   "footer": {
     "feedback": "피드백 및 제안:",
     "trademark": "명일방주: 엔드필드는 Hypergryph의 상표입니다. 이 도구는 Hypergryph와 관련이 없으며 공인되지 않았습니다.",
@@ -19,7 +24,7 @@
     "open": "플랜 열기"
   },
   "tabs": {
-    "merged": "제조법 보기",
+    "merged": "공식 보기",
     "separated": "시설 보기",
     "table": "생산 표",
     "tree": "의존성 트리"

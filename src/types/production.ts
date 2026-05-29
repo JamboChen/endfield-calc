@@ -1,6 +1,61 @@
 import type { Item, Recipe, Facility, ItemId, RecipeId, FacilityId, BinId } from "@/types";
 
 /**
+ * Structured warning emitted from the calc/packer layers. Display
+ * formatting (ceilMode-aware counts, localised facility/recipe names,
+ * plural forms) is the responsibility of the consumer — typically
+ * `useProductionPlan`'s `warnings` memo, which has access to `ceilMode`
+ * state and the `i18next` translator.
+ *
+ * Why structured instead of strings: keeps the data layer free of
+ * display state (`ceilMode`) and i18n state. New warning kinds can be
+ * added by extending this union without threading new parameters down
+ * through the packer. Consumers pattern-match on `kind`.
+ *
+ * Adding a new warning kind:
+ *   1. Add a discriminant arm here.
+ *   2. Emit it from the source (packer / calculator).
+ *   3. Add a formatter branch in `useProductionPlan.formatPlanWarning`.
+ *   4. Add i18n keys to all 7 `app.json` locales.
+ */
+export type PlanWarning =
+  | {
+      /**
+       * Per-facility placement cap exceeded. Emitted by the Phase 5
+       * packer post-packing when total `buildingCount` for a capped
+       * facility exceeds the cap. `used` may be fractional (LP-derived);
+       * `cap` is always integer (parseInt-guarded at the UI input).
+       *
+       * Applies to single-formula facilities (singleton bins) and
+       * multi-formula facilities (LP-packed bins) uniformly — the
+       * check walks the final emitted bin set.
+       */
+      kind: "facility-over-cap";
+      facilityId: FacilityId;
+      used: number;
+      cap: number;
+    }
+  | {
+      /**
+       * The user pinned a recipe override whose facility has no valid
+       * bin shape on the packer side. Packer fell back to a per-recipe
+       * singleton bin for that recipe.
+       */
+      kind: "packer-override-infeasible";
+      recipeId: RecipeId;
+      facilityId: FacilityId;
+    }
+  | {
+      /**
+       * Generic packer-fallback signal. Emitted when the LP fails for
+       * a reason that isn't tied to a specific override (e.g. demand
+       * ratios outside the conic hull of available variants). All
+       * recipes fall through to singleton bins.
+       */
+      kind: "packer-fallback";
+    };
+
+/**
  * Represents a single step in the production chain.
  * This is the building block for the dependency tree.
  */
@@ -172,13 +227,16 @@ export type ProductionDependencyGraph = {
    */
   recipeBinAllocations: Map<RecipeId, RecipeBinAllocation>;
   /**
-   * Non-fatal warnings surfaced from any calculation stage. Currently
-   * populated by Phase 3 bin packing when a user recipe override pins a
-   * variant that has no valid bin shape on its facility, forcing a
-   * fallback to per-recipe singletons. Empty when the calculation
-   * completed without such issues.
+   * Non-fatal warnings surfaced from any calculation stage. Populated by:
+   *
+   *   - Phase 3 bin packing: recipe-override pin infeasibility, packer
+   *     fallback, and (Step 2) per-facility cap overflow.
+   *
+   * Warnings are emitted as structured `PlanWarning` discriminants so
+   * the display layer can apply `ceilMode` + i18n at format time.
+   * `useProductionPlan.warnings` (a memo) is the canonical formatter.
    */
-  warnings: string[];
+  warnings: PlanWarning[];
 };
 
 /**

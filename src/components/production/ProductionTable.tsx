@@ -29,7 +29,7 @@ import { rawMaterialSources, facilities as allFacilities } from "@/data";
 export type ProductionLineData = {
   item: Item;
   outputRate: number;
-  availableRecipes: Recipe[];
+  availableRecipes: readonly Recipe[];
   selectedRecipeId: RecipeId | "";
   facility: Facility | null;
   facilityCount: number;
