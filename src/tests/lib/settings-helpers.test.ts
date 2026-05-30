@@ -229,6 +229,7 @@ const mkStructure = (
   nameKey: index === undefined ? "byproductOutlet" : "sewageInlet",
   index,
   gameBuildingId: `gate_${id}`,
+  iconSlug: `icon_${id}`,
   recipe: { inputItemId: SEWAGE, inputAmount: 1 },
 });
 

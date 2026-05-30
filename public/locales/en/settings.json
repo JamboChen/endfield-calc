@@ -34,11 +34,12 @@
     "purificationNode": "Purification Node",
     "sewageInlet": "Sewage Inlet {{n}}",
     "byproductOutlet": "Byproduct Outlet",
-    "help": "Map structures you can wire into your factory. Enabling one also enables the structures it depends on.",
+    "help": "Activate structures you can connect to your factory.",
     "treats": "Treats {{item}}",
     "produces": "Produces {{item}}"
   },
   "rawLimits": {
+    "cardTitle": "Natural Resources",
     "help": "A blank row means unlimited supply. Enter a rate to limit a resource.",
     "clearAll": "Clear all",
     "placeholder": "∞",

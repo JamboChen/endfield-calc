@@ -44,6 +44,7 @@ const WULING_PURIFICATION_NODE: readonly RegionStructure[] = [
     nameKey: "sewageInlet",
     index: 1,
     gameBuildingId: "liquid_clean_gate_1",
+    iconSlug: "icon_port_liquid_clean_gate_1",
     recipe: SEWAGE_INLET_RECIPE,
   },
   {
@@ -54,6 +55,7 @@ const WULING_PURIFICATION_NODE: readonly RegionStructure[] = [
     nameKey: "sewageInlet",
     index: 2,
     gameBuildingId: "liquid_clean_gate_2",
+    iconSlug: "icon_port_liquid_clean_gate_1",
     recipe: SEWAGE_INLET_RECIPE,
   },
   {
@@ -64,6 +66,7 @@ const WULING_PURIFICATION_NODE: readonly RegionStructure[] = [
     nameKey: "sewageInlet",
     index: 3,
     gameBuildingId: "liquid_clean_gate_3",
+    iconSlug: "icon_port_liquid_clean_gate_1",
     recipe: SEWAGE_INLET_RECIPE,
   },
   {
@@ -73,6 +76,7 @@ const WULING_PURIFICATION_NODE: readonly RegionStructure[] = [
     kind: "source",
     nameKey: "byproductOutlet",
     gameBuildingId: "liquid_recycle_gate_1",
+    iconSlug: "icon_port_liquid_recycle_gate_1",
     recipe: {
       inputItemId: ItemId.ITEM_LIQUID_SEWAGE,
       inputAmount: 30,

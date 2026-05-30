@@ -276,8 +276,10 @@ export function RegionConfigTabs({
 }
 
 function CountBadge({ children }: { children: ReactNode }) {
+  // Hidden below `sm` so 4 tab labels fit at ~331px; the in-panel status
+  // line still surfaces the counts on mobile.
   return (
-    <span className="ml-1 text-[10px] tabular-nums font-medium rounded px-1 py-0.5 bg-background/70 text-muted-foreground">
+    <span className="ml-1 hidden sm:inline-flex text-[10px] tabular-nums font-medium rounded px-1 py-0.5 bg-background/70 text-muted-foreground">
       {children}
     </span>
   );

@@ -34,11 +34,12 @@
     "purificationNode": "浄水装置",
     "sewageInlet": "汚水入力口 {{n}}",
     "byproductOutlet": "副産物出力口",
-    "help": "工場に接続できるマップ構造物です。1つを有効にすると、それが依存する構造物も有効になります。",
+    "help": "工場に接続できる構造物を有効化します。",
     "treats": "{{item}}を処理",
     "produces": "{{item}}を生産"
   },
   "rawLimits": {
+    "cardTitle": "天然資源",
     "help": "空欄はその資源が無制限であることを意味します。数値を入力すると上限を設定できます。",
     "clearAll": "すべてクリア",
     "placeholder": "∞",

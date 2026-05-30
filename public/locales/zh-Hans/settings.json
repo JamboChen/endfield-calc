@@ -34,11 +34,12 @@
     "purificationNode": "净水节点",
     "sewageInlet": "污水接入口 {{n}}",
     "byproductOutlet": "产物排出口",
-    "help": "可接入工厂的地图结构物。启用其一会同时启用它所依赖的结构物。",
+    "help": "激活可接入工厂的结构物。",
     "treats": "处理{{item}}",
     "produces": "产出{{item}}"
   },
   "rawLimits": {
+    "cardTitle": "自然资源",
     "help": "留空表示该资源供应无限。填入数值可设置限额。",
     "clearAll": "全部清除",
     "placeholder": "∞",

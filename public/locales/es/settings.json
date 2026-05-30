@@ -34,11 +34,12 @@
     "purificationNode": "Nodo de purificación",
     "sewageInlet": "Entrada de aguas residuales {{n}}",
     "byproductOutlet": "Salida de subproductos",
-    "help": "Estructuras del mapa que puedes conectar a tu fábrica. Activar una también activa las estructuras de las que depende.",
+    "help": "Activa las estructuras que puedes conectar a tu fábrica.",
     "treats": "Procesa {{item}}",
     "produces": "Produce {{item}}"
   },
   "rawLimits": {
+    "cardTitle": "Recursos naturales",
     "help": "Una fila en blanco significa suministro ilimitado. Introduce una tasa para limitar un recurso.",
     "clearAll": "Borrar todo",
     "placeholder": "∞",

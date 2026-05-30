@@ -19,3 +19,12 @@ export function facilityIconUrl(facilityId: string): string {
   const slug = FACILITY_ICON_FALLBACK[facilityId] ?? facilityId;
   return `${import.meta.env.BASE_URL}images/facilities/${slug}.png`;
 }
+
+/**
+ * Icon URL for a region structure (Purification Node parts). Assets live
+ * under `public/images/structures/` keyed by `RegionStructure.iconSlug`
+ * (the game's `iconOnPanel` basename, e.g. `icon_port_liquid_clean_gate_1`).
+ */
+export function structureIconUrl(iconSlug: string): string {
+  return `${import.meta.env.BASE_URL}images/structures/${iconSlug}.png`;
+}

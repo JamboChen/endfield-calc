@@ -16,6 +16,8 @@ import { facilityIconUrl } from "@/lib/facility-icons";
 import { getRecipeName } from "@/lib/i18n-helpers";
 import type { FacilityId, RecipeId } from "@/types";
 
+import { settingsRowClass } from "./SettingsCard";
+
 interface AicNodeRowProps {
   node: AicNode;
   researched: ReadonlySet<AicTechId>;
@@ -181,8 +183,8 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
   return (
     <div
       className={cn(
-        "group/aicrow flex items-center gap-3 min-h-[44px] px-2 py-1.5 rounded-md",
-        "transition-colors",
+        "group/aicrow transition-colors",
+        settingsRowClass,
         isLocked
           ? "opacity-55"
           : "hover:bg-accent/60 dark:hover:bg-accent/40",

@@ -42,6 +42,8 @@ type RegionStructure = {
   readonly index?: number;
   /** Backing game building id (documentation / future solver wiring). */
   readonly gameBuildingId: string;
+  /** Icon basename under `public/images/structures/` (no extension). */
+  readonly iconSlug: string;
   readonly recipe: RegionStructureRecipe;
 };
 

@@ -3,13 +3,19 @@
  *
  * Behaviour contract for the menu UI (Step 1 of the AIC Plan feature):
  *
- *   - **Individual checkbox toggle is strict.** Clicking a node whose
- *     prereqs are unmet is a no-op at the UI level; `canActivate` reports
- *     this. Toggling OFF a node that's a prereq of other researched nodes
- *     also deactivates them (see `cascadeDeactivate`).
+ *   - **`toggleNode` is strict.** Clicking a node whose prereqs are unmet
+ *     is a no-op via `toggleNode`; this gates the Plan tab (`AicNodeRow`),
+ *     where locked rows render disabled. Toggling OFF a node that's a
+ *     prereq of other researched nodes also deactivates them (see
+ *     `cascadeDeactivate`).
  *   - **Bulk "Activate all" actions cascade silently.** Activating a set of
  *     target nodes pulls in every transitive prereq via `cascadeActivate`.
  *     The UI surfaces the resulting count delta in a toast.
+ *   - **The Limits cap-raise rows opt into per-row cascade-on-click.** They
+ *     route an unresearched click through `activateNodes` (`cascadeActivate`)
+ *     instead of `toggleNode`, so clicking a faded (prereq-unmet) row pulls
+ *     its prereqs in rather than no-op'ing. Unchecking still uses
+ *     `toggleNode` -> `cascadeDeactivate`.
  *   - **Default-unlocked nodes (`alreadyUnlocked: true`) cannot be
  *     deactivated.** `cascadeDeactivate` skips them.
  *

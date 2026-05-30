@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 import type { Item, ItemId } from "@/types";
 import type { DomainId } from "@/types/domain";
 
+import { SettingsCard, settingsRowClass } from "./SettingsCard";
+
 // Module-scope item index. `items` is a static module import, so the
 // Map can be built once at module load rather than every render.
 const ITEMS_BY_ID: ReadonlyMap<ItemId, Item> = new Map(
@@ -90,40 +92,47 @@ export function RawLimitsContent({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-xs text-muted-foreground leading-relaxed flex-1">
-          {t("rawLimits.help", {
-            ns: "settings",
-            defaultValue:
-              "A blank row means unlimited supply. Enter a rate to limit a resource.",
-          })}
-        </p>
-        {sourcedCount > 0 && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground shrink-0"
-            onClick={handleClearAll}
-          >
-            {t("rawLimits.clearAll", {
-              ns: "settings",
-              defaultValue: "Clear all",
-            })}
-          </Button>
-        )}
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-        {rows.map((item) => (
-          <RawLimitRow
-            key={item.id}
-            item={item}
-            domainId={domainId}
-            value={overrides.get(rawLimitKey(item.id, domainId))}
-            onSetLimit={onSetLimit}
-          />
-        ))}
-      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed px-1">
+        {t("rawLimits.help", {
+          ns: "settings",
+          defaultValue:
+            "A blank row means unlimited supply. Enter a rate to limit a resource.",
+        })}
+      </p>
+      <SettingsCard
+        title={t("rawLimits.cardTitle", {
+          ns: "settings",
+          defaultValue: "Natural Resources",
+        })}
+        actions={
+          sourcedCount > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 sm:h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={handleClearAll}
+            >
+              {t("rawLimits.clearAll", {
+                ns: "settings",
+                defaultValue: "Clear all",
+              })}
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5">
+          {rows.map((item) => (
+            <RawLimitRow
+              key={item.id}
+              item={item}
+              domainId={domainId}
+              value={overrides.get(rawLimitKey(item.id, domainId))}
+              onSetLimit={onSetLimit}
+            />
+          ))}
+        </div>
+      </SettingsCard>
     </div>
   );
 }
@@ -183,26 +192,27 @@ function RawLimitRow({ item, domainId, value, onSetLimit }: RawLimitRowProps) {
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-md py-1.5 px-1.5",
+        settingsRowClass,
         hasOverride
           ? "bg-muted/30"
-          : "bg-transparent hover:bg-muted/20 transition-colors",
+          : "hover:bg-muted/20 transition-colors",
       )}
     >
+      {item.iconUrl && (
+        <img
+          src={item.iconUrl}
+          alt=""
+          aria-hidden="true"
+          className="size-6 object-contain shrink-0"
+          draggable={false}
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.visibility = "hidden";
+          }}
+        />
+      )}
       <span
         className={cn(
-          "flex items-center justify-center size-7 shrink-0 rounded border bg-background",
-          hasOverride ? "border-border" : "border-border/50",
-        )}
-        aria-hidden="true"
-      >
-        {item.iconUrl && (
-          <img src={item.iconUrl} alt="" className="size-5 object-contain" />
-        )}
-      </span>
-      <span
-        className={cn(
-          "text-sm flex-1 min-w-0 truncate",
+          "flex-1 min-w-0 truncate",
           hasOverride ? "font-medium" : "text-muted-foreground",
         )}
       >
@@ -222,7 +232,7 @@ function RawLimitRow({ item, domainId, value, onSetLimit }: RawLimitRowProps) {
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commitDraft}
           className={cn(
-            "h-7 w-20 text-xs tabular-nums",
+            "h-9 sm:h-7 w-20 text-xs tabular-nums",
             // Hide native number-input spinner arrows: rate values are
             // typed, not incremented click-by-click, and the arrows eat
             // ~16px of visible digit space inside the box.

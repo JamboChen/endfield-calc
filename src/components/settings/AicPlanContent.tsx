@@ -47,7 +47,7 @@ export function AicPlanContent({
   onResetGroup,
 }: AicPlanContentProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {groups.map((group) => (
         <AicPlanGroup
           key={group.id}
@@ -165,7 +165,7 @@ function AicPlanGroup({
         </span>
         <span
           className={cn(
-            "text-[11px] tabular-nums font-medium rounded px-2 py-0.5 shrink-0",
+            "text-[11px] tabular-nums font-medium rounded px-1.5 py-0.5 shrink-0",
             allDone
               ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
               : "bg-muted text-muted-foreground",
@@ -178,7 +178,7 @@ function AicPlanGroup({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-7 text-muted-foreground hover:text-foreground hover:bg-accent/80 shrink-0"
+            className="size-9 sm:size-7 text-muted-foreground hover:text-foreground hover:bg-accent/80 shrink-0"
             onClick={toggleAllLayers}
             aria-label={
               allLayersOpen
@@ -215,7 +215,7 @@ function AicPlanGroup({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-7 text-muted-foreground hover:text-foreground hover:bg-accent/80 shrink-0"
+            className="size-9 sm:size-7 text-muted-foreground hover:text-foreground hover:bg-accent/80 shrink-0"
             onClick={() => onActivateGroup(group.id)}
             aria-label={t("aic.activateAll", {
               ns: "settings",
@@ -234,7 +234,7 @@ function AicPlanGroup({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-7 text-muted-foreground hover:text-foreground hover:bg-accent/80 shrink-0"
+            className="size-9 sm:size-7 text-muted-foreground hover:text-foreground hover:bg-accent/80 shrink-0"
             onClick={() => onResetGroup(group.id)}
             aria-label={t("aic.resetDefaults", {
               ns: "settings",
