@@ -21,12 +21,22 @@
   "tabs": {
     "plan": "Plan",
     "limits": "Limits",
-    "raws": "Resources"
+    "raws": "Resources",
+    "structures": "Structures"
   },
   "status": {
     "researched": "{{done}} / {{total}} researched",
     "customized": "{{n}} customized",
-    "sourced": "{{done}} / {{total}} sourced"
+    "sourced": "{{done}} / {{total}} sourced",
+    "enabled": "{{done}} / {{total}} enabled"
+  },
+  "structures": {
+    "purificationNode": "Purification Node",
+    "sewageInlet": "Sewage Inlet {{n}}",
+    "byproductOutlet": "Byproduct Outlet",
+    "help": "Map structures you can wire into your factory. Enabling one also enables the structures it depends on.",
+    "treats": "Treats {{item}}",
+    "produces": "Produces {{item}}"
   },
   "rawLimits": {
     "help": "A blank row means unlimited supply. Enter a rate to limit a resource.",

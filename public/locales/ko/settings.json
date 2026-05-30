@@ -21,12 +21,22 @@
   "tabs": {
     "plan": "플랜",
     "limits": "한도",
-    "raws": "자원"
+    "raws": "자원",
+    "structures": "구조물"
   },
   "status": {
     "researched": "{{done}} / {{total}} 연구됨",
     "customized": "{{n}}개 사용자 지정",
-    "sourced": "{{done}} / {{total}} 확보됨"
+    "sourced": "{{done}} / {{total}} 확보됨",
+    "enabled": "{{done}} / {{total}} 활성화됨"
+  },
+  "structures": {
+    "purificationNode": "정수 노드",
+    "sewageInlet": "오염수 유입구 {{n}}",
+    "byproductOutlet": "생산품 배출구",
+    "help": "공장에 연결할 수 있는 맵 구조물입니다. 하나를 활성화하면 의존하는 구조물도 함께 활성화됩니다.",
+    "treats": "{{item}} 처리",
+    "produces": "{{item}} 생산"
   },
   "rawLimits": {
     "help": "빈칸은 해당 자원이 무제한임을 의미합니다. 값을 입력하면 한도를 설정합니다.",

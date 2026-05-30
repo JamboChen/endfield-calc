@@ -199,3 +199,4 @@ export {
   MAX_TARGETS,
 };
 export type { RawSourceConfig };
+export { regionStructures } from "./region-structures";

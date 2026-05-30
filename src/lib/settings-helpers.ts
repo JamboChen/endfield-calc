@@ -1,7 +1,9 @@
 import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import type { Item, ItemId } from "@/types";
-import type { AicGroup, AicNode, AicTechId } from "@/types/aic";
+import type { RegionStructureId } from "@/types/constants";
+import type { AicGroup, AicNode, AicTechId, FacilityBaseCap } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
+import type { RegionStructure } from "@/types/structures";
 
 /**
  * Resolve which region the Settings panel should be editing.
@@ -112,4 +114,109 @@ export function countRawSourced(
     if (overrides.has(rawLimitKey(item.id, domainId))) done++;
   }
   return { done, total: rowItems.length };
+}
+
+/**
+ * Number of distinct capped facilities in a region (a facility with a
+ * base cap or a cap-raise node). Drives **Limits-tab visibility** —
+ * regions with zero targets don't show the tab. Mirrors the `targets`
+ * collation in `FacilityLimitsContent` (deduped by facility, domain fixed).
+ */
+export function countFacilityCapTargets(
+  baseCaps: readonly FacilityBaseCap[],
+  capRaiseNodes: readonly AicNode[],
+  domainId: DomainId,
+): number {
+  const facilities = new Set<string>();
+  for (const b of baseCaps) {
+    if (b.domainId === domainId) facilities.add(b.facilityId);
+  }
+  for (const n of capRaiseNodes) {
+    if (n.action.kind === "capRaise" && n.action.domainId === domainId) {
+      facilities.add(n.action.facilityId);
+    }
+  }
+  return facilities.size;
+}
+
+/** Stable key for an enabled `(domain, structure)` pair (NUL-delimited). */
+export function structureKey(
+  domainId: DomainId,
+  structureId: RegionStructureId,
+): string {
+  return `${domainId}\u0000${structureId}`;
+}
+
+/**
+ * Toggle one region structure with a prereq-chain cascade (linear today,
+ * but general over `requires`). Enabling a structure pulls in its
+ * transitive prereqs; disabling it drops every transitive dependent. Pure
+ * over one region's structure set + that region's currently-enabled ids.
+ */
+export function cascadeStructureChain(
+  structures: readonly RegionStructure[],
+  enabledIds: ReadonlySet<RegionStructureId>,
+  toggleId: RegionStructureId,
+): ReadonlySet<RegionStructureId> {
+  const byId = new Map<RegionStructureId, RegionStructure>();
+  for (const s of structures) byId.set(s.id, s);
+  const next = new Set(enabledIds);
+
+  if (enabledIds.has(toggleId)) {
+    // Disable: drop toggleId + every structure that (transitively)
+    // requires it.
+    const doomed = new Set<RegionStructureId>([toggleId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const s of structures) {
+        if (s.requires && doomed.has(s.requires) && !doomed.has(s.id)) {
+          doomed.add(s.id);
+          changed = true;
+        }
+      }
+    }
+    for (const id of doomed) next.delete(id);
+  } else {
+    // Enable: add toggleId + walk the `requires` chain to the head.
+    let cur: RegionStructureId | undefined = toggleId;
+    const guard = new Set<RegionStructureId>();
+    while (cur && !guard.has(cur)) {
+      guard.add(cur);
+      next.add(cur);
+      cur = byId.get(cur)?.requires;
+    }
+  }
+  return next;
+}
+
+/**
+ * Enabled / total structure count for a region. Drives the
+ * Structures-tab badge ("N / 4 enabled").
+ */
+export function countRegionStructuresEnabled(
+  enabled: ReadonlySet<string>,
+  structures: readonly RegionStructure[],
+  domainId: DomainId,
+): ProgressCount {
+  let done = 0;
+  for (const s of structures) {
+    if (enabled.has(structureKey(domainId, s.id))) done++;
+  }
+  return { done, total: structures.length };
+}
+
+/**
+ * Keep the requested tab if it is still available for the region,
+ * otherwise fall back to the first available tab. Pure + deterministic
+ * so the variable-tab fallback (a region may lack Limits/Structures) is
+ * unit-testable without rendering. `available` is never empty in
+ * practice (every region has a Plan).
+ */
+export function resolveActiveTab(
+  requested: string,
+  available: readonly string[],
+): string {
+  if (available.includes(requested)) return requested;
+  return available[0] ?? requested;
 }

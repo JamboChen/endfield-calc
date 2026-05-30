@@ -21,12 +21,22 @@
   "tabs": {
     "plan": "方案",
     "limits": "上限",
-    "raws": "资源"
+    "raws": "资源",
+    "structures": "结构物"
   },
   "status": {
     "researched": "已研究 {{done}} / {{total}}",
     "customized": "已自定义 {{n}}",
-    "sourced": "已获取 {{done}} / {{total}}"
+    "sourced": "已获取 {{done}} / {{total}}",
+    "enabled": "已启用 {{done}} / {{total}}"
+  },
+  "structures": {
+    "purificationNode": "净水节点",
+    "sewageInlet": "污水接入口 {{n}}",
+    "byproductOutlet": "产物排出口",
+    "help": "可接入工厂的地图结构物。启用其一会同时启用它所依赖的结构物。",
+    "treats": "处理{{item}}",
+    "produces": "产出{{item}}"
   },
   "rawLimits": {
     "help": "留空表示该资源供应无限。填入数值可设置限额。",

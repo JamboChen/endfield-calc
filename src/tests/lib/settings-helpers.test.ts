@@ -1,18 +1,30 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  cascadeStructureChain,
   countAicResearched,
   countCustomizedCaps,
+  countFacilityCapTargets,
   countRawSourced,
+  countRegionStructuresEnabled,
   filterRegionRawItems,
+  resolveActiveTab,
   resolveEditingDomain,
+  structureKey,
 } from "@/lib/settings-helpers";
 import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import { AicGroupId } from "@/types/aic";
-import type { AicGroup, AicNode, AicLayerId, AicTechId } from "@/types/aic";
-import { FacilityId } from "@/types/constants";
-import type { Item, ItemId } from "@/types";
+import type {
+  AicGroup,
+  AicNode,
+  AicLayerId,
+  AicTechId,
+  FacilityBaseCap,
+} from "@/types/aic";
+import { FacilityId, ItemId, RegionStructureId } from "@/types/constants";
+import type { Item } from "@/types";
 import type { DomainId } from "@/types/domain";
+import type { RegionStructure } from "@/types/structures";
 
 const DOMAIN_1 = "domain_1" as DomainId;
 const DOMAIN_2 = "domain_2" as DomainId;
@@ -170,5 +182,171 @@ describe("countRawSourced", () => {
       done: 0,
       total: 2,
     });
+  });
+});
+
+describe("countFacilityCapTargets", () => {
+  const baseCaps: FacilityBaseCap[] = [
+    { facilityId: FacilityId.FURNANCE_1, domainId: DOMAIN_2, base: 1 },
+  ];
+  const capRaise = (facilityId: FacilityId, domainId: DomainId): AicNode => ({
+    id: `raise_${facilityId}` as AicTechId,
+    groupId: AicGroupId.WULING,
+    layerId: "L1" as AicLayerId,
+    preNodes: [],
+    alreadyUnlocked: false,
+    action: { kind: "capRaise", facilityId, domainId, delta: 1 },
+    additionalFacilities: [],
+  });
+
+  test("counts a facility with a base cap or a cap-raise (deduped)", () => {
+    const nodes = [capRaise(FacilityId.FURNANCE_1, DOMAIN_2)];
+    // Same facility via base + raise → 1 distinct target.
+    expect(countFacilityCapTargets(baseCaps, nodes, DOMAIN_2)).toBe(1);
+  });
+
+  test("counts a cap-raise-only facility", () => {
+    const nodes = [capRaise(FacilityId.GRINDER_1, DOMAIN_2)];
+    expect(countFacilityCapTargets(baseCaps, nodes, DOMAIN_2)).toBe(2);
+  });
+
+  test("returns 0 for a region with no targets (drives tab hiding)", () => {
+    expect(countFacilityCapTargets(baseCaps, [], DOMAIN_1)).toBe(0);
+  });
+});
+
+// ── Region-structure chain fixtures (Wuling Purification Node) ──────
+const SEWAGE = ItemId.ITEM_LIQUID_SEWAGE;
+const mkStructure = (
+  id: RegionStructureId,
+  requires: RegionStructureId | undefined,
+  index?: number,
+): RegionStructure => ({
+  id,
+  domainId: DOMAIN_2,
+  requires,
+  kind: index === undefined ? "source" : "sink",
+  nameKey: index === undefined ? "byproductOutlet" : "sewageInlet",
+  index,
+  gameBuildingId: `gate_${id}`,
+  recipe: { inputItemId: SEWAGE, inputAmount: 1 },
+});
+
+const CHAIN: RegionStructure[] = [
+  mkStructure(RegionStructureId.SEWAGE_INLET_1, undefined, 1),
+  mkStructure(RegionStructureId.SEWAGE_INLET_2, RegionStructureId.SEWAGE_INLET_1, 2),
+  mkStructure(RegionStructureId.SEWAGE_INLET_3, RegionStructureId.SEWAGE_INLET_2, 3),
+  mkStructure(RegionStructureId.BYPRODUCT_OUTLET, RegionStructureId.SEWAGE_INLET_3),
+];
+
+describe("cascadeStructureChain", () => {
+  test("enabling a structure pulls in its prereq chain", () => {
+    const next = cascadeStructureChain(
+      CHAIN,
+      new Set(),
+      RegionStructureId.SEWAGE_INLET_3,
+    );
+    expect(next).toEqual(
+      new Set([
+        RegionStructureId.SEWAGE_INLET_1,
+        RegionStructureId.SEWAGE_INLET_2,
+        RegionStructureId.SEWAGE_INLET_3,
+      ]),
+    );
+  });
+
+  test("enabling the tail (Byproduct Outlet) enables the whole chain", () => {
+    const next = cascadeStructureChain(
+      CHAIN,
+      new Set(),
+      RegionStructureId.BYPRODUCT_OUTLET,
+    );
+    expect(next.size).toBe(4);
+  });
+
+  test("disabling the head drops every dependent", () => {
+    const all = new Set([
+      RegionStructureId.SEWAGE_INLET_1,
+      RegionStructureId.SEWAGE_INLET_2,
+      RegionStructureId.SEWAGE_INLET_3,
+      RegionStructureId.BYPRODUCT_OUTLET,
+    ]);
+    const next = cascadeStructureChain(
+      CHAIN,
+      all,
+      RegionStructureId.SEWAGE_INLET_1,
+    );
+    expect(next.size).toBe(0);
+  });
+
+  test("disabling a middle link drops only its dependents", () => {
+    const enabled = new Set([
+      RegionStructureId.SEWAGE_INLET_1,
+      RegionStructureId.SEWAGE_INLET_2,
+      RegionStructureId.SEWAGE_INLET_3,
+    ]);
+    const next = cascadeStructureChain(
+      CHAIN,
+      enabled,
+      RegionStructureId.SEWAGE_INLET_2,
+    );
+    expect(next).toEqual(new Set([RegionStructureId.SEWAGE_INLET_1]));
+  });
+
+  test("enabling the head alone keeps it minimal", () => {
+    const next = cascadeStructureChain(
+      CHAIN,
+      new Set(),
+      RegionStructureId.SEWAGE_INLET_1,
+    );
+    expect(next).toEqual(new Set([RegionStructureId.SEWAGE_INLET_1]));
+  });
+});
+
+describe("countRegionStructuresEnabled", () => {
+  test("counts enabled structures for the region against the total", () => {
+    const enabled = new Set<string>([
+      structureKey(DOMAIN_2, RegionStructureId.SEWAGE_INLET_1),
+      structureKey(DOMAIN_2, RegionStructureId.SEWAGE_INLET_2),
+    ]);
+    expect(countRegionStructuresEnabled(enabled, CHAIN, DOMAIN_2)).toEqual({
+      done: 2,
+      total: 4,
+    });
+  });
+
+  test("ignores enabled keys from other regions", () => {
+    const enabled = new Set<string>([
+      structureKey(DOMAIN_1, RegionStructureId.SEWAGE_INLET_1),
+    ]);
+    expect(countRegionStructuresEnabled(enabled, CHAIN, DOMAIN_2)).toEqual({
+      done: 0,
+      total: 4,
+    });
+  });
+});
+
+describe("structureKey", () => {
+  test("encodes a NUL-delimited (domain, structure) pair", () => {
+    expect(structureKey(DOMAIN_2, RegionStructureId.SEWAGE_INLET_1)).toBe(
+      "domain_2\u0000sewage_inlet_1",
+    );
+  });
+});
+
+describe("resolveActiveTab", () => {
+  test("keeps the requested tab when available", () => {
+    expect(resolveActiveTab("limits", ["plan", "limits", "raws"])).toBe(
+      "limits",
+    );
+  });
+
+  test("falls back to the first available tab when not present", () => {
+    // e.g. on Wuling's Limits, then switch to a region without Limits.
+    expect(resolveActiveTab("limits", ["plan", "raws"])).toBe("plan");
+  });
+
+  test("returns the request unchanged when nothing is available", () => {
+    expect(resolveActiveTab("plan", [])).toBe("plan");
   });
 });

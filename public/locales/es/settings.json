@@ -21,12 +21,22 @@
   "tabs": {
     "plan": "Plan",
     "limits": "Límites",
-    "raws": "Recursos"
+    "raws": "Recursos",
+    "structures": "Estructuras"
   },
   "status": {
     "researched": "{{done}} / {{total}} investigado",
     "customized": "{{n}} personalizado",
-    "sourced": "{{done}} / {{total}} con fuente"
+    "sourced": "{{done}} / {{total}} con fuente",
+    "enabled": "{{done}} / {{total}} activadas"
+  },
+  "structures": {
+    "purificationNode": "Nodo de purificación",
+    "sewageInlet": "Entrada de aguas residuales {{n}}",
+    "byproductOutlet": "Salida de subproductos",
+    "help": "Estructuras del mapa que puedes conectar a tu fábrica. Activar una también activa las estructuras de las que depende.",
+    "treats": "Procesa {{item}}",
+    "produces": "Produce {{item}}"
   },
   "rawLimits": {
     "help": "Una fila en blanco significa suministro ilimitado. Introduce una tasa para limitar un recurso.",

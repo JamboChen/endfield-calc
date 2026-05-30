@@ -108,7 +108,7 @@ import {
   domains as domainData,
   facilityBaseCaps,
 } from "@/data/aic-plans";
-import { rawAvailabilityByDomain } from "@/data";
+import { rawAvailabilityByDomain, regionStructures } from "@/data";
 import {
   buildNodeIndex,
   cascadeActivate,
@@ -122,6 +122,7 @@ import {
   isGroupAtDefaults,
 } from "@/lib/aic-research-helpers";
 import { parseRawLimitKey, rawLimitKey } from "@/lib/raw-limits-helpers";
+import { cascadeStructureChain, structureKey } from "@/lib/settings-helpers";
 import type {
   AicGroupId,
   AicLayerId,
@@ -130,6 +131,7 @@ import type {
 } from "@/types/aic";
 import type { Domain, DomainId } from "@/types/domain";
 import type { FacilityId, ItemId } from "@/types";
+import type { RegionStructureId } from "@/types/constants";
 
 const STORAGE_KEY = "endfield-calc:aic-v1";
 
@@ -143,6 +145,11 @@ interface RawLimitOverrideRecord {
   itemId: ItemId;
   domainId: DomainId;
   value: number;
+}
+
+interface StructureEnabledRecord {
+  domainId: DomainId;
+  structureId: RegionStructureId;
 }
 
 /**
@@ -162,6 +169,14 @@ interface PersistedShape {
   };
   rawLimits?: {
     overrides: RawLimitOverrideRecord[];
+  };
+  /**
+   * Opt-in region structures (absent in payloads written before the
+   * "Structures" tab). Allow-list of enabled `(domain, structure)` pairs;
+   * absence = the structure is off (opt-in default).
+   */
+  structures?: {
+    enabled: StructureEnabledRecord[];
   };
 }
 
@@ -296,6 +311,10 @@ function loadFromStorage(): PersistedShape | null {
     const parsed = JSON.parse(raw);
     const knownTechIds = new Set(aicNodes.map((n) => n.id as string));
     const knownDomainIds = new Set(domainData.map((d) => d.id as string));
+    const knownStructureKeys = new Set<string>();
+    for (const [domainId, list] of regionStructures) {
+      for (const s of list) knownStructureKeys.add(structureKey(domainId, s.id));
+    }
 
     let shape: PersistedShape | null = null;
     if (isNestedShape(parsed)) {
@@ -367,10 +386,29 @@ function loadFromStorage(): PersistedShape | null {
         )
       : [];
 
+    // Region structures — drop entries whose (domain, structure) pair is
+    // not a known structure (e.g. registry changed, or hand-edited state).
+    const structuresEnabled = Array.isArray(shape.structures?.enabled)
+      ? shape.structures.enabled.filter(
+          (r): r is StructureEnabledRecord =>
+            r !== null &&
+            typeof r === "object" &&
+            typeof r.domainId === "string" &&
+            typeof r.structureId === "string" &&
+            knownStructureKeys.has(
+              structureKey(
+                r.domainId as DomainId,
+                r.structureId as RegionStructureId,
+              ),
+            ),
+        )
+      : [];
+
     return {
       domains: { inactive, current },
       aic: { unresearched, capOverrides },
       rawLimits: { overrides: rawLimitOverrides },
+      structures: { enabled: structuresEnabled },
     };
   } catch {
     return null;
@@ -383,6 +421,7 @@ function persistToStorage(state: {
   capOverrides: ReadonlyMap<string, number>;
   currentDomain: DomainId;
   rawLimitOverrides: ReadonlyMap<string, number>;
+  structuresEnabled: ReadonlySet<string>;
 }): void {
   if (typeof window === "undefined") return;
   try {
@@ -415,6 +454,16 @@ function persistToStorage(state: {
       });
     }
 
+    const structuresList: StructureEnabledRecord[] = [];
+    for (const key of state.structuresEnabled) {
+      const sep = key.indexOf("\u0000");
+      if (sep === -1) continue;
+      structuresList.push({
+        domainId: key.slice(0, sep) as DomainId,
+        structureId: key.slice(sep + 1) as RegionStructureId,
+      });
+    }
+
     const payload: PersistedShape = {
       domains: {
         inactive: Array.from(state.inactiveDomains).sort(),
@@ -432,6 +481,13 @@ function persistToStorage(state: {
         overrides: rawLimitsList.sort((a, b) => {
           if (a.itemId !== b.itemId) return a.itemId.localeCompare(b.itemId);
           return a.domainId.localeCompare(b.domainId);
+        }),
+      },
+      structures: {
+        enabled: structuresList.sort((a, b) => {
+          if (a.domainId !== b.domainId)
+            return a.domainId.localeCompare(b.domainId);
+          return a.structureId.localeCompare(b.structureId);
         }),
       },
     };
@@ -553,6 +609,24 @@ export interface RawLimitsSubState {
   ) => void;
 }
 
+export interface StructuresSubState {
+  /**
+   * Enabled (domain, structure) pairs, keyed by
+   * `structureKey(domainId, structureId)`. Absence = the structure is
+   * off (opt-in default). Not yet consumed by the calc — this records
+   * the user's intent to use the map structures for the future solver
+   * step.
+   */
+  readonly enabled: ReadonlySet<string>;
+
+  /**
+   * Toggle one region structure with a prereq-chain cascade (enabling
+   * pulls in prereqs; disabling drops dependents). No-op for unknown
+   * `(domain, structure)` pairs.
+   */
+  toggle: (domainId: DomainId, structureId: RegionStructureId) => void;
+}
+
 export interface DomainSettingsValue {
   /** First-class domain registry from the data dump. */
   readonly domains: readonly Domain[];
@@ -621,6 +695,13 @@ export interface DomainSettingsValue {
    * constraints land with the future solver-enforcement workstream).
    */
   readonly rawLimits: RawLimitsSubState;
+
+  /**
+   * Region-exclusive special structures sub-state (the "Structures" tab).
+   * Opt-in enable flags per `(domain, structure)`; persisted but not yet
+   * consumed by the calc (solver wiring is a later workstream).
+   */
+  readonly structures: StructuresSubState;
 }
 
 /**
@@ -641,6 +722,7 @@ function composeInitialState(): {
   capOverrides: Map<string, number>;
   currentDomain: DomainId;
   rawLimitOverrides: Map<string, number>;
+  structuresEnabled: Set<string>;
 } {
   const persisted = loadFromStorage();
 
@@ -694,12 +776,21 @@ function composeInitialState(): {
     }
   }
 
+  // ── structuresEnabled (opt-in; default empty = all off)
+  const structuresEnabled = new Set<string>();
+  if (persisted?.structures) {
+    for (const r of persisted.structures.enabled) {
+      structuresEnabled.add(structureKey(r.domainId, r.structureId));
+    }
+  }
+
   return {
     inactiveDomains,
     researched,
     capOverrides,
     currentDomain,
     rawLimitOverrides,
+    structuresEnabled,
   };
 }
 
@@ -731,6 +822,10 @@ export function useDomainSettings(): DomainSettingsValue {
     ReadonlyMap<string, number>
   >(initial.rawLimitOverrides);
 
+  const [structuresEnabled, setStructuresEnabled] = useState<
+    ReadonlySet<string>
+  >(initial.structuresEnabled);
+
   // Derived: active domains (allDomains - inactive). Pinned domains
   // can never be in `inactiveDomains` (the toggler refuses) so they're
   // always active here.
@@ -756,6 +851,7 @@ export function useDomainSettings(): DomainSettingsValue {
       capOverrides,
       currentDomain,
       rawLimitOverrides,
+      structuresEnabled,
     });
   }, [
     researched,
@@ -763,6 +859,7 @@ export function useDomainSettings(): DomainSettingsValue {
     capOverrides,
     currentDomain,
     rawLimitOverrides,
+    structuresEnabled,
   ]);
 
   // Derived: AIC selectors (domain-aware where applicable).
@@ -1012,6 +1109,37 @@ export function useDomainSettings(): DomainSettingsValue {
     [],
   );
 
+  /**
+   * Toggle one region structure (opt-in), enforcing the prereq chain via
+   * `cascadeStructureChain`: enabling pulls in prereqs, disabling drops
+   * dependents. No-op for unknown (domain, structure) pairs.
+   */
+  const toggleStructure = useCallback(
+    (domainId: DomainId, structureId: RegionStructureId) => {
+      const structures = regionStructures.get(domainId);
+      if (!structures || !structures.some((s) => s.id === structureId)) return;
+      setStructuresEnabled((prev) => {
+        const domainEnabled = new Set<RegionStructureId>();
+        for (const s of structures) {
+          if (prev.has(structureKey(domainId, s.id))) domainEnabled.add(s.id);
+        }
+        const nextDomainEnabled = cascadeStructureChain(
+          structures,
+          domainEnabled,
+          structureId,
+        );
+        // Clear this domain's keys, then re-add the cascaded enabled set.
+        const next = new Set(prev);
+        for (const s of structures) next.delete(structureKey(domainId, s.id));
+        for (const id of nextDomainEnabled) {
+          next.add(structureKey(domainId, id));
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   const aic: AicSubState = useMemo(
     () => ({
       nodes: aicNodes,
@@ -1057,6 +1185,14 @@ export function useDomainSettings(): DomainSettingsValue {
     [rawLimitOverrides, setRawLimitOverride],
   );
 
+  const structures: StructuresSubState = useMemo(
+    () => ({
+      enabled: structuresEnabled,
+      toggle: toggleStructure,
+    }),
+    [structuresEnabled, toggleStructure],
+  );
+
   return {
     domains: domainData,
     activeDomains,
@@ -1066,5 +1202,6 @@ export function useDomainSettings(): DomainSettingsValue {
     setCurrentDomain,
     aic,
     rawLimits,
+    structures,
   };
 }

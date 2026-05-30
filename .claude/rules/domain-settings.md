@@ -28,14 +28,27 @@ paths:
 
 `useDomainSettings` is intentionally a "domain-settings umbrella":
 - Domain-level concerns at the top (`domains`, `activeDomains`, `toggleDomain`, `applyOnboardingChoices`).
-- Per-category sub-states nested under their own keys. Today only `aic`. Future categories (region limits, power budget, …) add new peer sub-objects without disturbing existing call sites.
+- Per-category sub-states nested under their own keys: `aic`, `rawLimits`, `structures`. Future categories (power budget, …) add new peer sub-objects without disturbing existing call sites.
+
+## Region structures (`structures` sub-state + "Structures" tab)
+
+Region-exclusive **map structures** the user opts into (not roster/AIC buildings; not yet wired to the solver). Today: the Wuling Purification Node (3 Sewage Inlets + 1 Byproduct Outlet, a linear prereq chain).
+
+- **Registry** (hand-curated, lightweight): `src/data/region-structures.ts` → `regionStructures: ReadonlyMap<DomainId, readonly RegionStructure[]>`. Captures `requires` (the chain), `kind` (sink/source), and game recipe numbers (from `FactorySewageTreat{Import,Export}Table` + `FactorySewageTreatPlantStoreTable`) for the future solver step. IDs are a closed `RegionStructureId` enum (`constants.ts`), kept distinct from `FacilityId` (these are not wired facilities).
+- **State**: `structures.enabled: ReadonlySet<string>` keyed by `structureKey(domainId, structureId)`; `structures.toggle(domainId, id)` enforces the chain via `cascadeStructureChain` (enable pulls prereqs, disable drops dependents). **Allow-list, default off** (opt-in) — the opposite of AIC's deny-list-all-on default.
+- **UI**: `StructuresContent.tsx` in a region-conditional "Structures" tab (`RegionConfigTabs`). The tab only renders for regions present in `regionStructures`.
+- Pure helpers in `settings-helpers.ts`: `structureKey`, `cascadeStructureChain`, `countRegionStructuresEnabled` (all unit-tested).
+
+## Conditional + controlled tabs
+
+`RegionConfigTabs` renders a tab only when its region has content: Plan (has groups), Limits (`countFacilityCapTargets > 0`), Resources (has raws), Structures (has registry entries). Plan/Resources are effectively always present. Tabs are **controlled** with `resolveActiveTab(activeTab, availableTabs)` so switching to a region lacking the selected tab falls back to the first available tab instead of leaving a dangling selection.
 
 ## Persistence (verified)
 
 - Sole version signal: localStorage key `endfield-calc:aic-v1` (line 96). No `v` field inside the JSON.
 - Loader detects shape (line 217-224): nested `{ domains, aic }` is current; flat `{ unresearched, capOverrides, inactiveDomains? }` is v1, migrated in-memory and re-written nested on next save.
-- AIC sub-state uses a **deny-list** for research (`aic.unresearched`); domains use a **deny-list** for activation (`domains.inactive`).
-- Defensive filter on load (lines 226-242): drops tech / domain / cap-override entries whose IDs no longer exist in data (e.g. after an `extract:aic` run).
+- AIC sub-state uses a **deny-list** for research (`aic.unresearched`); domains use a **deny-list** for activation (`domains.inactive`). `rawLimits.overrides` + `structures.enabled` are **allow-lists** (optional keys; absent in older payloads).
+- Defensive filter on load: drops tech / domain / cap-override / raw-limit / structure entries whose IDs no longer exist in data (e.g. after an `extract:aic` run, or a `regionStructures` change).
 
 ## First-run state
 

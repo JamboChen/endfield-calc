@@ -499,6 +499,24 @@ const FacilityId = {
 type FacilityId = (typeof FacilityId)[keyof typeof FacilityId];
 
 /**
+ * Region-exclusive special structures: map buildings that can be wired
+ * into a factory but are NOT roster/AIC buildings. Closed enum (small,
+ * finite, hand-curated in `src/data/region-structures.ts`). Today only
+ * the Wuling Purification Node (3 Sewage Inlets + 1 Byproduct Outlet, a
+ * linear prereq chain). Kept distinct from `FacilityId` because these are
+ * not (yet) wired as calc facilities — they model an opt-in user
+ * capability surfaced in the Settings "Structures" tab.
+ */
+const RegionStructureId = {
+  BYPRODUCT_OUTLET: "byproduct_outlet",
+  SEWAGE_INLET_1: "sewage_inlet_1",
+  SEWAGE_INLET_2: "sewage_inlet_2",
+  SEWAGE_INLET_3: "sewage_inlet_3",
+} as const;
+type RegionStructureId =
+  (typeof RegionStructureId)[keyof typeof RegionStructureId];
+
+/**
  * Opaque brand for multi-formula bin identifiers.
  *
  * Unlike ItemId / RecipeId / FacilityId (which are literal-string unions of
@@ -516,10 +534,11 @@ type FacilityId = (typeof FacilityId)[keyof typeof FacilityId];
  */
 type BinId = string & { readonly __brand: "BinId" };
 
-export { ItemId, RecipeId, FacilityId };
+export { ItemId, RecipeId, FacilityId, RegionStructureId };
 export type {
   ItemId as ItemIdType,
   RecipeId as RecipeIdType,
   FacilityId as FacilityIdType,
+  RegionStructureId as RegionStructureIdType,
   BinId,
 };
