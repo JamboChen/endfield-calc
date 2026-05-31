@@ -219,6 +219,8 @@
   "seedcollector_plant_sp_2": "Tartpepper Seed Production",
   "seedcollector_plant_sp_3": "Redjade Ginseng Seed Production",
   "seedcollector_plant_sp_4": "Amber Rice Seed Production",
+  "sewage_inlet_byproduct": "Sewage Treatment (Inlet + Outlet)",
+  "sewage_inlet_disposal": "Sewage Treatment (Inlet)",
   "shaper_activity_xiranite_bottle_1": "Experimental Xiranite Bottle Production",
   "shaper_activity_xiranite_enr_bottle_1": "Experimental Heavy Xiranite Bottle Production",
   "shaper_copper_bottle_1": "Cuprium Bottle Production",

@@ -426,6 +426,15 @@ const RecipeId = {
   SEEDCOLLECTOR_PLANT_SP_2: "seedcollector_plant_sp_2",
   SEEDCOLLECTOR_PLANT_SP_3: "seedcollector_plant_sp_3",
   SEEDCOLLECTOR_PLANT_SP_4: "seedcollector_plant_sp_4",
+  // Synthetic recipes (not in upstream `FactoryMachineCraftTable`) for the
+  // `SEWAGE_INLET` map structure. Exactly one is active at any time
+  // depending on whether `BYPRODUCT_OUTLET` is enabled — see
+  // `facilityRecipeVariants` in `src/data/index.ts`.
+  // DISPOSAL: pure sewage sink (outputs=[]); used when outlet is OFF.
+  // BYPRODUCT: same per-building sewage throughput, but emits
+  // `xiranite_poly` at the in-game 30:1 ratio; used when outlet is ON.
+  SEWAGE_INLET_BYPRODUCT: "sewage_inlet_byproduct",
+  SEWAGE_INLET_DISPOSAL: "sewage_inlet_disposal",
   SHAPER_ACTIVITY_XIRANITE_BOTTLE_1: "shaper_activity_xiranite_bottle_1",
   SHAPER_ACTIVITY_XIRANITE_ENR_BOTTLE_1:
     "shaper_activity_xiranite_enr_bottle_1",
@@ -484,6 +493,14 @@ const FacilityId = {
   PUMP_1: "pump_1",
   PUMP_2: "pump_2",
   SEEDCOLLECTOR_1: "seedcollector_1",
+  // Synthetic facility (not in upstream `FactoryBuildingTable`): models
+  // the Wuling map-structure Sewage Inlets as a single capped facility
+  // type. Number of instances = number of enabled inlets via the
+  // Settings "Structures" tab. Two recipes live on this facility — see
+  // `facilityRecipeVariants` in `src/data/index.ts` for the toggle
+  // semantics. Facility definition lives in `src/data/manual-facilities.ts`
+  // (kept out of the auto-generated `facilities.ts`).
+  SEWAGE_INLET: "sewage_inlet",
   SHAPER_1: "shaper_1",
   THICKENER_1: "thickener_1",
   // NOTE: "assebling" is a typo from the upstream `FactoryBuildingTable`

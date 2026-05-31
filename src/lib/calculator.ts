@@ -15,7 +15,7 @@ import type {
   Bin,
   RecipeBinAllocation,
 } from "@/types";
-import { forcedDisposalItems } from "@/data";
+import { facilityRecipeVariants } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
 import { buildBipartiteGraph, detectSCCs } from "./graph-builder";
@@ -28,95 +28,6 @@ import type {
   FlowData,
   InvalidSCCInfo,
 } from "./calculator-types";
-
-// Tolerance for floating-point residuals in surplus mass balance.
-// LP facility counts can be fractions like 1/6 that don't have exact binary
-// representations; recombining `production - consumption - target` can leave
-// residuals on the order of 1e-13. Without this tolerance, a disposal recipe
-// would be injected with facilityCount ≈ 0, rendering as a disconnected
-// "0/min" sink in the UI (e.g. Xircon Effluent on Jade Gourd at 1/min).
-const SURPLUS_EPSILON = 1e-6;
-
-function injectDisposalRecipes(
-  graph: BipartiteGraph,
-  flowData: FlowData,
-  maps: ProductionMaps,
-  targets: Array<{ itemId: ItemId; rate: number }>,
-): void {
-  for (const itemId of forcedDisposalItems) {
-    if (!graph.itemNodes.has(itemId)) continue;
-    const itemNode = graph.itemNodes.get(itemId)!;
-    if (itemNode.isRawMaterial) continue;
-
-    let totalProduction = 0;
-    graph.recipeOutputs.forEach((outputItems, recipeId) => {
-      if (outputItems.has(itemId)) {
-        const recipe = maps.recipeMap.get(recipeId)!;
-        const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
-        const output = recipe.outputs.find((o) => o.itemId === itemId);
-        if (output) {
-          totalProduction +=
-            calcRate(output.amount, recipe.craftingTime) * facilityCount;
-        }
-      }
-    });
-
-    let totalConsumption = 0;
-    const consumers = graph.itemConsumedBy.get(itemId);
-    if (consumers) {
-      for (const recipeId of consumers) {
-        const recipe = maps.recipeMap.get(recipeId)!;
-        if (recipe.outputs.length === 0) continue;
-        const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
-        const input = recipe.inputs.find((i) => i.itemId === itemId);
-        if (input) {
-          totalConsumption +=
-            calcRate(input.amount, recipe.craftingTime) * facilityCount;
-        }
-      }
-    }
-
-    const targetDemand = targets.find((t) => t.itemId === itemId)?.rate || 0;
-
-    const surplus = totalProduction - totalConsumption - targetDemand;
-    if (surplus <= SURPLUS_EPSILON) continue;
-
-    const disposalRecipe = Array.from(maps.recipeMap.values()).find(
-      (r) =>
-        r.outputs.length === 0 && r.inputs.some((i) => i.itemId === itemId),
-    );
-    if (!disposalRecipe) continue;
-
-    if (graph.recipeNodes.has(disposalRecipe.id)) continue;
-
-    const disposalInput = disposalRecipe.inputs.find(
-      (i) => i.itemId === itemId,
-    )!;
-    const disposalRatePerFacility = calcRate(
-      disposalInput.amount,
-      disposalRecipe.craftingTime,
-    );
-    const disposalFacilityCount = surplus / disposalRatePerFacility;
-
-    const facility = maps.facilityMap.get(disposalRecipe.facilityId);
-    if (!facility) continue;
-
-    graph.recipeNodes.set(disposalRecipe.id, {
-      recipeId: disposalRecipe.id,
-      recipe: disposalRecipe,
-      facility,
-    });
-    graph.recipeInputs.set(disposalRecipe.id, new Set([itemId]));
-    graph.recipeOutputs.set(disposalRecipe.id, new Set());
-
-    if (!graph.itemConsumedBy.has(itemId)) {
-      graph.itemConsumedBy.set(itemId, new Set());
-    }
-    graph.itemConsumedBy.get(itemId)!.add(disposalRecipe.id);
-
-    flowData.recipeFacilityCounts.set(disposalRecipe.id, disposalFacilityCount);
-  }
-}
 
 /**
  * Compute the set of items reachable from raw materials via the active
@@ -755,11 +666,12 @@ function buildProductionGraph(
   };
 
   graph.recipeNodes.forEach((recipeData, recipeId) => {
-    // `activeRecipeIds` already includes disposal recipes: `injectDisposalRecipes`
-    // runs before this function in `calculateProductionPlan` and adds each
-    // disposal recipe to `flowData.recipeFacilityCounts` with fc > 0, so
-    // it passes the `fc > 0` filter above. Inactive non-disposal alternatives
-    // (e.g. tier-2 pool variants the LP didn't pick) are filtered out here.
+    // `activeRecipeIds` already includes disposal recipes: they're now
+    // injected pre-LP by `buildBipartiteGraph` and sized by the LP
+    // itself, so any disposal recipe with positive surplus has
+    // `fc > 0` here. Inactive non-disposal alternatives (e.g. tier-2
+    // pool variants the LP didn't pick) are filtered out by the
+    // `fc > 0` gate above.
     if (!activeRecipeIds.has(recipeId)) return;
 
     const isDisposal = recipeData.recipe.outputs.length === 0;
@@ -922,9 +834,32 @@ export async function calculateProductionPlan(
   const manualRawMaterials = options.manualRawMaterials;
   const facilityCaps = options.facilityCaps;
 
+  // Drop opt-in variant recipes whose facility has no positive cap.
+  // Variant recipes (today: `SEWAGE_INLET_DISPOSAL` and `_BYPRODUCT`)
+  // are gated by the Settings "Structures" tab: enabling a structure
+  // sets `facilityCaps[facilityId] = N > 0`. Without an explicit cap,
+  // the variants must be invisible to the LP so they can't sneak in
+  // through target-rooted traversal (Sewage Inlet's BYPRODUCT variant
+  // produces `xiranite_poly`, which is reachable from many targets).
+  //
+  // The App layer (src/App.tsx) already applies a symmetrical filter
+  // via `structureVariantExcluded`; this is the defensive equivalent
+  // for direct callers (tests, future programmatic entry points).
+  const optInVariantRecipeIds = new Set<RecipeId>();
+  for (const [facilityId, variants] of facilityRecipeVariants) {
+    const cap = facilityCaps?.get(facilityId) ?? 0;
+    if (cap > 0) continue;
+    optInVariantRecipeIds.add(variants.default);
+    optInVariantRecipeIds.add(variants.toggled);
+  }
+  const filteredRecipes =
+    optInVariantRecipeIds.size === 0
+      ? recipes
+      : recipes.filter((r) => !optInVariantRecipeIds.has(r.id));
+
   const maps: ProductionMaps = {
     itemMap: new Map(items.map((i) => [i.id, i])),
-    recipeMap: new Map(recipes.map((r) => [r.id, r])),
+    recipeMap: new Map(filteredRecipes.map((r) => [r.id, r])),
     facilityMap: new Map(facilities.map((f) => [f.id, f])),
   };
 
@@ -943,6 +878,8 @@ export async function calculateProductionPlan(
     rawMaterials,
     recipeOverrides,
     manualRawMaterials,
+    undefined,
+    facilityCaps,
   );
 
   const sccs = detectSCCs(graph);
@@ -958,6 +895,7 @@ export async function calculateProductionPlan(
     maps,
     manualRawMaterials,
     rawCaps,
+    facilityCaps,
   );
 
   if (invalidSCCs.length === 0 && import.meta.env?.DEV) {
@@ -968,7 +906,14 @@ export async function calculateProductionPlan(
     );
   }
 
-  injectDisposalRecipes(graph, flowData, maps, targets);
+  // Disposal recipes (Liquid Cleaner + Sewage Inlet variants) are
+  // injected pre-LP by `buildBipartiteGraph` and sized by the LP itself
+  // — no post-LP disposal injection step is needed. The LP's lex
+  // objective (`rawCost → buildingCount → power`) automatically picks
+  // the cheapest disposer first (e.g. 0-power Sewage Inlet up to its
+  // cap, falling back to powered Liquid Cleaner) and respects the
+  // facility cap as a hard upper bound. See `graph-builder.ts`'s
+  // `injectDisposalRecipesIntoGraph` for the injection rule.
   const packing = await packBins({
     recipeSlotDemands: flowData.recipeFacilityCounts,
     recipeMap: maps.recipeMap,

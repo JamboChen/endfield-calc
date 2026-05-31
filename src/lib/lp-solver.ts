@@ -104,16 +104,27 @@ export type LPItemConstraint = {
   rhs: number;
 } | {
   /**
-   * Forced-disposal slack: `production - consumption + slack ≥ rhs` with
-   * `slack ≥ 0` and a high cost on slack so it's only used when no recipe
-   * combination can satisfy the constraint. The slack value is reported in
-   * the solution as a `disposalDeficit` and represents the deficit to be
-   * supplied externally (e.g. upstream Hetonite chain providing Sewage
-   * that the SCC's POOL consumer needs).
+   * Strict-balance slack: `production - consumption + slack_def - slack_sur = rhs`
+   * with both `slack_def, slack_sur ≥ 0` and `SLACK_PENALTY` on both in
+   * every lex objective.
    *
-   * Use for items in `forcedDisposalItems` where the SCC may have an
-   * internal deficit that must be propagated to upstream recipes outside
-   * the SCC.
+   * Models forced-disposal items: production MUST match consumption (no
+   * surplus, no deficit) because the byproduct has to physically go
+   * somewhere — either a disposer recipe or a downstream consumer. Both
+   * slacks are deviation reports, not flexibility levers:
+   *   - `slack_def > 0` ⇒ deficit (consumers exist but producers can't
+   *     satisfy them; e.g. user pinned a dismantle recipe whose
+   *     corresponding FILLING recipe forms a closed cycle). Reported in
+   *     `LPSolution.disposalDeficits`.
+   *   - `slack_sur > 0` ⇒ surplus (producers exceed all disposer
+   *     capacity; e.g. user capped Sewage Inlet at 0 and disabled the
+   *     Liquid Cleaner). Reported in `LPSolution.disposalSurpluses`.
+   *
+   * Without surplus-slack, the LP would have no incentive to use
+   * disposer recipes (they cost building + power; ignoring them keeps
+   * the objective lower). With it, surplus is penalized at the same
+   * scale as deficit, so the LP allocates disposers whenever they're
+   * cheaper than the slack penalty (~always).
    */
   type: "disposal-slack";
   rhs: number;
@@ -160,6 +171,29 @@ export type LPInput = {
    * coexist (separate variable namespaces, both penalized).
    */
   rawCaps?: ReadonlyMap<ItemId, number>;
+  /**
+   * Per-facility upper bound on total fractional facility count, in
+   * buildings. **Optional**: absent or empty means no caps enforced.
+   * Facilities NOT in this map are unconstrained.
+   *
+   * For each `(facilityId, cap)` entry the LP gains a hard constraint
+   *   `Σ_{r : r.facilityId === facilityId} x_r ≤ cap`
+   * with NO slack — caps are a structural decision and the LP should
+   * pick a different facility (or report deficit via the disposal-slack
+   * mechanism) rather than over-using a capped one.
+   *
+   * Mirrors the per-facility cap constraint emitted by the Phase 5 MIP
+   * packer (`multi-formula-packing.ts:879-889`); putting the same
+   * constraint in the LP lets the lex objective pick recipes that
+   * respect the cap up-front instead of relying on the packer's
+   * post-hoc retry-without-caps fallback.
+   *
+   * **Cap = 0 vs absence**: a `cap: 0` entry explicitly forbids any use
+   * of the facility (LP sets `x_r = 0` for all its recipes); absence
+   * leaves it unconstrained. This is the safer default — adding a
+   * facility cap should never accidentally relax existing constraints.
+   */
+  facilityCaps?: ReadonlyMap<FacilityId, number>;
   /** Facility lookup for power-cost computation. */
   facilityMap: Map<FacilityId, Facility>;
 };
@@ -169,6 +203,18 @@ export type LPSolution = {
   facilityCounts: Map<RecipeId, number>;
   /** Per-item deficit to propagate to upstream producers (only populated for items with `type: "disposal-slack"` in the input). */
   disposalDeficits: Map<ItemId, number>;
+  /**
+   * Per-item surplus that couldn't be absorbed by any disposer (only
+   * populated for items with `type: "disposal-slack"` in the input).
+   * Indicates the LP wanted to dispose more than the available disposer
+   * capacity allowed — typically caused by a facility cap binding
+   * (e.g. SEWAGE_INLET capped at 3 but sewage produced exceeds 360/min
+   * and Liquid Cleaner is unavailable in the current domain).
+   *
+   * Distinct from `disposalDeficits` (which is the opposite direction —
+   * consumption exceeds production, e.g. a closed-cycle pin).
+   */
+  disposalSurpluses: Map<ItemId, number>;
   /**
    * Per-item raw-cap overage (slack value > LP_EPSILON), in items/min.
    * Only populated for items in `LPInput.rawCaps` where the LP engaged
@@ -285,7 +331,8 @@ const buildModel = (
 ): {
   model: LPModel;
   recipeIndexMap: Map<string, RecipeId>;
-  disposalSlackVarMap: Map<string, ItemId>;
+  disposalDeficitSlackVarMap: Map<string, ItemId>;
+  disposalSurplusSlackVarMap: Map<string, ItemId>;
   rawCapSlackVarMap: Map<string, ItemId>;
 } => {
   // Stable variable names: x_<index>; map back to RecipeId via the index map.
@@ -304,13 +351,14 @@ const buildModel = (
     if (!name) continue;
     if (c.type === "equal") {
       constraints[name] = { equal: c.rhs };
+    } else if (c.type === "disposal-slack") {
+      // Strict balance via equality:
+      //   prod - cons + slack_def - slack_sur = rhs
+      // Both slacks added below as separate variables.
+      constraints[name] = { equal: c.rhs };
     } else {
-      // Both `min` and `disposal-slack` map to a `min: rhs` lower-bound
-      // constraint. They differ in whether a slack variable contributes
-      // to the LHS — added below in the slack-variables block. With slack:
-      //   prod - cons + slack ≥ rhs    (surplus OK, slack absorbs deficit)
-      // Without slack:
-      //   prod - cons ≥ rhs            (surplus OK, deficit infeasible)
+      // `min`: lower-bound constraint, surplus permitted.
+      //   prod - cons ≥ rhs
       constraints[name] = { min: c.rhs };
     }
   }
@@ -329,23 +377,37 @@ const buildModel = (
     recipeIndexMap.set(varName, recipe.id);
   });
 
-  // Add disposal-slack variables; see the `SLACK_PENALTY` constant above
-  // for the cost rationale.
-  const disposalSlackVarMap = new Map<string, ItemId>();
+  // Add two-sided disposal slack variables. The constraint above is
+  //   prod - cons + slack_def - slack_sur = rhs
+  // so the deficit slack has coef +1 and surplus slack has coef -1.
+  // Both are penalised in every lex objective at `SLACK_PENALTY` (see
+  // the constant above for rationale) so the LP only uses them when no
+  // recipe combination can satisfy the constraint.
+  //
+  // Slack values never show up in user-facing totals: `extractSolution`
+  // iterates recipe vars only (slack vars are kept separate in
+  // `disposalDeficitSlackVarMap` / `disposalSurplusSlackVarMap` and
+  // reported as deficits / surpluses respectively).
+  const disposalDeficitSlackVarMap = new Map<string, ItemId>();
+  const disposalSurplusSlackVarMap = new Map<string, ItemId>();
   let slackIdx = 0;
   for (const [itemId, c] of input.itemConstraints.entries()) {
     if (c.type !== "disposal-slack") continue;
     const constraintName = itemConstraintNames.get(itemId);
     if (!constraintName) continue;
-    const slackName = `slack_${slackIdx++}_${itemId}`;
-    disposalSlackVarMap.set(slackName, itemId);
-    variables[slackName] = {
+    const idx = slackIdx++;
+    const defName = `slack_def_${idx}_${itemId}`;
+    const surName = `slack_sur_${idx}_${itemId}`;
+    disposalDeficitSlackVarMap.set(defName, itemId);
+    disposalSurplusSlackVarMap.set(surName, itemId);
+    variables[defName] = {
       [constraintName]: 1,
-      // Slack must be penalised in EVERY lex objective so it's only used
-      // when no recipe combination can satisfy the disposal constraint.
-      // The penalty does NOT show up in user-facing totals because
-      // `extractSolution` iterates recipe vars only (slack vars are kept
-      // separate in `disposalSlackVarMap` and reported as deficits).
+      rawCost: SLACK_PENALTY,
+      buildingCount: SLACK_PENALTY,
+      power: SLACK_PENALTY,
+    };
+    variables[surName] = {
+      [constraintName]: -1,
       rawCost: SLACK_PENALTY,
       buildingCount: SLACK_PENALTY,
       power: SLACK_PENALTY,
@@ -422,6 +484,44 @@ const buildModel = (
     }
   }
 
+  // Per-facility caps (hard, no slack).
+  //
+  // For each (facilityId, cap), constrain `Σ_{r : r.facilityId === facilityId} x_r ≤ cap`.
+  // Cap = 0 explicitly forbids any use of the facility; absence leaves
+  // it unconstrained. No slack — the LP can route around a binding cap
+  // via alternative producers (typical case: a capped Sewage Inlet
+  // forces overflow to the uncapped Liquid Cleaner).
+  //
+  // Mirrors the per-facility cap block in the Phase 5 MIP packer
+  // (`multi-formula-packing.ts:879-889`). Putting the same constraint
+  // here lets the lex objective pick recipes that respect the cap
+  // up-front instead of relying on the packer's post-hoc retry path.
+  //
+  // Only emit a constraint when at least one recipe in the current LP
+  // actually uses the capped facility — defensive against caps for
+  // facilities not present in the plan (e.g. SEWAGE_INLET capped to 3
+  // when the user has no sewage-producing recipes active).
+  if (input.facilityCaps && input.facilityCaps.size > 0) {
+    const recipeIdxsByFacility = new Map<FacilityId, number[]>();
+    input.recipes.forEach((recipe, idx) => {
+      const bucket = recipeIdxsByFacility.get(recipe.facilityId);
+      if (bucket) bucket.push(idx);
+      else recipeIdxsByFacility.set(recipe.facilityId, [idx]);
+    });
+    let facCapIdx = 0;
+    for (const [facilityId, cap] of input.facilityCaps) {
+      if (!Number.isFinite(cap) || cap < 0) continue;
+      const idxs = recipeIdxsByFacility.get(facilityId);
+      if (!idxs || idxs.length === 0) continue;
+      const constraintName = `faccap_${facCapIdx++}_${facilityId}`;
+      constraints[constraintName] = { max: cap };
+      for (const idx of idxs) {
+        const varName = `x_${idx}`;
+        variables[varName][constraintName] = 1;
+      }
+    }
+  }
+
   // Lex caps: every previously-optimised objective gets an upper-bound
   // constraint here, so the current pass cannot regress on prior wins.
   // Slack vars (both disposal-slack and rawcap-slack) are EXCLUDED from
@@ -435,7 +535,8 @@ const buildModel = (
     const capName = `lex_cap_${capObj}`;
     constraints[capName] = { max: capValue + LEX_TOLERANCE[capObj] };
     for (const [varName, coefs] of Object.entries(variables)) {
-      if (disposalSlackVarMap.has(varName)) continue;
+      if (disposalDeficitSlackVarMap.has(varName)) continue;
+      if (disposalSurplusSlackVarMap.has(varName)) continue;
       if (rawCapSlackVarMap.has(varName)) continue;
       coefs[capName] = coefs[capObj] ?? 0;
     }
@@ -449,7 +550,8 @@ const buildModel = (
       variables,
     },
     recipeIndexMap,
-    disposalSlackVarMap,
+    disposalDeficitSlackVarMap,
+    disposalSurplusSlackVarMap,
     rawCapSlackVarMap,
   };
 };
@@ -457,6 +559,7 @@ const buildModel = (
 type ExtractedSolution = {
   facilityCounts: Map<RecipeId, number>;
   disposalDeficits: Map<ItemId, number>;
+  disposalSurpluses: Map<ItemId, number>;
   rawCapOveruse: Map<ItemId, number>;
   totalRaw: number;
   totalBuildings: number;
@@ -466,7 +569,8 @@ type ExtractedSolution = {
 const extractSolution = (
   rawResult: Record<string, number | boolean | undefined>,
   recipeIndexMap: Map<string, RecipeId>,
-  disposalSlackVarMap: Map<string, ItemId>,
+  disposalDeficitSlackVarMap: Map<string, ItemId>,
+  disposalSurplusSlackVarMap: Map<string, ItemId>,
   rawCapSlackVarMap: Map<string, ItemId>,
   recipes: Recipe[],
   facilityMap: Map<FacilityId, Facility>,
@@ -495,10 +599,17 @@ const extractSolution = (
   }
 
   const disposalDeficits = new Map<ItemId, number>();
-  for (const [varName, itemId] of disposalSlackVarMap.entries()) {
+  for (const [varName, itemId] of disposalDeficitSlackVarMap.entries()) {
     const v = rawResult[varName];
     if (typeof v === "number" && v > LP_EPSILON) {
       disposalDeficits.set(itemId, v);
+    }
+  }
+  const disposalSurpluses = new Map<ItemId, number>();
+  for (const [varName, itemId] of disposalSurplusSlackVarMap.entries()) {
+    const v = rawResult[varName];
+    if (typeof v === "number" && v > LP_EPSILON) {
+      disposalSurpluses.set(itemId, v);
     }
   }
 
@@ -515,6 +626,7 @@ const extractSolution = (
   return {
     facilityCounts,
     disposalDeficits,
+    disposalSurpluses,
     rawCapOveruse,
     totalRaw,
     totalBuildings,
@@ -541,6 +653,7 @@ const finaliseSolution = (sol: ExtractedSolution): LPSolution => ({
   feasible: true,
   facilityCounts: sol.facilityCounts,
   disposalDeficits: sol.disposalDeficits,
+  disposalSurpluses: sol.disposalSurpluses,
   rawCapOveruse: sol.rawCapOveruse,
   totalRawCost: sol.totalRaw,
   totalBuildingCount: sol.totalBuildings,
@@ -578,6 +691,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       feasible: true,
       facilityCounts: new Map(),
       disposalDeficits: new Map(),
+      disposalSurpluses: new Map(),
       rawCapOveruse: new Map(),
       totalRawCost: 0,
       totalBuildingCount: 0,
@@ -590,8 +704,13 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
 
   for (let passIdx = 0; passIdx < LEX_ORDER.length; passIdx++) {
     const objective = LEX_ORDER[passIdx];
-    const { model, recipeIndexMap, disposalSlackVarMap, rawCapSlackVarMap } =
-      buildModel(input, objective, caps);
+    const {
+      model,
+      recipeIndexMap,
+      disposalDeficitSlackVarMap,
+      disposalSurplusSlackVarMap,
+      rawCapSlackVarMap,
+    } = buildModel(input, objective, caps);
 
     let result: Record<string, number | boolean | undefined>;
     try {
@@ -633,7 +752,8 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
     lastSolution = extractSolution(
       result,
       recipeIndexMap,
-      disposalSlackVarMap,
+      disposalDeficitSlackVarMap,
+      disposalSurplusSlackVarMap,
       rawCapSlackVarMap,
       input.recipes,
       input.facilityMap,

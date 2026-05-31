@@ -216,7 +216,6 @@ describe("countFacilityCapTargets", () => {
 });
 
 // ── Region-structure chain fixtures (Wuling Purification Node) ──────
-const SEWAGE = ItemId.ITEM_LIQUID_SEWAGE;
 const mkStructure = (
   id: RegionStructureId,
   requires: RegionStructureId | undefined,
@@ -225,12 +224,17 @@ const mkStructure = (
   id,
   domainId: DOMAIN_2,
   requires,
-  kind: index === undefined ? "source" : "sink",
   nameKey: index === undefined ? "byproductOutlet" : "sewageInlet",
   index,
   gameBuildingId: `gate_${id}`,
   iconSlug: `icon_${id}`,
-  recipe: { inputItemId: SEWAGE, inputAmount: 1 },
+  // Test fixtures use the inlet's facility id for the chain's "instance"
+  // structures and the same id for the tail "recipeToggle" — the
+  // cascade helpers don't read `solver`, only `requires`.
+  solver:
+    index === undefined
+      ? { role: "recipeToggle", facilityId: FacilityId.SEWAGE_INLET }
+      : { role: "instance", facilityId: FacilityId.SEWAGE_INLET },
 });
 
 const CHAIN: RegionStructure[] = [

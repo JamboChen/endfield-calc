@@ -1,10 +1,12 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Checkbox } from "@/components/ui/checkbox";
+import { facilityRecipeVariants, recipes } from "@/data";
 import { structureIconUrl } from "@/lib/facility-icons";
 import { structureKey } from "@/lib/settings-helpers";
 import { cn } from "@/lib/utils";
-import type { RegionStructureId } from "@/types/constants";
+import type { ItemId, RecipeId, RegionStructureId } from "@/types/constants";
 import type { DomainId } from "@/types/domain";
 import type { RegionStructure } from "@/types/structures";
 
@@ -27,8 +29,12 @@ interface StructuresContentProps {
  * cascades along the chain (enable pulls in prereqs, disable drops
  * dependents). Rows whose prereq isn't enabled yet are faded as a "level"
  * hint, but stay clickable — clicking cascades the prereqs in (mirrors the
- * Limits cap-raise rows). Opt-in: all off by default. Not yet wired to the
- * solver.
+ * Limits cap-raise rows). Opt-in: all off by default.
+ *
+ * Per-row annotation ("Treats X" / "Produces Y") is derived from the
+ * real `Recipe` data via `facilityRecipeVariants` — the structure itself
+ * carries no rate numbers, keeping a single source of truth between
+ * what the UI shows and what the LP runs.
  */
 export function StructuresContent({
   domainId,
@@ -37,6 +43,15 @@ export function StructuresContent({
   onToggle,
 }: StructuresContentProps) {
   const { t } = useTranslation(["settings", "item"]);
+
+  // Index recipes by id once per render so the per-row annotation lookup
+  // is O(1). Memo because the `recipes` array reference is stable but
+  // the Map allocation isn't free.
+  const recipesById = useMemo(() => {
+    const out = new Map<RecipeId, (typeof recipes)[number]>();
+    for (const r of recipes) out.set(r.id, r);
+    return out;
+  }, []);
 
   if (structures.length === 0) return null;
 
@@ -75,18 +90,42 @@ export function StructuresContent({
                     ns: "settings",
                     defaultValue: "Byproduct Outlet",
                   });
-            const annotation =
-              s.kind === "source" && s.recipe.outputItemId
-                ? t("structures.produces", {
+            // Annotation deriving:
+            //   instance      → "Treats <input of default variant>"
+            //   recipeToggle  → "Produces <output of toggled variant>"
+            // Both fall back to a blank annotation when the variants
+            // map doesn't list the facility (defensive — keeps the UI
+            // robust if a new structure is added without its variant
+            // entries).
+            const variants = facilityRecipeVariants.get(s.solver.facilityId);
+            let annotation = "";
+            if (variants) {
+              if (s.solver.role === "instance") {
+                const defaultRecipe = recipesById.get(variants.default);
+                const consumedId = defaultRecipe?.inputs[0]?.itemId as
+                  | ItemId
+                  | undefined;
+                if (consumedId) {
+                  annotation = t("structures.treats", {
                     ns: "settings",
-                    item: t(s.recipe.outputItemId, { ns: "item" }),
-                    defaultValue: `Produces ${t(s.recipe.outputItemId, { ns: "item" })}`,
-                  })
-                : t("structures.treats", {
-                    ns: "settings",
-                    item: t(s.recipe.inputItemId, { ns: "item" }),
-                    defaultValue: `Treats ${t(s.recipe.inputItemId, { ns: "item" })}`,
+                    item: t(consumedId, { ns: "item" }),
+                    defaultValue: `Treats ${t(consumedId, { ns: "item" })}`,
                   });
+                }
+              } else {
+                const toggledRecipe = recipesById.get(variants.toggled);
+                const producedId = toggledRecipe?.outputs[0]?.itemId as
+                  | ItemId
+                  | undefined;
+                if (producedId) {
+                  annotation = t("structures.produces", {
+                    ns: "settings",
+                    item: t(producedId, { ns: "item" }),
+                    defaultValue: `Produces ${t(producedId, { ns: "item" })}`,
+                  });
+                }
+              }
+            }
             return (
               <label
                 key={s.id}

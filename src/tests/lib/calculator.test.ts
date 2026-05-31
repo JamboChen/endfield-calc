@@ -4,9 +4,7 @@ import {
   propagatePrefillCandidates,
 } from "@/lib/calculator";
 import { calcRate } from "@/lib/utils";
-import { items } from "@/data/items";
-import { recipes } from "@/data/recipes";
-import { facilities } from "@/data/facilities";
+import { items, recipes, facilities } from "@/data";
 import type {
   Bin,
   BinId,
@@ -2260,10 +2258,14 @@ describe("Prefill candidates (direct propagatePrefillCandidates calls)", () => {
 describe("Jade Gourd disposal sink at non-integer rates", () => {
   // Floating-point regression: facility counts like 1/6 lack exact binary
   // representations, so recombining `production - consumption - target` for
-  // forced-disposal items can leave residuals on the order of 1e-13. Without
-  // SURPLUS_EPSILON in `injectDisposalRecipes`, the residual is treated as a
-  // real surplus and a disposal recipe is injected with facilityCount ≈ 0,
-  // rendering as a disconnected "0/min" Xircon Effluent (Disposal) node.
+  // forced-disposal items can leave residuals on the order of 1e-13.
+  // Previously handled by `SURPLUS_EPSILON` in the post-LP
+  // `injectDisposalRecipes`; now superseded by the LP-side
+  // `FACILITY_COUNT_EPSILON = 1e-6` clamp in `lp-solver.ts:extractSolution`,
+  // which zeroes out sub-epsilon LP variable values before they reach
+  // `recipeFacilityCounts`. The test still guards the same observable
+  // behaviour: a disposal recipe with a fractional residual surplus
+  // must NOT appear as a disconnected "0/min" sink node.
   // Rates 3 and 6/min produce exact-binary facility counts (0.5 and 1.0)
   // and thus avoided the bug naturally; rates 1, 2, 4, 5/min triggered it.
   test.each([1, 2, 3, 4, 5, 6])(

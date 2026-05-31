@@ -1,9 +1,20 @@
 import { items } from "./items";
-import { facilities } from "./facilities";
+import { facilities as generatedFacilities } from "./facilities";
+import { manualFacilities } from "./manual-facilities";
 import { recipes } from "./recipes";
-import { FacilityId } from "@/types/constants";
-import type { ItemId } from "@/types";
+import { FacilityId, RecipeId } from "@/types/constants";
+import type { Facility, ItemId, RecipeId as RecipeIdType } from "@/types";
 import type { DomainId } from "@/types/domain";
+
+/**
+ * Combined facility roster: the auto-generated set from upstream game
+ * data plus the hand-curated synthetic entries (today: `SEWAGE_INLET`).
+ * Order is `generated, ...manual` so iteration order in tests / mappers
+ * sees the well-known facilities first and the synthetic tail last —
+ * keeps existing snapshot-style tests stable when a new manual entry
+ * is added.
+ */
+const facilities: Facility[] = [...generatedFacilities, ...manualFacilities];
 
 /**
  * Per-raw-material configuration assigning a source facility. The
@@ -187,6 +198,43 @@ const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
   FacilityId.SEEDCOLLECTOR_1,
 ]);
 
+/**
+ * Per-facility recipe-variant pairs gated by a structure toggle.
+ *
+ * Each entry says: "facility F has two interchangeable recipes — the
+ * `default` runs when no enabled structure toggles F, the `toggled`
+ * runs when at least one enabled structure has `solver = { role:
+ * "recipeToggle", facilityId: F }`". The App-layer bridge in
+ * `src/App.tsx` walks this map together with `regionStructures` +
+ * `structures.enabled` to build the `recipeConstraints` exclusion set.
+ *
+ * Today's sole entry is `SEWAGE_INLET`:
+ *   - `default` = `SEWAGE_INLET_DISPOSAL` (pure sink; Byproduct Outlet OFF)
+ *   - `toggled` = `SEWAGE_INLET_BYPRODUCT` (emits xiranite_poly; ON)
+ *
+ * The two recipes share the same facility AND the same per-building
+ * sewage throughput (120/min) by construction, so the LP's facility-cap
+ * constraint on `SEWAGE_INLET` correctly bounds the number of physical
+ * inlets regardless of which variant is active.
+ *
+ * Invariant (checked at use site, not at module load to keep this file
+ * pure): every entry's `default` and `toggled` recipes must share their
+ * `facilityId` with the map key. Violating this would make the
+ * facility-cap constraint inconsistent with the recipe filter.
+ */
+const facilityRecipeVariants: ReadonlyMap<
+  FacilityId,
+  { readonly default: RecipeIdType; readonly toggled: RecipeIdType }
+> = new Map([
+  [
+    FacilityId.SEWAGE_INLET,
+    {
+      default: RecipeId.SEWAGE_INLET_DISPOSAL,
+      toggled: RecipeId.SEWAGE_INLET_BYPRODUCT,
+    },
+  ],
+]);
+
 export {
   items,
   facilities,
@@ -196,6 +244,7 @@ export {
   costlessRaws,
   forcedDisposalItems,
   bootstrapFacilities,
+  facilityRecipeVariants,
   MAX_TARGETS,
 };
 export type { RawSourceConfig };

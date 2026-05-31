@@ -219,6 +219,8 @@
   "seedcollector_plant_sp_2": "苦葉椒の種生産",
   "seedcollector_plant_sp_3": "玉葉人参の種生産",
   "seedcollector_plant_sp_4": "金石稲の種生産",
+  "sewage_inlet_byproduct": "汚水処理(入力口+出力口)",
+  "sewage_inlet_disposal": "汚水処理(入力口)",
   "shaper_activity_xiranite_bottle_1": "実験用息壌ボトル生産",
   "shaper_activity_xiranite_enr_bottle_1": "実験用重息壌ボトル生産",
   "shaper_copper_bottle_1": "赤銅ボトル生産",

@@ -130,6 +130,10 @@ describe("computeAvailableFacilities — live game catalog", () => {
     FacilityId.LIQUID_PURIFIER_1,
     FacilityId.PUMP_1,
     FacilityId.PUMP_2,
+    // Synthetic facility from `src/data/manual-facilities.ts`; models the
+    // Wuling map structure (Sewage Inlets). `domains: ["domain_2"]`
+    // matches the in-game placement restriction.
+    FacilityId.SEWAGE_INLET,
     FacilityId.XIRANITE_OVEN_1,
   ]);
 

@@ -1,4 +1,4 @@
-import type { ItemId, RecipeId } from "@/types";
+import type { FacilityId, ItemId, RecipeId } from "@/types";
 import { forcedDisposalItems, costlessRaws } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { solveLP, type LPInput, type LPItemConstraint } from "./lp-solver";
@@ -45,9 +45,10 @@ import type {
  *   - **User target**: `min: targetRate`. Surplus is allowed (surfaces
  *     as elevated production rate; not an error).
  *   - **Forced-disposal byproduct** (sewage, xirpoly, etc.): `disposal-slack: 0`.
- *     The LP must produce ≥ consumption; surplus is fine (handled by
- *     `injectDisposalRecipes`); deficit goes to a `disposalDeficit` map
- *     that the UI surfaces as a warning.
+ *     The LP must produce ≥ consumption; surplus is absorbed by the
+ *     disposal recipes pre-injected into the graph by `buildBipartite
+ *     Graph` (Liquid Cleaner + Sewage Inlet variants); deficit goes to
+ *     a `disposalDeficit` map that the UI surfaces as a warning.
  *   - **Other intermediate**: `min: 0`. LP-optimal drives production to
  *     exactly match consumption because cost minimisation. `min` (rather
  *     than `equal`) is chosen for robustness against multi-output
@@ -67,6 +68,7 @@ export async function calculateFlows(
   maps: ProductionMaps,
   manualRawMaterials?: Set<ItemId>,
   rawCaps?: ReadonlyMap<ItemId, number>,
+  facilityCaps?: ReadonlyMap<FacilityId, number>,
 ): Promise<{ flowData: FlowData; invalidSCCs: InvalidSCCInfo[] }> {
   const recipesList = Array.from(graph.recipeNodes.values()).map(
     (r) => r.recipe,
@@ -118,23 +120,47 @@ export async function calculateFlows(
   }
   for (const itemId of graph.itemNodes.keys()) allItems.add(itemId);
 
+  // Pre-compute which forced-disposal items actually have a consumer in
+  // the active graph. Strict-balance (equality) semantics only make
+  // sense when a consumer exists — without one, surplus is structurally
+  // unavoidable and slack-penalising it is meaningless. Items with no
+  // consumer fall back to plain `min: 0` (the historical behaviour for
+  // dead-end byproducts).
+  const forcedDisposalItemsWithConsumer = new Set<ItemId>();
+  for (const item of forcedDisposalItems) {
+    const consumers = graph.itemConsumedBy.get(item);
+    if (consumers && consumers.size > 0) {
+      forcedDisposalItemsWithConsumer.add(item);
+    }
+  }
+
   for (const itemId of allItems) {
     if (rawMaterials.has(itemId)) continue;
 
-    if (targetRates.has(itemId)) {
+    // Forced-disposal items WITH a consumer use strict-balance slack
+    // semantics (whether the user also targets them or not). The
+    // constraint becomes `production - consumption = targetRate` (with
+    // two-sided slack absorbing both deficit and surplus). This forces
+    // the LP to exactly hit target rate AND dispose every unit of
+    // byproduct produced beyond it via the available disposer recipes,
+    // instead of letting surplus dangle (the `min: rhs` default would
+    // permit production > consumption + rhs).
+    if (forcedDisposalItemsWithConsumer.has(itemId)) {
+      const targetRate = targetRates.get(itemId) ?? 0;
+      itemConstraints.set(itemId, {
+        type: "disposal-slack",
+        rhs: targetRate,
+      });
+    } else if (targetRates.has(itemId)) {
       // User-target items can be over-produced; the surplus surfaces in
-      // the production view (and forced-disposal targets get a sink).
+      // the production view.
       itemConstraints.set(itemId, {
         type: "min",
         rhs: targetRates.get(itemId)!,
       });
-    } else if (forcedDisposalItems.has(itemId)) {
-      // Disposal-slack: production must cover consumption; deficits get
-      // reported and propagated to upstream warnings. Surplus is fine
-      // and gets handled post-solve by `injectDisposalRecipes`.
-      itemConstraints.set(itemId, { type: "disposal-slack", rhs: 0 });
     } else {
-      // Plain intermediate: production ≥ consumption (min: 0). LP-optimal
+      // Plain intermediate (and forced-disposal items with no consumer
+      // in this plan): production ≥ consumption (min: 0). LP-optimal
       // sets surplus = 0 because cost minimisation. The `min` semantics
       // (rather than `equal`) is robust against multi-output recipes
       // whose byproducts have no consumer in the plan — `equal: 0`
@@ -150,6 +176,7 @@ export async function calculateFlows(
     rawMaterials,
     costlessRaws,
     rawCaps,
+    facilityCaps,
     facilityMap: maps.facilityMap,
   };
 
@@ -193,6 +220,16 @@ export async function calculateFlows(
       console.warn(
         `[GLOBAL_FLOW] Disposal deficits:`,
         Object.fromEntries(result.disposalDeficits),
+      );
+    }
+    if (result.disposalSurpluses.size > 0) {
+      // Surplus = LP wanted to dispose more than available disposer
+      // capacity allowed. Typical trigger: SEWAGE_INLET capped at N
+      // while sewage production exceeds N × 120/min and no Liquid
+      // Cleaner is available in the current domain.
+      console.warn(
+        `[GLOBAL_FLOW] Disposal surpluses (unabsorbed by disposer recipes):`,
+        Object.fromEntries(result.disposalSurpluses),
       );
     }
     if (result.rawCapOveruse.size > 0) {
@@ -300,8 +337,9 @@ export async function calculateFlows(
   // Apply byproduct netting once: net = max(0, gross - byproduct).
   // Floor at 0 because byproduct surplus exceeding consumption means net
   // demand on the pump is zero (surplus is silently discarded — same as
-  // pre-LP semantics; injectDisposalRecipes handles forced-disposal raws
-  // separately).
+  // pre-LP semantics; forced-disposal raws are handled separately via
+  // disposal-injection in `buildBipartiteGraph` + the LP's disposal-
+  // slack constraint).
   for (const [itemId, produced] of rawByproduct.entries()) {
     const current = itemDemands.get(itemId) || 0;
     itemDemands.set(itemId, Math.max(0, current - produced));

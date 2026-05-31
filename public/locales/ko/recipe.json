@@ -219,6 +219,8 @@
   "seedcollector_plant_sp_2": "쓴맛 나는 고추 씨앗 생산",
   "seedcollector_plant_sp_3": "홍옥 인삼 씨앗 생산",
   "seedcollector_plant_sp_4": "금석벼 씨앗 생산",
+  "sewage_inlet_byproduct": "오염수 처리(유입구+배출구)",
+  "sewage_inlet_disposal": "오염수 처리(유입구)",
   "shaper_activity_xiranite_bottle_1": "실험용 식양 병 생산",
   "shaper_activity_xiranite_enr_bottle_1": "실험용 중식양 병 생산",
   "shaper_copper_bottle_1": "적동 병 생산",

@@ -2093,6 +2093,38 @@ export const recipes: Recipe[] = [
     facilityId: FacilityId.SEEDCOLLECTOR_1,
     craftingTime: 2,
   },
+  // Sewage Inlet — pure disposal variant. Active when the Byproduct
+  // Outlet structure is OFF. Throughput: 1 sewage every 0.5s = 120/min
+  // per building (matches in-game FactorySewageTreatImportTable
+  // msPerRound: 500). Empty outputs => the LP/mapper treat the bin as a
+  // disposal sink (see flow-utils:346 + bin-fused-mapper:222).
+  {
+    id: RecipeId.SEWAGE_INLET_DISPOSAL,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 }],
+    outputs: [],
+    facilityId: FacilityId.SEWAGE_INLET,
+    craftingTime: 0.5,
+  },
+  // Sewage Inlet — byproduct variant. Active when Byproduct Outlet is
+  // ON. Same per-building throughput as DISPOSAL (120 sewage/min), but
+  // emits xiranite_poly at the in-game 30:1 ratio (4 xiranite_poly/min
+  // per building). Models the FactorySewageTreatExportTable's
+  // countCost: 30 sewage → countProduce: 1 xiranite_poly side-effect.
+  // The 30s craftingTime is chosen so both amounts stay integer while
+  // preserving the throughput exactly (30/30 sewage/s = 1/s = 60/min,
+  // wait — actually 30/30 = 1/s = 60/min ≠ 120/min).
+  //
+  // Correct values: per game tables, msPerRound: 500 ⇒ 2 sewage/s ⇒
+  // 120/min. Choosing inputAmount: 30, craftingTime: 15 keeps both
+  // amounts integer while preserving 120 sewage/min consumption and
+  // 4 xiranite_poly/min production per building.
+  {
+    id: RecipeId.SEWAGE_INLET_BYPRODUCT,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 30 }],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 }],
+    facilityId: FacilityId.SEWAGE_INLET,
+    craftingTime: 15,
+  },
   {
     id: RecipeId.SHAPER_ACTIVITY_XIRANITE_BOTTLE_1,
     inputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 2 }],

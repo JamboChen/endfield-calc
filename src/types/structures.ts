@@ -1,4 +1,4 @@
-import type { ItemId, RegionStructureId } from "./constants";
+import type { FacilityId, RegionStructureId } from "./constants";
 import type { DomainId } from "./domain";
 
 /**
@@ -12,39 +12,42 @@ import type { DomainId } from "./domain";
  * (Wuling: Sewage Inlet 1 -> 2 -> 3 -> Byproduct Outlet). The Settings
  * "Structures" tab enforces the chain with a cascade.
  *
- * `recipe` is captured for the future solver step; it is NOT consumed by
- * the calc today (these are not yet wired as `Facility`/`Recipe` entries).
+ * Each structure carries a `solver` discriminator that data-drives the
+ * App-layer bridge in `src/App.tsx`:
+ *   - `role: "instance"` — each enabled structure adds +1 to the
+ *     calc-side cap of `facilityId` (e.g. each Sewage Inlet 1/2/3 is
+ *     one physical building of `FacilityId.SEWAGE_INLET`).
+ *   - `role: "recipeToggle"` — enabling switches the facility's active
+ *     recipe to the toggled variant declared in
+ *     `facilityRecipeVariants` (`src/data/index.ts`). The outlet itself
+ *     is NOT a separate building — its effect is folded into the inlet
+ *     recipe's stoichiometry. Display annotations still treat it as a
+ *     distinct row in the Settings UI.
+ *
+ * The recipe numbers (sewage throughput, byproduct ratio) live on the
+ * real `Recipe` entries pointed to by `facilityRecipeVariants` — not
+ * here — so they can't drift from what the solver actually uses.
  */
 
-type RegionStructureKind = "sink" | "source";
-
-type RegionStructureRecipe = {
-  /** Item consumed (always Sewage today). */
-  readonly inputItemId: ItemId;
-  /** Sink: amount treated per round. Source: cost per produced unit. */
-  readonly inputAmount: number;
-  /** Source output (e.g. Xircon Effluent). Omitted for pure sinks. */
-  readonly outputItemId?: ItemId;
-  readonly outputAmount?: number;
-  /** Milliseconds per processing round (from `msPerRound`). */
-  readonly msPerRound?: number;
-};
+type RegionStructureSolverRole =
+  | { readonly role: "instance"; readonly facilityId: FacilityId }
+  | { readonly role: "recipeToggle"; readonly facilityId: FacilityId };
 
 type RegionStructure = {
   readonly id: RegionStructureId;
   readonly domainId: DomainId;
   /** Prereq structure in the chain; omitted for the chain head. */
   readonly requires?: RegionStructureId;
-  readonly kind: RegionStructureKind;
   /** i18n key under the `settings` namespace: `structures.<nameKey>`. */
   readonly nameKey: string;
   /** Display index for repeated structures (Sewage Inlet 1/2/3). */
   readonly index?: number;
-  /** Backing game building id (documentation / future solver wiring). */
+  /** Backing game building id (documentation / future provenance). */
   readonly gameBuildingId: string;
   /** Icon basename under `public/images/structures/` (no extension). */
   readonly iconSlug: string;
-  readonly recipe: RegionStructureRecipe;
+  /** Solver-side effect of enabling this structure. */
+  readonly solver: RegionStructureSolverRole;
 };
 
-export type { RegionStructure, RegionStructureKind, RegionStructureRecipe };
+export type { RegionStructure, RegionStructureSolverRole };

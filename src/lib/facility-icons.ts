@@ -13,6 +13,10 @@ const FACILITY_ICON_FALLBACK: Partial<Record<string, string>> = {
   // under `unloader_1.png`. Both facilities are unlocked together, so
   // the unloader icon is the right visual cue.
   loader_1: "unloader_1",
+  // Synthetic facility — no upstream asset. Reuse the Water Treatment
+  // Unit icon (same disposal-of-sewage semantics) so the bin renders
+  // with a meaningful visual rather than a broken-image placeholder.
+  sewage_inlet: "liquid_cleaner_1",
 };
 
 export function facilityIconUrl(facilityId: string): string {

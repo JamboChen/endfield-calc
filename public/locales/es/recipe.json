@@ -219,6 +219,8 @@
   "seedcollector_plant_sp_2": "Producción de semilla de pimienta ácida",
   "seedcollector_plant_sp_3": "Producción de semilla de ginseng de jade rojo",
   "seedcollector_plant_sp_4": "Producción de Semilla de arroz ámbar",
+  "sewage_inlet_byproduct": "Tratamiento de aguas residuales (Entrada + Salida)",
+  "sewage_inlet_disposal": "Tratamiento de aguas residuales (Entrada)",
   "shaper_activity_xiranite_bottle_1": "Producción de Botella de Xiranita experimental",
   "shaper_activity_xiranite_enr_bottle_1": "Producción de Botella de Xiranita pesada experimental",
   "shaper_copper_bottle_1": "Producción de Botella de cuprio",

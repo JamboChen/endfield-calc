@@ -20,9 +20,15 @@ import {
   computeRecipeAvailability,
 } from "./lib/aic-research-helpers";
 import { computeRecipeReachability } from "./lib/recipe-reachability";
-import { bootstrapFacilities, rawAvailabilityByDomain } from "./data";
+import {
+  bootstrapFacilities,
+  facilityRecipeVariants,
+  rawAvailabilityByDomain,
+  regionStructures,
+} from "./data";
 import { parseRawLimitKey } from "./lib/raw-limits-helpers";
-import type { FacilityId, ItemId } from "./types";
+import { structureKey } from "./lib/settings-helpers";
+import type { FacilityId, ItemId, RecipeId } from "./types";
 
 /**
  * Theme-aware Sonner toast portal. Lives inside ThemeProvider so it can
@@ -103,6 +109,51 @@ function AppContent() {
     return new Set<ItemId>();
   }, [settings.currentDomain]);
 
+  // Recipe-variant exclusions driven by `regionStructures` × the user's
+  // enabled-structures set. For each entry in `facilityRecipeVariants`,
+  // pick the wrong-side variant (or both if the facility has no enabled
+  // `instance` structures in any active domain) and add it to the
+  // exclusion set; the recipe filter below drops them from
+  // `availableRecipes`.
+  //
+  // Why this lives at the App layer (alongside the existing AIC filter):
+  // the calc / graph-builder / LP all operate on whatever recipe set
+  // they're given. Filtering here keeps the algorithm code decoupled
+  // from settings semantics and mirrors how `computeRecipeAvailability`
+  // already gates on AIC unlocks. The filter is sound regardless of
+  // whether the facility itself is region-available — the AIC /
+  // reachability passes will drop the recipes anyway when its facility
+  // isn't reachable, so an excess entry here is harmless.
+  const structureVariantExcluded = useMemo(() => {
+    const excluded = new Set<RecipeId>();
+    for (const [facilityId, variants] of facilityRecipeVariants) {
+      let hasInstance = false;
+      let isToggled = false;
+      for (const [domainId, list] of regionStructures) {
+        if (!settings.activeDomains.has(domainId)) continue;
+        for (const s of list) {
+          if (s.solver.facilityId !== facilityId) continue;
+          if (!settings.structures.enabled.has(structureKey(domainId, s.id))) {
+            continue;
+          }
+          if (s.solver.role === "instance") hasInstance = true;
+          else if (s.solver.role === "recipeToggle") isToggled = true;
+        }
+      }
+      if (!hasInstance) {
+        // No physical buildings → neither variant should be selectable.
+        // (A `recipeToggle` without any `instance` is degenerate; the
+        // settings UI cascade prevents enabling the outlet without all
+        // inlets, but we defend against it here too.)
+        excluded.add(variants.default);
+        excluded.add(variants.toggled);
+      } else {
+        excluded.add(isToggled ? variants.default : variants.toggled);
+      }
+    }
+    return excluded;
+  }, [settings.activeDomains, settings.structures.enabled]);
+
   const { availableRecipes, reachableItems } = useMemo(() => {
     // Intersect AIC-unlocked with region-permitted facilities so
     // recipes whose host facility is locked to a region the player
@@ -118,8 +169,13 @@ function AppContent() {
       availableFacilities,
       settings.aic.unlockedModes,
     ).availableRecipes;
+    // Apply the structure-variant filter BEFORE reachability so the
+    // inactive variant can't leak into the reachable set or the LP.
+    const variantFiltered = aicFiltered.filter(
+      (r) => !structureVariantExcluded.has(r.id),
+    );
     const { runnableRecipes, reachableItems } = computeRecipeReachability(
-      aicFiltered,
+      variantFiltered,
       regionRawMaterials,
       bootstrapFacilities,
     );
@@ -129,6 +185,7 @@ function AppContent() {
     settings.aic.unlockedModes,
     settings.currentDomain,
     regionRawMaterials,
+    structureVariantExcluded,
   ]);
 
   // Items the picker may show as targets: those reachable via the AIC-
@@ -144,10 +201,17 @@ function AppContent() {
   );
 
   // Aggregated per-facility cap = sum over currently-active domains of
-  // each (facility, domain) effective cap. Threaded into the Phase 5
-  // MIP via `useProductionPlan` → `calculateProductionPlan({ facilityCaps })`.
-  // Facilities without entries in `effectiveCaps` are uncapped (omitted
-  // from the map entirely — the packer treats absence as no constraint).
+  // each (facility, domain) effective cap, PLUS one slot per enabled
+  // structure with `solver.role === "instance"`. Threaded into the LP
+  // and the Phase 5 MIP via `useProductionPlan` →
+  // `calculateProductionPlan({ facilityCaps })`. Facilities without
+  // entries are uncapped (omitted from the map entirely — the LP and
+  // packer both treat absence as no constraint).
+  //
+  // Structures contribute exactly +1 per enabled `instance`; today the
+  // sole `instance` is `SEWAGE_INLET`, which has no AIC cap-raise nodes
+  // and no base cap, so its `facilityCaps` value comes entirely from
+  // here.
   //
   // NOTE: summing across active domains (rather than restricting to the
   // user's `currentDomain`) is preserved pending empirical clarification
@@ -168,8 +232,25 @@ function AppContent() {
       }
       if (anyActive) out.set(facilityId, total);
     }
+    for (const [domainId, list] of regionStructures) {
+      if (!settings.activeDomains.has(domainId)) continue;
+      for (const s of list) {
+        if (s.solver.role !== "instance") continue;
+        if (!settings.structures.enabled.has(structureKey(domainId, s.id))) {
+          continue;
+        }
+        out.set(
+          s.solver.facilityId,
+          (out.get(s.solver.facilityId) ?? 0) + 1,
+        );
+      }
+    }
     return out;
-  }, [settings.aic.effectiveCaps, settings.activeDomains]);
+  }, [
+    settings.aic.effectiveCaps,
+    settings.activeDomains,
+    settings.structures.enabled,
+  ]);
 
   // Aggregated per-(raw item) cap for the current factory region, in
   // items/min. Single-region lookup at `currentDomain` (raws are
