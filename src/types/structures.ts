@@ -45,7 +45,7 @@ type RegionStructure = {
   readonly nameKey: string;
   /** Display index for repeated structures (Sewage Inlet 1/2/3). */
   readonly index?: number;
-  /** Icon basename under `public/images/structures/` (no extension). */
+  /** Icon basename under `public/images/facilities/` (no extension). */
   readonly iconSlug: string;
   /** Solver-side effect of enabling this structure. */
   readonly solver: RegionStructureSolverRole;

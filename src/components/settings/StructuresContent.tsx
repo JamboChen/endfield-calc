@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { facilityRecipeVariants, recipes } from "@/data";
-import { structureIconUrl } from "@/lib/facility-icons";
+import { facilityIconUrl } from "@/lib/facility-icons";
 import { structureKey } from "@/lib/settings-helpers";
 import { cn } from "@/lib/utils";
 import type { ItemId, RecipeId, RegionStructureId } from "@/types/constants";
@@ -141,7 +141,7 @@ export function StructuresContent({
                   aria-label={name}
                 />
                 <img
-                  src={structureIconUrl(s.iconSlug)}
+                  src={facilityIconUrl(s.iconSlug)}
                   alt=""
                   aria-hidden="true"
                   // These are pure-white monochrome game glyphs (invisible

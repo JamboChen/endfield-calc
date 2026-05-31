@@ -59,10 +59,9 @@ One pipe carries two pumps' worth of flow (120 vs 60). Pickup count uses `getRaw
 ## Image assets
 
 - `public/images/items/<item_id>.png`
-- `public/images/facilities/<facility_id>.png`
-- `public/images/structures/<iconSlug>.png` — region-structure UI icons (`icon_port_liquid_clean_gate_1.png` etc.)
-- Source-facility images `unloader_1.png`, `pump_1.png`, `pump_2.png` are placeholders pending real game-asset extracts.
-- Synthetic facility `liquid_clean_gate_1` has no own PNG and falls back to `liquid_cleaner_1.png` via `FACILITY_ICON_FALLBACK` in `src/lib/facility-icons.ts`.
+- `public/images/facilities/<facility_id>.png` — colored building renders AND monochrome structure port glyphs share one directory. The visual-style split is carried by `Facility.iconIsMonochrome` (seeded from the `MONOCHROME_FACILITY_ICONS` set in `src/lib/facility-icons.ts`) and applied via `<FacilityIcon>`'s `invert dark:invert-0` styling.
+- `RegionStructure.iconSlug` is just an asset basename — `facilityIconUrl(slug)` resolves it the same way as a `FacilityId`. Today the slug equals the corresponding `RegionStructureId` string value (e.g. `liquid_clean_gate_1`, `liquid_recycle_gate_1`).
+- Synthetic facility `liquid_clean_gate_1` has no canonical building render in the game data dump; it reuses the Sewage Inlet structure port glyph (monochrome). The asset lives at `public/images/facilities/liquid_clean_gate_1.png` like any other facility icon; its monochrome status is signalled via `MONOCHROME_FACILITY_ICONS` rather than a separate directory.
 
 ## Generated vs manual facilities
 

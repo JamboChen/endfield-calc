@@ -43,7 +43,7 @@ const WULING_PURIFICATION_NODE: readonly RegionStructure[] = [
     domainId: WULING,
     nameKey: "sewageInlet",
     index: 1,
-    iconSlug: "icon_port_liquid_clean_gate_1",
+    iconSlug: "liquid_clean_gate_1",
     solver: { role: "instance", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
   },
   {
@@ -52,7 +52,7 @@ const WULING_PURIFICATION_NODE: readonly RegionStructure[] = [
     requires: RegionStructureId.LIQUID_CLEAN_GATE_1,
     nameKey: "sewageInlet",
     index: 2,
-    iconSlug: "icon_port_liquid_clean_gate_1",
+    iconSlug: "liquid_clean_gate_1",
     solver: { role: "instance", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
   },
   {
@@ -61,7 +61,7 @@ const WULING_PURIFICATION_NODE: readonly RegionStructure[] = [
     requires: RegionStructureId.LIQUID_CLEAN_GATE_2,
     nameKey: "sewageInlet",
     index: 3,
-    iconSlug: "icon_port_liquid_clean_gate_1",
+    iconSlug: "liquid_clean_gate_1",
     solver: { role: "instance", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
   },
   {
@@ -69,7 +69,7 @@ const WULING_PURIFICATION_NODE: readonly RegionStructure[] = [
     domainId: WULING,
     requires: RegionStructureId.LIQUID_CLEAN_GATE_3,
     nameKey: "byproductOutlet",
-    iconSlug: "icon_port_liquid_recycle_gate_1",
+    iconSlug: "liquid_recycle_gate_1",
     solver: { role: "recipeToggle", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
   },
 ];

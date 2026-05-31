@@ -40,13 +40,14 @@ import { facilityIconUrl, isMonochromeFacilityIcon } from "@/lib/facility-icons"
  *
  * **Icon**: manual facilities have no canonical building icon in the
  * game data — they're collapsed representations of map structures, not
- * placeable buildings. `iconUrl` is set via `facilityIconUrl()` so the
- * `FACILITY_ICON_PATH` entry for `liquid_clean_gate_1` (pointing at
- * the Sewage Inlet port glyph under `images/structures/`) drives every
- * consumer uniformly. `iconIsMonochrome` is derived from the same
- * mapping and tells `<FacilityIcon>` to apply `invert dark:invert-0`
- * styling so the monochrome glyph is visible on both light and dark
- * backgrounds.
+ * placeable buildings. The asset (a monochrome structure port glyph)
+ * lives alongside every other facility icon under
+ * `public/images/facilities/{id}.png`; `iconUrl` is set via
+ * `facilityIconUrl()` at data-load so every consumer reading the data
+ * field resolves the same path. `iconIsMonochrome` comes from
+ * `MONOCHROME_FACILITY_ICONS` (`src/lib/facility-icons.ts`) and tells
+ * `<FacilityIcon>` to apply `invert dark:invert-0` styling so the
+ * monochrome glyph is visible on both light and dark backgrounds.
  */
 export const manualFacilities: Facility[] = [
   {
