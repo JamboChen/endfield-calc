@@ -53,6 +53,29 @@ export type PlanWarning =
        * recipes fall through to singleton bins.
        */
       kind: "packer-fallback";
+    }
+  | {
+      /**
+       * Per-(item, region) raw-material limit exceeded. Emitted by
+       * `computeRawOverCapWarnings` in `plan-helpers.ts` after the
+       * packer runs, comparing post-pack `rawMaterialRequirements`
+       * (items/min consumption) against the user-configured
+       * `rawCaps` map for the current region.
+       *
+       * Mirrors `facility-over-cap` semantically: the value is
+       * informational (warn-only, never blocks). The LP layer
+       * additionally adds slack-based upper-bound constraints (see
+       * `lp-solver.ts`), so the LP actively biases toward conserving
+       * the capped raw — this warning surfaces residual overage when
+       * no recipe combination respects the cap.
+       *
+       * `used` may be fractional (LP-derived); `cap` is integer
+       * (parseInt-guarded at the UI + 4-layer validation).
+       */
+      kind: "raw-over-cap";
+      itemId: ItemId;
+      used: number;
+      cap: number;
     };
 
 /**

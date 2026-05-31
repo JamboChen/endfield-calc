@@ -1,5 +1,6 @@
 {
   "facilityCapExceeded": "상한 초과 ({{used}} / {{cap}})",
+  "rawCapExceeded": "상한 초과 ({{used}}/분 / {{cap}}/분)",
   "pickupPoints": "픽업 포트",
   "productionSteps": "생산 단계",
   "rawMaterialUsage": "원자재 사용량",

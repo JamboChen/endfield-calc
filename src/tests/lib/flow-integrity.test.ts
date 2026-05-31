@@ -8,6 +8,7 @@ import {
 import { items, recipes, facilities } from "@/data";
 import type { FacilityId, ItemId, ProductionDependencyGraph } from "@/types";
 import type { Edge, Node } from "@xyflow/react";
+import { ALL_RAWS } from "./utils";
 
 function checkIntegrity(nodes: Node[], edges: Edge[]) {
   const ids = new Set(nodes.map((n) => n.id));
@@ -39,6 +40,7 @@ describe("flow mapper integrity", () => {
         items,
         recipes,
         facilities,
+        { rawMaterials: ALL_RAWS },
       );
       plans.set(c.name, { plan, targetRates: new Map([[c.targetId, c.rate]]) });
     }
@@ -88,6 +90,7 @@ describe("Phase 3 bin-aware integrity", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     for (const node of plan.nodes.values()) {
       if (node.type !== "recipe") continue;
@@ -119,6 +122,7 @@ describe("Prefill chip rendering across views", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const targetRates = new Map<ItemId, number>([
       ["item_plant_moss_powder_1" as ItemId, 30],
@@ -161,6 +165,7 @@ describe("Prefill chip rendering across views", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const targetRates = new Map<ItemId, number>([
       ["item_plant_moss_powder_1" as ItemId, 30],
@@ -204,6 +209,7 @@ describe("Prefill chip rendering across views", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const targetRates = new Map<ItemId, number>([
       ["item_xiranite_poly" as ItemId, 60],

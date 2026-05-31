@@ -1,5 +1,6 @@
 {
   "facilityCapExceeded": "Límite excedido ({{used}} / {{cap}})",
+  "rawCapExceeded": "Límite excedido ({{used}}/min / {{cap}}/min)",
   "pickupPoints": "Puertos de Recogida",
   "productionSteps": "Pasos de Producción",
   "rawMaterialUsage": "Uso de Materias Primas",

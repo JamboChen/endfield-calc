@@ -22,12 +22,6 @@ type Recipe = {
 };
 
 /**
- * Placement cap for a facility. The per-domain instance limit is
- * `base + sum(increments)`. `null` on a Facility means uncapped.
- */
-type PlacementCap = { base: number; increments: number[] };
-
-/**
  * One logical I/O stream of a building (one slot in the player's view),
  * carrying its physical port count. The engine itself uses "buffer" to
  * name the binding/grouping layer that ties one or more physical ports
@@ -46,7 +40,7 @@ type Buffers = { belt: Buffer[]; pipe: Buffer[] };
 
 /**
  * A factory building. Schema mirrors the game-data dump emitted by the
- * upstream `build-factory-buildings.ts` extractor, with the calc-side
+ * upstream `scripts/build-facilities.ts` extractor, with the calc-side
  * `FacilityId` brand applied to `id`.
  *
  * Multi-formula capability is signalled by the presence of `cacheSlots`
@@ -61,15 +55,13 @@ type Buffers = { belt: Buffer[]; pipe: Buffer[] };
  *   - belt-in distinct-item variety is intentionally uncapped wrt bin
  *     packing (throughput remains validated separately during post-pass).
  *
- * Advisory fields (`buffers{In,Out}`, `category`, `numId`, `domains`,
- * `cap`) carry data for future consumers (per-buffer routing
- * visualisation, placement-aware planning warnings, categorical
- * filters). They are not consumed by today's solver.
+ * Advisory fields (`buffers{In,Out}`, `category`, `domains`) carry data
+ * for future consumers (per-buffer routing visualisation, placement-aware
+ * planning warnings, categorical filters). They are not consumed by
+ * today's solver.
  */
 type Facility = {
   id: FacilityId;
-  /** Numeric entity id from upstream `entity-ids.json` (−1 if unresolved). */
-  numId: number;
   /**
    * Building progression tier (1..4 today), derived upstream from
    * `FactoryBuildingItemReverseTable -> ItemTable.rarity`.
@@ -92,12 +84,13 @@ type Facility = {
    */
   cacheSlots?: number;
   /**
-   * Numeric DomainDataTable.sortId values. Empty = placeable anywhere.
+   * Domain ids where this building may be placed (e.g. `["domain_2"]`);
+   * empty = placeable anywhere. Union of `placeDomains` (the hard
+   * restriction) and `recommendDomains` (a "suggested" location that is,
+   * in practice, enforced by the game today).
    */
-  domains: number[];
-  /** Per-domain instance limit; `null` = uncapped. */
-  cap: PlacementCap | null;
+  domains: string[];
   iconUrl?: string;
 };
 
-export type { Item, Recipe, RecipeItem, Facility, Buffer, Buffers, PlacementCap };
+export type { Item, Recipe, RecipeItem, Facility, Buffer, Buffers };

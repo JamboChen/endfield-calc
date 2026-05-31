@@ -1,10 +1,46 @@
 {
   "title": "設定",
   "open": "設定を開く",
+  "intro": "各リージョンの AIC 研究プラン、施設上限、素材速度を設定します。下で設定するリージョンを選択してください。スイッチでリージョンをロスターに追加・削除できます。",
+  "regions": {
+    "configuringLabel": "設定中",
+    "yourRegions": "所持リージョン",
+    "notInRoster": "ロスター外",
+    "factoryMarker": "工場"
+  },
+  "region": {
+    "label": "現在の工場のリージョン",
+    "picker": {
+      "placeholder": "リージョンを選択",
+      "ariaLabel": "現在の工場のリージョンを選択"
+    },
+    "toast": {
+      "switchedToFallback": "{{name}} の工場に切り替えました"
+    }
+  },
+  "tabs": {
+    "plan": "プラン",
+    "limits": "上限",
+    "raws": "資源"
+  },
+  "status": {
+    "researched": "{{done}} / {{total}} 研究済み",
+    "customized": "{{n}} 件カスタム",
+    "sourced": "{{done}} / {{total}} 入手済み"
+  },
+  "rawLimits": {
+    "help": "空欄はその資源が無制限であることを意味します。数値を入力すると上限を設定できます。",
+    "clearAll": "すべてクリア",
+    "placeholder": "∞",
+    "unitSuffix": "/分",
+    "inputAria": "{{name}} の上限 (個/分)",
+    "invalidValue": "上限は0以上の数値を指定してください。保存されませんでした。"
+  },
   "aic": {
-    "intro": "研究済みの AIC テクノロジーを選択します。将来のアップデートでは、この設定によりプランで使用可能なアイテムとレシピが絞り込まれます。",
     "activateAll": "すべて有効化",
     "activateLayer": "この層を有効化",
+    "expandAll": "すべて展開",
+    "collapseAll": "すべて折りたたむ",
     "resetDefaults": "デフォルトに戻す",
     "capDeltaLabel": "上限",
     "row": {
@@ -18,11 +54,10 @@
       "ariaAlwaysAvailable": "{{name}}、常時利用可能"
     },
     "facilityLimits": {
-      "title": "施設上限",
       "gameCap": "ゲーム上限",
       "customCap": "カスタム",
       "effective": "実効",
-      "reset": "ゲーム上限にリセット"
+      "resetToBase": "基本上限にリセット"
     },
     "domain": {
       "toggleActivate": "{{name}} を有効化",

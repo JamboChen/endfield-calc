@@ -1,9 +1,5 @@
 import type { ItemId, RecipeId } from "@/types";
-import {
-  forcedRawMaterials,
-  forcedDisposalItems,
-  costlessRaws,
-} from "@/data";
+import { forcedDisposalItems, costlessRaws } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { solveLP, type LPInput, type LPItemConstraint } from "./lp-solver";
 import type {
@@ -70,6 +66,7 @@ export async function calculateFlows(
   targetRates: Map<ItemId, number>,
   maps: ProductionMaps,
   manualRawMaterials?: Set<ItemId>,
+  rawCaps?: ReadonlyMap<ItemId, number>,
 ): Promise<{ flowData: FlowData; invalidSCCs: InvalidSCCInfo[] }> {
   const recipesList = Array.from(graph.recipeNodes.values()).map(
     (r) => r.recipe,
@@ -88,8 +85,22 @@ export async function calculateFlows(
   }
 
   // --- Build per-item constraints over every item in the graph ---
+  //
+  // `graph.rawMaterials` already includes:
+  //   - items in the per-region raw set the caller passed to
+  //     `buildBipartiteGraph` that were visited during target-rooted
+  //     traversal, AND
+  //   - chain-leaf items auto-detected during traversal (items with
+  //     no surviving producer recipe).
+  //
+  // We union with `manualRawMaterials` to cover manual-raw pins on
+  // items NOT reached by target traversal (e.g. user pinned a raw on
+  // an item then deleted the target that consumed it — the pin
+  // remains in state but the item never enters the graph). These
+  // items don't appear in any recipe constraint, so adding them is
+  // a no-op for the LP, but the union keeps `rawMaterials` semantically
+  // complete for callers that inspect it.
   const rawMaterials = new Set<ItemId>();
-  for (const r of forcedRawMaterials) rawMaterials.add(r);
   for (const r of graph.rawMaterials) rawMaterials.add(r);
   if (manualRawMaterials) {
     for (const r of manualRawMaterials) rawMaterials.add(r);
@@ -138,6 +149,7 @@ export async function calculateFlows(
     itemConstraints,
     rawMaterials,
     costlessRaws,
+    rawCaps,
     facilityMap: maps.facilityMap,
   };
 
@@ -181,6 +193,16 @@ export async function calculateFlows(
       console.warn(
         `[GLOBAL_FLOW] Disposal deficits:`,
         Object.fromEntries(result.disposalDeficits),
+      );
+    }
+    if (result.rawCapOveruse.size > 0) {
+      // Mirror of the disposal-deficits log: the LP found a feasible
+      // solution by spending cap-slack — the plan exceeds at least one
+      // user-set raw-material limit. Informational only; over-cap
+      // warnings already surface in the UI via `computeRawOverCapWarnings`.
+      console.warn(
+        `[GLOBAL_FLOW] Raw-cap overuse:`,
+        Object.fromEntries(result.rawCapOveruse),
       );
     }
     detectMixedStrategies(graph, result.facilityCounts);

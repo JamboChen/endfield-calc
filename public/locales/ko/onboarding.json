@@ -6,5 +6,9 @@
   "hint": "설정에서 언제든지 변경할 수 있습니다.",
   "confirmButton": "계속",
   "statusActive": "활성",
-  "statusInactive": "꺼짐"
+  "statusInactive": "꺼짐",
+  "region": {
+    "label": "현재 건설 지역",
+    "placeholder": "지역 선택"
+  }
 }

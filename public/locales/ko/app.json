@@ -1,6 +1,6 @@
 {
-  "autoPruneSummary_one": "현재 AIC 설정으로 생산할 수 없는 항목 {{count}}개를 제거했습니다.",
-  "autoPruneSummary_other": "현재 AIC 설정으로 생산할 수 없는 항목 {{count}}개를 제거했습니다.",
+  "autoPruneSummary_one": "현재 설정으로 생산할 수 없는 항목 {{count}}개를 제거했습니다.",
+  "autoPruneSummary_other": "현재 설정으로 생산할 수 없는 항목 {{count}}개를 제거했습니다.",
   "ceilMode": "시설 수 올림",
   "twoEndAlignment": "입출력 양끝 정렬",
   "binFusion": "공식 그룹화",
@@ -9,6 +9,7 @@
   "cycleWarning": "{{overriddenItems}}에 선택된 공식이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다. 영향받는 아이템: {{affectedItems}}.",
   "cycleWarningNoAffected": "{{overriddenItems}}에 선택된 공식이 필요한 생산량을 유지할 수 없는 생산 루프를 형성합니다.",
   "facilityOverCap": "{{facility}}: 상한 초과 ({{displayCount}} / {{cap}}).",
+  "rawOverCap": "{{item}}: 상한 초과 ({{used}}/분 / {{cap}}/분).",
   "packerOverrideInfeasible": "시설 \"{{facility}}\"의 공식 \"{{recipe}}\"에 유효한 배치 패턴이 없어, 패커가 이 공식을 개별 건물로 폴백했습니다.",
   "packerFallback": "제약 조건을 해결할 수 없어, 다중 공식 건물 패커가 공식별 개별 건물로 폴백했습니다.",
   "footer": {

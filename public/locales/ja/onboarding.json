@@ -6,5 +6,9 @@
   "hint": "設定からいつでも変更できます。",
   "confirmButton": "続ける",
   "statusActive": "稼働",
-  "statusInactive": "停止"
+  "statusInactive": "停止",
+  "region": {
+    "label": "現在の建設リージョン",
+    "placeholder": "リージョンを選択"
+  }
 }

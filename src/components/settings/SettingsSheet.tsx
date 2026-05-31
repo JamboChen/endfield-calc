@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -11,11 +11,12 @@ import {
 } from "@/components/ui/sheet";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { previewActivationDelta } from "@/lib/aic-cascade";
+import { resolveEditingDomain } from "@/lib/settings-helpers";
 import type { AicGroupId, AicLayerId, AicTechId } from "@/types/aic";
-import type { Domain, DomainId } from "@/types/domain";
+import type { DomainId } from "@/types/domain";
 
-import { AicPlanCard } from "./AicPlanCard";
-import { DomainSection } from "./DomainSection";
+import { RegionConfigTabs } from "./RegionConfigTabs";
+import { RegionNavMenu } from "./RegionNavMenu";
 
 interface SettingsSheetProps {
   open: boolean;
@@ -25,37 +26,35 @@ interface SettingsSheetProps {
 export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
   const { t } = useTranslation(["settings", "aic", "domain"]);
 
-  const { domains, activeDomains, toggleDomain, aic } = useDomainSettingsContext();
+  const { activeDomains, currentDomain, aic } = useDomainSettingsContext();
 
-  const orderedDomains = useMemo<readonly Domain[]>(
-    () => [...domains].sort((a, b) => a.sortId - b.sortId),
-    [domains],
-  );
+  // Local "Configuring" context — decoupled from the factory region.
+  const [editingDomain, setEditingDomain] = useState<DomainId>(currentDomain);
 
-  const aicGroups = aic.groups;
-  const groupsByDomain = useMemo(() => {
-    const out = new Map<DomainId, typeof aicGroups[number][]>();
-    for (const group of aicGroups) {
-      const bucket = out.get(group.domainId) ?? [];
-      bucket.push(group);
-      out.set(group.domainId, bucket);
-    }
-    return out;
-  }, [aicGroups]);
+  // Re-sync the editing context to the factory region on each
+  // closed→open transition. The sheet stays mounted (AppHeader owns
+  // `open`), so the useState initializer runs only once at app load —
+  // this effect is what actually keeps "defaults to currentDomain on
+  // open" true across sessions of opening the sheet.
+  const prevOpen = useRef(open);
+  useEffect(() => {
+    if (open && !prevOpen.current) setEditingDomain(currentDomain);
+    prevOpen.current = open;
+  }, [open, currentDomain]);
 
-  // Domain activation is silent — the switch flip is its own visual
-  // feedback (no toast needed). State preservation across deactivation
-  // is implicit in `toggleDomain`'s soft semantics.
-  const handleToggleDomain = useCallback(
-    (domain: Domain) => {
-      toggleDomain(domain.id);
-    },
-    [toggleDomain],
+  // Guard against the edited region being deactivated mid-session: fall
+  // back to the factory region (always active by the hook's invariant).
+  const editing = resolveEditingDomain(
+    editingDomain,
+    activeDomains,
+    currentDomain,
   );
 
   const handleActivateGroup = useCallback(
     (groupId: AicGroupId) => {
-      const targets = aic.nodes.filter((n) => n.groupId === groupId).map((n) => n.id);
+      const targets = aic.nodes
+        .filter((n) => n.groupId === groupId)
+        .map((n) => n.id);
       const delta = previewActivationDelta(targets, aic.researched, aic.nodes);
       aic.activateGroup(groupId);
       if (delta.primary + delta.prereqs > 0) {
@@ -142,54 +141,36 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-md md:max-w-lg lg:max-w-[600px] p-0 gap-0 flex flex-col"
+        className="w-full md:max-w-2xl lg:max-w-3xl max-w-[92vw] p-0 gap-0 flex flex-col"
       >
         <SheetHeader className="px-5 pt-5 pb-4 border-b">
           <SheetTitle className="text-lg">
             {t("title", { ns: "settings", defaultValue: "Settings" })}
           </SheetTitle>
           <SheetDescription className="text-xs">
-            {t("aic.intro", {
+            {t("intro", {
               ns: "settings",
               defaultValue:
-                "Choose which AIC technologies you've researched. In a future update, this will filter the items and recipes available to your plans.",
+                "Configure each region's AIC research plan, facility limits, and raw-material rates. Pick a region to configure below; the switches add or remove regions from your roster.",
             })}
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {orderedDomains.map((domain) => {
-            const isActive = activeDomains.has(domain.id);
-            const groups = groupsByDomain.get(domain.id) ?? [];
-            return (
-              <DomainSection
-                key={domain.id}
-                domain={domain}
-                isActive={isActive}
-                onToggle={() => handleToggleDomain(domain)}
-              >
-                {groups.map((group) => (
-                  <AicPlanCard
-                    key={group.id}
-                    group={group}
-                    layers={aic.layers}
-                    nodes={aic.nodes}
-                    researched={aic.researched}
-                    baseCaps={aic.baseCaps}
-                    capOverrides={aic.capOverrides}
-                    effectiveCaps={aic.effectiveCaps}
-                    isAtDefaults={aic.isAtDefaultsByGroup.get(group.id) ?? false}
-                    onToggleNode={handleToggleNode}
-                    onActivateLayer={handleActivateLayer}
-                    onActivateGroup={() => handleActivateGroup(group.id)}
-                    onResetGroup={() => handleResetGroup(group.id)}
-                    onSetCapOverride={aic.setCapOverride}
-                    onActivateRaiseNodes={aic.activateNodes}
-                  />
-                ))}
-              </DomainSection>
-            );
-          })}
+        <div className="px-4 py-3 border-b border-border/60">
+          <RegionNavMenu
+            editingDomain={editing}
+            onEditingDomainChange={setEditingDomain}
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <RegionConfigTabs
+            editingDomain={editing}
+            onToggleNode={handleToggleNode}
+            onActivateLayer={handleActivateLayer}
+            onActivateGroup={handleActivateGroup}
+            onResetGroup={handleResetGroup}
+          />
         </div>
       </SheetContent>
     </Sheet>

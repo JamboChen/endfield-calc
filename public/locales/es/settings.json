@@ -1,10 +1,46 @@
 {
   "title": "Configuración",
   "open": "Abrir configuración",
+  "intro": "Configura el plan de investigación de la CAI, los límites de instalaciones y las tasas de materia prima de cada región. Elige abajo la región a configurar; los interruptores añaden o quitan regiones de tu lista.",
+  "regions": {
+    "configuringLabel": "Configurando",
+    "yourRegions": "Tus regiones",
+    "notInRoster": "Fuera de la lista",
+    "factoryMarker": "Fábrica"
+  },
+  "region": {
+    "label": "Región actual de la fábrica",
+    "picker": {
+      "placeholder": "Selecciona región",
+      "ariaLabel": "Selecciona la región actual de la fábrica"
+    },
+    "toast": {
+      "switchedToFallback": "Se cambió a la fábrica de {{name}}"
+    }
+  },
+  "tabs": {
+    "plan": "Plan",
+    "limits": "Límites",
+    "raws": "Recursos"
+  },
+  "status": {
+    "researched": "{{done}} / {{total}} investigado",
+    "customized": "{{n}} personalizado",
+    "sourced": "{{done}} / {{total}} con fuente"
+  },
+  "rawLimits": {
+    "help": "Una fila en blanco significa suministro ilimitado. Introduce una tasa para limitar un recurso.",
+    "clearAll": "Borrar todo",
+    "placeholder": "∞",
+    "unitSuffix": "/min",
+    "inputAria": "Límite de {{name}} (objetos por minuto)",
+    "invalidValue": "El límite debe ser un número no negativo. Valor no guardado."
+  },
   "aic": {
-    "intro": "Elige qué tecnologías de la CAI has investigado. En una futura actualización, esto filtrará los objetos y fórmulas disponibles en tus planes.",
     "activateAll": "Activar todo",
     "activateLayer": "Activar capa",
+    "expandAll": "Expandir todo",
+    "collapseAll": "Contraer todo",
     "resetDefaults": "Restablecer valores predeterminados",
     "capDeltaLabel": "máx",
     "row": {
@@ -18,11 +54,10 @@
       "ariaAlwaysAvailable": "{{name}}, siempre disponible"
     },
     "facilityLimits": {
-      "title": "Límites de instalaciones",
       "gameCap": "Límite del juego",
       "customCap": "Personalizado",
       "effective": "Efectivo",
-      "reset": "Restablecer al límite del juego"
+      "resetToBase": "Restablecer al límite base"
     },
     "domain": {
       "toggleActivate": "Activar {{name}}",

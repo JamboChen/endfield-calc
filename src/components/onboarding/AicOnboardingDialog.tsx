@@ -61,7 +61,7 @@
  *   - Initial render returns the dialog closed; effect runs post-mount,
  *     flips `open` if the flag is absent.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowRight } from "lucide-react";
 
@@ -74,9 +74,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
+import { pickLatestActive } from "@/hooks/useDomainSettings";
 import { cn } from "@/lib/utils";
-import type { DomainId } from "@/types/domain";
+import type { Domain, DomainId } from "@/types/domain";
 
 const STORAGE_KEY = "endfield-calc:onboarding-v1";
 
@@ -96,6 +104,46 @@ export function AicOnboardingDialog() {
     for (const d of domains) m.set(d.id, true);
     return m;
   });
+
+  // Region picker options: pinned domains ∪ ticked non-pinned domains.
+  // Pinned domains always appear here regardless of their tick state
+  // because unticking them only resets their AIC research, doesn't
+  // deactivate the region.
+  const pickerOptions = useMemo<readonly Domain[]>(
+    () =>
+      domains
+        .filter((d) => d.isPinned || (choices.get(d.id) ?? true))
+        .slice()
+        .sort((a, b) => a.sortId - b.sortId),
+    [domains, choices],
+  );
+
+  // Staged `currentDomain` — defaults to the latest (highest-sortId)
+  // option. Auto-adjusts when the picker option list changes (e.g. user
+  // unticks the currently-staged region → fall back to next-latest).
+  //
+  // First render: dialog starts with everything checked, so the staged
+  // active set equals the full domain registry. `pickLatestActive` is
+  // the shared "latest active" helper from `useDomainSettings` — using
+  // it here keeps onboarding + settings + hook all in lockstep if the
+  // tie-breaking rule ever changes. Assumes `domains` from the context
+  // is the module-static `domainData` (which `pickLatestActive`
+  // iterates internally), which is currently invariant.
+  const [stagedCurrent, setStagedCurrent] = useState<DomainId>(() =>
+    pickLatestActive(new Set(domains.map((d) => d.id))),
+  );
+  useEffect(() => {
+    const stillAvailable = pickerOptions.some((d) => d.id === stagedCurrent);
+    if (stillAvailable) return;
+    const fallback = pickerOptions[pickerOptions.length - 1]; // highest sortId
+    if (fallback) setStagedCurrent(fallback.id);
+  }, [pickerOptions, stagedCurrent]);
+
+  // Render the picker even when only one option remains (i.e. Wuling
+  // unticked → Valley IV only). Disabling rather than hiding prevents a
+  // layout shift mid-dialog and mirrors RegionPicker's settings-sheet
+  // pattern.
+  const isTrivialRegionPick = pickerOptions.length <= 1;
 
   // Trigger gate: read localStorage post-mount. Hidden on SSR.
   useEffect(() => {
@@ -119,7 +167,7 @@ export function AicOnboardingDialog() {
   }, []);
 
   const handleConfirm = useCallback(() => {
-    applyOnboardingChoices(choices);
+    applyOnboardingChoices(choices, stagedCurrent);
     try {
       window.localStorage.setItem(STORAGE_KEY, "1");
     } catch {
@@ -127,7 +175,7 @@ export function AicOnboardingDialog() {
       // next visit. Not catastrophic.
     }
     setOpen(false);
-  }, [applyOnboardingChoices, choices]);
+  }, [applyOnboardingChoices, choices, stagedCurrent]);
 
   // Any close event (Escape, overlay click, X button) routes through
   // the same apply path. Prevents users from dismissing into a
@@ -267,6 +315,53 @@ export function AicOnboardingDialog() {
           <p className="text-xs leading-snug text-muted-foreground mt-0.5">
             {t("onboarding:warning")}
           </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label
+            htmlFor="onboarding-region-picker"
+            className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+          >
+            {t("onboarding:region.label", {
+              defaultValue: "Currently building in",
+            })}
+          </label>
+          <Select
+            value={stagedCurrent}
+            onValueChange={(value) => setStagedCurrent(value as DomainId)}
+            disabled={isTrivialRegionPick}
+          >
+            <SelectTrigger
+              id="onboarding-region-picker"
+              className="w-full pl-3 gap-2 border-l-4"
+              style={(() => {
+                const d = pickerOptions.find((x) => x.id === stagedCurrent);
+                return d ? { borderLeftColor: `#${d.color}` } : undefined;
+              })()}
+            >
+              <SelectValue
+                placeholder={t("onboarding:region.placeholder", {
+                  defaultValue: "Select region",
+                })}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {pickerOptions.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  <span
+                    aria-hidden="true"
+                    className="inline-block size-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: `#${d.color}` }}
+                  />
+                  <span className="truncate">
+                    {t(`domain:domains.${d.id}.name`, {
+                      defaultValue: d.id,
+                    })}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <p className="text-xs text-muted-foreground">{t("onboarding:hint")}</p>

@@ -1,5 +1,6 @@
 {
   "facilityCapExceeded": "上限超過 ({{used}} / {{cap}})",
+  "rawCapExceeded": "上限超過 ({{used}}/分 / {{cap}}/分)",
   "pickupPoints": "取出口",
   "productionSteps": "生産ステップ",
   "rawMaterialUsage": "原材料使用量",

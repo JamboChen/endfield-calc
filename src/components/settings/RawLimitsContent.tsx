@@ -1,0 +1,249 @@
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { items } from "@/data";
+import { rawLimitKey } from "@/lib/raw-limits-helpers";
+import { filterRegionRawItems } from "@/lib/settings-helpers";
+import { cn } from "@/lib/utils";
+import type { Item, ItemId } from "@/types";
+import type { DomainId } from "@/types/domain";
+
+// Module-scope item index. `items` is a static module import, so the
+// Map can be built once at module load rather than every render.
+const ITEMS_BY_ID: ReadonlyMap<ItemId, Item> = new Map(
+  items.map((i) => [i.id, i] as const),
+);
+
+interface RawLimitsContentProps {
+  /** Region these limits are for. */
+  domainId: DomainId;
+  /**
+   * Raws available in this region (from `rawAvailabilityByDomain`).
+   * Iterated filtered to non-liquid items only — liquids are hidden per
+   * the locked design (costless in the LP, governed by pump
+   * deployability rather than user caps).
+   */
+  regionRawMaterials: ReadonlySet<ItemId>;
+  /** All overrides across every (item, domain) pair; own region read here. */
+  overrides: ReadonlyMap<string, number>;
+  /** Mutator. `null` clears (uncapped); a finite number sets the value. */
+  onSetLimit: (
+    itemId: ItemId,
+    domainId: DomainId,
+    value: number | null,
+  ) => void;
+}
+
+/**
+ * Raw-material limits body for one region — the "Raws" sub-tab content.
+ * A responsive 2-column grid of material rows (single column on narrow
+ * widths). Each row hosts a swatch-framed icon, the localised item name,
+ * and a per-min numeric input. No outer card/collapsible chrome — the
+ * tab panel is the container. Returns `null` when the region has no
+ * non-liquid raws.
+ *
+ * Reset model (per the settings redesign): per-row reset buttons are
+ * removed — clearing a row is just emptying its field (→ uncapped). A
+ * single tab-level **"Clear all"** wipes every override in the region.
+ */
+export function RawLimitsContent({
+  domainId,
+  regionRawMaterials,
+  overrides,
+  onSetLimit,
+}: RawLimitsContentProps) {
+  const { t } = useTranslation(["item", "settings"]);
+
+  // Non-liquid region raws, stably ordered then re-sorted by localised
+  // name (matches the ProductionStats raw-materials list ordering).
+  const rows = useMemo<Item[]>(() => {
+    const out = filterRegionRawItems(regionRawMaterials, ITEMS_BY_ID);
+    out.sort((a, b) =>
+      t(a.id, { ns: "item", defaultValue: a.id }).localeCompare(
+        t(b.id, { ns: "item", defaultValue: b.id }),
+      ),
+    );
+    return out;
+  }, [regionRawMaterials, t]);
+
+  // Rows with a non-null override. Gates the "Clear all" affordance.
+  const sourcedCount = useMemo(() => {
+    let count = 0;
+    for (const item of rows) {
+      if (overrides.has(rawLimitKey(item.id, domainId))) count++;
+    }
+    return count;
+  }, [rows, overrides, domainId]);
+
+  const handleClearAll = () => {
+    for (const item of rows) {
+      if (overrides.has(rawLimitKey(item.id, domainId))) {
+        onSetLimit(item.id, domainId, null);
+      }
+    }
+  };
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-muted-foreground leading-relaxed flex-1">
+          {t("rawLimits.help", {
+            ns: "settings",
+            defaultValue:
+              "A blank row means unlimited supply. Enter a rate to limit a resource.",
+          })}
+        </p>
+        {sourcedCount > 0 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground shrink-0"
+            onClick={handleClearAll}
+          >
+            {t("rawLimits.clearAll", {
+              ns: "settings",
+              defaultValue: "Clear all",
+            })}
+          </Button>
+        )}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+        {rows.map((item) => (
+          <RawLimitRow
+            key={item.id}
+            item={item}
+            domainId={domainId}
+            value={overrides.get(rawLimitKey(item.id, domainId))}
+            onSetLimit={onSetLimit}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface RawLimitRowProps {
+  item: Item;
+  domainId: DomainId;
+  value: number | undefined;
+  onSetLimit: (
+    itemId: ItemId,
+    domainId: DomainId,
+    value: number | null,
+  ) => void;
+}
+
+function RawLimitRow({ item, domainId, value, onSetLimit }: RawLimitRowProps) {
+  const { t } = useTranslation(["item", "settings"]);
+  const itemName = t(item.id, { ns: "item", defaultValue: item.id });
+  const hasOverride = value !== undefined;
+  const [draft, setDraft] = useState<string>(hasOverride ? String(value) : "");
+
+  // Sync the local draft when `value` changes externally — e.g. the
+  // tab-level "Clear all" (which clears via `onSetLimit(null)`), or a
+  // future write path (import / URL load). Without this, the draft would
+  // diverge from the persisted value and the next blur would write the
+  // stale draft back.
+  useEffect(() => {
+    setDraft(value !== undefined ? String(value) : "");
+  }, [value]);
+
+  // parseFloat with finite + non-negative check, empty → clear override.
+  // Fractional caps are intentional (a pump cycling every 2 min is
+  // 0.5/min). Negative / NaN inputs are rejected here AND toast-warn so
+  // the silent-revert doesn't confuse the user. The hook setter, loader,
+  // and App.tsx aggregation independently reject negatives — defense in
+  // depth.
+  const commitDraft = () => {
+    if (draft === "") {
+      onSetLimit(item.id, domainId, null);
+      return;
+    }
+    const v = parseFloat(draft);
+    if (Number.isFinite(v) && v >= 0) {
+      onSetLimit(item.id, domainId, v);
+    } else {
+      setDraft(hasOverride ? String(value) : "");
+      toast.warning(
+        t("rawLimits.invalidValue", {
+          ns: "settings",
+          defaultValue:
+            "Limit must be a non-negative number. Value not saved.",
+        }),
+      );
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-md py-1.5 px-1.5",
+        hasOverride
+          ? "bg-muted/30"
+          : "bg-transparent hover:bg-muted/20 transition-colors",
+      )}
+    >
+      <span
+        className={cn(
+          "flex items-center justify-center size-7 shrink-0 rounded border bg-background",
+          hasOverride ? "border-border" : "border-border/50",
+        )}
+        aria-hidden="true"
+      >
+        {item.iconUrl && (
+          <img src={item.iconUrl} alt="" className="size-5 object-contain" />
+        )}
+      </span>
+      <span
+        className={cn(
+          "text-sm flex-1 min-w-0 truncate",
+          hasOverride ? "font-medium" : "text-muted-foreground",
+        )}
+      >
+        {itemName}
+      </span>
+      <div className="flex items-center gap-1 shrink-0">
+        <Input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step="any"
+          value={draft}
+          placeholder={t("rawLimits.placeholder", {
+            ns: "settings",
+            defaultValue: "∞",
+          })}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitDraft}
+          className={cn(
+            "h-7 w-20 text-xs tabular-nums",
+            // Hide native number-input spinner arrows: rate values are
+            // typed, not incremented click-by-click, and the arrows eat
+            // ~16px of visible digit space inside the box.
+            "[appearance:textfield]",
+            "[&::-webkit-outer-spin-button]:appearance-none",
+            "[&::-webkit-inner-spin-button]:appearance-none",
+            "[&::-webkit-inner-spin-button]:m-0",
+          )}
+          aria-label={t("rawLimits.inputAria", {
+            ns: "settings",
+            name: itemName,
+            defaultValue: `${itemName} limit (items per minute)`,
+          })}
+        />
+        <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
+          {t("rawLimits.unitSuffix", {
+            ns: "settings",
+            defaultValue: "/min",
+          })}
+        </span>
+      </div>
+    </div>
+  );
+}

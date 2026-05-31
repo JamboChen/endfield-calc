@@ -6,5 +6,9 @@
   "hint": "Это можно изменить в любой момент в Настройках.",
   "confirmButton": "Продолжить",
   "statusActive": "Активно",
-  "statusInactive": "Выкл"
+  "statusInactive": "Выкл",
+  "region": {
+    "label": "Сейчас строю в",
+    "placeholder": "Выберите регион"
+  }
 }

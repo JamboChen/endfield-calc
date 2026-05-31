@@ -18,6 +18,7 @@ type LeftPanelProps = {
   totalPickupPoints: number;
   rawMaterialPickupPoints: Map<ItemId, number>;
   facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>;
+  rawMaterialOverCapMap: ReadonlyMap<ItemId, { used: number; cap: number }>;
   error: string | null;
   ceilMode?: boolean;
   onTargetChange: (index: number, rate: number) => void;
@@ -36,6 +37,7 @@ const LeftPanel = memo(function LeftPanel({
   totalPickupPoints,
   rawMaterialPickupPoints,
   facilityOverCapMap,
+  rawMaterialOverCapMap,
   error,
   ceilMode = false,
   onTargetChange,
@@ -101,6 +103,7 @@ const LeftPanel = memo(function LeftPanel({
         totalPickupPoints={totalPickupPoints}
         rawMaterialPickupPoints={rawMaterialPickupPoints}
         facilityOverCapMap={facilityOverCapMap}
+        rawMaterialOverCapMap={rawMaterialOverCapMap}
         facilities={facilities}
         items={items}
         error={error}

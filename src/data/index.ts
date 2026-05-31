@@ -3,6 +3,7 @@ import { facilities } from "./facilities";
 import { recipes } from "./recipes";
 import { FacilityId } from "@/types/constants";
 import type { ItemId } from "@/types";
+import type { DomainId } from "@/types/domain";
 
 /**
  * Per-raw-material configuration assigning a source facility. The
@@ -45,24 +46,80 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
 ]);
 
 /**
- * Back-compat alias for the legacy `Set<ItemId>` API. Derived from
- * `rawMaterialSources` keys. Solver layer (`flow-solver.ts`,
- * `graph-builder.ts`) and the AddTargetDialog use `.has()` / `for...of`
- * which both work on `ReadonlySet`.
+ * Per-region raw-material availability. A raw appears in a region's set
+ * only when the player can physically source it there. **This map is
+ * the sole source of truth for "what counts as a raw"** — the calc
+ * layer receives the per-`currentDomain` set explicitly, and tests
+ * construct their own raw sets when they need different semantics.
  *
- * IMPORTANT: do not iterate this set to compute source-facility info
- * — use `rawMaterialSources` directly. The set carries no source data.
+ * Two distinct sourcing models, each with a different rule:
+ *
+ *   - **Solid raws** are tied to discrete in-world POIs (the
+ *     `int_minerbase_*` interactive types — confirmed in
+ *     `InteractiveMarkDataTable.json` from the upstream data dump).
+ *     POI placements are scene-data, NOT in `TableCfg`, so no auto-
+ *     extraction is possible. Hand-curated per region from observed
+ *     in-game inventory:
+ *       Valley IV (domain_1): originium, ferrium (iron), amethyst (quartz)
+ *       Wuling    (domain_2): originium, ferrium (iron), cuprium (copper)
+ *
+ *   - **Liquid raws** are tied to pump deployability. Both `pump_1`
+ *     and `pump_2` carry `Facility.domains: ["domain_2"]` (set in the
+ *     facility schema refactor), so liquids appear in Wuling's set
+ *     only. The drift-detection test in
+ *     `region-raw-availability.test.ts` enforces this invariant — if a
+ *     pump's `Facility.domains` ever changes, that test fails until
+ *     this map is updated.
+ *
+ * Invariants asserted by `region-raw-availability.test.ts`:
+ *   1. Soundness — every per-region raw has a `rawMaterialSources` entry.
+ *   2. Completeness — every `rawMaterialSources` key appears in at least
+ *      one region's set (a new raw added without region mapping would
+ *      be unreachable everywhere; the test catches this drift).
+ *   3. Coverage — every domain in the registry has an entry here, so
+ *      `App.tsx`'s `regionRawMaterials.get(currentDomain)!` is safe.
+ *
+ * The calc layer (`App.tsx` → `useProductionPlan` →
+ * `calculateProductionPlan`) receives the per-`currentDomain` set as
+ * an explicit `rawMaterials` parameter. No code path imports this
+ * constant directly except `App.tsx`, the picker, and the persistence
+ * defensive filter in `useDomainSettings`.
  */
-const forcedRawMaterials: ReadonlySet<ItemId> = new Set(
-  rawMaterialSources.keys(),
-);
+const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
+  new Map<DomainId, ReadonlySet<ItemId>>([
+    [
+      "domain_1" as DomainId,
+      new Set<ItemId>([
+        "item_originium_ore",
+        "item_iron_ore",
+        "item_quartz_sand",
+      ]),
+    ],
+    [
+      "domain_2" as DomainId,
+      new Set<ItemId>([
+        "item_originium_ore",
+        "item_iron_ore",
+        "item_copper_ore",
+        "item_liquid_water",
+        "item_liquid_acid",
+      ]),
+    ],
+  ]);
 
 /**
  * Raw materials whose consumption is treated as **zero-cost** in the LP
- * objective. Derived as `items.filter(isLiquid) ∩ forcedRawMaterials` —
- * currently `{item_liquid_water, item_liquid_acid}`. Both are pumped via
+ * objective. Derived as `items.filter(isLiquid) ∩ rawMaterialSources.keys()`
+ * — currently `{item_liquid_water, item_liquid_acid}`. Both are pumped via
  * dedicated source facilities with effectively unbounded throughput and
  * trivial power.
+ *
+ * This is a TYPE classification (region-independent): the LP-side
+ * zero-cost bias applies wherever the recipe runs. A water-consuming
+ * recipe in Wuling pays zero raw-cost regardless of how many pumps
+ * actually deliver the water. Per-region availability (whether water
+ * is reachable here at all) is the orthogonal concern owned by
+ * `rawAvailabilityByDomain`.
  *
  * Rationale: prior to this set, the LP's raw-cost objective biased
  * selection against recipes that happened to consume water/acid (e.g.
@@ -78,11 +135,13 @@ const forcedRawMaterials: ReadonlySet<ItemId> = new Set(
  * their input cost zero introduces no new asymmetry.
  *
  * Auto-extends if game data adds a new liquid raw — the derivation
- * lives next to `forcedRawMaterials` and uses the same source of truth.
+ * uses `rawMaterialSources` as the anchor.
  */
 const costlessRaws: ReadonlySet<ItemId> = new Set(
   items
-    .filter((item) => item.isLiquid === true && forcedRawMaterials.has(item.id))
+    .filter(
+      (item) => item.isLiquid === true && rawMaterialSources.has(item.id),
+    )
     .map((item) => item.id),
 );
 
@@ -133,7 +192,7 @@ export {
   facilities,
   recipes,
   rawMaterialSources,
-  forcedRawMaterials,
+  rawAvailabilityByDomain,
   costlessRaws,
   forcedDisposalItems,
   bootstrapFacilities,

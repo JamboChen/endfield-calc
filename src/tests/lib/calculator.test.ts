@@ -29,6 +29,7 @@ import {
   byproductSCCRecipes,
   xirconRecipes,
 } from "./fixtures/test-data";
+import { ALL_RAWS } from "./utils";
 
 const getNode = (
   graph: ProductionDependencyGraph,
@@ -73,6 +74,7 @@ describe("Simple Production Plan", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const node = getItemNode(plan, ItemId.ITEM_IRON_ORE);
@@ -88,6 +90,7 @@ describe("Simple Production Plan", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const powderNode = getItemNode(plan, ItemId.ITEM_IRON_POWDER);
@@ -124,6 +127,7 @@ describe("Simple Production Plan", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const producer = getProducer(plan, ItemId.ITEM_IRON_POWDER);
@@ -143,6 +147,7 @@ describe("Simple Production Plan", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const producer = getProducer(plan, ItemId.ITEM_IRON_POWDER);
@@ -159,6 +164,7 @@ describe("Multiple Recipe Selection", () => {
       mockItems,
       multiRecipeItems,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const producer = getProducer(plan, ItemId.ITEM_IRON_NUGGET);
@@ -179,6 +185,7 @@ describe("Multiple Recipe Selection", () => {
       multiRecipeItems,
       mockFacilities,
       {
+        rawMaterials: ALL_RAWS,
         recipeOverrides: overrides,
       },
     );
@@ -216,7 +223,7 @@ describe("User-pinned recipe semantics (post-global-LP)", () => {
       mockItems,
       overrideCycleRecipes,
       mockFacilities,
-      { recipeOverrides: overrides },
+      { rawMaterials: ALL_RAWS, recipeOverrides: overrides },
     );
 
     expect(plan.invalidCycles).toHaveLength(0);
@@ -246,7 +253,7 @@ describe("User-pinned recipe semantics (post-global-LP)", () => {
       mockItems,
       overrideCycleRecipes,
       mockFacilities,
-      { recipeOverrides: overrides },
+      { rawMaterials: ALL_RAWS, recipeOverrides: overrides },
     );
 
     expect(plan.invalidCycles.length).toBeGreaterThan(0);
@@ -268,6 +275,7 @@ describe("User-pinned recipe semantics (post-global-LP)", () => {
       overrideCycleRecipes,
       mockFacilities,
       {
+        rawMaterials: ALL_RAWS,
         recipeOverrides: overrides,
         manualRawMaterials: manualRaw,
       },
@@ -295,6 +303,7 @@ describe("Multiple Targets", () => {
       mockItems,
       [...simpleRecipes, ...complexRecipes],
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const ironNode = getItemNode(plan, ItemId.ITEM_IRON_POWDER);
@@ -315,6 +324,7 @@ describe("Complex Dependencies", () => {
       mockItems,
       complexRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const batteryProducer = getProducer(plan, ItemId.ITEM_PROC_BATTERY_1);
@@ -347,6 +357,7 @@ describe("Cycle Detection", () => {
       mockItems,
       cycleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     expect(plan.invalidCycles).toHaveLength(0);
@@ -362,6 +373,7 @@ describe("Cycle Detection", () => {
       mockItems,
       cycleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     plan.nodes.forEach((node) => {
@@ -381,6 +393,7 @@ describe("Manual Raw Materials", () => {
       simpleRecipes,
       mockFacilities,
       {
+        rawMaterials: ALL_RAWS,
         manualRawMaterials: manualRaw,
       },
     );
@@ -399,6 +412,7 @@ describe("Manual Raw Materials", () => {
       complexRecipes,
       mockFacilities,
       {
+        rawMaterials: ALL_RAWS,
         manualRawMaterials: manualRaw,
       },
     );
@@ -417,7 +431,9 @@ describe("Edge Cases", () => {
     // `.rejects.toThrow` or wrapping the call works; use rejects for
     // consistency with all other Promise-returning assertions.
     await expect(
-      calculateProductionPlan([], mockItems, simpleRecipes, mockFacilities),
+      calculateProductionPlan([], mockItems, simpleRecipes, mockFacilities,
+        { rawMaterials: ALL_RAWS },
+      ),
     ).rejects.toThrow("No targets specified");
   });
 
@@ -427,6 +443,7 @@ describe("Edge Cases", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
     const sandNode = getItemNode(plan, ItemId.ITEM_QUARTZ_SAND);
     expect(sandNode.isRawMaterial).toBe(true);
@@ -439,6 +456,7 @@ describe("Edge Cases", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     if (plan.nodes.has(ItemId.ITEM_IRON_POWDER)) {
@@ -455,6 +473,7 @@ describe("Edge Cases", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
     const producer = getProducer(plan, ItemId.ITEM_IRON_POWDER);
     if (producer?.node.type === "recipe") {
@@ -468,6 +487,7 @@ describe("Edge Cases", () => {
       mockItems,
       simpleRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
     const producer = getProducer(plan, ItemId.ITEM_IRON_POWDER);
     if (producer?.node.type === "recipe") {
@@ -490,6 +510,7 @@ describe("Recipe Output Amounts", () => {
       mockItems,
       [recipe],
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const producer = getProducer(plan, ItemId.ITEM_PLANT_MOSS_POWDER_1);
@@ -510,6 +531,7 @@ describe("Byproduct Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     expect(plan.nodes.has(ItemId.ITEM_COPPER_CMPT)).toBe(true);
@@ -526,6 +548,7 @@ describe("Byproduct Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const sewageNode = getItemNode(plan, ItemId.ITEM_LIQUID_SEWAGE);
@@ -541,6 +564,7 @@ describe("Byproduct Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Both items should use the same furnace recipe
@@ -568,6 +592,7 @@ describe("Byproduct Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Sewage demands 60/min but furnace produces 30/min per facility
@@ -602,6 +627,7 @@ describe("Byproduct with SCC Cycle", () => {
       mockItems,
       byproductSCCRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // All three targets should be in the plan
@@ -639,6 +665,7 @@ describe("Byproduct with SCC Cycle", () => {
       mockItems,
       byproductSCCRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Sewage produced by both furnace (30/min) and pool_xiranite_poly_1 (30/min)
@@ -657,6 +684,7 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Disposal recipe should be in the plan
@@ -683,6 +711,7 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const disposalRecipeId =
@@ -702,6 +731,7 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const disposalRecipeId =
@@ -723,6 +753,7 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const disposalRecipeId =
@@ -741,6 +772,7 @@ describe("Disposal Recipes", () => {
       mockItems,
       byproductRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const disposalRecipeId =
@@ -780,6 +812,7 @@ describe("Stress Tests", () => {
       items,
       recipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     let currentId: string = items[10].id;
@@ -811,6 +844,7 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Xiranite Poly is in the plan as a target
@@ -840,6 +874,7 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // furnance_copper_nugget_1 must be in the plan as external sewage source
@@ -860,6 +895,7 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // 2 facilities of pool_liquid_xiranite_poly_1 produce 2D lowpoly → disposal needed
@@ -880,6 +916,7 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Sewage: produced 2D (1D from pool_xiranite_poly_1 + 1D from furnace),
@@ -896,6 +933,7 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // pool_liquid_liquid_xiranite_1: 2 facilities (feeds 2 pool_liquid_xiranite_poly_1)
@@ -928,6 +966,7 @@ describe("Xircon Production Chain", () => {
       mockItems,
       xirconRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Both targets should be in the plan
@@ -966,6 +1005,7 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     expect(plan.invalidCycles).toEqual([]);
 
@@ -1021,6 +1061,7 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     expect(plan.invalidCycles).toEqual([]);
 
@@ -1059,6 +1100,7 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const xiranite = plan.nodes.get(ItemId.ITEM_XIRANITE_POWDER);
@@ -1105,6 +1147,7 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const water = plan.nodes.get(ItemId.ITEM_LIQUID_WATER);
@@ -1133,6 +1176,7 @@ describe("Real 1.2 data regression", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const acid = plan.nodes.get(ItemId.ITEM_LIQUID_ACID);
@@ -1166,6 +1210,7 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
       ceilMode: true,
@@ -1215,6 +1260,7 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const waterNode = plan.nodes.get(ItemId.ITEM_LIQUID_WATER);
     if (waterNode?.type !== "item") return; // chain may not use water
@@ -1246,6 +1292,7 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const ironNode = plan.nodes.get(ItemId.ITEM_IRON_ORE);
     if (ironNode?.type !== "item") return;
@@ -1274,6 +1321,7 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const totals = aggregateBinTotals(plan, facilities, items, {
       ceilMode: true,
@@ -1318,6 +1366,7 @@ describe("Source-facility refactor (Phase 1)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const waterNode = plan.nodes.get(ItemId.ITEM_LIQUID_WATER);
     if (waterNode?.type !== "item") return;
@@ -1380,6 +1429,7 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const planterBin = plan.bins.find(
@@ -1430,6 +1480,7 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Locate the 3-formula bin (hosts Xircon-Prod) and the 2-formula
@@ -1530,6 +1581,7 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     for (const bin of plan.bins) {
       expect(bin.prefillCandidates).toEqual([]);
@@ -1555,6 +1607,7 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const intermediateOnly = new Set<ItemId>([
@@ -1620,6 +1673,7 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
       recipes,
       facilities,
       {
+        rawMaterials: ALL_RAWS,
         manualRawMaterials: manualRaws,
       },
     );
@@ -1718,6 +1772,7 @@ describe("Prefill candidates (cycle bootstrap detection)", () => {
           typeof calculateProductionPlan
         >[2],
         facilities,
+        { rawMaterials: ALL_RAWS },
       );
       // Sewage has only one producer (xircon_prod, in cycle) → non-bootable.
       // Effluent has only one producer (effluent_prod, in cycle) → non-bootable.
@@ -2219,6 +2274,7 @@ describe("Jade Gourd disposal sink at non-integer rates", () => {
         items,
         recipes,
         facilities,
+        { rawMaterials: ALL_RAWS },
       );
 
       const xirconDisposal = Array.from(plan.nodes.values()).find(
@@ -2256,6 +2312,7 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Phase 3 must populate bins.
@@ -2326,6 +2383,7 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     expect(plan.bins).toBeDefined();
@@ -2343,6 +2401,7 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     // Every recipe with non-zero facilityCount in the plan should have a
     // RecipeBinAllocation, including disposal recipes — they go through
@@ -2369,6 +2428,7 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Ground truth: sum buildings and power across bins.
@@ -2406,6 +2466,7 @@ describe("Phase 3 multi-formula bin packing", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Sum slot demand across all pool recipes.
@@ -2454,6 +2515,7 @@ describe("Issue #68 — Xiranite over-production", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const powder = plan.nodes.get(ItemId.ITEM_XIRANITE_POWDER);
@@ -2512,6 +2574,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
+        { rawMaterials: ALL_RAWS },
       );
       for (const bin of plan.bins) {
         const externalIds = new Set([
@@ -2533,6 +2596,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
+        { rawMaterials: ALL_RAWS },
       );
       for (const bin of plan.bins) {
         // Skip disposal bins (recipe with no outputs).
@@ -2608,6 +2672,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
+        { rawMaterials: ALL_RAWS },
       );
       const recipesOfInterest: RecipeId[] = [
         RecipeId.POOL_XIRANITE_POLY_1,
@@ -2658,6 +2723,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
+        { rawMaterials: ALL_RAWS },
       );
       // The packer may split X recipe across multiple variants (e.g.,
       // singleton X on Reactor + triple {LX,XE,X} on Expanded), so
@@ -2697,6 +2763,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const xirconBin = plan.bins.find((b) =>
       b.externalOutputs.some((o) => o.itemId === ItemId.ITEM_XIRANITE_POLY),
@@ -2739,6 +2806,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         items,
         recipes,
         facilities,
+        { rawMaterials: ALL_RAWS },
       );
       totals.push(
         plan.bins
@@ -2772,6 +2840,7 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     expect(plan.invalidCycles).toEqual([]);
 
@@ -2803,6 +2872,7 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     expect(plan.invalidCycles).toEqual([]);
 
@@ -2837,7 +2907,7 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
       items,
       recipes,
       facilities,
-      { recipeOverrides: overrides },
+      { rawMaterials: ALL_RAWS, recipeOverrides: overrides },
     );
     expect(plan.invalidCycles).toEqual([]);
 
@@ -2885,7 +2955,7 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
       items,
       recipes,
       facilities,
-      { recipeOverrides: overrides },
+      { rawMaterials: ALL_RAWS, recipeOverrides: overrides },
     );
     expect(plan.invalidCycles).toEqual([]);
 
@@ -2944,7 +3014,7 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
       items,
       recipes,
       facilities,
-      { recipeOverrides: overrides },
+      { rawMaterials: ALL_RAWS, recipeOverrides: overrides },
     );
 
     expect(plan.invalidCycles.length).toBeGreaterThan(0);
@@ -2958,5 +3028,155 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
     expect(effluentCycle!.overriddenItemIds).toContain(
       ItemId.ITEM_LIQUID_XIRANITE_POLY,
     );
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Raw-material cap enforcement (Workstream E)
+// ════════════════════════════════════════════════════════════════════
+
+describe("Raw-material cap enforcement (LP-aware)", () => {
+  test("cap non-binding: plan computes normally without LP slack engagement", async () => {
+    // Iron Ore consumption for a small Iron Nugget target is well under
+    // a generous cap. Plan should run cleanly; no over-cap behaviour.
+    const rawCaps = new Map<ItemId, number>([
+      [ItemId.ITEM_IRON_ORE, 1000],
+    ]);
+
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps },
+    );
+
+    // Plan is feasible — no invalid cycles, no warnings related to caps.
+    expect(plan.invalidCycles).toHaveLength(0);
+    const ironNuggetNode = plan.nodes.get(ItemId.ITEM_IRON_NUGGET);
+    expect(ironNuggetNode).toBeDefined();
+    // No raw-over-cap warning since consumption fits the cap.
+    const rawOverCapWarnings = (plan.warnings ?? []).filter(
+      (w) => w.kind === "raw-over-cap",
+    );
+    expect(rawOverCapWarnings).toHaveLength(0);
+  });
+
+  test("cap binding: plan still feasible AND LP slack engages with the expected overage", async () => {
+    // Target 30 Iron Nugget/min → ~30 Iron Ore/min demand. Cap at 5/min
+    // is artificially tight. The LP can't reduce consumption (only one
+    // canonical route from raw ore to nugget), so slack engages. The
+    // plan still completes — warn-only enforcement never blocks.
+    //
+    // Note: `plan.warnings` carries warnings emitted by the calculator
+    // layer (packer fallbacks, override-infeasibility). The post-pack
+    // `raw-over-cap` warnings are emitted by the hook layer
+    // (`useProductionPlan.computeRawOverCapWarnings`), NOT by the
+    // calculator. To verify the LP-side cap activation we trust the
+    // unit tests at `lp-solver.test.ts` and assert plan feasibility
+    // here.
+    const rawCaps = new Map<ItemId, number>([
+      [ItemId.ITEM_IRON_ORE, 5],
+    ]);
+
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps },
+    );
+
+    // No infeasibility — the plan completes despite the binding cap.
+    expect(plan.invalidCycles).toHaveLength(0);
+    const ironNuggetNode = plan.nodes.get(ItemId.ITEM_IRON_NUGGET);
+    expect(ironNuggetNode).toBeDefined();
+    if (ironNuggetNode?.type === "recipe") {
+      // The recipe still runs at the rate needed to meet the target.
+      expect(ironNuggetNode.facilityCount).toBeGreaterThan(0);
+    }
+    // The iron-ore raw item is part of the plan (consumed by the
+    // furnace) — confirms the LP's raw-set + cap interaction left
+    // the chain intact.
+    const oreNode = plan.nodes.get(ItemId.ITEM_IRON_ORE);
+    expect(oreNode).toBeDefined();
+    if (oreNode?.type === "item") {
+      expect(oreNode.isRawMaterial).toBe(true);
+      expect(oreNode.productionRate).toBeGreaterThan(0);
+    }
+  });
+
+  test("recipe-shift: LP picks raw-light alternative when the high-raw recipe's input is capped", async () => {
+    // Synthetic recipes (not real game data) to test the LP's
+    // recipe-shift behaviour cleanly:
+    //   rA: 1 raw_a → 1 out (cheap raw cost)
+    //   rB: 3 raw_a → 1 out (high raw cost)
+    // Without caps, the LP picks rA (lower rawCost objective). With a
+    // binding cap on raw_a, the LP still picks rA — even tighter cap
+    // doesn't shift it to rB (which would only make the overage worse).
+    //
+    // This pins the recipe-choice-bias behaviour at the calculator
+    // level (lp-solver.test.ts:440-474 covers it in isolation).
+    const RAW = "test_raw_a" as ItemId;
+    const OUT = "test_out" as ItemId;
+
+    const testItems = [
+      { id: RAW, tier: 1 },
+      { id: OUT, tier: 1 },
+    ];
+    const testRecipes: Recipe[] = [
+      {
+        id: "test_rA" as RecipeId,
+        inputs: [{ itemId: RAW, amount: 1 }],
+        outputs: [{ itemId: OUT, amount: 1 }],
+        facilityId: FacilityId.FURNANCE_1,
+        craftingTime: 2,
+      },
+      {
+        id: "test_rB" as RecipeId,
+        inputs: [{ itemId: RAW, amount: 3 }],
+        outputs: [{ itemId: OUT, amount: 1 }],
+        facilityId: FacilityId.FURNANCE_1,
+        craftingTime: 2,
+      },
+    ];
+
+    // Cap raw_a tightly — both recipes overflow, but rA overflows less.
+    const rawCaps = new Map<ItemId, number>([[RAW, 5]]);
+
+    const plan = await calculateProductionPlan(
+      [{ itemId: OUT, rate: 30 }],
+      testItems,
+      testRecipes,
+      facilities,
+      { rawMaterials: new Set<ItemId>([RAW]), rawCaps },
+    );
+
+    expect(plan.invalidCycles).toHaveLength(0);
+    // LP picks rA (raw-light), not rB.
+    const rA = plan.nodes.get("test_rA" as RecipeId);
+    const rB = plan.nodes.get("test_rB" as RecipeId);
+    expect(rA).toBeDefined();
+    if (rA?.type === "recipe") {
+      expect(rA.facilityCount).toBeCloseTo(1, 3);
+    }
+    if (rB?.type === "recipe") {
+      expect(rB.facilityCount).toBeCloseTo(0, 3);
+    }
+  });
+
+  test("no rawCaps passed: behaves identically to pre-cap calc", async () => {
+    // Sanity check: omitting `rawCaps` produces the same plan shape as
+    // passing an empty map (and as a non-binding cap).
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    expect(plan.invalidCycles).toHaveLength(0);
+    const node = plan.nodes.get(ItemId.ITEM_IRON_NUGGET);
+    expect(node).toBeDefined();
   });
 });

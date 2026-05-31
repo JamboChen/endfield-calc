@@ -1,5 +1,4 @@
 import type { Recipe, ItemId, RecipeId } from "@/types";
-import { forcedRawMaterials } from "@/data";
 import type {
   ProductionMaps,
   BipartiteGraph,
@@ -91,9 +90,15 @@ const getOrThrow = <K, V>(map: Map<K, V>, key: K, type: string): V => {
  * `flow-solver.ts`) picks which producers actually run and at what rate
  * by minimising the lex objective `rawCost → buildingCount → power`.
  *
- * Items become `isRawMaterial = true` when they are forced raws,
+ * Items become `isRawMaterial = true` when they are in the passed
+ * `rawMaterials` set (the plan's per-region raw classification),
  * user-marked manual raws, or have no surviving producers (terminal
  * leaves of the chain).
+ *
+ * `rawMaterials` is required. The caller (`calculateProductionPlan`)
+ * passes the per-region raw set; tests pass whatever matches their
+ * synthetic recipe shape (typically `new Set<ItemId>()` when leaf
+ * items are recipe-inferred raws).
  *
  * Cycles are allowed: the LP handles them natively via balance
  * constraints (production − consumption ≥ 0). The downstream
@@ -103,6 +108,7 @@ const getOrThrow = <K, V>(map: Map<K, V>, key: K, type: string): V => {
 export function buildBipartiteGraph(
   targets: Array<{ itemId: ItemId; rate: number }>,
   maps: ProductionMaps,
+  rawMaterials: ReadonlySet<ItemId>,
   recipeOverrides?: Map<ItemId, RecipeId>,
   manualRawMaterials?: Set<ItemId>,
   recipeConstraints?: Map<ItemId, Set<RecipeId>>,
@@ -126,7 +132,7 @@ export function buildBipartiteGraph(
     const item = getOrThrow(maps.itemMap, itemId, "Item");
 
     const isRaw =
-      forcedRawMaterials.has(itemId) ||
+      rawMaterials.has(itemId) ||
       (manualRawMaterials?.has(itemId) ?? false);
 
     graph.itemNodes.set(itemId, { itemId, item, isRawMaterial: isRaw });

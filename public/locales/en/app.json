@@ -1,6 +1,6 @@
 {
-  "autoPruneSummary_one": "Removed {{count}} item no longer producible by your current AIC settings.",
-  "autoPruneSummary_other": "Removed {{count}} items no longer producible by your current AIC settings.",
+  "autoPruneSummary_one": "Removed {{count}} item no longer producible by your current settings.",
+  "autoPruneSummary_other": "Removed {{count}} items no longer producible by your current settings.",
   "ceilMode": "Round up facilities",
   "twoEndAlignment": "Align inputs/outputs",
   "binFusion": "Group formulas",
@@ -9,7 +9,8 @@
   "cycleWarning": "The selected formula for {{overriddenItems}} creates a production loop that cannot sustain the required output. Affected items: {{affectedItems}}.",
   "cycleWarningNoAffected": "The selected formula for {{overriddenItems}} creates a production loop that cannot sustain the required output.",
   "facilityOverCap": "{{facility}}: limit exceeded ({{displayCount}} / {{cap}}).",
-  "packerOverrideInfeasible": "Formula \"{{recipe}}\" on facility \"{{facility}}\" has no valid bin shape — packer fell back to per-formula bins for this formula.",
+  "rawOverCap": "{{item}}: limit exceeded ({{used}}/min / {{cap}}/min).",
+  "packerOverrideInfeasible": "Formula \"{{recipe}}\" on facility \"{{facility}}\" has no valid bin shape. Packer fell back to per-formula bins for this formula.",
   "packerFallback": "Multi-formula bin packer fell back to per-formula bins due to an infeasible constraint configuration.",
   "footer": {
     "feedback": "Feedback & Suggestions:",

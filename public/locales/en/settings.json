@@ -1,10 +1,46 @@
 {
   "title": "Settings",
   "open": "Open settings",
+  "intro": "Configure each region's AIC research plan, facility limits, and raw-material rates. Pick a region to configure below; the switches add or remove regions from your roster.",
+  "regions": {
+    "configuringLabel": "Configuring",
+    "yourRegions": "Your regions",
+    "notInRoster": "Not in roster",
+    "factoryMarker": "Factory"
+  },
+  "region": {
+    "label": "Current factory region",
+    "picker": {
+      "placeholder": "Select region",
+      "ariaLabel": "Select current factory region"
+    },
+    "toast": {
+      "switchedToFallback": "Switched to {{name}} factory"
+    }
+  },
+  "tabs": {
+    "plan": "Plan",
+    "limits": "Limits",
+    "raws": "Resources"
+  },
+  "status": {
+    "researched": "{{done}} / {{total}} researched",
+    "customized": "{{n}} customized",
+    "sourced": "{{done}} / {{total}} sourced"
+  },
+  "rawLimits": {
+    "help": "A blank row means unlimited supply. Enter a rate to limit a resource.",
+    "clearAll": "Clear all",
+    "placeholder": "∞",
+    "unitSuffix": "/min",
+    "inputAria": "{{name}} limit (items per minute)",
+    "invalidValue": "Limit must be a non-negative number. Value not saved."
+  },
   "aic": {
-    "intro": "Choose which AIC technologies you've researched. In a future update, this will filter the items and formulas available to your plans.",
     "activateAll": "Activate all",
     "activateLayer": "Activate layer",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
     "resetDefaults": "Reset to defaults",
     "capDeltaLabel": "max",
     "row": {
@@ -18,11 +54,10 @@
       "ariaAlwaysAvailable": "{{name}}, always available"
     },
     "facilityLimits": {
-      "title": "Facility limits",
       "gameCap": "Game limit",
       "customCap": "Custom",
       "effective": "Effective",
-      "reset": "Reset to game limit"
+      "resetToBase": "Reset to base limit"
     },
     "domain": {
       "toggleActivate": "Activate {{name}}",

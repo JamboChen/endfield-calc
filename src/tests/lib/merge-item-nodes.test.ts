@@ -46,14 +46,12 @@ const recipe = (
 
 const facility: Facility = {
   id: "fac" as Facility["id"],
-  numId: 0,
   powerConsumption: 10,
   tier: 1,
   category: 0,
   buffersIn: { belt: [], pipe: [] },
   buffersOut: { belt: [], pipe: [] },
   domains: [],
-  cap: null,
 };
 
 /**

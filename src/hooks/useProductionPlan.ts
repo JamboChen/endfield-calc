@@ -1,18 +1,13 @@
 import { calculateProductionPlan } from "@/lib/calculator";
 import { initHighs, isHighsReady } from "@/lib/highs-singleton";
-import {
-  items,
-  recipes,
-  facilities,
-  forcedRawMaterials,
-  MAX_TARGETS,
-} from "@/data";
+import { items, recipes, facilities, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
 import type {
   Facility,
   FacilityId,
+  Item,
   ItemId,
   Recipe,
   RecipeId,
@@ -32,6 +27,7 @@ import {
 import {
   aggregateBinTotals,
   computeOverCapWarnings,
+  computeRawOverCapWarnings,
 } from "@/lib/plan-helpers";
 import { formatCount, getItemById } from "@/lib/utils";
 
@@ -216,10 +212,16 @@ function formatPlanWarning(
   ceilMode: boolean,
   t: TFunction,
   facilitiesArr: readonly Facility[],
+  itemsArr: readonly Item[],
 ): string {
   const lookupFacilityName = (id: FacilityId): string => {
     const facility = facilitiesArr.find((f) => f.id === id);
     return facility ? getFacilityName(facility) : id;
+  };
+
+  const lookupItemName = (id: ItemId): string => {
+    const item = itemsArr.find((i) => i.id === id);
+    return item ? getItemName(item) : id;
   };
 
   switch (w.kind) {
@@ -240,6 +242,16 @@ function formatPlanWarning(
       });
     case "packer-fallback":
       return t("packerFallback");
+    case "raw-over-cap":
+      // Mirrors `facilityOverCap`: short numeric form
+      // `{item}: limit exceeded ({used}/min / {cap}/min)`.
+      // Always items/min; no ceilMode applies (caps are intrinsically
+      // rate-based, not building-count-based).
+      return t("rawOverCap", {
+        item: lookupItemName(w.itemId),
+        used: w.used.toFixed(1),
+        cap: w.cap,
+      });
   }
 }
 
@@ -261,10 +273,20 @@ function formatPlanWarning(
  * domains of `effectiveCaps[facilityId][domainId]`). Passed into
  * `calculateProductionPlan` → Phase 5 MIP. Optional and undefined when
  * the user has no caps configured.
+ *
+ * `rawMaterialCaps` is the per-(raw item) cap for the current region,
+ * in items/min. Passed into `calculateProductionPlan` → LP (which adds
+ * slack-based upper-bound constraints) AND used here to compute
+ * `raw-over-cap` PlanWarnings against post-pack
+ * `rawMaterialRequirements`. **No entry in this map = no limit** for
+ * that item; items the user hasn't capped don't appear here and don't
+ * trigger warnings. Optional and undefined when nothing is capped.
  */
 export function useProductionPlan(
   availableRecipes: readonly Recipe[],
+  regionRawMaterials: ReadonlySet<ItemId>,
   facilityCaps?: ReadonlyMap<FacilityId, number>,
+  rawMaterialCaps?: ReadonlyMap<ItemId, number>,
 ) {
   const { t } = useTranslation("app");
 
@@ -350,7 +372,13 @@ export function useProductionPlan(
       items,
       availableRecipes,
       facilities,
-      { recipeOverrides, manualRawMaterials, facilityCaps },
+      {
+        rawMaterials: regionRawMaterials,
+        rawCaps: rawMaterialCaps,
+        recipeOverrides,
+        manualRawMaterials,
+        facilityCaps,
+      },
     )
       .then((result) => {
         // Cancelled means a newer calc has started (or unmount). Leave
@@ -375,7 +403,9 @@ export function useProductionPlan(
     recipeOverrides,
     manualRawMaterials,
     availableRecipes,
+    regionRawMaterials,
     facilityCaps,
+    rawMaterialCaps,
     t,
   ]);
 
@@ -436,19 +466,19 @@ export function useProductionPlan(
     for (const itemId of manualRawMaterials) {
       // Keep a manual raw iff the item is either producible (in
       // `reachableProducibleItems`, i.e. an output of at least one
-      // recipe in the strict `availableRecipes` set) OR a forced raw
-      // (always-available — pin is redundant but harmless).
+      // recipe in the strict `availableRecipes` set) OR a region-
+      // available raw (always-available in the current factory — pin
+      // is redundant but harmless).
       //
       // Drop pins on items that are completely unreachable: no
-      // available recipe produces them AND they aren't a forced raw.
-      // Rationale: a manual-raw pin on an unproducible item is
-      // meaningless — there's no chain to override. Since
-      // `availableRecipes` is chain-filtered upstream (App layer),
-      // a producibility check here naturally excludes recipes whose
-      // own chain is broken.
+      // available recipe produces them AND they aren't a regional raw.
+      // Rationale: a manual-raw pin on an unsourceable item in the
+      // current region is meaningless — there's no chain to override.
+      // Cuprium-in-Valley-IV pins get dropped here; the user gets a
+      // toast and the affected target (if any) is auto-pruned too.
       if (
         reachableProducibleItems.has(itemId) ||
-        forcedRawMaterials.has(itemId)
+        regionRawMaterials.has(itemId)
       ) {
         nextRaws.add(itemId);
       } else {
@@ -468,8 +498,8 @@ export function useProductionPlan(
         count: total,
         defaultValue:
           total === 1
-            ? "Removed 1 item no longer producible by your current AIC settings."
-            : `Removed ${total} items no longer producible by your current AIC settings.`,
+            ? "Removed 1 item no longer producible by your current settings."
+            : `Removed ${total} items no longer producible by your current settings.`,
       }),
     );
     // The effect is idempotent against its own output: when the setters
@@ -484,6 +514,7 @@ export function useProductionPlan(
     targets,
     recipeOverrides,
     manualRawMaterials,
+    regionRawMaterials,
     t,
   ]);
 
@@ -622,21 +653,101 @@ export function useProductionPlan(
     return out;
   }, [overCapWarnings]);
 
-  // Derive warning messages from invalid cycles (with translated item names)
-  // plus any non-fatal warnings the calculator surfaced (e.g. packer
-  // fallback warnings from `multi-formula-packing`) plus facility-cap
-  // overflows detected here at the aggregate layer.
+  // Collect overridden item IDs from invalid cycles for table row styling.
+  // Only the items whose recipe override caused the cycle get highlighted,
+  // not every item caught in the cycle.
+  const invalidCycleItemIds = useMemo(() => {
+    const ids = new Set<ItemId>();
+    if (plan) {
+      for (const ic of plan.invalidCycles) {
+        ic.overriddenItemIds.forEach((id) => ids.add(id as ItemId));
+      }
+    }
+    return ids;
+  }, [plan]);
+
+  // View-specific data: computed in view layer hooks. Both receive
+  // the shared `aggregates` so the table footer and stats panel
+  // cannot drift — single source of truth, single compute per render.
+  // `facilityOverCapMap` flows through stats so the side-panel
+  // `<ProductionStats>` card can apply destructive styling to
+  // over-cap facility cards.
+  const stats = useProductionStats(
+    displayPlan,
+    aggregates,
+    facilityOverCapMap,
+    manualRawMaterials,
+    items,
+  );
+  const tableData = useProductionTable(
+    displayPlan,
+    aggregates,
+    // Narrow the recipe set the override dropdown searches over: only
+    // recipes that are AIC-unlocked AND have reachable input chains
+    // can be valid alternatives. Same canonical set the calc uses.
+    availableRecipes,
+    manualRawMaterials,
+    invalidCycleItemIds,
+  );
+
+  // Per-raw-item cap overflow detection. Mirrors `overCapWarnings`
+  // exactly, but on the raw-materials side: compares the plan's
+  // post-pack `stats.rawMaterialRequirements` (items/min consumption)
+  // against the user's `rawMaterialCaps`. The LP layer additionally
+  // adds slack-based upper-bound constraints (see `lp-solver.ts`), so
+  // the LP biases toward conservation; this surfaces any residual
+  // overage to the user.
+  //
+  // **No entry in `rawMaterialCaps` = no limit**, structurally
+  // enforced by `computeRawOverCapWarnings` iterating the caps map
+  // rather than the requirements map.
+  const rawOverCapWarnings = useMemo<readonly PlanWarning[]>(
+    () =>
+      computeRawOverCapWarnings(
+        stats.rawMaterialRequirements,
+        rawMaterialCaps,
+      ),
+    [stats.rawMaterialRequirements, rawMaterialCaps],
+  );
+
+  // Per-item map for the side-panel `<ProductionStats>` raw-materials
+  // list red-tint + tooltip. Mirrors `facilityOverCapMap` shape.
+  const rawMaterialOverCapMap = useMemo<
+    ReadonlyMap<ItemId, { used: number; cap: number }>
+  >(() => {
+    const out = new Map<ItemId, { used: number; cap: number }>();
+    for (const w of rawOverCapWarnings) {
+      if (w.kind === "raw-over-cap") {
+        out.set(w.itemId, { used: w.used, cap: w.cap });
+      }
+    }
+    return out;
+  }, [rawOverCapWarnings]);
+
+  // Derive warning messages from invalid cycles (with translated item
+  // names) plus any non-fatal warnings the calculator surfaced (e.g.
+  // packer fallback warnings from `multi-formula-packing`) plus
+  // facility-cap overflows AND raw-cap overflows detected here at the
+  // aggregate layer.
   //
   // Cycle warnings only fire for cycles caused by user recipe overrides
   // — pre-existing unsolvable cycles in the game data are not actionable
-  // and are skipped. Structured warnings (packer + cap) are formatted
-  // here with `ceilMode` + i18n via `formatPlanWarning`.
+  // and are skipped. Structured warnings (packer + facility cap + raw
+  // cap) are formatted here with `ceilMode` + i18n via
+  // `formatPlanWarning`.
   //
-  // Cap detection uses `aggregates.rawPerFacility` (mode-independent
-  // raw LP counts), so it uniformly covers recipe bins AND pickup-point
-  // source facilities (pump_1, pump_2, unloader_1) — the latter being
-  // absent from `plan.bins` and therefore invisible to the packer's
-  // earlier cap check.
+  // Facility-cap detection uses `aggregates.rawPerFacility` (mode-
+  // independent raw LP counts), so it uniformly covers recipe bins AND
+  // pickup-point source facilities (pump_1, pump_2, unloader_1) — the
+  // latter being absent from `plan.bins` and therefore invisible to
+  // the packer's earlier cap check. Raw-cap detection uses post-pack
+  // `stats.rawMaterialRequirements` so it reflects the ceiled plan.
+  //
+  // Single unified memo so the consumer (`AppContent` → production
+  // view) sees one array. Was previously two memos (`warnings` +
+  // `warningsWithRawCaps`) because `rawOverCapWarnings` depended on
+  // `stats`; the memo reordering done in this commit moves `stats`
+  // earlier, allowing a single memo here.
   const warnings: string[] = useMemo(() => {
     if (!plan) return [];
     const cycleWarnings = plan.invalidCycles
@@ -686,52 +797,31 @@ export function useProductionPlan(
       });
 
     const planWarnings = (plan.warnings ?? []).map((w) =>
-      formatPlanWarning(w, ceilMode, t, facilities),
+      formatPlanWarning(w, ceilMode, t, facilities, items),
     );
 
     const capWarnings = overCapWarnings.map((w) =>
-      formatPlanWarning(w, ceilMode, t, facilities),
+      formatPlanWarning(w, ceilMode, t, facilities, items),
     );
 
-    return [...cycleWarnings, ...planWarnings, ...capWarnings];
-  }, [plan, overCapWarnings, recipeOverrides, ceilMode, t]);
+    const rawCapWarnings = rawOverCapWarnings.map((w) =>
+      formatPlanWarning(w, ceilMode, t, facilities, items),
+    );
 
-  // Collect overridden item IDs from invalid cycles for table row styling.
-  // Only the items whose recipe override caused the cycle get highlighted,
-  // not every item caught in the cycle.
-  const invalidCycleItemIds = useMemo(() => {
-    const ids = new Set<ItemId>();
-    if (plan) {
-      for (const ic of plan.invalidCycles) {
-        ic.overriddenItemIds.forEach((id) => ids.add(id as ItemId));
-      }
-    }
-    return ids;
-  }, [plan]);
-
-  // View-specific data: computed in view layer hooks. Both receive
-  // the shared `aggregates` so the table footer and stats panel
-  // cannot drift — single source of truth, single compute per render.
-  // `facilityOverCapMap` flows through stats so the side-panel
-  // `<ProductionStats>` card can apply destructive styling to
-  // over-cap facility cards.
-  const stats = useProductionStats(
-    displayPlan,
-    aggregates,
-    facilityOverCapMap,
-    manualRawMaterials,
-    items,
-  );
-  const tableData = useProductionTable(
-    displayPlan,
-    aggregates,
-    // Narrow the recipe set the override dropdown searches over: only
-    // recipes that are AIC-unlocked AND have reachable input chains
-    // can be valid alternatives. Same canonical set the calc uses.
-    availableRecipes,
-    manualRawMaterials,
-    invalidCycleItemIds,
-  );
+    return [
+      ...cycleWarnings,
+      ...planWarnings,
+      ...capWarnings,
+      ...rawCapWarnings,
+    ];
+  }, [
+    plan,
+    overCapWarnings,
+    rawOverCapWarnings,
+    recipeOverrides,
+    ceilMode,
+    t,
+  ]);
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
     setTargets((prev) =>
@@ -874,6 +964,7 @@ export function useProductionPlan(
     stats,
     error,
     warnings,
+    rawMaterialOverCapMap,
     ceilMode,
     setCeilMode,
     binFusion,

@@ -42,6 +42,14 @@ type ProductionStatsProps = {
    * default styling.
    */
   facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>;
+  /**
+   * Per-raw-item cap-overflow info from `useProductionPlan`. Mirrors
+   * `facilityOverCapMap` shape. Cards whose item id is in this map
+   * render with destructive border + bg tint + red rate value, and a
+   * tooltip showing the short `({used}/min / {cap}/min)` form. Empty
+   * map → all raw-material rows render with default styling.
+   */
+  rawMaterialOverCapMap: ReadonlyMap<ItemId, { used: number; cap: number }>;
 };
 
 const ProductionStats = memo(function ProductionStats({
@@ -56,6 +64,7 @@ const ProductionStats = memo(function ProductionStats({
   error,
   ceilMode = false,
   facilityOverCapMap,
+  rawMaterialOverCapMap,
 }: ProductionStatsProps) {
   const { t } = useTranslation("stats");
   const [rawMaterialsOpen, setRawMaterialsOpen] = useState(false);
@@ -138,8 +147,22 @@ const ProductionStats = memo(function ProductionStats({
                     const overCap = facilityOverCapMap.get(
                       facility.id as FacilityId,
                     );
+                    const overCapAriaLabel = overCap
+                      ? t("facilityCapExceeded", {
+                          used: formatCount(overCap.used, ceilMode),
+                          cap: overCap.cap,
+                        })
+                      : undefined;
                     const card = (
                       <div
+                        // Over-cap cards are made focusable + carry an
+                        // explicit aria-label so screen-reader and
+                        // keyboard users get the same info as the hover
+                        // tooltip. Non-over-cap cards stay un-focusable
+                        // (no useful interaction).
+                        tabIndex={overCap ? 0 : undefined}
+                        role={overCap ? "status" : undefined}
+                        aria-label={overCapAriaLabel}
                         className={cn(
                           "space-y-0.5 p-2 border bg-card",
                           overCap
@@ -179,12 +202,7 @@ const ProductionStats = memo(function ProductionStats({
                     return (
                       <Tooltip key={facility.id}>
                         <TooltipTrigger asChild>{card}</TooltipTrigger>
-                        <TooltipContent>
-                          {t("facilityCapExceeded", {
-                            used: formatCount(overCap.used, ceilMode),
-                            cap: overCap.cap,
-                          })}
-                        </TooltipContent>
+                        <TooltipContent>{overCapAriaLabel}</TooltipContent>
                       </Tooltip>
                     );
                   })}
@@ -217,10 +235,28 @@ const ProductionStats = memo(function ProductionStats({
                         const sourceLabel = sourceFacility
                           ? getFacilityName(sourceFacility)
                           : t("pickupPoints");
-                        return (
+                        const overCap = rawMaterialOverCapMap.get(item.id);
+                        const overCapAriaLabel = overCap
+                          ? t("rawCapExceeded", {
+                              used: overCap.used.toFixed(1),
+                              cap: overCap.cap,
+                            })
+                          : undefined;
+                        const card = (
                           <div
-                            key={item.id}
-                            className="space-y-0.5 p-2 border border-border/50 bg-card"
+                            // Same a11y pattern as facility-over-cap
+                            // cards: focusable + aria-labelled so
+                            // screen readers + keyboard nav surface
+                            // the over-cap detail.
+                            tabIndex={overCap ? 0 : undefined}
+                            role={overCap ? "status" : undefined}
+                            aria-label={overCapAriaLabel}
+                            className={cn(
+                              "space-y-0.5 p-2 border bg-card",
+                              overCap
+                                ? "border-destructive/70 bg-destructive/5"
+                                : "border-border/50",
+                            )}
                           >
                             <div className="flex items-center gap-1.5">
                               {item.iconUrl && (
@@ -234,7 +270,12 @@ const ProductionStats = memo(function ProductionStats({
                                 {getItemName(item)}
                               </div>
                             </div>
-                            <div className="text-sm font-semibold font-mono">
+                            <div
+                              className={cn(
+                                "text-sm font-semibold font-mono",
+                                overCap && "text-destructive",
+                              )}
+                            >
                               {rate.toFixed(1)}
                               <span className="text-xs font-normal text-muted-foreground ml-1">
                                 /min
@@ -245,6 +286,15 @@ const ProductionStats = memo(function ProductionStats({
                               <span className="ml-1">{sourceLabel}</span>
                             </div>
                           </div>
+                        );
+                        if (!overCap) {
+                          return <div key={item.id}>{card}</div>;
+                        }
+                        return (
+                          <Tooltip key={item.id}>
+                            <TooltipTrigger asChild>{card}</TooltipTrigger>
+                            <TooltipContent>{overCapAriaLabel}</TooltipContent>
+                          </Tooltip>
                         );
                       })}
                     </div>

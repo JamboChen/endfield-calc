@@ -23,13 +23,14 @@ import {
   items,
   recipes,
   facilities,
-  forcedRawMaterials,
   bootstrapFacilities,
 } from "@/data";
 import { aicGroups, aicNodes } from "@/data/aic-plans";
 import type { AicTechId } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
 import { FacilityId, ItemId } from "@/types/constants";
+
+import { ALL_RAWS } from "./utils";
 
 /**
  * Helper: derive a fully-unlocked research set from `aicNodes`. Mimics
@@ -157,6 +158,7 @@ describe("AIC integration: recipe availability + calculator", () => {
       items,
       availableRecipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     const powderNode = plan.nodes.get(ItemId.ITEM_IRON_POWDER);
@@ -271,7 +273,7 @@ describe("AIC integration: chain-reachability filter", () => {
     ).availableRecipes;
     return computeRecipeReachability(
       aicFiltered,
-      forcedRawMaterials,
+      ALL_RAWS,
       bootstrapFacilities,
     );
   };

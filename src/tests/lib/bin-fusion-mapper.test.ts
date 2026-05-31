@@ -20,6 +20,7 @@ import { pickBinHeadlineOutput } from "@/lib/plan-helpers";
 import { mapPlanToFlowBinFused, mapPlanToFlowBinFusedSeparated } from "@/components/mappers/bin-fused-mapper";
 import { createRawMaterialId, createTargetSinkId } from "@/lib/node-keys";
 import { items, recipes, facilities } from "@/data";
+import { ALL_RAWS } from "./utils";
 import { ItemId, RecipeId } from "@/types/constants";
 import {
   mockItems,
@@ -188,6 +189,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, new Map(), false);
 
@@ -232,6 +234,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, new Map(), false);
 
@@ -267,6 +270,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, new Map(), false);
 
@@ -303,6 +307,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, new Map(), false);
 
@@ -335,6 +340,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFused(
       plan,
@@ -411,6 +417,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flowOff = mapPlanToFlowBinFused(
       plan,
@@ -472,6 +479,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flowOff = mapPlanToFlowBinFused(
       plan,
@@ -507,6 +515,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFused(
       plan,
@@ -536,6 +545,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFused(
       plan,
@@ -608,6 +618,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFused(
       plan,
@@ -649,6 +660,7 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFused(
       plan,
@@ -707,6 +719,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -737,6 +750,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -782,6 +796,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -812,6 +827,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -835,6 +851,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -908,6 +925,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -959,6 +977,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     expect(plan.detectedCycles.length).toBeGreaterThan(0);
 
@@ -1003,6 +1022,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -1039,6 +1059,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -1100,6 +1121,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -1142,6 +1164,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -1192,6 +1215,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       mockItems,
       byproductSCCRecipes,
       mockFacilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -1245,6 +1269,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
     const flow = mapPlanToFlowBinFusedSeparated(
       plan,
@@ -1319,6 +1344,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       items,
       recipes,
       facilities,
+      { rawMaterials: ALL_RAWS },
     );
 
     // Helper to verify no isolated nodes in a mapper's output.

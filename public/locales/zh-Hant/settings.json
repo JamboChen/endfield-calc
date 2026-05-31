@@ -1,10 +1,46 @@
 {
   "title": "設定",
   "open": "開啟設定",
+  "intro": "為每個區域設定 AIC 研究方案、設施上限與原料速率。在下方選擇要設定的區域；開關用於將區域加入或移出你的清單。",
+  "regions": {
+    "configuringLabel": "正在設定",
+    "yourRegions": "你的區域",
+    "notInRoster": "未加入清單",
+    "factoryMarker": "工廠"
+  },
+  "region": {
+    "label": "目前的工廠區域",
+    "picker": {
+      "placeholder": "選擇區域",
+      "ariaLabel": "選擇目前的工廠區域"
+    },
+    "toast": {
+      "switchedToFallback": "已切換至 {{name}} 工廠"
+    }
+  },
+  "tabs": {
+    "plan": "方案",
+    "limits": "上限",
+    "raws": "資源"
+  },
+  "status": {
+    "researched": "已研究 {{done}} / {{total}}",
+    "customized": "已自訂 {{n}}",
+    "sourced": "已取得 {{done}} / {{total}}"
+  },
+  "rawLimits": {
+    "help": "留空表示該資源供應無限。填入數值可設定限額。",
+    "clearAll": "全部清除",
+    "placeholder": "∞",
+    "unitSuffix": "/分鐘",
+    "inputAria": "{{name}} 上限（每分鐘數量）",
+    "invalidValue": "上限必須為非負數。未儲存。"
+  },
   "aic": {
-    "intro": "選擇您已研究的 AIC 科技。在未來版本中，此設定將篩選方案中可用的物品與配方。",
     "activateAll": "全部啟動",
     "activateLayer": "啟動該層",
+    "expandAll": "全部展開",
+    "collapseAll": "全部摺疊",
     "resetDefaults": "恢復預設",
     "capDeltaLabel": "上限",
     "row": {
@@ -18,11 +54,10 @@
       "ariaAlwaysAvailable": "{{name}}，始終可用"
     },
     "facilityLimits": {
-      "title": "設施上限",
       "gameCap": "遊戲上限",
       "customCap": "自訂",
       "effective": "實際",
-      "reset": "重置為遊戲上限"
+      "resetToBase": "重置為基礎上限"
     },
     "domain": {
       "toggleActivate": "啟動 {{name}}",
