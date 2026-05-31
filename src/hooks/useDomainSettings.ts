@@ -709,7 +709,7 @@ export function useDomainSettings(): DomainSettingsValue {
   // five useState calls below read from it without re-invoking the
   // loader. After mount, `initial` is unreachable (no closures
   // outlive the function body).
-  const initial = useMemo(composeInitialState, []);
+  const initial = useMemo(() => composeInitialState(), []);
 
   const [inactiveDomains, setInactiveDomains] = useState<
     ReadonlySet<DomainId>
