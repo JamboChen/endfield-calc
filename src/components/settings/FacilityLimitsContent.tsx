@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { facilities } from "@/data";
-import { facilityIconUrl } from "@/lib/facility-icons";
+import { FacilityIcon } from "@/components/FacilityIcon";
 import type { AicNode, AicTechId, FacilityBaseCap } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
 import type { FacilityId } from "@/types";
@@ -284,15 +284,9 @@ function CapTargetRow({
   const hasRaises = target.raiseNodes.length > 0;
 
   const facilityIcon = (
-    <img
-      src={facilityIconUrl(target.facilityId)}
-      alt=""
-      aria-hidden="true"
+    <FacilityIcon
+      facilityId={target.facilityId}
       className="size-6 object-contain shrink-0"
-      draggable={false}
-      onError={(e) => {
-        (e.target as HTMLImageElement).style.visibility = "hidden";
-      }}
     />
   );
 

@@ -1,6 +1,7 @@
 import { Handle, type NodeProps, type Node, Position } from "@xyflow/react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Factory, Zap, Star, ArrowDownToLine, Boxes, Repeat, AlertTriangle } from "lucide-react";
+import { Zap, Star, ArrowDownToLine, Boxes, Repeat, AlertTriangle } from "lucide-react";
+import { FacilityIcon } from "@/components/FacilityIcon";
 import {
   Tooltip,
   TooltipContent,
@@ -448,15 +449,11 @@ export default function CustomProductionNode({
                 {/* Line 1: facility identity + count */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    {facility.iconUrl ? (
-                      <img
-                        src={facility.iconUrl}
-                        alt={facilityName}
-                        className="h-4 w-4 object-contain shrink-0"
-                      />
-                    ) : (
-                      <Factory className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                    )}
+                    <FacilityIcon
+                      facility={facility}
+                      alt={facilityName}
+                      className="h-4 w-4 object-contain shrink-0 text-blue-600 dark:text-blue-400"
+                    />
                     <span className="text-[10px] text-muted-foreground truncate">
                       {facilityName}
                     </span>

@@ -1,5 +1,6 @@
 import type { Facility } from "../types";
 import { FacilityId } from "../types/constants";
+import { facilityIconUrl, isMonochromeFacilityIcon } from "../lib/facility-icons";
 
 export const facilities: Facility[] = [
   {
@@ -187,5 +188,6 @@ export const facilities: Facility[] = [
 ];
 
 facilities.forEach((f) => {
-  f.iconUrl = `${import.meta.env.BASE_URL}images/facilities/${f.id}.png`;
+  f.iconUrl = facilityIconUrl(f.id);
+  f.iconIsMonochrome = isMonochromeFacilityIcon(f.id);
 });

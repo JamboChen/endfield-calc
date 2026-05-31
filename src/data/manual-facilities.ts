@@ -1,5 +1,6 @@
 import type { Facility } from "@/types";
 import { FacilityId } from "@/types/constants";
+import { facilityIconUrl, isMonochromeFacilityIcon } from "@/lib/facility-icons";
 
 /**
  * Manually-curated facilities — synthetic entries that do NOT appear in
@@ -37,9 +38,15 @@ import { FacilityId } from "@/types/constants";
  *   - `domains: ["domain_2"]` — Wuling-only, matches the in-game
  *     placement restriction.
  *
- * Icon falls back to `liquid_cleaner_1` via `facility-icons.ts`'s
- * `FACILITY_ICON_FALLBACK` — visually similar (Water Treatment Unit
- * iconography) and avoids shipping a duplicate asset.
+ * **Icon**: manual facilities have no canonical building icon in the
+ * game data — they're collapsed representations of map structures, not
+ * placeable buildings. `iconUrl` is set via `facilityIconUrl()` so the
+ * `FACILITY_ICON_PATH` entry for `liquid_clean_gate_1` (pointing at
+ * the Sewage Inlet port glyph under `images/structures/`) drives every
+ * consumer uniformly. `iconIsMonochrome` is derived from the same
+ * mapping and tells `<FacilityIcon>` to apply `invert dark:invert-0`
+ * styling so the monochrome glyph is visible on both light and dark
+ * backgrounds.
  */
 export const manualFacilities: Facility[] = [
   {
@@ -54,5 +61,6 @@ export const manualFacilities: Facility[] = [
 ];
 
 manualFacilities.forEach((f) => {
-  f.iconUrl = `${import.meta.env.BASE_URL}images/facilities/${f.id}.png`;
+  f.iconUrl = facilityIconUrl(f.id);
+  f.iconIsMonochrome = isMonochromeFacilityIcon(f.id);
 });

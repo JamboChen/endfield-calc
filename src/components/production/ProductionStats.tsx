@@ -17,6 +17,7 @@ import type { Facility, FacilityId, Item, ItemId } from "@/types";
 import { getFacilityName, getItemName } from "@/lib/i18n-helpers";
 import { cn, getItemById, formatCount } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
+import { FacilityIcon } from "@/components/FacilityIcon";
 
 type ProductionStatsProps = {
   totalPowerConsumption: number;
@@ -171,13 +172,11 @@ const ProductionStats = memo(function ProductionStats({
                         )}
                       >
                         <div className="flex items-center gap-1.5">
-                          {facility.iconUrl && (
-                            <img
-                              src={facility.iconUrl}
-                              alt={getFacilityName(facility)}
-                              className="w-4 h-4 object-contain"
-                            />
-                          )}
+                          <FacilityIcon
+                            facility={facility}
+                            alt={getFacilityName(facility)}
+                            className="w-4 h-4 object-contain"
+                          />
                           <div className="text-xs text-muted-foreground truncate flex-1">
                             {getFacilityName(facility)}
                           </div>

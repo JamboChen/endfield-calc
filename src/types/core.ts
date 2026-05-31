@@ -91,6 +91,15 @@ type Facility = {
    */
   domains: string[];
   iconUrl?: string;
+  /**
+   * True when `iconUrl` points at a monochrome game glyph that needs
+   * `invert dark:invert-0` styling to remain visible on both light and
+   * dark backgrounds. Today: synthetic manual facilities that reuse a
+   * structure port glyph (no canonical building icon exists in the
+   * game data dump). Auto-generated facilities never set this — their
+   * icons are colored building renders.
+   */
+  iconIsMonochrome?: boolean;
 };
 
 export type { Item, Recipe, RecipeItem, Facility, Buffer, Buffers };
