@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Factory } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { facilityIconUrl, isMonochromeFacilityIcon } from "@/lib/facility-icons";
@@ -50,14 +51,15 @@ interface FacilityIconProps {
  *      facilities reusing structure port glyphs). Detected via
  *      `Facility.iconIsMonochrome` or `isMonochromeFacilityIcon()`.
  *   3. **Defensive fallback** — falls back to a Lucide `<Factory>`
- *      icon if no URL is resolvable, so a missing entry never crashes
- *      a render.
+ *      icon if no URL is resolvable OR the resolved URL 404s in the
+ *      browser, so a missing entry never crashes a render and the
+ *      user gets a visible cue that something's off.
  *   4. **Dev-mode visibility** — `console.warn` (throttled to once
  *      per facility id per session) when either (a) the resolved URL
- *      404s in the browser, or (b) the `<Factory>` fallback fires.
- *      Intentional remappings in `FACILITY_ICON_PATH` stay silent
- *      (their assets exist); only genuine misses surface, so the
- *      maintainer can ship the missing asset.
+ *      404s in the browser, or (b) the `<Factory>` fallback fires
+ *      due to a missing URL. Only genuine misses surface, so the
+ *      maintainer can ship the missing asset (and follow the
+ *      console.warn's path hint).
  *
  * Use this component everywhere a facility icon needs to render.
  * Direct `<img src={facility.iconUrl}>` bypasses the monochrome
@@ -70,9 +72,21 @@ export function FacilityIcon({
   alt,
 }: FacilityIconProps) {
   const id = facility?.id ?? facilityId;
+  const url = id
+    ? (facility?.iconUrl ?? facilityIconUrl(id))
+    : undefined;
+
+  // Track 404s via state (NOT via direct DOM mutation): this lets a
+  // re-render with a different URL retry the load. The effect resets
+  // `errored` whenever the resolved URL changes — e.g. a parent
+  // updates `facility.iconUrl` after the bad asset gets shipped.
+  const [errored, setErrored] = useState(false);
+  useEffect(() => {
+    setErrored(false);
+  }, [url]);
+
   if (!id) return null;
 
-  const url = facility?.iconUrl ?? facilityIconUrl(id);
   const isMono =
     facility?.iconIsMonochrome ?? isMonochromeFacilityIcon(id);
 
@@ -85,6 +99,10 @@ export function FacilityIcon({
     return <Factory className={className} aria-hidden={!alt} aria-label={alt} />;
   }
 
+  if (errored) {
+    return <Factory className={className} aria-hidden={!alt} aria-label={alt} />;
+  }
+
   return (
     <img
       src={url}
@@ -92,14 +110,13 @@ export function FacilityIcon({
       aria-hidden={!alt}
       draggable={false}
       className={cn(className, isMono && "invert dark:invert-0")}
-      onError={(e) => {
+      onError={() => {
         devWarn(
           id,
           `asset 404 for facility \`${id}\` at ${url}. ` +
-            `Ship the asset or add a FACILITY_ICON_PATH remap in ` +
-            `src/lib/facility-icons.ts.`,
+            `Ship the asset at public/images/facilities/${id}.png.`,
         );
-        (e.target as HTMLImageElement).style.visibility = "hidden";
+        setErrored(true);
       }}
     />
   );

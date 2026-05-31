@@ -6,7 +6,7 @@ import { facilityRecipeVariants, recipes } from "@/data";
 import { facilityIconUrl } from "@/lib/facility-icons";
 import { structureKey } from "@/lib/settings-helpers";
 import { cn } from "@/lib/utils";
-import type { ItemId, RecipeId, RegionStructureId } from "@/types/constants";
+import type { RecipeId, RegionStructureId } from "@/types/constants";
 import type { DomainId } from "@/types/domain";
 import type { RegionStructure } from "@/types/structures";
 
@@ -102,9 +102,7 @@ export function StructuresContent({
             if (variants) {
               if (s.solver.role === "instance") {
                 const defaultRecipe = recipesById.get(variants.default);
-                const consumedId = defaultRecipe?.inputs[0]?.itemId as
-                  | ItemId
-                  | undefined;
+                const consumedId = defaultRecipe?.inputs[0]?.itemId;
                 if (consumedId) {
                   annotation = t("structures.treats", {
                     ns: "settings",
@@ -114,9 +112,7 @@ export function StructuresContent({
                 }
               } else {
                 const toggledRecipe = recipesById.get(variants.toggled);
-                const producedId = toggledRecipe?.outputs[0]?.itemId as
-                  | ItemId
-                  | undefined;
+                const producedId = toggledRecipe?.outputs[0]?.itemId;
                 if (producedId) {
                   annotation = t("structures.produces", {
                     ns: "settings",

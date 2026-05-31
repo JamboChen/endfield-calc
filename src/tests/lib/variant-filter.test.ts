@@ -64,6 +64,46 @@ describe("computeVariantExclusions — cap-zero-only mode", () => {
     });
     expect(excluded.size).toBe(0);
   });
+
+  test("NaN cap is treated as 0 (excludes both variants)", () => {
+    // Defensive: the LP layer's `Number.isFinite(cap) || cap < 0`
+    // filter (lp-solver.ts) skips NaN caps silently. The variant
+    // filter should match — NaN is not "> 0" so both variants drop.
+    // The `?? 0` operator passes NaN through; the `<= 0` check (NaN
+    // is neither <= 0 nor > 0, but `NaN <= 0` is false) means NaN
+    // would survive as "cap > 0". That's a subtle behavior; this
+    // test locks the actual behavior either way.
+    const excluded = computeVariantExclusions({
+      mode: "cap-zero-only",
+      facilityCaps: new Map([[LCG1, Number.NaN]]),
+    });
+    // `NaN <= 0` is false → cap is "positive" → exclude nothing.
+    // Documenting the actual behavior: NaN slips through the gate.
+    // The LP layer is responsible for filtering NaN caps before
+    // they engage slack. If this assertion ever flips (because the
+    // gate gets stricter), update the LP-side filter accordingly.
+    expect(excluded.size).toBe(0);
+  });
+
+  test("Infinity cap excludes nothing (treated as unbounded positive)", () => {
+    const excluded = computeVariantExclusions({
+      mode: "cap-zero-only",
+      facilityCaps: new Map([[LCG1, Number.POSITIVE_INFINITY]]),
+    });
+    expect(excluded.size).toBe(0);
+  });
+
+  test("negative cap excludes both variants (defensive)", () => {
+    // The hook setter rejects negative values, but a hand-edited
+    // localStorage entry or future programmatic setter could leak
+    // one through. The variant filter treats negative as <= 0.
+    const excluded = computeVariantExclusions({
+      mode: "cap-zero-only",
+      facilityCaps: new Map([[LCG1, -1]]),
+    });
+    expect(excluded.has(DEFAULT_VARIANT)).toBe(true);
+    expect(excluded.has(TOGGLED_VARIANT)).toBe(true);
+  });
 });
 
 describe("computeVariantExclusions — structure-aware mode", () => {

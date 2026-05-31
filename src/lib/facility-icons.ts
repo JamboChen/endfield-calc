@@ -12,7 +12,11 @@
  *   2. **Settings → Structures tab**, which holds a free-form
  *      `iconSlug` (today equal to the structure id) and calls
  *      `facilityIconUrl(s.iconSlug)` — the slug is just an asset
- *      basename from the helper's POV.
+ *      basename from the helper's POV. The helper's parameter is
+ *      typed `string` rather than `FacilityId` so structure-only
+ *      slugs (e.g. `liquid_recycle_gate_1`, which has no
+ *      `FacilityId` counterpart) can flow through without an `as`
+ *      cast.
  *   3. **`<FacilityIcon>` component** elsewhere, which prefers
  *      `Facility.iconUrl` (populated at module-load via this helper,
  *      so the two stay aligned) and falls back here when given just
@@ -38,13 +42,18 @@
  * structure port glyph because no canonical building render ships in
  * the game data dump.
  *
- * Keyed by FacilityId (consumed by `<FacilityIcon>` via either the
- * `Facility.iconIsMonochrome` flag or the helper). Structure-only
- * ids (e.g. `liquid_recycle_gate_1`, which has no `FacilityId`
- * counterpart) aren't in here — `StructuresContent` applies invert
- * inline since every structure-tab icon is monochrome by convention.
+ * Values are `FacilityId` string literals; the runtime type is
+ * `Set<string>` so the membership check (`isMonochromeFacilityIcon`)
+ * accepts arbitrary strings (including structure-only slugs from
+ * `StructuresContent`) without a brand cast. Strings that aren't a
+ * valid `FacilityId` simply return `false`.
+ *
+ * Structure-only ids (e.g. `liquid_recycle_gate_1`, which has no
+ * `FacilityId` counterpart) aren't in here — `StructuresContent`
+ * applies invert inline since every structure-tab icon is monochrome
+ * by convention.
  */
-const MONOCHROME_FACILITY_ICONS = new Set<string>([
+const MONOCHROME_FACILITY_ICONS: ReadonlySet<string> = new Set([
   "liquid_clean_gate_1",
 ]);
 

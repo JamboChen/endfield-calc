@@ -10,6 +10,7 @@ import { describe, expect, test } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
 import { items, recipes, facilities, rawMaterialSources } from "@/data";
 import { calcRate } from "@/lib/utils";
+import { aggregateBinTotals, computeOverCapWarnings } from "@/lib/plan-helpers";
 import { FacilityId, ItemId, RecipeId } from "@/types/constants";
 import type { ProductionGraphNode } from "@/types";
 
@@ -243,7 +244,7 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
   });
 });
 
-describe("Sewage Inlet — LP facility cap enforcement is hard", () => {
+describe("Sewage Inlet — LP routes around binding caps via alternative producers", () => {
   test("cap=1: LP never runs more than 1 Sewage Inlet building", async () => {
     // Target: 4 Cuprium parts/min → 120/min sewage.
     // 1 Sewage Inlet = 120/min capacity → exactly matches.
@@ -490,7 +491,7 @@ describe("Facility cap binding without alternative producer", () => {
   // `[FAILED] Global LP infeasible. Returning best-effort result with
   // N invalid cycle(s)` instead of a plan + warning.
 
-  test("Heavy Xiranite reproducer (user-reported): xiranite_oven_1 cap=2 + target=6/min stays feasible", async () => {
+  test("Heavy Xiranite reproducer (user-reported): xiranite_oven_1 cap=2 + target=6/min stays feasible and surfaces over-cap warning", async () => {
     // User-reported reproducer. Heavy Xiranite production chain:
     //   - XIRANITE_OVEN_XIRANITE_ENR_POWDER_1 (xiranite_oven_1):
     //       1 Heavy Xiranite / 10s = 6/min/building.
@@ -501,7 +502,12 @@ describe("Facility cap binding without alternative producer", () => {
     //       → 2 Forges.
     //   - Total: 3 Forges on xiranite_oven_1.
     // With cap = 2, pre-fix the hard LP cap returned infeasible.
-    // Post-fix, soft slack engages and the plan is feasible.
+    // Post-fix, soft slack engages and the plan is feasible; the
+    // post-pack `computeOverCapWarnings` then surfaces the over-cap
+    // signal to the user — that's the entire UX point of the
+    // soft-cap design. This test locks both ends of the contract
+    // (LP feasibility + warning surface).
+    const facilityCaps = new Map([[FacilityId.XIRANITE_OVEN_1, 2]]);
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, rate: 6 }],
       items,
@@ -509,7 +515,7 @@ describe("Facility cap binding without alternative producer", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.XIRANITE_OVEN_1, 2]]),
+        facilityCaps,
       },
     );
 
@@ -528,11 +534,30 @@ describe("Facility cap binding without alternative producer", () => {
     expect(enrPowder).toBeDefined();
     expect(powder).toBeDefined();
 
-    // Total xiranite_oven_1 building count exceeds cap (3 vs 2). The
-    // over-cap warning would surface at the hook layer via
-    // `computeOverCapWarnings` — not exercised here (calc layer).
+    // Total xiranite_oven_1 building count exceeds cap (3 vs 2).
     const totalForges =
       (enrPowder?.facilityCount ?? 0) + (powder?.facilityCount ?? 0);
     expect(totalForges).toBeGreaterThan(2);
+
+    // End-to-end contract: the post-pack `computeOverCapWarnings`
+    // pipeline (which the hook layer calls in production) emits a
+    // `facility-over-cap` warning for xiranite_oven_1. Running it
+    // directly here exercises the same code path the user-facing
+    // warning surface depends on.
+    const aggregates = aggregateBinTotals(plan, [...facilities], [...items]);
+    const warnings = computeOverCapWarnings(
+      aggregates.rawPerFacility,
+      facilityCaps,
+    );
+    const ovenWarning = warnings.find(
+      (w) =>
+        w.kind === "facility-over-cap" &&
+        w.facilityId === FacilityId.XIRANITE_OVEN_1,
+    );
+    expect(ovenWarning).toBeDefined();
+    if (ovenWarning?.kind === "facility-over-cap") {
+      expect(ovenWarning.cap).toBe(2);
+      expect(ovenWarning.used).toBeGreaterThan(2);
+    }
   });
 });
