@@ -358,16 +358,24 @@ describe("Sewage Inlet — LP constraint fallback for orphan forced-disposal ite
     // Filter out ALL recipes that consume sewage. The chain still
     // produces sewage as a byproduct of FURNANCE_COPPER_NUGGET_1, so
     // sewage enters the graph as a non-raw forced-disposal item.
-    // With my "has consumer" check, no consumer in the graph means
-    // the constraint falls back to `min: 0` and surplus is permitted
-    // without slack engagement.
+    // With the "has consumer" check in flow-solver, no consumer in
+    // the graph means the constraint falls back to `min: 0` and
+    // surplus is permitted without slack engagement.
+    //
+    // The input-shape filter `!r.inputs.some(...)` is load-bearing:
+    // it sweeps up any sewage-consuming productive recipe even if its
+    // outputs are entirely forced-disposal (e.g.
+    // POOL_LIQUID_XIRANITE_POLY_1/2, which the pre-LP disposal
+    // injection would otherwise pull into the graph because its
+    // outputs are all forced-disposal items). Without this filter
+    // the test would not actually exercise the fallback branch.
     const recipesWithoutSewageConsumers = recipes.filter(
       (r) =>
         // Drop pure sewage disposers
         r.id !== RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE &&
         r.id !== RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL &&
         r.id !== RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT &&
-        // Drop sewage-consuming productive recipes
+        // Drop ALL sewage-consuming recipes (productive AND disposal-shaped)
         !r.inputs.some((i) => i.itemId === ItemId.ITEM_LIQUID_SEWAGE),
     );
 

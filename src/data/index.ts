@@ -229,10 +229,12 @@ const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
  * constraint on `LIQUID_CLEAN_GATE_1` correctly bounds the number of
  * physical inlets regardless of which variant is active.
  *
- * Invariant (checked at use site, not at module load to keep this file
- * pure): every entry's `default` and `toggled` recipes must share their
- * `facilityId` with the map key. Violating this would make the
- * facility-cap constraint inconsistent with the recipe filter.
+ * Invariant (verified at module load by the DEV/test self-check
+ * immediately below): every entry's `default` and `toggled` recipes
+ * must exist in `recipes` AND share their `facilityId` with the map
+ * key. Violating this would make the facility-cap constraint
+ * inconsistent with the recipe filter, causing the LP to silently
+ * misbalance.
  */
 const facilityRecipeVariants: ReadonlyMap<
   FacilityId,
