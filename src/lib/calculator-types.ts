@@ -38,27 +38,9 @@ export type SCCInfo = {
   externalInputs: Set<ItemId>;
 };
 
-export type CondensedNode =
-  | { type: "item"; itemId: ItemId }
-  | { type: "recipe"; recipeId: RecipeId }
-  | { type: "scc"; scc: SCCInfo };
-
 export type FlowData = {
   itemDemands: Map<ItemId, number>;
   recipeFacilityCounts: Map<RecipeId, number>;
-  /** SCC IDs that were resolved by feeder extension (no longer true cycles) */
-  resolvedSCCIds: Set<string>;
-};
-
-export type RecipeChoice = {
-  itemId: ItemId;
-  availableRecipes: RecipeId[];
-  currentIndex: number;
-};
-
-export type BuildGraphResult = {
-  graph: BipartiteGraph;
-  recipeChoices: Map<ItemId, RecipeChoice>;
 };
 
 export type InvalidSCCInfo = {

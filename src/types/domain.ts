@@ -21,7 +21,7 @@ type DomainId = string & { readonly __brand: "DomainId" };
 /**
  * A first-class domain entry, surfaced as a top-level section in the
  * settings UI. The data is sourced from upstream `DomainDataTable.json`
- * by `bun run extract:aic` (today the script is named after AIC since
+ * by `pnpm run extract:aic` (today the script is named after AIC since
  * that's the only category; it will be renamed when a second category
  * lands).
  *

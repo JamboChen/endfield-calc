@@ -32,6 +32,7 @@
     "noData": "Нет данных",
     "noRecipe": "Нет формулы",
     "rawMaterial": "Сырье",
+    "removePin": "Убрать закрепление",
     "unmarkRawMaterial": "Снять отметку",
     "bin": {
       "slots": "{{slots}} слотов",

@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
+import { RotateCcw } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -20,7 +21,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import type { Item, Recipe, Facility, ItemId, RecipeId, BinId } from "@/types";
+import type { IneffectivePin } from "@/hooks/useProductionPlan";
 import { useTranslation } from "react-i18next";
 import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName, getRecipeName } from "@/lib/i18n-helpers";
 import { getTransportCountWithFacilities, getPickupPointCount, getRawSourceRate, formatCount, formatNumber } from "@/lib/utils";
@@ -91,8 +94,28 @@ type ProductionTableProps = {
    */
   totals: ProductionTableTotals;
   items: Item[];
+  /**
+   * Full AIC-filtered recipe set. Threaded in so ghost rows (one per
+   * `ineffectivePins` entry) can build their own `availableRecipes`
+   * list for the picker dropdown — the normal-row data flow doesn't
+   * surface vanished items, so we re-derive on the spot.
+   */
+  recipes: readonly Recipe[];
   onRecipeChange: (itemId: ItemId, recipeId: RecipeId) => void;
+  onRecipePinReset: (itemId: ItemId) => void;
   onToggleRawMaterial: (itemId: ItemId) => void;
+  /**
+   * Items the user has pinned a recipe for. Drives the reset-icon
+   * affordance on the recipe picker in normal rows.
+   */
+  pinnedItemIds: ReadonlySet<ItemId>;
+  /**
+   * Pinned recipes the LP eliminated. Rendered as ghost rows after the
+   * last data row so the user can see + remove the otherwise-invisible
+   * pin. Ghost rows share the same recipe-picker affordance as normal
+   * rows (with pre-filled pin selection + always-on reset icon).
+   */
+  ineffectivePins: IneffectivePin[];
   ceilMode?: boolean;
 };
 
@@ -282,12 +305,57 @@ const FacilityIcon = memo(
 
 FacilityIcon.displayName = "FacilityIcon";
 
+/**
+ * Small icon-button rendered in front of a recipe picker whenever the
+ * row's item carries a user pin (`recipeOverrides.has(itemId)`).
+ * Clicking it dispatches `onRecipePinReset(itemId)` which deletes the
+ * pin via `useProductionPlan.handleRecipePinReset` and triggers a
+ * recompute — the LP then re-picks the producer freely.
+ *
+ * Same button is used on ghost rows; ghost rows always have a pin so
+ * the affordance is always visible there.
+ */
+const ResetPinButton = memo(
+  ({
+    itemId,
+    onReset,
+    label,
+  }: {
+    itemId: ItemId;
+    onReset: (id: ItemId) => void;
+    label: string;
+  }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+          onClick={() => onReset(itemId)}
+          aria-label={label}
+        >
+          <RotateCcw className="h-3 w-3" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p className="text-xs">{label}</p>
+      </TooltipContent>
+    </Tooltip>
+  ),
+);
+
+ResetPinButton.displayName = "ResetPinButton";
+
 const ProductionTable = memo(function ProductionTable({
   data,
   totals,
   items,
+  recipes,
   onRecipeChange,
+  onRecipePinReset,
   onToggleRawMaterial,
+  pinnedItemIds,
+  ineffectivePins,
   ceilMode = false,
 }: ProductionTableProps) {
   const { t } = useTranslation("production");
@@ -307,10 +375,16 @@ const ProductionTable = memo(function ProductionTable({
     const highlighted = new Set<ItemId>();
     highlighted.add(hoveredItemId); // Add the hovered item itself
 
-    // Find the hovered line and add its direct dependencies
-    const hoveredLine = data.find((line) => line.item.id === hoveredItemId);
-    if (hoveredLine?.directDependencyItemIds) {
-      hoveredLine.directDependencyItemIds.forEach((depId) => {
+    // Mixed-strategy items have multiple rows for the same itemId — one
+    // per active producer. Union direct dependencies across all sister
+    // rows so hovering surfaces the full one-hop upstream of the item,
+    // not just whichever producer happens to appear first in the array.
+    // For single-producer items (≥ 99% of plans today) the filter
+    // returns exactly one row and this collapses to the original
+    // behaviour.
+    const sisterRows = data.filter((line) => line.item.id === hoveredItemId);
+    for (const row of sisterRows) {
+      row.directDependencyItemIds?.forEach((depId) => {
         highlighted.add(depId);
       });
     }
@@ -408,9 +482,18 @@ const ProductionTable = memo(function ProductionTable({
                 rowClassName += " bg-green-50/30 dark:bg-green-900/10";
               }
 
+              // Row key construction must be unique even when an item has
+              // multiple sister rows (mixed-strategy producers; row-per-
+              // producer model). Pre-cfcc37e the key was just `item.id`,
+              // which collided as soon as two non-disposal rows shared an
+              // item. Including the recipe id disambiguates sisters and
+              // preserves the existing disposal-row carve-out.
+              const rowKey = line.isDisposal
+                ? `disposal-${line.item.id}-${line.selectedRecipeId || "noproducer"}`
+                : `${line.item.id}-${line.selectedRecipeId || "noproducer"}`;
               return (
                 <TableRow
-                  key={line.isDisposal ? `disposal-${line.item.id}` : line.item.id}
+                  key={rowKey}
                   className={[
                     rowClassName,
                     shouldDim && "opacity-30",
@@ -612,42 +695,69 @@ const ProductionTable = memo(function ProductionTable({
                         {t("table.manualRawMaterial")}
                       </div>
                     ) : line.availableRecipes.length > 1 ? (
-                      <Select
-                        value={line.selectedRecipeId}
-                        onValueChange={(value: RecipeId) =>
-                          onRecipeChange(line.item.id, value)
-                        }
-                      >
-                        <SelectTrigger className="h-auto min-h-8 text-xs py-1">
-                          <SelectValue>
-                            {selectedRecipe && (
-                              <RecipeIOCompact
-                                recipe={selectedRecipe}
-                                getItemById={getItemById}
-                              />
-                            )}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent className="max-w-[400px]">
-                          {line.availableRecipes.map((recipe) => (
-                            <SelectItem
-                              key={recipe.id}
-                              value={recipe.id}
-                              className="text-xs"
-                            >
-                              <div className="flex flex-col gap-1 py-1">
-                                <span className="font-medium text-xs">
-                                  {getRecipeName(recipe)}
-                                </span>
-                                <RecipeIOFull
-                                  recipe={recipe}
+                      // Multi-recipe item: dropdown lets the user pin a
+                      // specific formula. Under the row-per-producer
+                      // model, mixed-strategy items emit one row per
+                      // active producer with its own dropdown — the
+                      // dropdown's `selectedRecipeId` is THIS row's
+                      // producer, and switching pins that recipe as
+                      // the SOLE producer of the item (collapsing the
+                      // mixed strategy on next recompute). Sister rows
+                      // are visible side-by-side in the table; no
+                      // explicit "this is a mixed-strategy row" badge
+                      // needed.
+                      //
+                      // Reset icon appears in front of the picker when
+                      // the user has a pin on this item (active or
+                      // ineffective). Clicking it drops the pin so the
+                      // LP can re-pick freely.
+                      <div className="flex items-center gap-1">
+                        {pinnedItemIds.has(line.item.id) && (
+                          <ResetPinButton
+                            itemId={line.item.id}
+                            onReset={onRecipePinReset}
+                            label={t("table.removePin", {
+                              defaultValue: "Remove pin",
+                            })}
+                          />
+                        )}
+                        <Select
+                          value={line.selectedRecipeId}
+                          onValueChange={(value: RecipeId) =>
+                            onRecipeChange(line.item.id, value)
+                          }
+                        >
+                          <SelectTrigger className="h-auto min-h-8 text-xs py-1">
+                            <SelectValue>
+                              {selectedRecipe && (
+                                <RecipeIOCompact
+                                  recipe={selectedRecipe}
                                   getItemById={getItemById}
                                 />
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                              )}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent className="max-w-[400px]">
+                            {line.availableRecipes.map((recipe) => (
+                              <SelectItem
+                                key={recipe.id}
+                                value={recipe.id}
+                                className="text-xs"
+                              >
+                                <div className="flex flex-col gap-1 py-1">
+                                  <span className="font-medium text-xs">
+                                    {getRecipeName(recipe)}
+                                  </span>
+                                  <RecipeIOFull
+                                    recipe={recipe}
+                                    getItemById={getItemById}
+                                  />
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     ) : selectedRecipe ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -743,6 +853,118 @@ const ProductionTable = memo(function ProductionTable({
               );
             })
           )}
+          {/* Ghost rows: one per ineffective pin. The LP chose not to
+              produce these items (a downstream consumer was rerouted to
+              a bypass recipe that doesn't need the pinned item), so they
+              vanished from the main row list. We append them here so
+              the user can see + interact with the otherwise-invisible
+              pin. The picker, reset icon, and switch-pin-on-select
+              behaviour match normal rows; non-applicable columns show
+              "—" since there's no production. */}
+          {ineffectivePins.map(({ itemId, recipeId }) => {
+            const item = getItemById(itemId);
+            if (!item) return null;
+            const ghostAvailableRecipes = recipes.filter((r) =>
+              r.outputs.some((o) => o.itemId === itemId),
+            );
+            const ghostSelectedRecipe = ghostAvailableRecipes.find(
+              (r) => r.id === recipeId,
+            );
+            const ghostLabel = t("table.removePin", {
+              defaultValue: "Remove pin",
+            });
+            // Hover-dim parity with normal rows. Ghost rows aren't in
+            // `data`, so `highlightedItemIds` never contains their
+            // itemId — a plain identity check against `hoveredItemId`
+            // is both sufficient and semantically correct (a vanished
+            // pinned item has no dependency edges in the plan). When a
+            // ghost row IS the hovered row, the normal-row loop's own
+            // `shouldDim` fires for every normal row symmetrically, no
+            // extra wiring needed.
+            const ghostShouldDim =
+              hoveredItemId !== null && hoveredItemId !== itemId;
+            const ghostIsHovered = hoveredItemId === itemId;
+            return (
+              <TableRow
+                key={`ghost-${itemId}`}
+                className={[
+                  "h-12 transition-all duration-200 bg-amber-50/30 dark:bg-amber-950/10 text-muted-foreground",
+                  ghostShouldDim && "opacity-30",
+                  ghostIsHovered &&
+                    "ring-2 ring-inset ring-blue-500/60 shadow-sm",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onMouseEnter={() => setHoveredItemId(itemId)}
+                onMouseLeave={() => setHoveredItemId(null)}
+              >
+                <TableCell className="p-2">
+                  <div className="flex items-center gap-2">
+                    <ItemIcon item={item} />
+                    <span className="text-xs">{getItemName(item)}</span>
+                  </div>
+                </TableCell>
+                <TableCell className="text-right p-2 text-xs">—</TableCell>
+                <TableCell className="text-right p-2 text-xs">—</TableCell>
+                <TableCell className="text-center p-2 text-xs">—</TableCell>
+                <TableCell className="text-right p-2 text-xs">—</TableCell>
+                <TableCell className="p-2">
+                  <div className="flex items-center gap-1">
+                    <ResetPinButton
+                      itemId={itemId}
+                      onReset={onRecipePinReset}
+                      label={ghostLabel}
+                    />
+                    {ghostAvailableRecipes.length > 1 ? (
+                      <Select
+                        value={recipeId}
+                        onValueChange={(value: RecipeId) =>
+                          onRecipeChange(itemId, value)
+                        }
+                      >
+                        <SelectTrigger className="h-auto min-h-8 text-xs py-1">
+                          <SelectValue>
+                            {ghostSelectedRecipe && (
+                              <RecipeIOCompact
+                                recipe={ghostSelectedRecipe}
+                                getItemById={getItemById}
+                              />
+                            )}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="max-w-[400px]">
+                          {ghostAvailableRecipes.map((recipe) => (
+                            <SelectItem
+                              key={recipe.id}
+                              value={recipe.id}
+                              className="text-xs"
+                            >
+                              <div className="flex flex-col gap-1 py-1">
+                                <span className="font-medium text-xs">
+                                  {getRecipeName(recipe)}
+                                </span>
+                                <RecipeIOFull
+                                  recipe={recipe}
+                                  getItemById={getItemById}
+                                />
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : ghostSelectedRecipe ? (
+                      <RecipeIOCompact
+                        recipe={ghostSelectedRecipe}
+                        getItemById={getItemById}
+                      />
+                    ) : null}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right p-2 text-xs">—</TableCell>
+                <TableCell className="text-center p-2 text-xs">—</TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
       {data.length > 0 && (

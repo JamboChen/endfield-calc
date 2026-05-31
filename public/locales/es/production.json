@@ -32,6 +32,7 @@
     "noData": "Sin datos",
     "noRecipe": "Sin fórmula",
     "rawMaterial": "Materia Prima",
+    "removePin": "Quitar fijación",
     "unmarkRawMaterial": "Desmarcar",
     "bin": {
       "slots": "{{slots}} ranuras",

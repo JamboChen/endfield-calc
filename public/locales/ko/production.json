@@ -32,6 +32,7 @@
     "noData": "데이터 없음",
     "noRecipe": "공식 없음",
     "rawMaterial": "원자재",
+    "removePin": "고정 해제",
     "unmarkRawMaterial": "표시 해제",
     "bin": {
       "slots": "{{slots}} 슬롯",

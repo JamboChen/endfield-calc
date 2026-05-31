@@ -32,6 +32,7 @@
     "noData": "データなし",
     "noRecipe": "レシピなし",
     "rawMaterial": "原材料",
+    "removePin": "固定を解除",
     "unmarkRawMaterial": "マークを解除",
     "bin": {
       "slots": "{{slots}} スロット",

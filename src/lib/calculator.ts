@@ -18,7 +18,7 @@ import type {
 import { forcedDisposalItems } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
-import { buildBipartiteGraph, detectSCCs, buildCondensedDAGAndSort } from "./graph-builder";
+import { buildBipartiteGraph, detectSCCs } from "./graph-builder";
 import { calculateFlows } from "./flow-solver";
 import { packBins } from "./multi-formula-packing";
 import type {
@@ -26,7 +26,6 @@ import type {
   BipartiteGraph,
   SCCInfo,
   FlowData,
-  RecipeChoice,
   InvalidSCCInfo,
 } from "./calculator-types";
 
@@ -36,7 +35,6 @@ import type {
 // residuals on the order of 1e-13. Without this tolerance, a disposal recipe
 // would be injected with facilityCount ≈ 0, rendering as a disconnected
 // "0/min" sink in the UI (e.g. Xircon Effluent on Jade Gourd at 1/min).
-// Matches `TARGET_VALIDATION_TOLERANCE` used by the LP solver.
 const SURPLUS_EPSILON = 1e-6;
 
 function injectDisposalRecipes(
@@ -659,13 +657,34 @@ function buildProductionGraph(
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
 
+  // Compute the **active subgraph**: recipes the LP picked + items those
+  // recipes touch + targets + raws. The multi-recipe graph contains every
+  // alternative producer for each reachable item; the LP picks one (or a
+  // mix), giving inactive alternatives facility count = 0. Rendering must
+  // only include the active subset, else isolated zero-throughput recipe
+  // nodes appear in mappers (and trip `assertFlowIntegrity` in tests).
+  const activeRecipeIds = new Set<RecipeId>();
+  for (const [recipeId, fc] of flowData.recipeFacilityCounts.entries()) {
+    if (fc > 0) activeRecipeIds.add(recipeId);
+  }
+  const activeItemIds = new Set<ItemId>();
+  graph.targets.forEach((id) => activeItemIds.add(id));
+  graph.rawMaterials.forEach((id) => activeItemIds.add(id));
+  activeRecipeIds.forEach((recipeId) => {
+    graph.recipeInputs.get(recipeId)?.forEach((id) => activeItemIds.add(id));
+    graph.recipeOutputs.get(recipeId)?.forEach((id) => activeItemIds.add(id));
+  });
+
   graph.itemNodes.forEach((itemNode, itemId) => {
+    if (!activeItemIds.has(itemId)) return;
+
     let productionRate = 0;
 
     if (itemNode.isRawMaterial) {
       productionRate = flowData.itemDemands.get(itemId) || 0;
     } else {
       graph.recipeOutputs.forEach((outputItems, recipeId) => {
+        if (!activeRecipeIds.has(recipeId)) return;
         if (outputItems.has(itemId)) {
           const recipe = maps.recipeMap.get(recipeId)!;
           const facilityCount =
@@ -736,6 +755,14 @@ function buildProductionGraph(
   };
 
   graph.recipeNodes.forEach((recipeData, recipeId) => {
+    // `activeRecipeIds` already includes disposal recipes: `injectDisposalRecipes`
+    // runs before this function in `calculateProductionPlan` and adds each
+    // disposal recipe to `flowData.recipeFacilityCounts` with fc > 0, so
+    // it passes the `fc > 0` filter above. Inactive non-disposal alternatives
+    // (e.g. tier-2 pool variants the LP didn't pick) are filtered out here.
+    if (!activeRecipeIds.has(recipeId)) return;
+
+    const isDisposal = recipeData.recipe.outputs.length === 0;
     const { facility, binId, sisters } = resolveBinInfo(
       recipeId,
       recipeData.facility,
@@ -746,7 +773,7 @@ function buildProductionGraph(
       recipe: recipeData.recipe,
       facility,
       facilityCount: flowData.recipeFacilityCounts.get(recipeId) || 0,
-      isDisposal: recipeData.recipe.outputs.length === 0,
+      isDisposal,
       binId,
       binSisterRecipeIds: sisters,
       prefillCandidates: recipePrefill.get(recipeId) ?? [],
@@ -754,21 +781,36 @@ function buildProductionGraph(
   });
 
   graph.itemConsumedBy.forEach((recipeIds, itemId) => {
+    if (!activeItemIds.has(itemId)) return;
     recipeIds.forEach((recipeId) => {
+      if (!nodes.has(recipeId)) return;
       edges.push({ from: itemId, to: recipeId });
     });
   });
 
   graph.recipeOutputs.forEach((itemIds, recipeId) => {
+    if (!nodes.has(recipeId)) return;
     itemIds.forEach((itemId) => {
+      if (!activeItemIds.has(itemId)) return;
       edges.push({ from: recipeId, to: itemId });
     });
   });
 
-  const activeSCCs = sccs.filter((scc) => !flowData.resolvedSCCIds.has(scc.id));
-  const detectedCycles: DetectedCycle[] = activeSCCs.map((scc) => {
-    const cycleNodes: ProductionNode[] = Array.from(scc.recipes).flatMap(
-      (recipeId) => {
+  // Every detected SCC stays cyclic in graph structure (no DAG-linearisation
+  // step exists), so all SCCs render as cycles with backward-edge styling.
+  //
+  // Filter cycle members to **active** recipes only: an SCC's recipe set
+  // includes every alternative producer added by the multi-recipe
+  // traversal (e.g. both plant_moss and plant_grass producers when only
+  // grass was picked by the LP). Inactive alternatives don't run, so
+  // they shouldn't appear in cycleNodes. Iterating them would also call
+  // resolveBinInfo on recipes the packer correctly didn't allocate,
+  // firing spurious `[resolveBinInfo] ... has no bin allocation`
+  // warnings.
+  const detectedCycles: DetectedCycle[] = sccs.map((scc) => {
+    const cycleNodes: ProductionNode[] = Array.from(scc.recipes)
+      .filter((recipeId) => activeRecipeIds.has(recipeId))
+      .flatMap((recipeId) => {
         const recipeData = graph.recipeNodes.get(recipeId)!;
         const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
         const outputs = recipeData.recipe.outputs;
@@ -827,67 +869,7 @@ function buildProductionGraph(
   };
 }
 
-function backtrackRecipeChoices(
-  recipeChoices: Map<ItemId, RecipeChoice>,
-  invalidSCCs: InvalidSCCInfo[],
-  currentConstraints: Map<ItemId, Set<RecipeId>>,
-): Map<ItemId, Set<RecipeId>> | null {
-  if (invalidSCCs.length === 0) {
-    return currentConstraints;
-  }
 
-  console.log(
-    `[BACKTRACK] Attempting to backtrack for ${invalidSCCs.length} invalid SCCs`,
-  );
-
-  const problematicItems = new Set<ItemId>();
-  invalidSCCs.forEach((scc) => {
-    scc.involvedItems.forEach((itemId) => problematicItems.add(itemId));
-  });
-
-  console.log(
-    `[BACKTRACK] Problematic items: ${Array.from(problematicItems).join(", ")}`,
-  );
-
-  const itemsWithChoices = Array.from(recipeChoices.values())
-    .filter((choice) => problematicItems.has(choice.itemId))
-    .sort((a, b) => b.currentIndex - a.currentIndex);
-
-  if (itemsWithChoices.length === 0) {
-    console.log(
-      `[BACKTRACK] No alternative recipes available for problematic items`,
-    );
-    return null;
-  }
-
-  for (const choice of itemsWithChoices) {
-    const nextIndex = choice.currentIndex + 1;
-
-    if (nextIndex < choice.availableRecipes.length) {
-      console.log(
-        `[BACKTRACK] Trying next recipe for item ${choice.itemId}: ` +
-          `index ${nextIndex}/${choice.availableRecipes.length}`,
-      );
-
-      const newConstraints = new Map(currentConstraints);
-
-      const excludedRecipes = new Set(
-        currentConstraints.get(choice.itemId) || [],
-      );
-      for (let i = 0; i <= choice.currentIndex; i++) {
-        excludedRecipes.add(choice.availableRecipes[i]);
-      }
-      newConstraints.set(choice.itemId, excludedRecipes);
-
-      choice.currentIndex = nextIndex;
-
-      return newConstraints;
-    }
-  }
-
-  console.log(`[BACKTRACK] All recipe combinations exhausted`);
-  return null;
-}
 
 /**
  * Options bag for `calculateProductionPlan`. Keeps the function signature
@@ -929,117 +911,70 @@ export async function calculateProductionPlan(
     facilityMap: new Map(facilities.map((f) => [f.id, f])),
   };
 
-  const MAX_ITERATIONS = 100;
-  let iteration = 0;
-  let recipeConstraints = new Map<ItemId, Set<RecipeId>>();
-
-  while (iteration < MAX_ITERATIONS) {
-    iteration++;
-    console.log(`\n=== ITERATION ${iteration} ===`);
-
-    const { graph, recipeChoices } = buildBipartiteGraph(
-      targets,
-      maps,
-      recipeOverrides,
-      manualRawMaterials,
-      recipeConstraints,
-    );
-
-    const sccs = detectSCCs(graph);
-    const condensedOrder = buildCondensedDAGAndSort(graph, sccs);
-    const targetRatesMap = new Map(targets.map((t) => [t.itemId, t.rate]));
-    const { flowData, invalidSCCs } = await calculateFlows(
-      graph,
-      condensedOrder,
-      targetRatesMap,
-      maps,
-      recipeOverrides,
-      manualRawMaterials,
-    );
-
-    if (invalidSCCs.length === 0) {
-      console.log(
-        `[SUCCESS] Valid production plan found in ${iteration} iteration(s)`,
-      );
-      injectDisposalRecipes(graph, flowData, maps, targets);
-      const packing = await packBins({
-        recipeSlotDemands: flowData.recipeFacilityCounts,
-        recipeMap: maps.recipeMap,
-        itemMap: maps.itemMap,
-        facilityMap: maps.facilityMap,
-        recipeOverrides,
-        facilityCaps,
-      });
-      const recipePrefill = propagatePrefillCandidates(
-        packing.bins,
-        sccs,
-        packing.allocations,
-        maps.recipeMap,
-        graph.rawMaterials,
-      );
-      return buildProductionGraph(
-        graph,
-        flowData,
-        sccs,
-        maps,
-        [],
-        recipeOverrides,
-        packing.bins,
-        packing.allocations,
-        packing.warnings,
-        recipePrefill,
-      );
-    }
-
-    console.log(
-      `[ITERATION ${iteration}] Found ${invalidSCCs.length} invalid SCC(s), attempting backtrack`,
-    );
-
-    const newConstraints = backtrackRecipeChoices(
-      recipeChoices,
-      invalidSCCs,
-      recipeConstraints,
-    );
-
-    if (newConstraints === null) {
-      console.warn(
-        `[FAILED] Cannot find valid production plan after ${iteration} iterations. ` +
-          `Returning best-effort result with ${invalidSCCs.length} invalid cycle(s).`,
-      );
-      injectDisposalRecipes(graph, flowData, maps, targets);
-      const packing = await packBins({
-        recipeSlotDemands: flowData.recipeFacilityCounts,
-        recipeMap: maps.recipeMap,
-        itemMap: maps.itemMap,
-        facilityMap: maps.facilityMap,
-        recipeOverrides,
-        facilityCaps,
-      });
-      const recipePrefill = propagatePrefillCandidates(
-        packing.bins,
-        sccs,
-        packing.allocations,
-        maps.recipeMap,
-        graph.rawMaterials,
-      );
-      return buildProductionGraph(
-        graph,
-        flowData,
-        sccs,
-        maps,
-        invalidSCCs,
-        recipeOverrides,
-        packing.bins,
-        packing.allocations,
-        packing.warnings,
-        recipePrefill,
-      );
-    }
-
-    recipeConstraints = newConstraints;
+  // No backtracking: the global LP includes every alternative producer as
+  // a variable, so any feasible recipe combination is already in the
+  // LP's convex hull. If the LP is infeasible (pinned overrides clash,
+  // genuine bootstrap problem, etc.) we surface it via invalidSCCs and
+  // return a best-effort empty plan with cycles flagged.
+  if (import.meta.env?.DEV) {
+    console.log(`\n=== PLAN SOLVE ===`);
   }
 
-  throw new Error(
-    `Maximum iterations (${MAX_ITERATIONS}) reached. Cannot find valid production plan.`,
+  const graph = buildBipartiteGraph(
+    targets,
+    maps,
+    recipeOverrides,
+    manualRawMaterials,
+  );
+
+  const sccs = detectSCCs(graph);
+  // SCC detection is kept because `propagatePrefillCandidates` and the
+  // mapper layer's backward-edge styling both consume `sccs`. The global
+  // LP itself doesn't need a topological order — it solves over the
+  // whole recipe set in one shot.
+  const targetRatesMap = new Map(targets.map((t) => [t.itemId, t.rate]));
+  const { flowData, invalidSCCs } = await calculateFlows(
+    graph,
+    sccs,
+    targetRatesMap,
+    maps,
+    manualRawMaterials,
+  );
+
+  if (invalidSCCs.length === 0 && import.meta.env?.DEV) {
+    console.log(`[SUCCESS] Valid production plan found`);
+  } else if (invalidSCCs.length > 0 && import.meta.env?.DEV) {
+    console.warn(
+      `[FAILED] Global LP infeasible. Returning best-effort result with ${invalidSCCs.length} invalid cycle(s).`,
+    );
+  }
+
+  injectDisposalRecipes(graph, flowData, maps, targets);
+  const packing = await packBins({
+    recipeSlotDemands: flowData.recipeFacilityCounts,
+    recipeMap: maps.recipeMap,
+    itemMap: maps.itemMap,
+    facilityMap: maps.facilityMap,
+    recipeOverrides,
+    facilityCaps,
+  });
+  const recipePrefill = propagatePrefillCandidates(
+    packing.bins,
+    sccs,
+    packing.allocations,
+    maps.recipeMap,
+    graph.rawMaterials,
+  );
+  return buildProductionGraph(
+    graph,
+    flowData,
+    sccs,
+    maps,
+    invalidSCCs,
+    recipeOverrides,
+    packing.bins,
+    packing.allocations,
+    packing.warnings,
+    recipePrefill,
   );
 }

@@ -4,41 +4,77 @@ import type {
   ProductionMaps,
   BipartiteGraph,
   SCCInfo,
-  CondensedNode,
-  RecipeChoice,
-  BuildGraphResult,
 } from "./calculator-types";
 
+/**
+ * Dismantle recipes recover raw resources from bottled byproducts.
+ * Their inputs all start with `item_fbottle_*`. Detected via the input
+ * prefix because the dismantle facility itself (`DISMANTLER_1`) can in
+ * principle host other recipes; the prefix is a more stable signal.
+ */
 const isDismantleRecipe = (r: Recipe): boolean =>
   r.inputs.some((i) => i.itemId.startsWith("item_fbottle_"));
 
-const selectRecipe = (recipes: Recipe[], visitedPath: Set<ItemId>): Recipe => {
-  const nonDismantle = recipes.filter((r) => !isDismantleRecipe(r));
-  const pool = nonDismantle.length > 0 ? nonDismantle : recipes;
-
-  const singleOutput = pool.filter((r) => r.outputs.length === 1);
-
-  if (singleOutput.length > 0) {
-    if (visitedPath.size > 0) {
-      const nonCircular = singleOutput.filter(
-        (r) => !r.inputs.some((input) => visitedPath.has(input.itemId)),
-      );
-      if (nonCircular.length > 0) return nonCircular[0];
+/**
+ * Resolve the producer-recipe set for a single item under the current
+ * plan's constraints.
+ *
+ * Order of operations matters:
+ *
+ *   1. **Filter to recipes that actually output `itemId`** — every recipe
+ *      in `recipes` whose `outputs` includes the item.
+ *   2. **Honour user pin (recipeOverrides)** — if the user has explicitly
+ *      pinned a recipe for this item via the dropdown / URL `r=` flag,
+ *      narrow the set to just that one recipe and return. The override
+ *      is final; dismantler fallback and AIC-level exclusion don't apply
+ *      *to the pin itself* because the user has overridden them.
+ *   3. **Apply AIC / per-plan exclusions (recipeConstraints)** — drop any
+ *      recipe the active research / domain settings have forbidden.
+ *   4. **Per-item dismantler fallback** — if at least one *non-dismantle*
+ *      producer survives, drop dismantle producers (they're rare-case
+ *      bottled-resource recovery, not the canonical production path).
+ *      If only dismantle producers remain, keep them so the item is
+ *      still producible somehow.
+ *
+ * Returns an empty array iff no recipe can satisfy the item; callers
+ * then mark the item as raw (chain-terminator) or surface infeasibility.
+ */
+function availableProducersFor(
+  itemId: ItemId,
+  recipes: Iterable<Recipe>,
+  recipeOverrides: Map<ItemId, RecipeId> | undefined,
+  recipeConstraints: Map<ItemId, Set<RecipeId>> | undefined,
+): Recipe[] {
+  const allProducers: Recipe[] = [];
+  for (const r of recipes) {
+    if (r.outputs.some((o) => o.itemId === itemId)) {
+      allProducers.push(r);
     }
-    return singleOutput[0];
   }
 
-  if (visitedPath.size > 0) {
-    const nonCircular = pool.filter(
-      (r) => !r.inputs.some((input) => visitedPath.has(input.itemId)),
-    );
-    if (nonCircular.length > 0) return nonCircular[0];
+  // User pin wins outright. If the pinned recipe still exists in the
+  // available set, we narrow to just it; if it's been removed by AIC
+  // research locks upstream, fall through to the standard pipeline and
+  // let the LP / cleanup layers surface the discrepancy.
+  if (recipeOverrides?.has(itemId)) {
+    const pinnedId = recipeOverrides.get(itemId)!;
+    const pinned = allProducers.find((r) => r.id === pinnedId);
+    if (pinned) return [pinned];
+    // Pinned recipe gone (AIC lock?); fall through to normal selection.
   }
 
-  return pool[0];
-};
+  // Per-plan exclusions (AIC research, etc.).
+  let pool = allProducers;
+  const excluded = recipeConstraints?.get(itemId);
+  if (excluded && excluded.size > 0) {
+    pool = pool.filter((r) => !excluded.has(r.id));
+  }
 
-export { selectRecipe };
+  // Per-item dismantler fallback: dismantlers only fire when they're
+  // the sole producer.
+  const nonDismantle = pool.filter((r) => !isDismantleRecipe(r));
+  return nonDismantle.length > 0 ? nonDismantle : pool;
+}
 
 const getOrThrow = <K, V>(map: Map<K, V>, key: K, type: string): V => {
   const value = map.get(key);
@@ -46,13 +82,31 @@ const getOrThrow = <K, V>(map: Map<K, V>, key: K, type: string): V => {
   return value;
 };
 
+/**
+ * Build a bipartite item↔recipe graph rooted at the user's targets.
+ *
+ * **Multi-recipe traversal**: every reachable item gets edges to **all**
+ * of its surviving producers (per `availableProducersFor`), not just one
+ * heuristic pick. The LP downstream (`calculateFlows` in
+ * `flow-solver.ts`) picks which producers actually run and at what rate
+ * by minimising the lex objective `rawCost → buildingCount → power`.
+ *
+ * Items become `isRawMaterial = true` when they are forced raws,
+ * user-marked manual raws, or have no surviving producers (terminal
+ * leaves of the chain).
+ *
+ * Cycles are allowed: the LP handles them natively via balance
+ * constraints (production − consumption ≥ 0). The downstream
+ * `detectSCCs` is kept for rendering (backward-edge styling, prefill
+ * detection), not for solving.
+ */
 export function buildBipartiteGraph(
   targets: Array<{ itemId: ItemId; rate: number }>,
   maps: ProductionMaps,
   recipeOverrides?: Map<ItemId, RecipeId>,
   manualRawMaterials?: Set<ItemId>,
   recipeConstraints?: Map<ItemId, Set<RecipeId>>,
-): BuildGraphResult {
+): BipartiteGraph {
   const graph: BipartiteGraph = {
     itemNodes: new Map(),
     recipeNodes: new Map(),
@@ -63,10 +117,9 @@ export function buildBipartiteGraph(
     rawMaterials: new Set(),
   };
 
-  const recipeChoices = new Map<ItemId, RecipeChoice>();
   const visitedItems = new Set<ItemId>();
 
-  function traverse(itemId: ItemId, visitedPath: Set<ItemId>) {
+  function traverse(itemId: ItemId) {
     if (visitedItems.has(itemId)) return;
     visitedItems.add(itemId);
 
@@ -83,97 +136,74 @@ export function buildBipartiteGraph(
       return;
     }
 
-    let availableRecipes = Array.from(maps.recipeMap.values()).filter((r) =>
-      r.outputs.some((o) => o.itemId === itemId),
+    const producers = availableProducersFor(
+      itemId,
+      maps.recipeMap.values(),
+      recipeOverrides,
+      recipeConstraints,
     );
 
-    const excludedRecipes = recipeConstraints?.get(itemId);
-    if (excludedRecipes && excludedRecipes.size > 0) {
-      availableRecipes = availableRecipes.filter(
-        (r) => !excludedRecipes.has(r.id),
-      );
-    }
-
-    if (availableRecipes.length === 0) {
+    if (producers.length === 0) {
+      // No way to produce this item under current constraints — treat as
+      // a chain-terminating raw. Downstream LP sees infinite supply for
+      // it (raws are excluded from balance constraints).
       graph.itemNodes.get(itemId)!.isRawMaterial = true;
       graph.rawMaterials.add(itemId);
       return;
     }
 
-    const recipeIds = availableRecipes.map((r) => r.id);
-    let currentIndex: number;
-
-    let selectedRecipe: Recipe;
-    if (recipeOverrides?.has(itemId)) {
-      selectedRecipe = getOrThrow(
-        maps.recipeMap,
-        recipeOverrides.get(itemId)!,
-        "Override recipe",
+    // Add ALL surviving producers as recipe nodes and recurse on the
+    // union of their inputs. Cycles are detected post-hoc by Tarjan SCC.
+    for (const producer of producers) {
+      const facility = getOrThrow(
+        maps.facilityMap,
+        producer.facilityId,
+        "Facility",
       );
-      currentIndex = recipeIds.indexOf(selectedRecipe.id);
-      if (currentIndex === -1) currentIndex = 0;
-    } else {
-      selectedRecipe = selectRecipe(availableRecipes, visitedPath);
-      currentIndex = recipeIds.indexOf(selectedRecipe.id);
-    }
 
-    if (availableRecipes.length > 1) {
-      recipeChoices.set(itemId, {
-        itemId,
-        availableRecipes: recipeIds,
-        currentIndex,
-      });
-    }
+      if (!graph.recipeNodes.has(producer.id)) {
+        graph.recipeNodes.set(producer.id, {
+          recipeId: producer.id,
+          recipe: producer,
+          facility,
+        });
+        graph.recipeInputs.set(producer.id, new Set());
+        graph.recipeOutputs.set(producer.id, new Set());
+      }
 
-    const facility = getOrThrow(
-      maps.facilityMap,
-      selectedRecipe.facilityId,
-      "Facility",
-    );
-
-    if (!graph.recipeNodes.has(selectedRecipe.id)) {
-      graph.recipeNodes.set(selectedRecipe.id, {
-        recipeId: selectedRecipe.id,
-        recipe: selectedRecipe,
-        facility,
-      });
-      graph.recipeInputs.set(selectedRecipe.id, new Set());
-      graph.recipeOutputs.set(selectedRecipe.id, new Set());
-    }
-
-    selectedRecipe.outputs.forEach((out) => {
-      graph.recipeOutputs.get(selectedRecipe.id)!.add(out.itemId);
-
-      if (!graph.itemNodes.has(out.itemId)) {
-        const outItem = maps.itemMap.get(out.itemId);
-        if (outItem) {
-          graph.itemNodes.set(out.itemId, {
-            itemId: out.itemId,
-            item: outItem,
-            isRawMaterial: false,
-          });
+      // Stage all outputs (primary + byproducts) as item nodes so the
+      // LP sees their balance constraints. Byproducts that have no
+      // demand downstream simply have `min: 0` constraints (LP-optimal
+      // drives them to 0).
+      producer.outputs.forEach((out) => {
+        graph.recipeOutputs.get(producer.id)!.add(out.itemId);
+        if (!graph.itemNodes.has(out.itemId)) {
+          const outItem = maps.itemMap.get(out.itemId);
+          if (outItem) {
+            graph.itemNodes.set(out.itemId, {
+              itemId: out.itemId,
+              item: outItem,
+              isRawMaterial: false,
+            });
+          }
         }
-      }
-    });
+      });
 
-    const newVisitedPath = new Set(visitedPath);
-    newVisitedPath.add(itemId);
+      producer.inputs.forEach((input) => {
+        graph.recipeInputs.get(producer.id)!.add(input.itemId);
+        if (!graph.itemConsumedBy.has(input.itemId)) {
+          graph.itemConsumedBy.set(input.itemId, new Set());
+        }
+        graph.itemConsumedBy.get(input.itemId)!.add(producer.id);
 
-    selectedRecipe.inputs.forEach((input) => {
-      graph.recipeInputs.get(selectedRecipe.id)!.add(input.itemId);
-
-      if (!graph.itemConsumedBy.has(input.itemId)) {
-        graph.itemConsumedBy.set(input.itemId, new Set());
-      }
-      graph.itemConsumedBy.get(input.itemId)!.add(selectedRecipe.id);
-
-      traverse(input.itemId, newVisitedPath);
-    });
+        traverse(input.itemId);
+      });
+    }
   }
 
-  targets.forEach(({ itemId }) => traverse(itemId, new Set()));
+  targets.forEach(({ itemId }) => traverse(itemId));
 
-  return { graph, recipeChoices };
+  return graph;
 }
 
 export function detectSCCs(graph: BipartiteGraph): SCCInfo[] {
@@ -259,13 +289,18 @@ export function detectSCCs(graph: BipartiteGraph): SCCInfo[] {
           externalInputs,
         };
 
-        console.log(`[SCC] Detected cycle: ${sccInfo.id}`);
-        console.log(`  Items (${sccItems.size}):`, Array.from(sccItems));
-        console.log(`  Recipes (${sccRecipes.size}):`, Array.from(sccRecipes));
-        console.log(
-          `  External inputs (${externalInputs.size}):`,
-          Array.from(externalInputs),
-        );
+        if (import.meta.env?.DEV) {
+          console.log(`[SCC] Detected cycle: ${sccInfo.id}`);
+          console.log(`  Items (${sccItems.size}):`, Array.from(sccItems));
+          console.log(
+            `  Recipes (${sccRecipes.size}):`,
+            Array.from(sccRecipes),
+          );
+          console.log(
+            `  External inputs (${externalInputs.size}):`,
+            Array.from(externalInputs),
+          );
+        }
 
         sccs.push(sccInfo);
       }
@@ -278,94 +313,8 @@ export function detectSCCs(graph: BipartiteGraph): SCCInfo[] {
     }
   });
 
-  console.log(`[SCC] Total SCCs detected: ${sccs.length}`);
-  return sccs;
-}
-
-export function buildCondensedDAGAndSort(
-  graph: BipartiteGraph,
-  sccs: SCCInfo[],
-): CondensedNode[] {
-  const nodeToSCC = new Map<string, string>();
-
-  sccs.forEach((scc) => {
-    scc.items.forEach((itemId) => nodeToSCC.set(itemId, scc.id));
-    scc.recipes.forEach((recipeId) => nodeToSCC.set(recipeId, scc.id));
-  });
-
-  const condensedNodes = new Map<string, CondensedNode>();
-  const condensedEdges = new Map<string, Set<string>>();
-
-  sccs.forEach((scc) => {
-    condensedNodes.set(scc.id, { type: "scc", scc });
-    condensedEdges.set(scc.id, new Set());
-  });
-
-  graph.itemNodes.forEach((_, itemId) => {
-    if (!nodeToSCC.has(itemId)) {
-      condensedNodes.set(itemId, { type: "item", itemId });
-      condensedEdges.set(itemId, new Set());
-    }
-  });
-
-  graph.recipeNodes.forEach((_, recipeId) => {
-    if (!nodeToSCC.has(recipeId)) {
-      condensedNodes.set(recipeId, { type: "recipe", recipeId });
-      condensedEdges.set(recipeId, new Set());
-    }
-  });
-
-  const addEdge = (fromId: string, toId: string) => {
-    const fromCondensed = nodeToSCC.get(fromId) || fromId;
-    const toCondensed = nodeToSCC.get(toId) || toId;
-
-    if (fromCondensed !== toCondensed) {
-      condensedEdges.get(fromCondensed)!.add(toCondensed);
-    }
-  };
-
-  graph.itemConsumedBy.forEach((recipeIds, itemId) => {
-    recipeIds.forEach((recipeId) => {
-      addEdge(itemId, recipeId);
-    });
-  });
-
-  graph.recipeOutputs.forEach((itemIds, recipeId) => {
-    itemIds.forEach((itemId) => {
-      addEdge(recipeId, itemId);
-    });
-  });
-
-  const inDegree = new Map<string, number>();
-  condensedNodes.forEach((_, nodeId) => {
-    inDegree.set(nodeId, 0);
-  });
-
-  condensedEdges.forEach((targets) => {
-    targets.forEach((target) => {
-      inDegree.set(target, (inDegree.get(target) || 0) + 1);
-    });
-  });
-
-  const queue: string[] = [];
-  inDegree.forEach((degree, nodeId) => {
-    if (degree === 0) queue.push(nodeId);
-  });
-
-  const topoOrder: CondensedNode[] = [];
-
-  while (queue.length > 0) {
-    const nodeId = queue.shift()!;
-    topoOrder.push(condensedNodes.get(nodeId)!);
-
-    condensedEdges.get(nodeId)!.forEach((target) => {
-      const newDegree = inDegree.get(target)! - 1;
-      inDegree.set(target, newDegree);
-      if (newDegree === 0) {
-        queue.push(target);
-      }
-    });
+  if (import.meta.env?.DEV) {
+    console.log(`[SCC] Total SCCs detected: ${sccs.length}`);
   }
-
-  return topoOrder;
+  return sccs;
 }

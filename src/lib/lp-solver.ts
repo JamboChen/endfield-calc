@@ -1,15 +1,18 @@
 /**
- * LP-based SCC flow solver.
+ * Generic LP wrapper around HiGHS (WASM).
  *
- * Each SCC sub-problem is formulated as an LP with facility-count variables
- * (≥ 0) and per-item constraints whose operator is selected by the caller
- * via `LPItemConstraint.type` (see type docs below). Raw materials are
- * excluded from balance constraints — they appear only in the `rawCost`
- * objective (infinite-supply assumption). Solver: HiGHS WASM via
- * `@bubblyworld/highs-ts` (see `highs-singleton.ts`).
+ * Callers supply a recipe set + per-item constraints (`equal`, `min`, or
+ * `disposal-slack`); the solver returns a feasible facility-count
+ * assignment that's **lex-optimal** under the `LEX_ORDER` objective
+ * ranking (currently `rawCost → buildingCount → power`).
  *
- * Lexicographic two-pass objective: minimize raw-material consumption
- * first, then minimize total power among solutions tying for raw-min.
+ * Raw materials are excluded from balance constraints — they appear
+ * only in the `rawCost` objective (infinite-supply assumption). Items
+ * in `costlessRaws` further contribute 0 to that objective so the LP
+ * doesn't bias against recipes that consume them.
+ *
+ * Used by `flow-solver.ts:calculateFlows` as the single solve over the
+ * multi-recipe graph; see that file for the global-LP framing.
  */
 
 import { calcRate } from "@/lib/utils";
@@ -19,16 +22,61 @@ import type { ItemId, RecipeId, FacilityId, Recipe, Facility } from "@/types";
 /** Numerical tolerance used for sign / equality checks against LP output. */
 const LP_EPSILON = 1e-9;
 
-/** Tiny buffer added to the raw-cost upper-bound between the two LP passes
- *  to absorb library-level floating-point noise. */
-const LEX_RAW_TOLERANCE = 1e-6;
+/**
+ * Facility-count clamp threshold applied in `extractSolution`. LP outputs
+ * below this magnitude are treated as zero — accounts for HiGHS numerical
+ * artefacts in degenerate cases (e.g. lex passes with ties or
+ * floating-point drift near the cap constraints).
+ *
+ * Why higher than `LP_EPSILON`: the LP can occasionally land on a
+ * "near-optimal" vertex with one alternative recipe at ~1e-8 facilities
+ * (effectively zero throughput, ~3e-7 items/min) while the dominant
+ * alternative carries the real load. Without this clamp, downstream
+ * consumers (bin packer, mappers) see a phantom recipe with no edges.
+ * 1e-6 is well above any sub-visible threshold (`MIN_VISIBLE_RATE_PER_MIN`
+ * = 1e-3 items/min ≈ 3e-5 facilities at the slowest recipe rate) and
+ * well below any meaningful facility count.
+ */
+const FACILITY_COUNT_EPSILON = 1e-6;
 
 /**
- * Cost coefficient on disposal-slack variables in both `rawCost` and
- * `power` objectives. Chosen large enough that LP strictly prefers
- * solutions with slack = 0; deficits in the result therefore reflect "no
- * internal solution exists" rather than "LP took the lazy path". 1e6 is
- * far above any conceivable per-facility cost in the current data set.
+ * Lexicographic objective ordering for `solveLP`. Each pass minimises one
+ * objective subject to upper-bound constraints from all previous passes,
+ * so the resulting solution is **lex-optimal** under this ranking:
+ *   1. `rawCost` — total non-liquid raw material consumption per minute.
+ *   2. `buildingCount` — total fractional facility count (Σ x_r).
+ *   3. `power` — total power consumption per minute (gated by `MINIMIZE_POWER`).
+ *
+ * To disable the power pass (e.g. if it ever dominates solve time), set
+ * `MINIMIZE_POWER = false`. The lex chain auto-shortens.
+ */
+type LexObjective = "rawCost" | "buildingCount" | "power";
+
+const MINIMIZE_POWER = true;
+
+const LEX_ORDER: readonly LexObjective[] = MINIMIZE_POWER
+  ? (["rawCost", "buildingCount", "power"] as const)
+  : (["rawCost", "buildingCount"] as const);
+
+/**
+ * Tiny buffer added to each lex pass's upper-bound constraint to absorb
+ * library-level floating-point noise. The raw-cost tolerance is tight
+ * (1e-6) because raw cost is the dominant lex term; the others are
+ * looser since they're tie-breakers and small numerical drift across
+ * vertex transitions can otherwise spuriously block feasibility.
+ */
+const LEX_TOLERANCE: Record<LexObjective, number> = {
+  rawCost: 1e-6,
+  buildingCount: 1e-3,
+  power: 1e-3,
+};
+
+/**
+ * Cost coefficient on disposal-slack variables in every objective.
+ * Chosen large enough that LP strictly prefers solutions with slack = 0;
+ * deficits in the result therefore reflect "no internal solution exists"
+ * rather than "LP took the lazy path". 1e6 is far above any conceivable
+ * per-facility cost in the current data set.
  */
 const SLACK_PENALTY = 1e6;
 
@@ -36,7 +84,7 @@ const SLACK_PENALTY = 1e6;
  * Tiny positive baseline added to each recipe's `power` cost so zero-power
  * recipes (or recipes whose facility lookup fails) remain bounded under
  * the power-minimization pass. Without this, LP could run such recipes
- * arbitrarily high without paying anything in pass 2.
+ * arbitrarily high without paying anything in the power pass.
  */
 const POWER_COST_FLOOR = 1e-4;
 
@@ -72,26 +120,29 @@ export type LPItemConstraint = {
 };
 
 export type LPInput = {
-  /** Recipes participating in the LP (typically an SCC's recipes). */
+  /**
+   * Recipes participating in the LP (typically every recipe in the
+   * active subset of `graph.recipeNodes`).
+   */
   recipes: Recipe[];
   /**
    * Constraints per item. The full set of items mentioned by any recipe's
    * inputs/outputs MUST appear here, otherwise the LP under-constrains the
-   * solution. Items not relevant to the SCC's local balance can use
+   * solution. Items not relevant to local balance can use
    * `{ type: "min", rhs: 0 }`.
    */
   itemConstraints: Map<ItemId, LPItemConstraint>;
-  /**
-   * Recipes whose facility count is fixed (typically because the user
-   * overrode the producer for some item, and we want LP to honor that
-   * choice). The LP adds an equality constraint `x[recipe] = count`.
-   *
-   * Used by `tryExtendSCCWithFeeders` to force user-overridden recipes
-   * to actually run when a feeder is added.
-   */
-  pinnedRecipes?: Map<RecipeId, number>;
   /** Items that should contribute to the raw-cost objective. */
   rawMaterials: Set<ItemId>;
+  /**
+   * Subset of `rawMaterials` whose consumption is treated as **free** in
+   * the `rawCost` objective. Liquid raws (water, acid) fall in here:
+   * pickup is via Fluid Pumps with effectively unbounded throughput and
+   * trivial power, so they shouldn't bias the LP against recipes that
+   * happen to consume them (e.g. Yazhen planter water vs Buckflower
+   * planter no-water). See `src/data/index.ts:costlessRaws`.
+   */
+  costlessRaws: ReadonlySet<ItemId>;
   /** Facility lookup for power-cost computation. */
   facilityMap: Map<FacilityId, Facility>;
 };
@@ -102,6 +153,12 @@ export type LPSolution = {
   /** Per-item deficit to propagate to upstream producers (only populated for items with `type: "disposal-slack"` in the input). */
   disposalDeficits: Map<ItemId, number>;
   totalRawCost: number;
+  /**
+   * Total fractional facility count (Σ x_r over recipe variables; slack
+   * vars excluded). This is the pass-2 lex objective; reading it gives
+   * the LP-side building-cost figure before bin-packer ceiling.
+   */
+  totalBuildingCount: number;
   totalPower: number;
 };
 
@@ -112,16 +169,28 @@ export type LPFailure = {
 
 export type LPResult = LPSolution | LPFailure;
 
-/** Per-facility-per-minute raw consumption rate; sums inputs in `rawMaterials`. */
+/**
+ * Per-facility-per-minute raw consumption rate; sums inputs in
+ * `rawMaterials` *excluding* `costlessRaws`. Costless raws (currently:
+ * liquid water + liquid acid) are treated as infinite-supply AND
+ * zero-cost in the LP objective so they don't bias selection against
+ * recipes that consume them.
+ *
+ * The exclusion happens here on the input side only — raws never appear
+ * as LP balance constraints anyway, so byproduct raws (e.g. acid emitted
+ * by `liquid_purifier_copper_enr_1`) already had no LP value; symmetry
+ * is preserved.
+ */
 const rawCostPerFacility = (
   recipe: Recipe,
   rawMaterials: Set<ItemId>,
+  costlessRaws: ReadonlySet<ItemId>,
 ): number => {
   let cost = 0;
   for (const input of recipe.inputs) {
-    if (rawMaterials.has(input.itemId)) {
-      cost += calcRate(input.amount, recipe.craftingTime);
-    }
+    if (!rawMaterials.has(input.itemId)) continue;
+    if (costlessRaws.has(input.itemId)) continue;
+    cost += calcRate(input.amount, recipe.craftingTime);
   }
   return cost;
 };
@@ -134,6 +203,7 @@ const buildVariableCoefficients = (
   recipe: Recipe,
   itemConstraintNames: Map<ItemId, string>,
   rawMaterials: Set<ItemId>,
+  costlessRaws: ReadonlySet<ItemId>,
   facilityMap: Map<FacilityId, Facility>,
 ): Record<string, number> => {
   const coefs: Record<string, number> = {};
@@ -151,7 +221,10 @@ const buildVariableCoefficients = (
       calcRate(inp.amount, recipe.craftingTime);
   }
 
-  coefs.rawCost = rawCostPerFacility(recipe, rawMaterials);
+  coefs.rawCost = rawCostPerFacility(recipe, rawMaterials, costlessRaws);
+  // buildingCount: 1 per fractional facility, no floor needed (LP variables
+  // are already non-negative; minimisation drives unnecessary recipes to 0).
+  coefs.buildingCount = 1;
   const facility = facilityMap.get(recipe.facilityId);
   coefs.power = (facility?.powerConsumption ?? 0) + POWER_COST_FLOOR;
 
@@ -167,8 +240,15 @@ type LPModel = {
 
 const buildModel = (
   input: LPInput,
-  objective: "rawCost" | "power",
-  fixedRawCostUpperBound?: number,
+  objective: LexObjective,
+  /**
+   * Upper-bound caps from previously-solved lex passes. Each entry adds a
+   * `lex_cap_<obj>` constraint of `Σ coefs[obj] × x ≤ value + tolerance`
+   * so the current pass cannot exceed the previously-optimal value of any
+   * earlier objective. Slack vars are excluded from these caps to preserve
+   * the documented slack semantics (see SLACK_PENALTY comment).
+   */
+  previousCaps: ReadonlyMap<LexObjective, number> = new Map(),
 ): {
   model: LPModel;
   recipeIndexMap: Map<string, RecipeId>;
@@ -203,19 +283,16 @@ const buildModel = (
 
   const variables: LPModel["variables"] = {};
   const recipeIndexMap = new Map<string, RecipeId>();
-  // Reverse lookup: RecipeId → varName. Used by `pinnedRecipes` injection
-  // and by `extractSolution` to avoid O(n²) `recipes.find` scans.
-  const varNameByRecipeId = new Map<RecipeId, string>();
   input.recipes.forEach((recipe, idx) => {
     const varName = `x_${idx}`;
     variables[varName] = buildVariableCoefficients(
       recipe,
       itemConstraintNames,
       input.rawMaterials,
+      input.costlessRaws,
       input.facilityMap,
     );
     recipeIndexMap.set(varName, recipe.id);
-    varNameByRecipeId.set(recipe.id, varName);
   });
 
   // Add disposal-slack variables; see the `SLACK_PENALTY` constant above
@@ -230,39 +307,31 @@ const buildModel = (
     disposalSlackVarMap.set(slackName, itemId);
     variables[slackName] = {
       [constraintName]: 1,
+      // Slack must be penalised in EVERY lex objective so it's only used
+      // when no recipe combination can satisfy the disposal constraint.
+      // The penalty does NOT show up in user-facing totals because
+      // `extractSolution` iterates recipe vars only (slack vars are kept
+      // separate in `disposalSlackVarMap` and reported as deficits).
       rawCost: SLACK_PENALTY,
+      buildingCount: SLACK_PENALTY,
       power: SLACK_PENALTY,
     };
   }
 
-  // Pinned recipes get an equality constraint forcing their facility count
-  // to the specified value. Used to honor user recipe-overrides during
-  // feeder extension.
-  if (input.pinnedRecipes) {
-    let pinIdx = 0;
-    for (const [recipeId, count] of input.pinnedRecipes.entries()) {
-      const varName = varNameByRecipeId.get(recipeId);
-      if (!varName) continue;
-      const constraintName = `pin_${pinIdx++}_${recipeId}`;
-      constraints[constraintName] = { equal: count };
-      variables[varName][constraintName] = 1;
-    }
-  }
-
-  // For lex pass 2: bound raw cost at pass-1 optimum (with tiny tolerance)
-  // so power minimization respects it. Slack vars are EXCLUDED — they
-  // carry SLACK_PENALTY in `rawCost` but `fixedRawCostUpperBound` is
-  // recipe-only (slack penalty isn't summed into pass-1's reported total).
-  // Including slack would force the cap to ~tolerance, blocking feasibility
-  // whenever pass 1 had slack > 0. Slack is independently minimized via
-  // SLACK_PENALTY in pass-2's power objective.
-  if (objective === "power" && fixedRawCostUpperBound !== undefined) {
-    constraints.lex_raw_cap = {
-      max: fixedRawCostUpperBound + LEX_RAW_TOLERANCE,
-    };
+  // Lex caps: every previously-optimised objective gets an upper-bound
+  // constraint here, so the current pass cannot regress on prior wins.
+  // Slack vars are EXCLUDED from cap coefficients — they carry
+  // SLACK_PENALTY in `rawCost` / `power` but `previousCaps[obj]` is
+  // recipe-only (slack penalty isn't summed into a pass's reported total).
+  // Including slack would force caps to ~tolerance and block feasibility
+  // whenever an earlier pass had slack > 0. Slack is independently
+  // minimised via SLACK_PENALTY in each pass's own objective.
+  for (const [capObj, capValue] of previousCaps.entries()) {
+    const capName = `lex_cap_${capObj}`;
+    constraints[capName] = { max: capValue + LEX_TOLERANCE[capObj] };
     for (const [varName, coefs] of Object.entries(variables)) {
       if (disposalSlackVarMap.has(varName)) continue;
-      coefs.lex_raw_cap = coefs.rawCost;
+      coefs[capName] = coefs[capObj] ?? 0;
     }
   }
 
@@ -278,6 +347,14 @@ const buildModel = (
   };
 };
 
+type ExtractedSolution = {
+  facilityCounts: Map<RecipeId, number>;
+  disposalDeficits: Map<ItemId, number>;
+  totalRaw: number;
+  totalBuildings: number;
+  totalPower: number;
+};
+
 const extractSolution = (
   rawResult: Record<string, number | boolean | undefined>,
   recipeIndexMap: Map<string, RecipeId>,
@@ -285,12 +362,8 @@ const extractSolution = (
   recipes: Recipe[],
   facilityMap: Map<FacilityId, Facility>,
   rawMaterials: Set<ItemId>,
-): {
-  facilityCounts: Map<RecipeId, number>;
-  disposalDeficits: Map<ItemId, number>;
-  totalRaw: number;
-  totalPower: number;
-} => {
+  costlessRaws: ReadonlySet<ItemId>,
+): ExtractedSolution => {
   // Build O(1) RecipeId → Recipe lookup once instead of `recipes.find`
   // per variable.
   const recipesById = new Map<RecipeId, Recipe>();
@@ -298,13 +371,16 @@ const extractSolution = (
 
   const facilityCounts = new Map<RecipeId, number>();
   let totalRaw = 0;
+  let totalBuildings = 0;
   let totalPower = 0;
   for (const [varName, recipeId] of recipeIndexMap.entries()) {
     const v = rawResult[varName];
-    const fc = typeof v === "number" && Math.abs(v) > LP_EPSILON ? v : 0;
+    const fc =
+      typeof v === "number" && Math.abs(v) > FACILITY_COUNT_EPSILON ? v : 0;
     facilityCounts.set(recipeId, fc);
     const recipe = recipesById.get(recipeId)!;
-    totalRaw += rawCostPerFacility(recipe, rawMaterials) * fc;
+    totalRaw += rawCostPerFacility(recipe, rawMaterials, costlessRaws) * fc;
+    totalBuildings += fc;
     const facility = facilityMap.get(recipe.facilityId);
     totalPower += (facility?.powerConsumption ?? 0) * fc;
   }
@@ -317,26 +393,57 @@ const extractSolution = (
     }
   }
 
-  return { facilityCounts, disposalDeficits, totalRaw, totalPower };
+  return { facilityCounts, disposalDeficits, totalRaw, totalBuildings, totalPower };
 };
 
+/** Map a `LexObjective` to its corresponding total in an extracted solution. */
+const extractObjectiveTotal = (
+  sol: ExtractedSolution,
+  obj: LexObjective,
+): number => {
+  switch (obj) {
+    case "rawCost":
+      return sol.totalRaw;
+    case "buildingCount":
+      return sol.totalBuildings;
+    case "power":
+      return sol.totalPower;
+  }
+};
+
+const finaliseSolution = (sol: ExtractedSolution): LPSolution => ({
+  feasible: true,
+  facilityCounts: sol.facilityCounts,
+  disposalDeficits: sol.disposalDeficits,
+  totalRawCost: sol.totalRaw,
+  totalBuildingCount: sol.totalBuildings,
+  totalPower: sol.totalPower,
+});
+
 /**
- * Solve a linear program for an SCC sub-problem.
+ * Solve a linear program with **lexicographic multi-pass objective**.
  *
- * Lexicographic two-pass:
- *   1. Minimize raw-material consumption.
- *   2. Subject to raw cost ≤ pass-1 optimum (plus a small numerical
- *      tolerance), minimize total power.
+ * Each pass `i` minimises `LEX_ORDER[i]` subject to upper-bound caps
+ * `Σ coefs[LEX_ORDER[j]] × x ≤ optimum_j + tolerance` for every `j < i`.
+ * The final pass's solution is therefore lex-optimal under `LEX_ORDER`.
+ *
+ * Current order: `rawCost → buildingCount → power`. `buildingCount` was
+ * added to satisfy the user's "fewer buildings beats more buildings even
+ * at equal raw cost" preference, ahead of `power` (which is the
+ * tie-breaker for plans where building count also ties).
  *
  * Returns one of:
  *   - `{ feasible: true, facilityCounts, disposalDeficits, totalRawCost,
- *      totalPower }` on success. `disposalDeficits` is keyed by `ItemId`
- *      and contains values for items that hit slack (i.e., the SCC has a
- *      deficit on that disposal item that must be supplied upstream).
+ *      totalBuildingCount, totalPower }` on success.
  *   - `{ feasible: false, reason }` on infeasibility, unbounded objective,
- *      or solver-library error. The infeasible case typically means the
- *      caller should fall through to feeder extension or accept the SCC
- *      as invalid.
+ *      or solver-library error at the first pass.
+ *
+ * **Fallback policy**: if any pass after the first fails (solver error,
+ * infeasibility after lex-cap, or unboundedness), the previously-completed
+ * pass's solution is returned. This keeps the LP robust against numerical
+ * edge cases where a tight lex cap blocks feasibility — the prior pass's
+ * solution still satisfies all original constraints, just not the latest
+ * lex preference.
  */
 export const solveLP = async (input: LPInput): Promise<LPResult> => {
   if (input.recipes.length === 0) {
@@ -345,95 +452,74 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       facilityCounts: new Map(),
       disposalDeficits: new Map(),
       totalRawCost: 0,
+      totalBuildingCount: 0,
       totalPower: 0,
     };
   }
 
-  // Pass 1: raw-cost minimization.
-  const { model: rawModel, recipeIndexMap, disposalSlackVarMap } =
-    buildModel(input, "rawCost");
-  let rawResult: Record<string, number | boolean | undefined>;
-  try {
-    rawResult = await highsSolve(rawModel);
-  } catch (e) {
-    if (import.meta.env?.DEV) {
-      console.warn("[LP_SOLVER] pass-1 solver threw:", e);
+  const caps = new Map<LexObjective, number>();
+  let lastSolution: ExtractedSolution | null = null;
+
+  for (let passIdx = 0; passIdx < LEX_ORDER.length; passIdx++) {
+    const objective = LEX_ORDER[passIdx];
+    const { model, recipeIndexMap, disposalSlackVarMap } = buildModel(
+      input,
+      objective,
+      caps,
+    );
+
+    let result: Record<string, number | boolean | undefined>;
+    try {
+      result = await highsSolve(model);
+    } catch (e) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[LP_SOLVER] pass-${passIdx + 1} (${objective}) solver threw:`,
+          e,
+        );
+      }
+      if (lastSolution) return finaliseSolution(lastSolution);
+      return { feasible: false, reason: "solver_error" };
     }
-    return { feasible: false, reason: "solver_error" };
-  }
-  if (rawResult.feasible !== true) {
-    return { feasible: false, reason: "infeasible" };
-  }
-  if (rawResult.bounded === false) {
-    return { feasible: false, reason: "unbounded" };
-  }
-  const rawSolution = extractSolution(
-    rawResult,
-    recipeIndexMap,
-    disposalSlackVarMap,
-    input.recipes,
-    input.facilityMap,
-    input.rawMaterials,
-  );
 
-  // Pass 2: power minimization with raw-cost upper-bound constraint.
-  const {
-    model: powerModel,
-    recipeIndexMap: powerIndexMap,
-    disposalSlackVarMap: powerSlackMap,
-  } = buildModel(input, "power", rawSolution.totalRaw);
-  let powerResult: Record<string, number | boolean | undefined>;
-  try {
-    powerResult = await highsSolve(powerModel);
-  } catch (e) {
-    if (import.meta.env?.DEV) {
-      console.warn("[LP_SOLVER] pass-2 solver threw, falling back to pass-1:", e);
+    if (result.feasible !== true) {
+      if (lastSolution) {
+        if (import.meta.env?.DEV) {
+          console.warn(
+            `[LP_SOLVER] pass-${passIdx + 1} (${objective}) infeasible after lex caps; falling back to pass-${passIdx}`,
+          );
+        }
+        return finaliseSolution(lastSolution);
+      }
+      return { feasible: false, reason: "infeasible" };
     }
-    // Library failure on pass 2: fall back to pass-1 result (raw-min is
-    // still a valid feasible plan).
-    return {
-      feasible: true,
-      facilityCounts: rawSolution.facilityCounts,
-      disposalDeficits: rawSolution.disposalDeficits,
-      totalRawCost: rawSolution.totalRaw,
-      totalPower: rawSolution.totalPower,
-    };
-  }
-
-  if (powerResult.feasible !== true || powerResult.bounded === false) {
-    if (import.meta.env?.DEV) {
-      console.warn(
-        `[LP_SOLVER] pass-2 ${powerResult.bounded === false ? "unbounded" : "infeasible"} after lex-cap; falling back to pass-1`,
-      );
+    if (result.bounded === false) {
+      if (lastSolution) {
+        if (import.meta.env?.DEV) {
+          console.warn(
+            `[LP_SOLVER] pass-${passIdx + 1} (${objective}) unbounded after lex caps; falling back to pass-${passIdx}`,
+          );
+        }
+        return finaliseSolution(lastSolution);
+      }
+      return { feasible: false, reason: "unbounded" };
     }
-    // Numerical edge case: pass-1 was feasible but lex-cap re-solve isn't.
-    // Fall back to pass-1 (still satisfies all original constraints). The
-    // `bounded === false` branch is defensive — pass 2 is bounded by
-    // structure (POWER_COST_FLOOR + lex_raw_cap).
-    return {
-      feasible: true,
-      facilityCounts: rawSolution.facilityCounts,
-      disposalDeficits: rawSolution.disposalDeficits,
-      totalRawCost: rawSolution.totalRaw,
-      totalPower: rawSolution.totalPower,
-    };
+
+    lastSolution = extractSolution(
+      result,
+      recipeIndexMap,
+      disposalSlackVarMap,
+      input.recipes,
+      input.facilityMap,
+      input.rawMaterials,
+      input.costlessRaws,
+    );
+    caps.set(objective, extractObjectiveTotal(lastSolution, objective));
   }
 
-  const powerSolution = extractSolution(
-    powerResult,
-    powerIndexMap,
-    powerSlackMap,
-    input.recipes,
-    input.facilityMap,
-    input.rawMaterials,
-  );
-
-  return {
-    feasible: true,
-    facilityCounts: powerSolution.facilityCounts,
-    disposalDeficits: powerSolution.disposalDeficits,
-    totalRawCost: powerSolution.totalRaw,
-    totalPower: powerSolution.totalPower,
-  };
+  // lastSolution is guaranteed non-null: LEX_ORDER has ≥ 1 entry, so the
+  // loop ran at least once and either populated lastSolution or returned
+  // early on infeasibility.
+  return finaliseSolution(lastSolution!);
 };
 

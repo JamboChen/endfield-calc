@@ -57,6 +57,35 @@ const forcedRawMaterials: ReadonlySet<ItemId> = new Set(
   rawMaterialSources.keys(),
 );
 
+/**
+ * Raw materials whose consumption is treated as **zero-cost** in the LP
+ * objective. Derived as `items.filter(isLiquid) ∩ forcedRawMaterials` —
+ * currently `{item_liquid_water, item_liquid_acid}`. Both are pumped via
+ * dedicated source facilities with effectively unbounded throughput and
+ * trivial power.
+ *
+ * Rationale: prior to this set, the LP's raw-cost objective biased
+ * selection against recipes that happened to consume water/acid (e.g.
+ * Yazhen planter requires water; Buckflower planter does not). Because
+ * raws are excluded from balance constraints, this bias was the LP's
+ * only way to "see" liquid consumption — making it falsely treat liquid
+ * raws as scarce. Zeroing their objective coefficient lets the LP pick
+ * recipes on building/power grounds instead.
+ *
+ * The set is symmetric on the output side: liquid raws produced as
+ * byproducts (e.g. acid from `liquid_purifier_copper_enr_1`) were never
+ * credited to the LP (raws have no balance constraint), so making
+ * their input cost zero introduces no new asymmetry.
+ *
+ * Auto-extends if game data adds a new liquid raw — the derivation
+ * lives next to `forcedRawMaterials` and uses the same source of truth.
+ */
+const costlessRaws: ReadonlySet<ItemId> = new Set(
+  items
+    .filter((item) => item.isLiquid === true && forcedRawMaterials.has(item.id))
+    .map((item) => item.id),
+);
+
 const MAX_TARGETS = 12;
 
 // Items that are mandatory byproducts and must be disposed of (consumed by a disposal recipe).
@@ -105,6 +134,7 @@ export {
   recipes,
   rawMaterialSources,
   forcedRawMaterials,
+  costlessRaws,
   forcedDisposalItems,
   bootstrapFacilities,
   MAX_TARGETS,

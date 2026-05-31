@@ -32,6 +32,7 @@
     "noData": "暂无数据",
     "noRecipe": "无配方",
     "rawMaterial": "原材料",
+    "removePin": "取消固定",
     "unmarkRawMaterial": "取消标记",
     "bin": {
       "slots": "{{slots}} 槽位",
