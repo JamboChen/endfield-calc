@@ -1659,7 +1659,7 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
   // caps. The post-packing cap check still fires on the retry's bins.
   // If even the no-caps solve fails, fall through to the singleton-bins
   // fallback path (which ALSO gets a post-packing cap check).
-  let solution: SolveOutput | null = null;
+  let solution: SolveOutput | null;
   const hasCaps = !!(facilityCaps && facilityCaps.size > 0);
   try {
     solution = await solvePacking(

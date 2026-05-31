@@ -445,14 +445,13 @@ export function useProductionPlan(
   );
 
   useEffect(() => {
-    let removedTargets = 0;
     let removedOverrides = 0;
     let removedRaws = 0;
 
     const nextTargets = targets.filter((t) =>
       reachableProducibleItems.has(t.itemId),
     );
-    removedTargets = targets.length - nextTargets.length;
+    const removedTargets = targets.length - nextTargets.length;
 
     const nextOverrides = new Map<ItemId, RecipeId>();
     for (const [itemId, recipeId] of recipeOverrides) {
