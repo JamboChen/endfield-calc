@@ -34,9 +34,9 @@ paths:
 
 Region-exclusive **map structures** the user opts into (not roster/AIC buildings). Today: the Wuling Purification Node (3 Sewage Inlets + 1 Byproduct Outlet, a linear prereq chain). **Wired to the solver** via `facilityRecipeVariants` + the App-layer bridge in `src/App.tsx`.
 
-- **Registry** (hand-curated): `src/data/region-structures.ts` → `regionStructures: ReadonlyMap<DomainId, readonly RegionStructure[]>`. Each entry carries `requires` (the chain), `nameKey` / `index` / `iconSlug` / `gameBuildingId` (display + provenance), and a `solver: { role, facilityId }` discriminator:
-  - `role: "instance"` — each enabled instance adds +1 to `facilityCaps[facilityId]` (Sewage Inlets 1/2/3 contribute to `SEWAGE_INLET`).
-  - `role: "recipeToggle"` — when enabled, the facility's active recipe switches from the `default` variant to the `toggled` variant declared in `facilityRecipeVariants` (`src/data/index.ts`). Byproduct Outlet toggles SEWAGE_INLET from `DISPOSAL` to `BYPRODUCT`.
+- **Registry** (hand-curated): `src/data/region-structures.ts` → `regionStructures: ReadonlyMap<DomainId, readonly RegionStructure[]>`. Each entry carries `requires` (the chain), `nameKey` / `index` / `iconSlug` (display), and a `solver: { role, facilityId }` discriminator. The structure's `id` is the upstream game building id verbatim (e.g. `liquid_clean_gate_1`):
+  - `role: "instance"` — each enabled instance adds +1 to `facilityCaps[facilityId]` (Sewage Inlets 1/2/3 contribute to `LIQUID_CLEAN_GATE_1`).
+  - `role: "recipeToggle"` — when enabled, the facility's active recipe switches from the `default` variant to the `toggled` variant declared in `facilityRecipeVariants` (`src/data/index.ts`). Byproduct Outlet toggles `LIQUID_CLEAN_GATE_1` from `DISPOSAL` to `BYPRODUCT`.
   - The structure carries no rate numbers — those live on the real `Recipe` entries pointed to by `facilityRecipeVariants`. Single source of truth between what the UI annotates and what the LP runs.
 - IDs are a closed `RegionStructureId` enum (`constants.ts`), kept distinct from `FacilityId` because a structure is conceptually a user-facing toggle that *maps to* a facility, not a facility itself.
 - **State**: `structures.enabled: ReadonlySet<string>` keyed by `structureKey(domainId, structureId)`; `structures.toggle(domainId, id)` enforces the chain via `cascadeStructureChain` (enable pulls prereqs, disable drops dependents). **Allow-list, default off** (opt-in) — the opposite of AIC's deny-list-all-on default.
@@ -85,7 +85,7 @@ Region-exclusive **map structures** the user opts into (not roster/AIC buildings
   2. The **packer** (`multi-formula-packing.ts` cap constraints) as the second line of defence (kept post-LP cap-aware so the integer packing also respects the cap).
   3. `computeOverCapWarnings(aggregates.rawPerFacility, facilityCaps)` (`plan-helpers.ts`, called from `useProductionPlan.ts`) — the diagnostic emission. Emits `{ kind: "facility-over-cap", facilityId, used, cap }` per offending facility. Covers BOTH recipe-bin facilities AND pickup-point source facilities (pump_1, pump_2, unloader_1) uniformly through `aggregateBinTotals.rawPerFacility`.
 - The packer does NOT emit `facility-over-cap` warnings itself. That separation is load-bearing — see `multi-formula-packing.ts`.
-- **Cap = 0 vs absent**: absence is "no constraint" (uncapped). `cap: 0` is "forbid this facility". The `facilityRecipeVariants` filter in `calculator.ts` uses this distinction to gate variant recipes (SEWAGE_INLET_*): absent → variants dropped; positive → variants available; 0 → variants dropped.
+- **Cap = 0 vs absent**: absence is "no constraint" (uncapped). `cap: 0` is "forbid this facility". The `facilityRecipeVariants` filter in `calculator.ts` uses this distinction to gate variant recipes (`LIQUID_CLEAN_GATE_1_*`): absent → variants dropped; positive → variants available; 0 → variants dropped.
 
 ## Extraction (`pnpm run extract:aic`)
 

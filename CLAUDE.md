@@ -40,7 +40,7 @@ One sentence per file. Deep invariants in `.claude/rules/` load when you touch t
 - `src/lib/lp-solver.ts` — generic LP wrapper around HiGHS (WASM); N-pass lexicographic. See `.claude/rules/solver.md`.
 - `src/lib/flow-solver.ts` — `calculateFlows`: one global LP over every recipe in the multi-recipe graph. See `.claude/rules/solver.md`.
 - `src/lib/graph-builder.ts` — `buildBipartiteGraph` (all alternative producers, no single-pick) + `detectSCCs` (Tarjan). See `.claude/rules/solver.md`.
-- `src/lib/calculator.ts` — orchestrates `calculateProductionPlan` (graph + pre-LP disposal-inject → SCC → LP → pack → prefill → render); also applies the `facilityRecipeVariants` filter so variant recipes (SEWAGE_INLET_*) only enter the LP when their facility cap is positive.
+- `src/lib/calculator.ts` — orchestrates `calculateProductionPlan` (graph + pre-LP disposal-inject → SCC → LP → pack → prefill → render); also applies the `facilityRecipeVariants` filter so variant recipes (`LIQUID_CLEAN_GATE_1_*`) only enter the LP when their facility cap is positive.
 - `src/lib/recipe-reachability.ts` — App-layer chain-reachability closure with `bootstrapFacilities` bypass.
 - `src/lib/plan-helpers.ts` — `aggregateBinTotals` + `computeOverCapWarnings` + `buildBinActivitySums`.
 - `src/lib/flow-thresholds.ts` — single source of `MIN_VISIBLE_RATE_PER_MIN`.
@@ -50,7 +50,7 @@ One sentence per file. Deep invariants in `.claude/rules/` load when you touch t
 - `src/contexts/DomainSettingsProvider.tsx` — Context wrapper that broadcasts `useDomainSettings()` + renders `AicOnboardingDialog`.
 - `src/hooks/useProductionPlan.ts` — top-level plan orchestration, ineffective-pin detection, `facilityCaps` threading.
 - `src/data/index.ts` — `rawMaterialSources`, `rawAvailabilityByDomain`, `costlessRaws`, `forcedDisposalItems`, `bootstrapFacilities`, `facilityRecipeVariants`. See `.claude/rules/raws.md`.
-- `src/data/manual-facilities.ts` — synthetic facilities not in upstream game data (today: `SEWAGE_INLET`); merged with auto-generated `facilities.ts` by the `@/data` barrel.
+- `src/data/manual-facilities.ts` — synthetic facilities not in upstream game data (today: `LIQUID_CLEAN_GATE_1`); merged with auto-generated `facilities.ts` by the `@/data` barrel.
 - `src/data/region-structures.ts` — map structures with `solver: { role, facilityId }` bridge; drives Settings "Structures" tab + the App-layer cap aggregation + variant filter.
 
 Everything else is discoverable via `ls` / `grep`. Game data: `src/data/{items,recipes,facilities}.ts`; types: `src/types/`; UI: `src/components/`; hooks: `src/hooks/`; tests: `src/tests/lib/`.

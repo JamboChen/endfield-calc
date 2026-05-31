@@ -18,10 +18,10 @@ const ALL_RAWS: ReadonlySet<ItemId> = new Set(rawMaterialSources.keys());
 // Sewage Inlet per-building throughput (in sewage/min). Derived from the
 // recipe data so the test stays in sync if the rates ever change.
 const DISPOSAL_RECIPE = recipes.find(
-  (r) => r.id === RecipeId.SEWAGE_INLET_DISPOSAL,
+  (r) => r.id === RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
 )!;
 const BYPRODUCT_RECIPE = recipes.find(
-  (r) => r.id === RecipeId.SEWAGE_INLET_BYPRODUCT,
+  (r) => r.id === RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT,
 )!;
 const SEWAGE_PER_INLET_PER_MIN = calcRate(
   DISPOSAL_RECIPE.inputs[0].amount,
@@ -63,9 +63,9 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
     expect(SEWAGE_PER_CLEANER_PER_MIN).toBe(30);
   });
 
-  test("no facilityCaps: SEWAGE_INLET variants are excluded; Liquid Cleaner absorbs sewage", async () => {
+  test("no facilityCaps: LIQUID_CLEAN_GATE_1 variants are excluded; Liquid Cleaner absorbs sewage", async () => {
     // Target: 1 Cuprium part (drives furnace, byproduct = 30 sewage/min).
-    // Without a SEWAGE_INLET cap, the calculator filters both variants
+    // Without a LIQUID_CLEAN_GATE_1 cap, the calculator filters both variants
     // out so the LP only sees `liquid_cleaner_1` for disposal.
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
@@ -75,8 +75,8 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
       { rawMaterials: ALL_RAWS },
     );
 
-    expect(recipeNode(plan, RecipeId.SEWAGE_INLET_DISPOSAL)).toBeUndefined();
-    expect(recipeNode(plan, RecipeId.SEWAGE_INLET_BYPRODUCT)).toBeUndefined();
+    expect(recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL)).toBeUndefined();
+    expect(recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT)).toBeUndefined();
 
     const cleaner = recipeNode(
       plan,
@@ -101,11 +101,11 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.SEWAGE_INLET, 3]]),
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 3]]),
       },
     );
 
-    const inlet = recipeNode(plan, RecipeId.SEWAGE_INLET_DISPOSAL);
+    const inlet = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL);
     expect(inlet).toBeDefined();
     // 30/min sewage / 120/min/building = 0.25 buildings.
     expect(inlet!.facilityCount).toBeCloseTo(
@@ -132,11 +132,11 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.SEWAGE_INLET, 3]]),
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 3]]),
       },
     );
 
-    const inlet = recipeNode(plan, RecipeId.SEWAGE_INLET_DISPOSAL);
+    const inlet = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL);
     expect(inlet).toBeDefined();
     // LP fills Sewage Inlet exactly to its cap (3 buildings ≈ 360/min).
     expect(inlet!.facilityCount).toBeCloseTo(3, 5);
@@ -155,7 +155,7 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
     // the BYPRODUCT recipe through `recipes` (App filters out the
     // inactive variant before handing the list to the calculator).
     const filteredRecipes = recipes.filter(
-      (r) => r.id !== RecipeId.SEWAGE_INLET_DISPOSAL,
+      (r) => r.id !== RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
     );
 
     const plan = await calculateProductionPlan(
@@ -165,17 +165,17 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.SEWAGE_INLET, 3]]),
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 3]]),
       },
     );
 
-    const byproduct = recipeNode(plan, RecipeId.SEWAGE_INLET_BYPRODUCT);
+    const byproduct = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT);
     expect(byproduct).toBeDefined();
     // 30/min sewage / 120/min/building = 0.25 buildings.
     expect(byproduct!.facilityCount).toBeCloseTo(0.25, 5);
 
     // Disposal variant must NOT appear (it was filtered out upstream).
-    expect(recipeNode(plan, RecipeId.SEWAGE_INLET_DISPOSAL)).toBeUndefined();
+    expect(recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL)).toBeUndefined();
   });
 
   test("byproduct variant emits xiranite_poly at the 30:1 ratio (4/min/building)", async () => {
@@ -184,7 +184,7 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
     // downstream consumer of xiranite_poly, the LP routes it through
     // the xiranite_poly disposal recipe (Liquid Cleaner variant).
     const filteredRecipes = recipes.filter(
-      (r) => r.id !== RecipeId.SEWAGE_INLET_DISPOSAL,
+      (r) => r.id !== RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
     );
 
     const plan = await calculateProductionPlan(
@@ -194,11 +194,11 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.SEWAGE_INLET, 3]]),
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 3]]),
       },
     );
 
-    const byproduct = recipeNode(plan, RecipeId.SEWAGE_INLET_BYPRODUCT);
+    const byproduct = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT);
     expect(byproduct).toBeDefined();
     const xiranitePolyProduced =
       byproduct!.facilityCount * XIRANITE_POLY_PER_BYPRODUCT_PER_MIN;
@@ -218,7 +218,7 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
   test("cap=0 (absent entry): variants treated as unavailable even if recipes array includes them", async () => {
     // Defensive: facilityCaps entry with value 0 is the same as not
     // setting it (both treated as "no instances enabled"). Without this
-    // the LP could use the SEWAGE_INLET recipes freely with no upper
+    // the LP could use the LIQUID_CLEAN_GATE_1 recipes freely with no upper
     // bound, contradicting the user's intent.
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
@@ -227,12 +227,12 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.SEWAGE_INLET, 0]]),
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 0]]),
       },
     );
 
-    expect(recipeNode(plan, RecipeId.SEWAGE_INLET_DISPOSAL)).toBeUndefined();
-    expect(recipeNode(plan, RecipeId.SEWAGE_INLET_BYPRODUCT)).toBeUndefined();
+    expect(recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL)).toBeUndefined();
+    expect(recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT)).toBeUndefined();
 
     // Liquid Cleaner still does the work.
     const cleaner = recipeNode(
@@ -254,11 +254,11 @@ describe("Sewage Inlet — LP facility cap enforcement is hard", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.SEWAGE_INLET, 1]]),
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 1]]),
       },
     );
 
-    const inlet = recipeNode(plan, RecipeId.SEWAGE_INLET_DISPOSAL);
+    const inlet = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL);
     expect(inlet).toBeDefined();
     expect(inlet!.facilityCount).toBeCloseTo(1, 5);
 
@@ -280,11 +280,11 @@ describe("Sewage Inlet — LP facility cap enforcement is hard", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.SEWAGE_INLET, 1]]),
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 1]]),
       },
     );
 
-    const inlet = recipeNode(plan, RecipeId.SEWAGE_INLET_DISPOSAL);
+    const inlet = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL);
     expect(inlet).toBeDefined();
     expect(inlet!.facilityCount).toBeCloseTo(1, 5);
 
@@ -306,11 +306,11 @@ describe("Sewage Inlet — rendering hooks", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.SEWAGE_INLET, 3]]),
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 3]]),
       },
     );
 
-    const inlet = recipeNode(plan, RecipeId.SEWAGE_INLET_DISPOSAL);
+    const inlet = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL);
     expect(inlet).toBeDefined();
     expect(inlet!.isDisposal).toBe(true);
     expect(inlet!.recipe.outputs.length).toBe(0);
@@ -318,7 +318,7 @@ describe("Sewage Inlet — rendering hooks", () => {
 
   test("BYPRODUCT variant is rendered as a producer (NOT a disposal sink)", async () => {
     const filteredRecipes = recipes.filter(
-      (r) => r.id !== RecipeId.SEWAGE_INLET_DISPOSAL,
+      (r) => r.id !== RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
     );
 
     const plan = await calculateProductionPlan(
@@ -328,11 +328,11 @@ describe("Sewage Inlet — rendering hooks", () => {
       facilities,
       {
         rawMaterials: ALL_RAWS,
-        facilityCaps: new Map([[FacilityId.SEWAGE_INLET, 3]]),
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 3]]),
       },
     );
 
-    const byproduct = recipeNode(plan, RecipeId.SEWAGE_INLET_BYPRODUCT);
+    const byproduct = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT);
     expect(byproduct).toBeDefined();
     expect(byproduct!.isDisposal).toBe(false);
     expect(byproduct!.recipe.outputs.length).toBe(1);

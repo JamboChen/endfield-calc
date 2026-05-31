@@ -52,7 +52,7 @@ Constants (verified):
 - `lp-solver.ts` emits per-facility constraint `Σ_{r : r.facilityId === F} x_r ≤ cap` (`faccap_*_${facilityId}`). Hard constraint, no slack.
 - The packer's existing per-facility cap block (`multi-formula-packing.ts:879-889`) stays in place as defence-in-depth and as the source of `computeOverCapWarnings`.
 
-Cap = 0 explicitly forbids any use of the facility; absence leaves it unconstrained. This is load-bearing for the `facilityRecipeVariants` filter in `calculator.ts:840-855`: variant recipes (today: `SEWAGE_INLET_*`) are dropped entirely when their facility cap is absent or 0, so an unfiltered `recipes` array (typical of tests) doesn't accidentally enable them.
+Cap = 0 explicitly forbids any use of the facility; absence leaves it unconstrained. This is load-bearing for the `facilityRecipeVariants` filter in `calculator.ts:840-855`: variant recipes (today: `LIQUID_CLEAN_GATE_1_*`) are dropped entirely when their facility cap is absent or 0, so an unfiltered `recipes` array (typical of tests) doesn't accidentally enable them.
 
 ## Disposal-recipe pre-LP injection (`graph-builder.ts:injectDisposalRecipesIntoGraph`)
 
@@ -62,7 +62,7 @@ For every forced-disposal item in the graph (excluding raws), enumerate every re
 
 Filters honoured by the injection:
 - `recipeConstraints` (per-output and per-input — covers the zero-output case where the per-output check yields nothing).
-- `optInVariantRecipeIds`: recipes from `facilityRecipeVariants` whose facility has no positive cap are skipped, so SEWAGE_INLET variants only appear when the user explicitly enables them.
+- `optInVariantRecipeIds`: recipes from `facilityRecipeVariants` whose facility has no positive cap are skipped, so LIQUID_CLEAN_GATE_1 variants only appear when the user explicitly enables them.
 
 The injection is defensive against direct callers: `calculator.ts` also filters `maps.recipeMap` up-front via the same `optInVariantRecipeIds` rule, so tests that pass the unfiltered `recipes` array stay aligned with App-layer behaviour.
 
@@ -103,7 +103,7 @@ Order is load-bearing:
 - **Effective pin** — pinned recipe ends up in `plan.nodes` with `fc > 0`. Normal row.
 - **Vacuously ineffective pin** — pinned recipe has `fc = 0` (pinned item also produced as a byproduct of another active recipe). Detected in `useProductionPlan.ts:571` via `!plan.nodes.has(pinnedRecipeId)`. Surfaced as ghost rows. Check is exact — no thresholding — because `FACILITY_COUNT_EPSILON` and the `fc > 0` filter already provide the threshold semantics.
 - **Deficit-inducing pin** — LP reports feasible but `disposalDeficits` (the `slack_def` side of the two-sided disposal slack) is non-empty (classic case: pin a dismantle recipe whose corresponding FILLING recipe consumes the same item, forming a bottle ↔ fbottle loop). Translated to `invalidSCCs`, existing cycle-warning pipeline fires. Recovery: drop the pin, or mark the cycle's fbottle as a manual raw.
-- **Surplus-only**: when `disposalSurpluses` (the `slack_sur` side) is non-empty but `disposalDeficits` is empty, the LP wanted to dispose more than the available disposers could handle (e.g. SEWAGE_INLET capped at N while sewage production exceeds N×120/min and Liquid Cleaner is unavailable in the current domain). Currently logged at DEV; not yet surfaced as a user warning — add a translation pass mirroring the deficit→invalidSCCs flow if a real scenario hits it.
+- **Surplus-only**: when `disposalSurpluses` (the `slack_sur` side) is non-empty but `disposalDeficits` is empty, the LP wanted to dispose more than the available disposers could handle (e.g. LIQUID_CLEAN_GATE_1 capped at N while sewage production exceeds N×120/min and Liquid Cleaner is unavailable in the current domain). Currently logged at DEV; not yet surfaced as a user warning — add a translation pass mirroring the deficit→invalidSCCs flow if a real scenario hits it.
 - **LP-infeasible pin** — `invalidCycles` populated, warning surfaces immediately.
 
 ## DO NOT

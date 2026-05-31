@@ -209,7 +209,7 @@ function AppContent() {
   // packer both treat absence as no constraint).
   //
   // Structures contribute exactly +1 per enabled `instance`; today the
-  // sole `instance` is `SEWAGE_INLET`, which has no AIC cap-raise nodes
+  // sole `instance` is `LIQUID_CLEAN_GATE_1`, which has no AIC cap-raise nodes
   // and no base cap, so its `facilityCaps` value comes entirely from
   // here.
   //

@@ -208,7 +208,7 @@ export type LPSolution = {
    * populated for items with `type: "disposal-slack"` in the input).
    * Indicates the LP wanted to dispose more than the available disposer
    * capacity allowed — typically caused by a facility cap binding
-   * (e.g. SEWAGE_INLET capped at 3 but sewage produced exceeds 360/min
+   * (e.g. LIQUID_CLEAN_GATE_1 capped at 3 but sewage produced exceeds 360/min
    * and Liquid Cleaner is unavailable in the current domain).
    *
    * Distinct from `disposalDeficits` (which is the opposite direction —
@@ -499,7 +499,7 @@ const buildModel = (
   //
   // Only emit a constraint when at least one recipe in the current LP
   // actually uses the capped facility — defensive against caps for
-  // facilities not present in the plan (e.g. SEWAGE_INLET capped to 3
+  // facilities not present in the plan (e.g. LIQUID_CLEAN_GATE_1 capped to 3
   // when the user has no sewage-producing recipes active).
   if (input.facilityCaps && input.facilityCaps.size > 0) {
     const recipeIdxsByFacility = new Map<FacilityId, number[]>();

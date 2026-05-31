@@ -835,7 +835,7 @@ export async function calculateProductionPlan(
   const facilityCaps = options.facilityCaps;
 
   // Drop opt-in variant recipes whose facility has no positive cap.
-  // Variant recipes (today: `SEWAGE_INLET_DISPOSAL` and `_BYPRODUCT`)
+  // Variant recipes (today: `LIQUID_CLEAN_GATE_1_{DISPOSAL,BYPRODUCT}`)
   // are gated by the Settings "Structures" tab: enabling a structure
   // sets `facilityCaps[facilityId] = N > 0`. Without an explicit cap,
   // the variants must be invisible to the LP so they can't sneak in

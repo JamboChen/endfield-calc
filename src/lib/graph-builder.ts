@@ -238,7 +238,7 @@ export function buildBipartiteGraph(
   // Recipe-availability gating: the disposal recipes still pass through
   // `availableProducersFor`-style filters (recipeConstraints) so that
   // the App-layer's structure-variant filter (drop one of the two
-  // SEWAGE_INLET variants) is honoured. We deliberately bypass the
+  // LIQUID_CLEAN_GATE_1 variants) is honoured. We deliberately bypass the
   // `recipeOverrides` pin check (disposal isn't pin-eligible) and the
   // dismantler fallback (dismantle recipes can't be disposal recipes —
   // their inputs start with `item_fbottle_*`, not a forced-disposal
@@ -273,7 +273,7 @@ function injectDisposalRecipesIntoGraph(
   // explicitly capped the facility to a positive number. This matches
   // the App.tsx-side variant filter and keeps test callers that pass
   // the unfiltered `recipes` array without a `facilityCaps` map from
-  // accidentally using SEWAGE_INLET recipes. The set is keyed by
+  // accidentally using LIQUID_CLEAN_GATE_1 variant recipes. The set is keyed by
   // recipe id for an O(1) skip check below.
   const optInVariantRecipeIds = new Set<RecipeId>();
   for (const [facilityId, variants] of facilityRecipeVariants) {
@@ -302,7 +302,7 @@ function injectDisposalRecipesIntoGraph(
       // Filter 0: skip opt-in variant recipes when the user hasn't
       // explicitly enabled them via `facilityCaps`. Mirrors App.tsx's
       // `structureVariantExcluded` set so tests that don't enable
-      // structures don't accidentally pick up SEWAGE_INLET variants.
+      // structures don't accidentally pick up LIQUID_CLEAN_GATE_1 variants.
       if (optInVariantRecipeIds.has(recipe.id)) continue;
 
       // Filter 1: recipe must consume `itemId`.

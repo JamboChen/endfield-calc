@@ -8,13 +8,25 @@ import type { DomainId } from "@/types/domain";
 
 /**
  * Combined facility roster: the auto-generated set from upstream game
- * data plus the hand-curated synthetic entries (today: `SEWAGE_INLET`).
- * Order is `generated, ...manual` so iteration order in tests / mappers
- * sees the well-known facilities first and the synthetic tail last —
- * keeps existing snapshot-style tests stable when a new manual entry
- * is added.
+ * data plus the hand-curated synthetic entries (today:
+ * `LIQUID_CLEAN_GATE_1`). Order is `generated, ...manual` so iteration
+ * order in tests / mappers sees the well-known facilities first and the
+ * synthetic tail last — keeps snapshot-style tests stable when a new
+ * manual entry is added.
+ *
+ * **Dedup**: a manual entry with the same id as an auto-generated entry
+ * wins. This is defensive against a future maintainer adding the
+ * canonical game id (e.g. `liquid_clean_gate_1`) to the
+ * `build-facilities.ts` allowlist — the manual record keeps its
+ * hand-tuned values (power=0, domain-restricted) regardless. The
+ * convention in `manual-facilities.ts` is "don't enable the script
+ * allowlist for these ids", but this filter is the structural backstop.
  */
-const facilities: Facility[] = [...generatedFacilities, ...manualFacilities];
+const manualFacilityIds = new Set(manualFacilities.map((f) => f.id));
+const facilities: Facility[] = [
+  ...generatedFacilities.filter((f) => !manualFacilityIds.has(f.id)),
+  ...manualFacilities,
+];
 
 /**
  * Per-raw-material configuration assigning a source facility. The
@@ -208,14 +220,14 @@ const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
  * `src/App.tsx` walks this map together with `regionStructures` +
  * `structures.enabled` to build the `recipeConstraints` exclusion set.
  *
- * Today's sole entry is `SEWAGE_INLET`:
- *   - `default` = `SEWAGE_INLET_DISPOSAL` (pure sink; Byproduct Outlet OFF)
- *   - `toggled` = `SEWAGE_INLET_BYPRODUCT` (emits xiranite_poly; ON)
+ * Today's sole entry is `LIQUID_CLEAN_GATE_1`:
+ *   - `default` = `LIQUID_CLEAN_GATE_1_DISPOSAL` (pure sink; Byproduct Outlet OFF)
+ *   - `toggled` = `LIQUID_CLEAN_GATE_1_BYPRODUCT` (emits xiranite_poly; ON)
  *
  * The two recipes share the same facility AND the same per-building
  * sewage throughput (120/min) by construction, so the LP's facility-cap
- * constraint on `SEWAGE_INLET` correctly bounds the number of physical
- * inlets regardless of which variant is active.
+ * constraint on `LIQUID_CLEAN_GATE_1` correctly bounds the number of
+ * physical inlets regardless of which variant is active.
  *
  * Invariant (checked at use site, not at module load to keep this file
  * pure): every entry's `default` and `toggled` recipes must share their
@@ -227,10 +239,10 @@ const facilityRecipeVariants: ReadonlyMap<
   { readonly default: RecipeIdType; readonly toggled: RecipeIdType }
 > = new Map([
   [
-    FacilityId.SEWAGE_INLET,
+    FacilityId.LIQUID_CLEAN_GATE_1,
     {
-      default: RecipeId.SEWAGE_INLET_DISPOSAL,
-      toggled: RecipeId.SEWAGE_INLET_BYPRODUCT,
+      default: RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
+      toggled: RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT,
     },
   ],
 ]);

@@ -226,22 +226,21 @@ const mkStructure = (
   requires,
   nameKey: index === undefined ? "byproductOutlet" : "sewageInlet",
   index,
-  gameBuildingId: `gate_${id}`,
   iconSlug: `icon_${id}`,
   // Test fixtures use the inlet's facility id for the chain's "instance"
   // structures and the same id for the tail "recipeToggle" — the
   // cascade helpers don't read `solver`, only `requires`.
   solver:
     index === undefined
-      ? { role: "recipeToggle", facilityId: FacilityId.SEWAGE_INLET }
-      : { role: "instance", facilityId: FacilityId.SEWAGE_INLET },
+      ? { role: "recipeToggle", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 }
+      : { role: "instance", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
 });
 
 const CHAIN: RegionStructure[] = [
-  mkStructure(RegionStructureId.SEWAGE_INLET_1, undefined, 1),
-  mkStructure(RegionStructureId.SEWAGE_INLET_2, RegionStructureId.SEWAGE_INLET_1, 2),
-  mkStructure(RegionStructureId.SEWAGE_INLET_3, RegionStructureId.SEWAGE_INLET_2, 3),
-  mkStructure(RegionStructureId.BYPRODUCT_OUTLET, RegionStructureId.SEWAGE_INLET_3),
+  mkStructure(RegionStructureId.LIQUID_CLEAN_GATE_1, undefined, 1),
+  mkStructure(RegionStructureId.LIQUID_CLEAN_GATE_2, RegionStructureId.LIQUID_CLEAN_GATE_1, 2),
+  mkStructure(RegionStructureId.LIQUID_CLEAN_GATE_3, RegionStructureId.LIQUID_CLEAN_GATE_2, 3),
+  mkStructure(RegionStructureId.LIQUID_RECYCLE_GATE_1, RegionStructureId.LIQUID_CLEAN_GATE_3),
 ];
 
 describe("cascadeStructureChain", () => {
@@ -249,13 +248,13 @@ describe("cascadeStructureChain", () => {
     const next = cascadeStructureChain(
       CHAIN,
       new Set(),
-      RegionStructureId.SEWAGE_INLET_3,
+      RegionStructureId.LIQUID_CLEAN_GATE_3,
     );
     expect(next).toEqual(
       new Set([
-        RegionStructureId.SEWAGE_INLET_1,
-        RegionStructureId.SEWAGE_INLET_2,
-        RegionStructureId.SEWAGE_INLET_3,
+        RegionStructureId.LIQUID_CLEAN_GATE_1,
+        RegionStructureId.LIQUID_CLEAN_GATE_2,
+        RegionStructureId.LIQUID_CLEAN_GATE_3,
       ]),
     );
   });
@@ -264,55 +263,55 @@ describe("cascadeStructureChain", () => {
     const next = cascadeStructureChain(
       CHAIN,
       new Set(),
-      RegionStructureId.BYPRODUCT_OUTLET,
+      RegionStructureId.LIQUID_RECYCLE_GATE_1,
     );
     expect(next.size).toBe(4);
   });
 
   test("disabling the head drops every dependent", () => {
     const all = new Set([
-      RegionStructureId.SEWAGE_INLET_1,
-      RegionStructureId.SEWAGE_INLET_2,
-      RegionStructureId.SEWAGE_INLET_3,
-      RegionStructureId.BYPRODUCT_OUTLET,
+      RegionStructureId.LIQUID_CLEAN_GATE_1,
+      RegionStructureId.LIQUID_CLEAN_GATE_2,
+      RegionStructureId.LIQUID_CLEAN_GATE_3,
+      RegionStructureId.LIQUID_RECYCLE_GATE_1,
     ]);
     const next = cascadeStructureChain(
       CHAIN,
       all,
-      RegionStructureId.SEWAGE_INLET_1,
+      RegionStructureId.LIQUID_CLEAN_GATE_1,
     );
     expect(next.size).toBe(0);
   });
 
   test("disabling a middle link drops only its dependents", () => {
     const enabled = new Set([
-      RegionStructureId.SEWAGE_INLET_1,
-      RegionStructureId.SEWAGE_INLET_2,
-      RegionStructureId.SEWAGE_INLET_3,
+      RegionStructureId.LIQUID_CLEAN_GATE_1,
+      RegionStructureId.LIQUID_CLEAN_GATE_2,
+      RegionStructureId.LIQUID_CLEAN_GATE_3,
     ]);
     const next = cascadeStructureChain(
       CHAIN,
       enabled,
-      RegionStructureId.SEWAGE_INLET_2,
+      RegionStructureId.LIQUID_CLEAN_GATE_2,
     );
-    expect(next).toEqual(new Set([RegionStructureId.SEWAGE_INLET_1]));
+    expect(next).toEqual(new Set([RegionStructureId.LIQUID_CLEAN_GATE_1]));
   });
 
   test("enabling the head alone keeps it minimal", () => {
     const next = cascadeStructureChain(
       CHAIN,
       new Set(),
-      RegionStructureId.SEWAGE_INLET_1,
+      RegionStructureId.LIQUID_CLEAN_GATE_1,
     );
-    expect(next).toEqual(new Set([RegionStructureId.SEWAGE_INLET_1]));
+    expect(next).toEqual(new Set([RegionStructureId.LIQUID_CLEAN_GATE_1]));
   });
 });
 
 describe("countRegionStructuresEnabled", () => {
   test("counts enabled structures for the region against the total", () => {
     const enabled = new Set<string>([
-      structureKey(DOMAIN_2, RegionStructureId.SEWAGE_INLET_1),
-      structureKey(DOMAIN_2, RegionStructureId.SEWAGE_INLET_2),
+      structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_1),
+      structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_2),
     ]);
     expect(countRegionStructuresEnabled(enabled, CHAIN, DOMAIN_2)).toEqual({
       done: 2,
@@ -322,7 +321,7 @@ describe("countRegionStructuresEnabled", () => {
 
   test("ignores enabled keys from other regions", () => {
     const enabled = new Set<string>([
-      structureKey(DOMAIN_1, RegionStructureId.SEWAGE_INLET_1),
+      structureKey(DOMAIN_1, RegionStructureId.LIQUID_CLEAN_GATE_1),
     ]);
     expect(countRegionStructuresEnabled(enabled, CHAIN, DOMAIN_2)).toEqual({
       done: 0,
@@ -333,8 +332,8 @@ describe("countRegionStructuresEnabled", () => {
 
 describe("structureKey", () => {
   test("encodes a NUL-delimited (domain, structure) pair", () => {
-    expect(structureKey(DOMAIN_2, RegionStructureId.SEWAGE_INLET_1)).toBe(
-      "domain_2\u0000sewage_inlet_1",
+    expect(structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_1)).toBe(
+      "domain_2\u0000liquid_clean_gate_1",
     );
   });
 });

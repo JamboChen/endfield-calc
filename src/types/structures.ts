@@ -9,14 +9,14 @@ import type { DomainId } from "./domain";
  * `FactorySewageTreatPlantStoreTable`.
  *
  * Structures in a region form a linear opt-in chain via `requires`
- * (Wuling: Sewage Inlet 1 -> 2 -> 3 -> Byproduct Outlet). The Settings
- * "Structures" tab enforces the chain with a cascade.
+ * (Wuling: liquid_clean_gate_1 -> _2 -> _3 -> liquid_recycle_gate_1).
+ * The Settings "Structures" tab enforces the chain with a cascade.
  *
  * Each structure carries a `solver` discriminator that data-drives the
  * App-layer bridge in `src/App.tsx`:
  *   - `role: "instance"` — each enabled structure adds +1 to the
- *     calc-side cap of `facilityId` (e.g. each Sewage Inlet 1/2/3 is
- *     one physical building of `FacilityId.SEWAGE_INLET`).
+ *     calc-side cap of `facilityId` (each Wuling sewage inlet gate is
+ *     one physical building of `FacilityId.LIQUID_CLEAN_GATE_1`).
  *   - `role: "recipeToggle"` — enabling switches the facility's active
  *     recipe to the toggled variant declared in
  *     `facilityRecipeVariants` (`src/data/index.ts`). The outlet itself
@@ -27,6 +27,9 @@ import type { DomainId } from "./domain";
  * The recipe numbers (sewage throughput, byproduct ratio) live on the
  * real `Recipe` entries pointed to by `facilityRecipeVariants` — not
  * here — so they can't drift from what the solver actually uses.
+ *
+ * **ID convention**: `id` IS the upstream `gameBuildingId` (e.g.
+ * `liquid_clean_gate_1`), so no separate field is needed.
  */
 
 type RegionStructureSolverRole =
@@ -42,8 +45,6 @@ type RegionStructure = {
   readonly nameKey: string;
   /** Display index for repeated structures (Sewage Inlet 1/2/3). */
   readonly index?: number;
-  /** Backing game building id (documentation / future provenance). */
-  readonly gameBuildingId: string;
   /** Icon basename under `public/images/structures/` (no extension). */
   readonly iconSlug: string;
   /** Solver-side effect of enabling this structure. */

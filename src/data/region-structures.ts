@@ -18,10 +18,15 @@ import type { RegionStructure } from "@/types/structures";
  * `src/data/recipes.ts` (referenced via `facilityRecipeVariants`); this
  * file carries only the structure metadata + the bridge declarations.
  *
+ * **ID convention**: each structure's `id` is the upstream game
+ * building id verbatim (e.g. `liquid_clean_gate_1` from
+ * `FactorySewageTreatImportTable.json`). Greppable across the codebase
+ * and the upstream data dumps; mirrors how `FacilityId` works.
+ *
  * Source tables (`$ENDFIELD_DATA_DIR/TableCfg/`):
  *   - FactorySewageTreatPlantStoreTable.json  — `liquidcleanfactory_005_1`
- *     (domain_2), a 4-level chain: 3 import levels (Sewage Inlets) + 1
- *     export level (Byproduct Outlet).
+ *     (domain_2), a 4-level chain: 3 import levels (sewage inlet gates)
+ *     + 1 export level (byproduct outlet gate).
  *   - FactorySewageTreatImportTable.json       — `liquid_clean_gate_1`
  *     (treats `item_liquid_sewage`, `msPerRound: 500` → 120/min/building).
  *   - FactorySewageTreatExportTable.json       — `liquid_recycle_gate_1`
@@ -34,42 +39,38 @@ const WULING: DomainId = "domain_2" as DomainId;
 
 const WULING_PURIFICATION_NODE: readonly RegionStructure[] = [
   {
-    id: RegionStructureId.SEWAGE_INLET_1,
+    id: RegionStructureId.LIQUID_CLEAN_GATE_1,
     domainId: WULING,
     nameKey: "sewageInlet",
     index: 1,
-    gameBuildingId: "liquid_clean_gate_1",
     iconSlug: "icon_port_liquid_clean_gate_1",
-    solver: { role: "instance", facilityId: FacilityId.SEWAGE_INLET },
+    solver: { role: "instance", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
   },
   {
-    id: RegionStructureId.SEWAGE_INLET_2,
+    id: RegionStructureId.LIQUID_CLEAN_GATE_2,
     domainId: WULING,
-    requires: RegionStructureId.SEWAGE_INLET_1,
+    requires: RegionStructureId.LIQUID_CLEAN_GATE_1,
     nameKey: "sewageInlet",
     index: 2,
-    gameBuildingId: "liquid_clean_gate_2",
     iconSlug: "icon_port_liquid_clean_gate_1",
-    solver: { role: "instance", facilityId: FacilityId.SEWAGE_INLET },
+    solver: { role: "instance", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
   },
   {
-    id: RegionStructureId.SEWAGE_INLET_3,
+    id: RegionStructureId.LIQUID_CLEAN_GATE_3,
     domainId: WULING,
-    requires: RegionStructureId.SEWAGE_INLET_2,
+    requires: RegionStructureId.LIQUID_CLEAN_GATE_2,
     nameKey: "sewageInlet",
     index: 3,
-    gameBuildingId: "liquid_clean_gate_3",
     iconSlug: "icon_port_liquid_clean_gate_1",
-    solver: { role: "instance", facilityId: FacilityId.SEWAGE_INLET },
+    solver: { role: "instance", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
   },
   {
-    id: RegionStructureId.BYPRODUCT_OUTLET,
+    id: RegionStructureId.LIQUID_RECYCLE_GATE_1,
     domainId: WULING,
-    requires: RegionStructureId.SEWAGE_INLET_3,
+    requires: RegionStructureId.LIQUID_CLEAN_GATE_3,
     nameKey: "byproductOutlet",
-    gameBuildingId: "liquid_recycle_gate_1",
     iconSlug: "icon_port_liquid_recycle_gate_1",
-    solver: { role: "recipeToggle", facilityId: FacilityId.SEWAGE_INLET },
+    solver: { role: "recipeToggle", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
   },
 ];
 

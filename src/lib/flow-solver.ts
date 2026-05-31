@@ -224,7 +224,7 @@ export async function calculateFlows(
     }
     if (result.disposalSurpluses.size > 0) {
       // Surplus = LP wanted to dispose more than available disposer
-      // capacity allowed. Typical trigger: SEWAGE_INLET capped at N
+      // capacity allowed. Typical trigger: LIQUID_CLEAN_GATE_1 capped at N
       // while sewage production exceeds N × 120/min and no Liquid
       // Cleaner is available in the current domain.
       console.warn(

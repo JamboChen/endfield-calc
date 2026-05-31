@@ -16,7 +16,7 @@ const FACILITY_ICON_FALLBACK: Partial<Record<string, string>> = {
   // Synthetic facility — no upstream asset. Reuse the Water Treatment
   // Unit icon (same disposal-of-sewage semantics) so the bin renders
   // with a meaningful visual rather than a broken-image placeholder.
-  sewage_inlet: "liquid_cleaner_1",
+  liquid_clean_gate_1: "liquid_cleaner_1",
 };
 
 export function facilityIconUrl(facilityId: string): string {
