@@ -878,8 +878,6 @@ export async function calculateProductionPlan(
     rawMaterials,
     recipeOverrides,
     manualRawMaterials,
-    undefined,
-    facilityCaps,
   );
 
   const sccs = detectSCCs(graph);

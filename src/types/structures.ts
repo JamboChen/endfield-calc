@@ -51,4 +51,4 @@ type RegionStructure = {
   readonly solver: RegionStructureSolverRole;
 };
 
-export type { RegionStructure, RegionStructureSolverRole };
+export type { RegionStructure };

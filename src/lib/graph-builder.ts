@@ -1,5 +1,5 @@
-import type { FacilityId, Recipe, ItemId, RecipeId } from "@/types";
-import { facilityRecipeVariants, forcedDisposalItems } from "@/data";
+import type { Recipe, ItemId, RecipeId } from "@/types";
+import { forcedDisposalItems } from "@/data";
 import type {
   ProductionMaps,
   BipartiteGraph,
@@ -113,7 +113,6 @@ export function buildBipartiteGraph(
   recipeOverrides?: Map<ItemId, RecipeId>,
   manualRawMaterials?: Set<ItemId>,
   recipeConstraints?: Map<ItemId, Set<RecipeId>>,
-  facilityCaps?: ReadonlyMap<FacilityId, number>,
 ): BipartiteGraph {
   const graph: BipartiteGraph = {
     itemNodes: new Map(),
@@ -243,12 +242,7 @@ export function buildBipartiteGraph(
   // dismantler fallback (dismantle recipes can't be disposal recipes —
   // their inputs start with `item_fbottle_*`, not a forced-disposal
   // item).
-  injectDisposalRecipesIntoGraph(
-    graph,
-    maps,
-    recipeConstraints,
-    facilityCaps,
-  );
+  injectDisposalRecipesIntoGraph(graph, maps, recipeConstraints);
 
   return graph;
 }
@@ -266,22 +260,12 @@ function injectDisposalRecipesIntoGraph(
   graph: BipartiteGraph,
   maps: ProductionMaps,
   recipeConstraints: Map<ItemId, Set<RecipeId>> | undefined,
-  facilityCaps: ReadonlyMap<FacilityId, number> | undefined,
 ): void {
-  // Recipes belonging to a `facilityRecipeVariants` entry are
-  // opt-in via the structures UI: skip them unless the user has
-  // explicitly capped the facility to a positive number. This matches
-  // the App.tsx-side variant filter and keeps test callers that pass
-  // the unfiltered `recipes` array without a `facilityCaps` map from
-  // accidentally using LIQUID_CLEAN_GATE_1 variant recipes. The set is keyed by
-  // recipe id for an O(1) skip check below.
-  const optInVariantRecipeIds = new Set<RecipeId>();
-  for (const [facilityId, variants] of facilityRecipeVariants) {
-    const cap = facilityCaps?.get(facilityId) ?? 0;
-    if (cap > 0) continue;
-    optInVariantRecipeIds.add(variants.default);
-    optInVariantRecipeIds.add(variants.toggled);
-  }
+  // Note: variant-recipe filtering is owned by `calculator.ts`'s
+  // pre-filter on `maps.recipeMap` (and mirrors the App.tsx-side
+  // filter). By the time we get here, opt-in variant recipes whose
+  // facility has no positive cap are already absent from
+  // `maps.recipeMap.values()` — no in-builder filter needed.
 
   // Seed the queue with forced-disposal items already in the graph
   // (and not raws — a raw forced-disposal item has infinite supply, no
@@ -299,12 +283,6 @@ function injectDisposalRecipesIntoGraph(
     const itemId = queue.shift()!;
 
     for (const recipe of maps.recipeMap.values()) {
-      // Filter 0: skip opt-in variant recipes when the user hasn't
-      // explicitly enabled them via `facilityCaps`. Mirrors App.tsx's
-      // `structureVariantExcluded` set so tests that don't enable
-      // structures don't accidentally pick up LIQUID_CLEAN_GATE_1 variants.
-      if (optInVariantRecipeIds.has(recipe.id)) continue;
-
       // Filter 1: recipe must consume `itemId`.
       if (!recipe.inputs.some((i) => i.itemId === itemId)) continue;
 

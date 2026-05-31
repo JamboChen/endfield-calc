@@ -247,6 +247,35 @@ const facilityRecipeVariants: ReadonlyMap<
   ],
 ]);
 
+// Module-load self-check for `facilityRecipeVariants`: verify every
+// referenced recipe id exists in `recipes` AND its `facilityId` matches
+// the map key. Catches typos / renames / facility-id drift at boot so
+// the LP can't silently misbalance.
+//
+// Gated on DEV mode OR test mode so production users never see a crash
+// from a developer error that wasn't caught in CI. The check is O(2)
+// today (one entry × two variants); cost is negligible regardless.
+if (
+  import.meta.env?.DEV ||
+  import.meta.env?.MODE === "test"
+) {
+  for (const [facilityId, variants] of facilityRecipeVariants) {
+    for (const variantId of [variants.default, variants.toggled] as const) {
+      const recipe = recipes.find((r) => r.id === variantId);
+      if (!recipe) {
+        throw new Error(
+          `facilityRecipeVariants: recipe ${variantId} (mapped under ${facilityId}) is not in \`recipes\``,
+        );
+      }
+      if (recipe.facilityId !== facilityId) {
+        throw new Error(
+          `facilityRecipeVariants: recipe ${variantId} has facilityId ${recipe.facilityId} but the map key is ${facilityId}`,
+        );
+      }
+    }
+  }
+}
+
 export {
   items,
   facilities,
