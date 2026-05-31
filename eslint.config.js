@@ -12,9 +12,20 @@ export default defineConfig([
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
-      reactHooks.configs['recommended-latest'],
       reactRefresh.configs.vite,
     ],
+    plugins: {
+      'react-hooks': reactHooks,
+    },
+    rules: {
+      ...reactHooks.configs['recommended-latest'].rules,
+      // set-state-in-effect and refs produce false positives on common
+      // React patterns (stable-ref pattern, batched early-return setState).
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/refs': 'off',
+      // react-refresh warnings kept as warnings, not escalated to errors.
+      'react-refresh/only-export-components': 'warn',
+    },
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,

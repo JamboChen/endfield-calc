@@ -101,7 +101,7 @@ export function buildBipartiteGraph(
     }
 
     const recipeIds = availableRecipes.map((r) => r.id);
-    let currentIndex = 0;
+    let currentIndex: number;
 
     let selectedRecipe: Recipe;
     if (recipeOverrides?.has(itemId)) {
