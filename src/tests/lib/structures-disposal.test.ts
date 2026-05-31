@@ -341,3 +341,116 @@ describe("Sewage Inlet — rendering hooks", () => {
     );
   });
 });
+
+describe("Sewage Inlet — LP constraint fallback for orphan forced-disposal items", () => {
+  // Load-bearing branch in `flow-solver.ts`: forced-disposal items WITH a
+  // consumer in the graph get strict-equality slack semantics; items
+  // WITHOUT a consumer fall back to plain `min: 0` (the historical
+  // behaviour for dead-end byproducts). Without this fallback, the LP
+  // would engage surplus-slack on every byproduct that lacks any
+  // disposer, even when the user clearly doesn't have one — yielding
+  // spurious mixed-strategy solutions on tests like the byproductSCC
+  // fixtures (caught the first time during the refactor and fixed
+  // there). This direct test locks the fallback rather than rely on
+  // indirect coverage.
+
+  test("dead-end forced-disposal byproduct: LP runs feasibly with no slack engaged", async () => {
+    // Filter out ALL recipes that consume sewage. The chain still
+    // produces sewage as a byproduct of FURNANCE_COPPER_NUGGET_1, so
+    // sewage enters the graph as a non-raw forced-disposal item.
+    // With my "has consumer" check, no consumer in the graph means
+    // the constraint falls back to `min: 0` and surplus is permitted
+    // without slack engagement.
+    const recipesWithoutSewageConsumers = recipes.filter(
+      (r) =>
+        // Drop pure sewage disposers
+        r.id !== RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE &&
+        r.id !== RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL &&
+        r.id !== RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT &&
+        // Drop sewage-consuming productive recipes
+        !r.inputs.some((i) => i.itemId === ItemId.ITEM_LIQUID_SEWAGE),
+    );
+
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
+      items,
+      recipesWithoutSewageConsumers,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+
+    // Plan is feasible (no invalid cycles).
+    expect(plan.invalidCycles).toHaveLength(0);
+
+    // Copper component target achieved at expected rate.
+    const cmpt = plan.nodes.get(ItemId.ITEM_COPPER_CMPT);
+    expect(cmpt?.type).toBe("item");
+    if (cmpt?.type === "item") {
+      expect(cmpt.productionRate).toBeCloseTo(30, 5);
+    }
+
+    // Sewage produced as byproduct (1 furnace × 30/min) but no
+    // disposer in plan — the LP correctly leaves surplus untouched.
+    const sewage = plan.nodes.get(ItemId.ITEM_LIQUID_SEWAGE);
+    expect(sewage?.type).toBe("item");
+    if (sewage?.type === "item") {
+      // Production rate matches what the furnace produces; the LP
+      // didn't try to artificially balance via slack.
+      expect(sewage.productionRate).toBeCloseTo(30, 5);
+    }
+
+    // No disposers in plan.
+    expect(
+      plan.nodes.get(
+        RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
+      ),
+    ).toBeUndefined();
+    expect(
+      plan.nodes.get(RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL),
+    ).toBeUndefined();
+  });
+
+  test("LP-side cap binding: plan stays feasible when cap is too small AND no fallback disposer exists", async () => {
+    // Construct a scenario where:
+    //   - Cuprium component target = 5 × the no-bottleneck rate = 5 × 30 = 150/min
+    //   - Sewage produced = 150/min
+    //   - LIQUID_CLEAN_GATE_1 capped at 1 (= 120/min disposal capacity)
+    //   - Liquid Cleaner removed from the recipe set
+    // The LP's strict-equality slack absorbs the 30/min shortfall
+    // (slack_sur > 0 internally; reported in disposalSurpluses inside
+    // the LP solution but not surfaced as a user warning today).
+    // The OBSERVABLE behavior is: plan feasible, no invalid cycles,
+    // inlet pegged at cap.
+    const recipesWithoutCleanerSewage = recipes.filter(
+      (r) =>
+        r.id !== RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
+    );
+
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 150 }],
+      items,
+      recipesWithoutCleanerSewage,
+      facilities,
+      {
+        rawMaterials: ALL_RAWS,
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 1]]),
+      },
+    );
+
+    // Plan feasible (slack absorbs unbalanced sewage; not surfaced as a
+    // user-facing invalid cycle).
+    expect(plan.invalidCycles).toHaveLength(0);
+
+    // Inlet pegged at cap (cap = 1 building × 120/min = 120/min disposal).
+    const inlet = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL);
+    expect(inlet).toBeDefined();
+    expect(inlet!.facilityCount).toBeCloseTo(1, 5);
+
+    // Liquid Cleaner is unavailable (filtered out of the recipe set).
+    expect(
+      plan.nodes.get(
+        RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
+      ),
+    ).toBeUndefined();
+  });
+});
