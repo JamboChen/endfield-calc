@@ -3,7 +3,7 @@ import { facilities as generatedFacilities } from "./facilities";
 import { manualFacilities } from "./manual-facilities";
 import { recipes } from "./recipes";
 import { FacilityId, RecipeId } from "@/types/constants";
-import type { Facility, ItemId, RecipeId as RecipeIdType } from "@/types";
+import type { Facility, ItemId, Recipe, RecipeId as RecipeIdType } from "@/types";
 import type { DomainId } from "@/types/domain";
 
 /**
@@ -249,29 +249,91 @@ const facilityRecipeVariants: ReadonlyMap<
   ],
 ]);
 
-// Module-load self-check for `facilityRecipeVariants`: verify every
-// referenced recipe id exists in `recipes` AND its `facilityId` matches
-// the map key. Catches typos / renames / facility-id drift at boot so
-// the LP can't silently misbalance.
+// Module-load self-check for `facilityRecipeVariants`. Verifies three
+// invariants for every entry — caught at boot so the LP can't silently
+// misbalance:
 //
-// Gated on DEV mode OR test mode so production users never see a crash
-// from a developer error that wasn't caught in CI. The check is O(2)
-// today (one entry × two variants); cost is negligible regardless.
+//   1. Both `default` and `toggled` recipe ids exist in `recipes`.
+//   2. Each recipe's `facilityId` matches the map key.
+//   3. Both variants consume the same items at the same per-minute
+//      rate (output shapes intentionally NOT checked — BYPRODUCT
+//      producing xiranite_poly while DISPOSAL produces nothing IS the
+//      point of a variant pair).
+//
+// **Why input-rate parity matters**: variants share a facility and a
+// building-count budget (the LP allocates one `x_r` per variant from
+// the same `facilityCaps[F]` ceiling). If their consumption rates
+// diverged, toggling the recipeToggle would silently shift the LP's
+// input-balance side and distort upstream production. Today
+// LIQUID_CLEAN_GATE_1 variants both consume 120 sewage/min via
+// (amount=1, time=0.5s) and (amount=30, time=15s); this check pins
+// the equality so future tunings can't drift apart unnoticed.
+//
+// Gated on DEV mode OR test mode so production users never see a
+// crash from a developer error that wasn't caught in CI. Cost is
+// O(V × I) where V = variant pairs and I = avg inputs/recipe
+// (≈ O(2) today); negligible.
 if (
   import.meta.env?.DEV ||
   import.meta.env?.MODE === "test"
 ) {
+  // Rate calc inlined — importing `calcRate` from `@/lib/utils` would
+  // create a `@/data` → `@/lib/utils` → `@/data` cycle.
+  const inputRateMap = (recipe: Recipe): Map<ItemId, number> => {
+    const m = new Map<ItemId, number>();
+    for (const inp of recipe.inputs) {
+      m.set(
+        inp.itemId,
+        (m.get(inp.itemId) ?? 0) + (inp.amount * 60) / recipe.craftingTime,
+      );
+    }
+    return m;
+  };
+
+  const resolveVariant = (
+    facilityId: FacilityId,
+    variantId: RecipeIdType,
+  ): Recipe => {
+    const recipe = recipes.find((r) => r.id === variantId);
+    if (!recipe) {
+      throw new Error(
+        `facilityRecipeVariants: recipe ${variantId} (mapped under ${facilityId}) is not in \`recipes\``,
+      );
+    }
+    if (recipe.facilityId !== facilityId) {
+      throw new Error(
+        `facilityRecipeVariants: recipe ${variantId} has facilityId ${recipe.facilityId} but the map key is ${facilityId}`,
+      );
+    }
+    return recipe;
+  };
+
   for (const [facilityId, variants] of facilityRecipeVariants) {
-    for (const variantId of [variants.default, variants.toggled] as const) {
-      const recipe = recipes.find((r) => r.id === variantId);
-      if (!recipe) {
+    const defRecipe = resolveVariant(facilityId, variants.default);
+    const togRecipe = resolveVariant(facilityId, variants.toggled);
+
+    const defRates = inputRateMap(defRecipe);
+    const togRates = inputRateMap(togRecipe);
+    if (defRates.size !== togRates.size) {
+      throw new Error(
+        `facilityRecipeVariants: ${facilityId} variants consume different item sets ` +
+          `(${variants.default}: {${[...defRates.keys()].join(",")}}; ` +
+          `${variants.toggled}: {${[...togRates.keys()].join(",")}})`,
+      );
+    }
+    for (const [itemId, defRate] of defRates) {
+      const togRate = togRates.get(itemId);
+      if (togRate === undefined) {
         throw new Error(
-          `facilityRecipeVariants: recipe ${variantId} (mapped under ${facilityId}) is not in \`recipes\``,
+          `facilityRecipeVariants: ${facilityId} variants disagree on ${itemId} ` +
+            `(${variants.default} consumes it; ${variants.toggled} does not)`,
         );
       }
-      if (recipe.facilityId !== facilityId) {
+      if (Math.abs(defRate - togRate) > 1e-9) {
         throw new Error(
-          `facilityRecipeVariants: recipe ${variantId} has facilityId ${recipe.facilityId} but the map key is ${facilityId}`,
+          `facilityRecipeVariants: ${facilityId} variants consume ${itemId} at ` +
+            `different rates (${variants.default}: ${defRate}/min; ` +
+            `${variants.toggled}: ${togRate}/min)`,
         );
       }
     }

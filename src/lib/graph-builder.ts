@@ -229,6 +229,17 @@ export function buildBipartiteGraph(
   // to handle the new disposal item via the same mechanism, recursing
   // until we hit pure zero-output disposers.
   //
+  // **Forced-disposal item set** (`@/data/index.ts:forcedDisposalItems`)
+  // today is three items: `item_liquid_sewage`,
+  // `item_liquid_xiranite_poly`, `item_liquid_xiranite_lowpoly`. Of
+  // these, only sewage + xiranite_poly are observable in current plans
+  // (Sewage Inlet's BYPRODUCT variant produces xiranite_poly, which
+  // routes through the Cleaner's xiranite_poly disposer).
+  // `xiranite_lowpoly` has no producer in the current shipping data,
+  // so it never enters the graph today — but the cascade handles it
+  // when it does (e.g. a future POOL_LIQUID_XIRANITE_POLY pool recipe
+  // producing both poly + lowpoly as byproducts).
+  //
   // Termination: a visited set guards against revisiting an item;
   // cascading from sewage→xiranite_poly→… always lands at a zero-output
   // disposer in finite steps (in current data, `liquid_cleaner_1` is

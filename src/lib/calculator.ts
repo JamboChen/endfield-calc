@@ -15,9 +15,9 @@ import type {
   Bin,
   RecipeBinAllocation,
 } from "@/types";
-import { facilityRecipeVariants } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
+import { computeVariantExclusions } from "@/lib/variant-filter";
 import { buildBipartiteGraph, detectSCCs } from "./graph-builder";
 import { calculateFlows } from "./flow-solver";
 import { packBins } from "./multi-formula-packing";
@@ -842,16 +842,20 @@ export async function calculateProductionPlan(
   // through target-rooted traversal (Sewage Inlet's BYPRODUCT variant
   // produces `xiranite_poly`, which is reachable from many targets).
   //
-  // The App layer (src/App.tsx) already applies a symmetrical filter
-  // via `structureVariantExcluded`; this is the defensive equivalent
-  // for direct callers (tests, future programmatic entry points).
-  const optInVariantRecipeIds = new Set<RecipeId>();
-  for (const [facilityId, variants] of facilityRecipeVariants) {
-    const cap = facilityCaps?.get(facilityId) ?? 0;
-    if (cap > 0) continue;
-    optInVariantRecipeIds.add(variants.default);
-    optInVariantRecipeIds.add(variants.toggled);
-  }
+  // `cap-zero-only` is the defensive backstop for direct callers
+  // (tests, future programmatic entry points). The App layer
+  // (`src/App.tsx`) applies the full `structure-aware` rule with the
+  // user's resolved Settings state before the calculator runs; by the
+  // time we get here through the App flow, the inactive variant is
+  // already absent from `recipes`. When both variants survive (e.g.
+  // a test that passes the full recipe set with `facilityCaps.LCG1 >
+  // 0`), the LP's lex objective (rawCost → buildingCount → power)
+  // selects the cheaper variant on its own. See
+  // `src/lib/variant-filter.ts` for the rule.
+  const optInVariantRecipeIds = computeVariantExclusions({
+    mode: "cap-zero-only",
+    facilityCaps,
+  });
   const filteredRecipes =
     optInVariantRecipeIds.size === 0
       ? recipes
