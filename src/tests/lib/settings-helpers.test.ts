@@ -7,10 +7,13 @@ import {
   countFacilityCapTargets,
   countRawSourced,
   countRegionStructuresEnabled,
+  deriveStructuresEnabledFromDisabled,
   filterRegionRawItems,
+  initialStructuresEnabled,
   resolveActiveTab,
   resolveEditingDomain,
   structureKey,
+  structuresDisabledFromEnabled,
 } from "@/lib/settings-helpers";
 import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import { AicGroupId } from "@/types/aic";
@@ -352,5 +355,162 @@ describe("resolveActiveTab", () => {
 
   test("returns the request unchanged when nothing is available", () => {
     expect(resolveActiveTab("plan", [])).toBe("plan");
+  });
+});
+
+// ── Structure persistence helpers ──────────────────────────────────
+//
+// Three pure helpers that together implement the default-active /
+// inverted-persistence pattern for region structures, mirroring AIC's
+// (`initialResearchedSet` → `deriveResearchedFromUnresearched`).
+//
+// `initialStructuresEnabled` is the round-trip identity with an
+// empty `disabled` array; `structuresDisabledFromEnabled` and
+// `deriveStructuresEnabledFromDisabled` are mutual inverses on the
+// subset (registry × activeDomains).
+
+const REGISTRY: ReadonlyMap<DomainId, readonly RegionStructure[]> = new Map([
+  [DOMAIN_2, CHAIN],
+]);
+
+describe("initialStructuresEnabled", () => {
+  test("enables every structure in every active domain", () => {
+    const enabled = initialStructuresEnabled(
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(enabled.size).toBe(4);
+    for (const s of CHAIN) {
+      expect(enabled.has(structureKey(DOMAIN_2, s.id))).toBe(true);
+    }
+  });
+
+  test("inactive domains contribute nothing", () => {
+    const enabled = initialStructuresEnabled(
+      REGISTRY,
+      new Set([DOMAIN_1]), // Wuling NOT active
+    );
+    expect(enabled.size).toBe(0);
+  });
+
+  test("empty registry returns empty regardless of active set", () => {
+    const enabled = initialStructuresEnabled(
+      new Map(),
+      new Set([DOMAIN_1, DOMAIN_2]),
+    );
+    expect(enabled.size).toBe(0);
+  });
+});
+
+describe("deriveStructuresEnabledFromDisabled", () => {
+  test("empty disabled list round-trips to initialStructuresEnabled", () => {
+    const active = new Set([DOMAIN_2]);
+    const fromDerive = deriveStructuresEnabledFromDisabled(
+      [],
+      REGISTRY,
+      active,
+    );
+    const fromInitial = initialStructuresEnabled(REGISTRY, active);
+    expect(fromDerive).toEqual(fromInitial);
+  });
+
+  test("one disabled entry excludes only that structure", () => {
+    const enabled = deriveStructuresEnabledFromDisabled(
+      [
+        {
+          domainId: DOMAIN_2,
+          structureId: RegionStructureId.LIQUID_RECYCLE_GATE_1,
+        },
+      ],
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(enabled.size).toBe(3);
+    expect(
+      enabled.has(structureKey(DOMAIN_2, RegionStructureId.LIQUID_RECYCLE_GATE_1)),
+    ).toBe(false);
+    expect(
+      enabled.has(structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_1)),
+    ).toBe(true);
+  });
+
+  test("disabled entry for an inactive domain is irrelevant", () => {
+    // domain_1 isn't in the registry at all; the disabled entry should
+    // be silently ignored without affecting domain_2's structures.
+    const enabled = deriveStructuresEnabledFromDisabled(
+      [
+        {
+          domainId: DOMAIN_1,
+          structureId: RegionStructureId.LIQUID_CLEAN_GATE_1,
+        },
+      ],
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(enabled.size).toBe(4);
+  });
+
+  test("inactive domain's disabled list doesn't leak enabled entries", () => {
+    // If Wuling is inactive, none of its structures should be enabled,
+    // regardless of what's in the disabled list.
+    const enabled = deriveStructuresEnabledFromDisabled(
+      [],
+      REGISTRY,
+      new Set<DomainId>(), // no active domains
+    );
+    expect(enabled.size).toBe(0);
+  });
+});
+
+describe("structuresDisabledFromEnabled", () => {
+  test("computes the absence list as registry minus enabled", () => {
+    const enabled = new Set<string>([
+      structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_1),
+      structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_2),
+    ]);
+    const disabled = structuresDisabledFromEnabled(
+      enabled,
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(disabled).toHaveLength(2);
+    const ids = disabled.map((d) => d.structureId).sort();
+    expect(ids).toEqual(
+      [
+        RegionStructureId.LIQUID_CLEAN_GATE_3,
+        RegionStructureId.LIQUID_RECYCLE_GATE_1,
+      ].sort(),
+    );
+  });
+
+  test("all-enabled set produces an empty disabled list", () => {
+    const enabled = initialStructuresEnabled(REGISTRY, new Set([DOMAIN_2]));
+    const disabled = structuresDisabledFromEnabled(
+      enabled,
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(disabled).toEqual([]);
+  });
+
+  test("inverse of deriveStructuresEnabledFromDisabled on the active subset", () => {
+    const originalDisabled = [
+      {
+        domainId: DOMAIN_2,
+        structureId: RegionStructureId.LIQUID_RECYCLE_GATE_1,
+      },
+    ];
+    const active = new Set([DOMAIN_2]);
+    const enabled = deriveStructuresEnabledFromDisabled(
+      originalDisabled,
+      REGISTRY,
+      active,
+    );
+    const roundTrip = structuresDisabledFromEnabled(
+      enabled,
+      REGISTRY,
+      active,
+    );
+    expect(roundTrip).toEqual(originalDisabled);
   });
 });

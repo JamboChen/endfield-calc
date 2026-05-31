@@ -207,6 +207,94 @@ export function countRegionStructuresEnabled(
 }
 
 /**
+ * Initial enabled-structures set for a first-run user. Mirrors the
+ * AIC `initialResearchedSet` semantics: structures in **active**
+ * domains are all enabled by default; inactive-domain structures
+ * aren't enabled.
+ *
+ * Persistence stores the inverse (a `disabled` absence-list); this
+ * helper is the "fresh user, no localStorage" default and the
+ * round-trip identity for the symmetric loader
+ * (`deriveStructuresEnabledFromDisabled` with an empty `disabled`
+ * array returns the same set).
+ */
+export function initialStructuresEnabled(
+  registry: ReadonlyMap<DomainId, readonly RegionStructure[]>,
+  activeDomains: ReadonlySet<DomainId>,
+): Set<string> {
+  const out = new Set<string>();
+  for (const [domainId, list] of registry) {
+    if (!activeDomains.has(domainId)) continue;
+    for (const s of list) out.add(structureKey(domainId, s.id));
+  }
+  return out;
+}
+
+/**
+ * Derive the in-memory enabled set from the persisted absence-list
+ * (`disabled`). Symmetric with `deriveResearchedFromUnresearched` in
+ * `useDomainSettings.ts`.
+ *
+ * Rule: a structure is enabled iff its domain is active AND it
+ * doesn't appear in `disabled`. Disabled entries for inactive
+ * domains or unknown structures are filtered out implicitly (the
+ * iteration walks `registry × activeDomains` only).
+ *
+ * Empty `disabled` round-trips to `initialStructuresEnabled` — that
+ * equivalence is the contract pinned by the tests.
+ */
+export function deriveStructuresEnabledFromDisabled(
+  disabled: ReadonlyArray<{
+    domainId: DomainId;
+    structureId: RegionStructureId;
+  }>,
+  registry: ReadonlyMap<DomainId, readonly RegionStructure[]>,
+  activeDomains: ReadonlySet<DomainId>,
+): Set<string> {
+  const denied = new Set<string>();
+  for (const r of disabled) {
+    denied.add(structureKey(r.domainId, r.structureId));
+  }
+  const out = new Set<string>();
+  for (const [domainId, list] of registry) {
+    if (!activeDomains.has(domainId)) continue;
+    for (const s of list) {
+      const key = structureKey(domainId, s.id);
+      if (!denied.has(key)) out.add(key);
+    }
+  }
+  return out;
+}
+
+/**
+ * Compute the persisted absence-list (`disabled`) from the in-memory
+ * `enabled` set + the registry. Symmetric inverse of
+ * `deriveStructuresEnabledFromDisabled`. Used by the storage writer.
+ *
+ * Only iterates structures in **active** domains — structures in
+ * inactive domains are neither enabled nor "disabled" (their state
+ * doesn't ship in the persisted absence-list; AIC soft-deactivation
+ * semantics mean re-activation restores the prior in-memory enabled
+ * state).
+ */
+export function structuresDisabledFromEnabled(
+  enabled: ReadonlySet<string>,
+  registry: ReadonlyMap<DomainId, readonly RegionStructure[]>,
+  activeDomains: ReadonlySet<DomainId>,
+): Array<{ domainId: DomainId; structureId: RegionStructureId }> {
+  const out: Array<{ domainId: DomainId; structureId: RegionStructureId }> = [];
+  for (const [domainId, list] of registry) {
+    if (!activeDomains.has(domainId)) continue;
+    for (const s of list) {
+      if (!enabled.has(structureKey(domainId, s.id))) {
+        out.push({ domainId, structureId: s.id });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Keep the requested tab if it is still available for the region,
  * otherwise fall back to the first available tab. Pure + deterministic
  * so the variable-tab fallback (a region may lack Limits/Structures) is
