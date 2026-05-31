@@ -913,9 +913,15 @@ export async function calculateProductionPlan(
   // — no post-LP disposal injection step is needed. The LP's lex
   // objective (`rawCost → buildingCount → power`) automatically picks
   // the cheapest disposer first (e.g. 0-power Sewage Inlet up to its
-  // cap, falling back to powered Liquid Cleaner) and respects the
-  // facility cap as a hard upper bound. See `graph-builder.ts`'s
-  // `injectDisposalRecipesIntoGraph` for the injection rule.
+  // cap, falling back to powered Liquid Cleaner). The facility cap is
+  // a SOFT upper bound (slack-based, mirrors `rawCaps`): the LP
+  // biases toward cap-respecting solutions but engages slack rather
+  // than returning infeasible when no alternative exists; the
+  // over-cap signal surfaces post-pack via
+  // `aggregateBinTotals` + `computeOverCapWarnings`. See
+  // `graph-builder.ts`'s `injectDisposalRecipesIntoGraph` for the
+  // injection rule, and `lp-solver.ts`'s `LPInput.facilityCaps`
+  // JSDoc for the slack mechanism.
   const packing = await packBins({
     recipeSlotDemands: flowData.recipeFacilityCounts,
     recipeMap: maps.recipeMap,

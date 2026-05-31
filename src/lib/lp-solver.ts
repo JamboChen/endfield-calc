@@ -176,22 +176,46 @@ export type LPInput = {
    * buildings. **Optional**: absent or empty means no caps enforced.
    * Facilities NOT in this map are unconstrained.
    *
-   * For each `(facilityId, cap)` entry the LP gains a hard constraint
-   *   `Σ_{r : r.facilityId === facilityId} x_r ≤ cap`
-   * with NO slack — caps are a structural decision and the LP should
-   * pick a different facility (or report deficit via the disposal-slack
-   * mechanism) rather than over-using a capped one.
+   * For each `(facilityId, cap)` entry the LP gains a SOFT constraint
+   *   `Σ_{r : r.facilityId === facilityId} x_r ≤ cap + slack`,  slack ≥ 0
+   * with `slack` penalized by `SLACK_PENALTY` in every lex objective.
    *
-   * Mirrors the per-facility cap constraint emitted by the Phase 5 MIP
-   * packer (`multi-formula-packing.ts:879-889`); putting the same
-   * constraint in the LP lets the lex objective pick recipes that
-   * respect the cap up-front instead of relying on the packer's
-   * post-hoc retry-without-caps fallback.
+   * The penalty dominates real per-recipe cost by 3-5 orders of
+   * magnitude, so the LP strictly prefers cap-respecting solutions
+   * whenever an alternative producer exists: the lex objective picks
+   * recipes that respect the cap up-front rather than leaving the
+   * routing to the packer's post-hoc retry-without-caps fallback.
+   * (Typical case: a capped Sewage Inlet's overflow is routed to the
+   * uncapped Liquid Cleaner because Cleaner cost ≪ slack penalty.)
    *
-   * **Cap = 0 vs absence**: a `cap: 0` entry explicitly forbids any use
-   * of the facility (LP sets `x_r = 0` for all its recipes); absence
-   * leaves it unconstrained. This is the safer default — adding a
-   * facility cap should never accidentally relax existing constraints.
+   * When NO alternative producer is available the LP engages slack to
+   * satisfy the target, returning a feasible (over-cap) plan. The
+   * packer's existing MIP-cap path triggers its retry-without-caps
+   * fallback, and `computeOverCapWarnings` (`plan-helpers.ts:277`)
+   * surfaces the `facility-over-cap` warning at the hook layer.
+   *
+   * **Why not hard**: a hard cap returns LP-infeasible whenever target
+   * demand exceeds `cap × throughput` and no alternative producer is
+   * available — even though the packer's existing retry mechanism
+   * would have produced a sensible (over-cap) plan. User-reported
+   * regression: `xiranite_oven_1` capped at 2 with target = 6 Heavy
+   * Xiranite/min requires 3 Forges (1 for the final recipe + 2 for
+   * the upstream Xiranite Powder, both on `xiranite_oven_1`) → hard
+   * cap returns infeasible and the user sees `[FAILED] Global LP
+   * infeasible` instead of a plan with the over-cap warning.
+   *
+   * Mirrors the `rawCaps` slack pattern above. The two slack systems
+   * coexist (separate variable namespaces; both excluded from lex caps;
+   * both penalized in every lex pass).
+   *
+   * **Cap = 0 vs absence**: a `cap: 0` entry penalizes every use of
+   * the facility (slack absorbs the full demand). For variant
+   * facilities (e.g. `LIQUID_CLEAN_GATE_1`), the calc-side
+   * `computeVariantExclusions` (`variant-filter.ts`) drops both
+   * variants from the recipe set before the LP runs when cap = 0,
+   * so the LP never engages slack for them. For non-variant
+   * facilities, cap = 0 effectively forbids use unless no alternative
+   * exists (in which case slack engages with very high penalty).
    */
   facilityCaps?: ReadonlyMap<FacilityId, number>;
   /** Facility lookup for power-cost computation. */
@@ -484,23 +508,35 @@ const buildModel = (
     }
   }
 
-  // Per-facility caps (hard, no slack).
+  // Per-facility caps (SOFT, slack-based).
   //
-  // For each (facilityId, cap), constrain `Σ_{r : r.facilityId === facilityId} x_r ≤ cap`.
-  // Cap = 0 explicitly forbids any use of the facility; absence leaves
-  // it unconstrained. No slack — the LP can route around a binding cap
-  // via alternative producers (typical case: a capped Sewage Inlet
-  // forces overflow to the uncapped Liquid Cleaner).
+  // For each (facilityId, cap), constrain:
+  //   Σ_{r : r.facilityId === facilityId} x_r − slack ≤ cap,  slack ≥ 0
+  // with `slack` penalized by SLACK_PENALTY in every lex objective.
   //
-  // Mirrors the per-facility cap block in the Phase 5 MIP packer
-  // (`multi-formula-packing.ts:879-889`). Putting the same constraint
-  // here lets the lex objective pick recipes that respect the cap
-  // up-front instead of relying on the packer's post-hoc retry path.
+  // The penalty dominates real per-recipe cost by 3-5 orders of
+  // magnitude, so the LP strictly prefers cap-respecting solutions
+  // whenever an alternative producer exists (a capped Sewage Inlet's
+  // overflow routes to the uncapped Liquid Cleaner — Cleaner cost ≪
+  // slack penalty). When NO alternative exists, slack engages and
+  // the LP returns a feasible (over-cap) plan; the packer's existing
+  // retry-without-caps path takes over and `computeOverCapWarnings`
+  // surfaces the `facility-over-cap` warning at the hook layer.
+  //
+  // **Why not hard**: a hard cap returns LP-infeasible whenever
+  // target demand exceeds `cap × throughput` and no alternative
+  // producer is available. See the JSDoc on `LPInput.facilityCaps`
+  // above for the xiranite_oven_1 user-reported regression that
+  // motivated this design.
+  //
+  // Mirrors the `rawCaps` slack pattern above (separate variable
+  // namespace; same exclusion from lex caps below).
   //
   // Only emit a constraint when at least one recipe in the current LP
   // actually uses the capped facility — defensive against caps for
-  // facilities not present in the plan (e.g. LIQUID_CLEAN_GATE_1 capped to 3
-  // when the user has no sewage-producing recipes active).
+  // facilities not present in the plan (e.g. LIQUID_CLEAN_GATE_1
+  // capped to 3 when the user has no sewage-producing recipes active).
+  const facilityCapSlackVarMap = new Map<string, FacilityId>();
   if (input.facilityCaps && input.facilityCaps.size > 0) {
     const recipeIdxsByFacility = new Map<FacilityId, number[]>();
     input.recipes.forEach((recipe, idx) => {
@@ -513,24 +549,34 @@ const buildModel = (
       if (!Number.isFinite(cap) || cap < 0) continue;
       const idxs = recipeIdxsByFacility.get(facilityId);
       if (!idxs || idxs.length === 0) continue;
-      const constraintName = `faccap_${facCapIdx++}_${facilityId}`;
+      const constraintName = `faccap_${facCapIdx}_${facilityId}`;
+      const slackName = `faccap_slack_${facCapIdx}_${facilityId}`;
+      facCapIdx++;
       constraints[constraintName] = { max: cap };
       for (const idx of idxs) {
         const varName = `x_${idx}`;
         variables[varName][constraintName] = 1;
       }
+      variables[slackName] = {
+        [constraintName]: -1,
+        rawCost: SLACK_PENALTY,
+        buildingCount: SLACK_PENALTY,
+        power: SLACK_PENALTY,
+      };
+      facilityCapSlackVarMap.set(slackName, facilityId);
     }
   }
 
   // Lex caps: every previously-optimised objective gets an upper-bound
   // constraint here, so the current pass cannot regress on prior wins.
-  // Slack vars (both disposal-slack and rawcap-slack) are EXCLUDED from
-  // cap coefficients — they carry SLACK_PENALTY in `rawCost` / `power`
-  // but `previousCaps[obj]` is recipe-only (slack penalty isn't summed
-  // into a pass's reported total). Including slack would force caps to
-  // ~tolerance and block feasibility whenever an earlier pass had slack
-  // > 0. Slack is independently minimised via SLACK_PENALTY in each
-  // pass's own objective.
+  // ALL slack vars (disposal-slack, rawcap-slack, facility-cap-slack)
+  // are EXCLUDED from cap coefficients — they carry SLACK_PENALTY in
+  // `rawCost` / `buildingCount` / `power` but `previousCaps[obj]` is
+  // recipe-only (slack penalty isn't summed into a pass's reported
+  // total). Including slack would force caps to ~tolerance and block
+  // feasibility whenever an earlier pass had slack > 0. Slack is
+  // independently minimised via SLACK_PENALTY in each pass's own
+  // objective.
   for (const [capObj, capValue] of previousCaps.entries()) {
     const capName = `lex_cap_${capObj}`;
     constraints[capName] = { max: capValue + LEX_TOLERANCE[capObj] };
@@ -538,6 +584,7 @@ const buildModel = (
       if (disposalDeficitSlackVarMap.has(varName)) continue;
       if (disposalSurplusSlackVarMap.has(varName)) continue;
       if (rawCapSlackVarMap.has(varName)) continue;
+      if (facilityCapSlackVarMap.has(varName)) continue;
       coefs[capName] = coefs[capObj] ?? 0;
     }
   }

@@ -418,17 +418,28 @@ describe("Sewage Inlet — LP constraint fallback for orphan forced-disposal ite
     ).toBeUndefined();
   });
 
-  test("LP-side cap binding: plan stays feasible when cap is too small AND no fallback disposer exists", async () => {
+  test("LP cap binding via facility-cap slack when no fallback disposer exists", async () => {
     // Construct a scenario where:
     //   - Cuprium component target = 5 × the no-bottleneck rate = 5 × 30 = 150/min
     //   - Sewage produced = 150/min
     //   - LIQUID_CLEAN_GATE_1 capped at 1 (= 120/min disposal capacity)
     //   - Liquid Cleaner removed from the recipe set
-    // The LP's strict-equality slack absorbs the 30/min shortfall
-    // (slack_sur > 0 internally; reported in disposalSurpluses inside
-    // the LP solution but not surfaced as a user warning today).
-    // The OBSERVABLE behavior is: plan feasible, no invalid cycles,
-    // inlet pegged at cap.
+    //
+    // With the LP's per-facility cap now SOFT (slack-based), two paths
+    // are available for absorbing the 30/min sewage surplus:
+    //   (a) facility-cap slack: Inlet = 1.25 buildings (= 150/120),
+    //       slack = 0.25 → penalty = 0.25 × SLACK_PENALTY = 2.5e5.
+    //   (b) disposal-slack: Inlet = 1 building (= 120/min), surplus = 30
+    //       → penalty = 30 × SLACK_PENALTY = 3e7.
+    //
+    // The LP picks (a) — facility-cap slack is two orders of magnitude
+    // cheaper than disposal-slack at this flow rate, because slack
+    // units differ (buildings vs item-rate). Pre-fix (hard cap), the
+    // LP was forced into (b) and the surplus was silently absorbed by
+    // disposal-slack with no user-facing warning. Post-fix, the
+    // disposal balance is exact and the over-cap signal surfaces
+    // post-pack via `aggregateBinTotals` + `computeOverCapWarnings`
+    // — strictly better UX.
     const recipesWithoutCleanerSewage = recipes.filter(
       (r) =>
         r.id !== RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
@@ -445,14 +456,17 @@ describe("Sewage Inlet — LP constraint fallback for orphan forced-disposal ite
       },
     );
 
-    // Plan feasible (slack absorbs unbalanced sewage; not surfaced as a
-    // user-facing invalid cycle).
+    // Plan feasible (facility-cap slack absorbs the over-cap demand).
     expect(plan.invalidCycles).toHaveLength(0);
 
-    // Inlet pegged at cap (cap = 1 building × 120/min = 120/min disposal).
+    // Inlet overshoots cap to exactly cover the sewage flow:
+    // 150/min / 120/min/building = 1.25 buildings.
     const inlet = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL);
     expect(inlet).toBeDefined();
-    expect(inlet!.facilityCount).toBeCloseTo(1, 5);
+    expect(inlet!.facilityCount).toBeCloseTo(
+      150 / SEWAGE_PER_INLET_PER_MIN,
+      5,
+    );
 
     // Liquid Cleaner is unavailable (filtered out of the recipe set).
     expect(
@@ -460,5 +474,65 @@ describe("Sewage Inlet — LP constraint fallback for orphan forced-disposal ite
         RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("Facility cap binding without alternative producer", () => {
+  // The LP's per-facility cap is SOFT (slack-based; see
+  // `lp-solver.ts:LPInput.facilityCaps` JSDoc): when target demand
+  // exceeds `cap × throughput` AND no alternative producer is
+  // available, slack engages and the LP returns a feasible (over-cap)
+  // plan. The packer's retry-without-caps + `computeOverCapWarnings`
+  // pipeline surface the over-cap warning at the hook layer.
+  //
+  // Pre-fix (commit `849a147` through the pre-soft-cap state), the LP
+  // returned `infeasible` in this class of scenarios and the user saw
+  // `[FAILED] Global LP infeasible. Returning best-effort result with
+  // N invalid cycle(s)` instead of a plan + warning.
+
+  test("Heavy Xiranite reproducer (user-reported): xiranite_oven_1 cap=2 + target=6/min stays feasible", async () => {
+    // User-reported reproducer. Heavy Xiranite production chain:
+    //   - XIRANITE_OVEN_XIRANITE_ENR_POWDER_1 (xiranite_oven_1):
+    //       1 Heavy Xiranite / 10s = 6/min/building.
+    //       Target = 6/min → 1 Forge.
+    //   - Upstream Xiranite Powder via XIRANITE_OVEN_XIRANITE_POWDER_1
+    //     (also xiranite_oven_1): 1/2s = 30/min/building.
+    //       Demand = 60 Xiranite Powder/min (10 per Heavy Xiranite cycle)
+    //       → 2 Forges.
+    //   - Total: 3 Forges on xiranite_oven_1.
+    // With cap = 2, pre-fix the hard LP cap returned infeasible.
+    // Post-fix, soft slack engages and the plan is feasible.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, rate: 6 }],
+      items,
+      recipes,
+      facilities,
+      {
+        rawMaterials: ALL_RAWS,
+        facilityCaps: new Map([[FacilityId.XIRANITE_OVEN_1, 2]]),
+      },
+    );
+
+    // The key assertion: LP did NOT return infeasible.
+    expect(plan.invalidCycles).toHaveLength(0);
+
+    // Both xiranite_oven recipes are in the plan.
+    const enrPowder = recipeNode(
+      plan,
+      RecipeId.XIRANITE_OVEN_XIRANITE_ENR_POWDER_1,
+    );
+    const powder = recipeNode(
+      plan,
+      RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1,
+    );
+    expect(enrPowder).toBeDefined();
+    expect(powder).toBeDefined();
+
+    // Total xiranite_oven_1 building count exceeds cap (3 vs 2). The
+    // over-cap warning would surface at the hook layer via
+    // `computeOverCapWarnings` — not exercised here (calc layer).
+    const totalForges =
+      (enrPowder?.facilityCount ?? 0) + (powder?.facilityCount ?? 0);
+    expect(totalForges).toBeGreaterThan(2);
   });
 });
