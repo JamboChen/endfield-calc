@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /endfield-calc/beta/
 
 Sitemap: https://JamboChen.github.io/endfield-calc/sitemap.xml

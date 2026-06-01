@@ -1,12 +1,26 @@
-# Deploy static content to GitHub Pages on release
+# Deploy static content to GitHub Pages
+#
+# Two channels:
+#   * Production (https://JamboChen.github.io/endfield-calc/) is built
+#     from the latest annotated release tag reachable from master.
+#   * Beta      (https://JamboChen.github.io/endfield-calc/beta/) is built
+#     from the current master HEAD with --base /endfield-calc/beta/.
+#
+# GitHub Pages deployments are atomic per repo, so both channels are
+# packaged into a single artifact and shipped in one deploy step.
 name: Deploy static content to Pages
 
 on:
-  # Runs when a new release is published
+  # New stable release published -> rebuild prod + refresh beta.
   release:
     types: [published]
 
-  # Allows you to run this workflow manually from the Actions tab
+  # Master commits -> rebuild beta (and rebuild prod from latest tag,
+  # which is a no-op as long as the tag's source hasn't moved).
+  push:
+    branches: [master]
+
+  # Manual re-trigger from the Actions tab.
   workflow_dispatch:
 
 # Sets the GITHUB_TOKEN permissions to allow deployment to GitHub Pages
@@ -15,23 +29,25 @@ permissions:
   pages: write
   id-token: write
 
-# Allow one concurrent deployment
+# Allow one deployment at a time, but queue rather than cancel so a
+# master push during an in-flight release deploy ships both serially.
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  # Single deploy job since we're just deploying
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout master
         uses: actions/checkout@v5
         with:
-          # Fetch all history and tags for version detection
+          ref: master
+          # Full history + tags so `git describe` can resolve the
+          # latest release tag for the production build below.
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
@@ -39,22 +55,48 @@ jobs:
         with:
           version: 10
           run_install: false
+
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: "pnpm"
-      - name: Install dependencies
+
+      - name: Detect latest release tag
+        id: tag
+        run: echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+
+      # --- Build production from the latest release tag into dist/ ---
+      # Order matters: prod first so its --emptyOutDir wipes dist/ clean;
+      # beta second so its --emptyOutDir only clears dist/beta/, leaving
+      # the prod files alongside intact.
+      - name: Checkout latest release tag
+        run: git checkout ${{ steps.tag.outputs.tag }}
+
+      - name: Install dependencies (release)
         run: pnpm install
-      - name: Build
+
+      - name: Build release into dist/
         run: pnpm build
+
+      # --- Build beta from master into dist/beta/ ---
+      - name: Switch back to master
+        run: git checkout master
+
+      - name: Install dependencies (master)
+        run: pnpm install
+
+      - name: Build beta into dist/beta/
+        run: pnpm build:beta
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          # Upload dist folder
           path: "./dist"
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
