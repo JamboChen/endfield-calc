@@ -83,10 +83,11 @@ import {
 } from "@/components/ui/select";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { pickLatestActive } from "@/hooks/useDomainSettings";
+import { namespaceStorageKey } from "@/lib/storage-namespace";
 import { cn } from "@/lib/utils";
 import type { Domain, DomainId } from "@/types/domain";
 
-const STORAGE_KEY = "endfield-calc:onboarding-v1";
+const STORAGE_KEY = namespaceStorageKey("endfield-calc:onboarding-v1");
 
 export function AicOnboardingDialog() {
   const { t } = useTranslation(["onboarding", "domain"]);

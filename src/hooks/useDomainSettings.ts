@@ -147,6 +147,7 @@ import {
   structureKey,
   structuresDisabledFromEnabled,
 } from "@/lib/settings-helpers";
+import { namespaceStorageKey } from "@/lib/storage-namespace";
 import type {
   AicGroupId,
   AicLayerId,
@@ -157,7 +158,7 @@ import type { Domain, DomainId } from "@/types/domain";
 import type { FacilityId, ItemId } from "@/types";
 import type { RegionStructureId } from "@/types/constants";
 
-const STORAGE_KEY = "endfield-calc:aic-v1";
+const STORAGE_KEY = namespaceStorageKey("endfield-calc:aic-v1");
 
 interface CapOverrideRecord {
   facilityId: FacilityId;
