@@ -25,9 +25,9 @@ type Recipe = {
  * One logical I/O stream of a building (one slot in the player's view),
  * carrying its physical port count. The engine itself uses "buffer" to
  * name the binding/grouping layer that ties one or more physical ports
- * to one cache — see `*BufferBinding[]` arrays in
- * `FactoryMachineCraftGroupTable.json` and `buildingBufferStackLimit`
- * in `FactoryItemTable.json`.
+ * to one cache — surfaced in the upstream game-data dump as the
+ * per-recipe `*BufferBinding[]` arrays and the per-building
+ * `buildingBufferStackLimit` field.
  *
  * Multi-port buffers are physical taps sharing the same logical stream.
  */
@@ -39,8 +39,8 @@ type Buffer = { ports: number };
 type Buffers = { belt: Buffer[]; pipe: Buffer[] };
 
 /**
- * A factory building. Schema mirrors the game-data dump emitted by the
- * upstream `scripts/build-facilities.ts` extractor, with the calc-side
+ * A factory building. Schema mirrors the upstream game-data dump as
+ * emitted by `scripts/extract-facilities.ts`, with the calc-side
  * `FacilityId` brand applied to `id`.
  *
  * Multi-formula capability is signalled by the presence of `cacheSlots`
@@ -63,8 +63,9 @@ type Buffers = { belt: Buffer[]; pipe: Buffer[] };
 type Facility = {
   id: FacilityId;
   /**
-   * Building progression tier (1..4 today), derived upstream from
-   * `FactoryBuildingItemReverseTable -> ItemTable.rarity`.
+   * Building progression tier (1..4 today), derived upstream from the
+   * building → blueprint-item → rarity lookup chain in the game-data
+   * dump.
    */
   tier: number;
   /**

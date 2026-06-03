@@ -4,8 +4,9 @@ import type { DomainId } from "./domain";
 /**
  * AIC Plan domain model.
  *
- * "AIC Plan" is the in-game name for the Settlement Tech Tree
- * (upstream tables prefixed `FacSTT*`). Two top-level plans exist today:
+ * "AIC Plan" is the in-game name for the Settlement Tech Tree (the
+ * upstream tech-tree tables in the game-data dump). Two top-level plans
+ * exist today:
  *
  *   - `tech_group_tundra` → in-game "Basic AIC Plan"   (domain_1, Valley IV)
  *   - `tech_group_jinlong` → in-game "Wuling AIC Plan" (domain_2, Wuling)
@@ -128,9 +129,10 @@ type AicGroup = {
 
 /**
  * The base per-domain placement cap for a facility as defined by the
- * upstream `FactoryBuildingTable.placeDomainLimitCnt` array, paired with
- * its `placeDomains[]`. Used as the starting value for cap-raise math and
- * for the "Game cap: N" hint in the Facility-limits UI.
+ * upstream game-data dump's per-building `placeDomainLimitCnt` array
+ * (paired with its `placeDomains[]`). Used as the starting value for
+ * cap-raise math and for the "Game cap: N" hint in the Facility-limits
+ * UI.
  *
  * Facilities without a per-domain limit do not appear in this map.
  */

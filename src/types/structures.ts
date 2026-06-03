@@ -4,9 +4,8 @@ import type { DomainId } from "./domain";
 /**
  * Region-exclusive special structures (map buildings wired into a
  * factory; not roster/AIC buildings). Hand-curated in
- * `src/data/region-structures.ts` from the game's
- * `FactorySewageTreat{Import,Export}Table` +
- * `FactorySewageTreatPlantStoreTable`.
+ * `src/data/region-structures.ts` from the sewage-treatment chain in
+ * the upstream game-data dump.
  *
  * Structures in a region form a linear opt-in chain via `requires`
  * (Wuling: liquid_clean_gate_1 -> _2 -> _3 -> liquid_recycle_gate_1).

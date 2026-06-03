@@ -1,7 +1,7 @@
 // AUTO-GENERATED — do not hand-edit. Run `pnpm run extract:aic` to regenerate.
 //
-// Source: `$ENDFIELD_DATA_DIR/TableCfg/{FacSTT*,FactoryBuildingTable,FactoryMachineCraftTable,ItemTable,DomainDataTable}.json`.
-// Localized strings live in `public/locales/{lang}/aic.json` and `public/locales/{lang}/domain.json`.
+// Derived from the upstream game-data dump. Localized strings live in
+// `public/locales/{lang}/aic.json` and `public/locales/{lang}/domain.json`.
 
 import type {
   AicGroup,

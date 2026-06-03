@@ -392,7 +392,7 @@ const RecipeId = {
   GRINDER_PLANT_MOSS_POWDER_2_1: "grinder_plant_moss_powder_2_1",
   GRINDER_PLANT_MOSS_POWDER_3_1: "grinder_plant_moss_powder_3_1",
   GRINDER_QUARTZ_POWDER_1: "grinder_quartz_powder_1",
-  // Synthetic recipes (not in upstream `FactoryMachineCraftTable`) for
+  // Synthetic recipes (not in the upstream game-data dump) for
   // the `LIQUID_CLEAN_GATE_1` facility. Exactly one is active at any
   // time depending on whether the Byproduct Outlet structure
   // (`LIQUID_RECYCLE_GATE_1`) is enabled — see `facilityRecipeVariants`
@@ -485,8 +485,7 @@ const FacilityId = {
   FILLING_POWDER_MC_1: "filling_powder_mc_1",
   FURNANCE_1: "furnance_1",
   GRINDER_1: "grinder_1",
-  LIQUID_CLEANER_1: "liquid_cleaner_1",
-  // Synthetic facility (not in upstream `FactoryBuildingTable`): models
+  // Synthetic facility (not in the upstream game-data dump): models
   // the Wuling Purification Node's three sewage inlet gates (game IDs
   // `liquid_clean_gate_1/2/3`) collapsed into a single capped facility —
   // they have identical recipe semantics, so one LP variable per recipe
@@ -496,6 +495,7 @@ const FacilityId = {
   // `src/data/manual-facilities.ts` (the auto-generated `facilities.ts`
   // does not emit this id since the script's allowlist excludes it).
   LIQUID_CLEAN_GATE_1: "liquid_clean_gate_1",
+  LIQUID_CLEANER_1: "liquid_cleaner_1",
   LIQUID_PURIFIER_1: "liquid_purifier_1",
   LOADER_1: "loader_1",
   MIX_POOL_1: "mix_pool_1",
@@ -506,9 +506,9 @@ const FacilityId = {
   SEEDCOLLECTOR_1: "seedcollector_1",
   SHAPER_1: "shaper_1",
   THICKENER_1: "thickener_1",
-  // NOTE: "assebling" is a typo from the upstream `FactoryBuildingTable`
-  // game-data dump. Preserved verbatim so the `pnpm run extract:recipes`
-  // pipeline keeps matching upstream IDs. Do not rename locally — see
+  // NOTE: "assebling" is a typo from the upstream game-data dump.
+  // Preserved verbatim so the `pnpm run extract:recipes` pipeline keeps
+  // matching upstream IDs. Do not rename locally — see
   // `public/images/facilities/tools_assebling_mc_1.png` and the recipe
   // `facilityId` references in `src/data/recipes.ts`.
   TOOLS_ASSEBLING_MC_1: "tools_assebling_mc_1",
@@ -528,10 +528,8 @@ type FacilityId = (typeof FacilityId)[keyof typeof FacilityId];
  * building, while a `FacilityId` represents the LP-side capped facility.
  *
  * **ID convention**: structure IDs use the upstream game building ID
- * verbatim (e.g. `liquid_clean_gate_1` comes from
- * `FactorySewageTreatImportTable.json`). This mirrors the
- * `FacilityId` convention and makes structures greppable across the
- * codebase + upstream data dumps.
+ * verbatim (e.g. `liquid_clean_gate_1`). This mirrors the `FacilityId`
+ * convention and makes structures greppable across the codebase.
  */
 const RegionStructureId = {
   LIQUID_CLEAN_GATE_1: "liquid_clean_gate_1",

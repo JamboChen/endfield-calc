@@ -1,7 +1,8 @@
 import { items } from "./items";
 import { facilities as generatedFacilities } from "./facilities";
 import { manualFacilities } from "./manual-facilities";
-import { recipes } from "./recipes";
+import { recipes as generatedRecipes } from "./recipes";
+import { manualRecipes } from "./manual-recipes";
 import { FacilityId, RecipeId } from "@/types/constants";
 import type { Facility, ItemId, Recipe, RecipeId as RecipeIdType } from "@/types";
 import type { DomainId } from "@/types/domain";
@@ -26,6 +27,21 @@ const manualFacilityIds = new Set(manualFacilities.map((f) => f.id));
 const facilities: Facility[] = [
   ...generatedFacilities.filter((f) => !manualFacilityIds.has(f.id)),
   ...manualFacilities,
+];
+
+/**
+ * Combined recipe roster: the auto-generated set from upstream game
+ * data plus the hand-curated synthetic entries in
+ * `src/data/manual-recipes.ts` (today: the two `LIQUID_CLEAN_GATE_1_*`
+ * sewage-inlet variants). Same merge convention as `facilities` —
+ * iteration sees generated first, manual tail last; dedup by id with
+ * manual winning. Lets the extraction script regenerate `recipes.ts`
+ * without dropping hand-tuned values.
+ */
+const manualRecipeIds = new Set(manualRecipes.map((r) => r.id));
+const recipes: Recipe[] = [
+  ...generatedRecipes.filter((r) => !manualRecipeIds.has(r.id)),
+  ...manualRecipes,
 ];
 
 /**
@@ -78,11 +94,10 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
  * Two distinct sourcing models, each with a different rule:
  *
  *   - **Solid raws** are tied to discrete in-world POIs (the
- *     `int_minerbase_*` interactive types — confirmed in
- *     `InteractiveMarkDataTable.json` from the upstream data dump).
- *     POI placements are scene-data, NOT in `TableCfg`, so no auto-
- *     extraction is possible. Hand-curated per region from observed
- *     in-game inventory:
+ *     `int_minerbase_*` interactive types). POI placements are
+ *     scene-data, not exposed by the table-driven upstream dump, so
+ *     no auto-extraction is possible. Hand-curated per region from
+ *     observed in-game inventory:
  *       Valley IV (domain_1): originium, ferrium (iron), amethyst (quartz)
  *       Wuling    (domain_2): originium, ferrium (iron), cuprium (copper)
  *

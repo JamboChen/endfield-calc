@@ -4,10 +4,10 @@ import { facilityIconUrl, isMonochromeFacilityIcon } from "@/lib/facility-icons"
 
 /**
  * Manually-curated facilities — synthetic entries that do NOT appear in
- * the upstream `FactoryBuildingTable.json` extract and therefore can't
- * be emitted by `scripts/build-facilities.ts`. Combined with the
- * auto-generated `facilities.ts` array in `data/index.ts` (manual wins
- * over any auto-generated id collision).
+ * the upstream game-data dump and therefore can't be emitted by
+ * `scripts/extract-facilities.ts`. Combined with the auto-generated
+ * `facilities.ts` array in `data/index.ts` (manual wins over any
+ * auto-generated id collision).
  *
  * **Naming convention** (mirrors `facilities.ts`): use the upstream game
  * building ID verbatim. When a single LP-side facility represents

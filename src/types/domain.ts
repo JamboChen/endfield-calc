@@ -20,10 +20,9 @@ type DomainId = string & { readonly __brand: "DomainId" };
 
 /**
  * A first-class domain entry, surfaced as a top-level section in the
- * settings UI. The data is sourced from upstream `DomainDataTable.json`
- * by `pnpm run extract:aic` (today the script is named after AIC since
- * that's the only category; it will be renamed when a second category
- * lands).
+ * settings UI. Sourced from the upstream game-data dump by `pnpm run
+ * extract:aic` (today the script is named after AIC since that's the
+ * only category; it will be renamed when a second category lands).
  *
  * - `isPinned` — when `true`, the activation toggle is hidden and the
  *   domain is always-active. Derived at extraction time from

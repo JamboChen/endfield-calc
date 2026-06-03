@@ -216,8 +216,8 @@ export function computeUnlockedModes(
  * thread these into the LP solver as placement constraints.
  *
  * Handles three classes of cap-bearing (facility, domain) pairs:
- *   - base cap from FactoryBuildingTable: starts at `base`, adds raises,
- *     applies override if set.
+ *   - base cap from the upstream game-data dump: starts at `base`, adds
+ *     raises, applies override if set.
  *   - no base but has cap-raise techs: starts at 0, adds raises.
  *   - no base and no raise but user override: surfaced anyway (for users
  *     who pre-emptively set a cap on a facility the game hasn't capped yet).

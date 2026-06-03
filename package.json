@@ -11,8 +11,12 @@
     "preview": "vite preview",
     "knip": "knip",
     "test": "vitest",
-    "extract:recipes": "bun run scripts/extract-recipe-names.ts",
-    "extract:aic": "bun run scripts/extract-aic-plans.ts"
+    "extract:ids": "bun run scripts/extract-ids.ts",
+    "extract:facilities": "bun run scripts/extract-facilities.ts",
+    "extract:recipes": "bun run scripts/extract-recipes.ts",
+    "extract:items": "bun run scripts/extract-items.ts",
+    "extract:aic": "bun run scripts/extract-aic.ts",
+    "extract:all": "bun run scripts/extract-all.ts"
   },
   "dependencies": {
     "@bubblyworld/highs-ts": "^1.2.0",

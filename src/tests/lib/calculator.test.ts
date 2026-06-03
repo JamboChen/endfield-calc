@@ -1224,9 +1224,9 @@ describe("Source-facility refactor (Phase 1)", () => {
   });
 
   test("pump_1 throughput is 60/min — water demand 90/min needs 2 pumps", async () => {
-    // 90/min water demand at 60/min per pump_1 (msPerRound: 1000 from
-    // FactoryFluidPumpInTable) gives ceil(90/60) = 2 pickup points,
-    // contributing 2 × 10 W = 20 W to plan power.
+    // 90/min water demand at 60/min per pump_1 (1000 ms per fluid-pump
+    // cycle in the upstream game-data dump) gives ceil(90/60) = 2
+    // pickup points, contributing 2 × 10 W = 20 W to plan power.
     //
     // This test uses inline synthetic recipes to isolate the pump-rate
     // math from upstream-data drift.

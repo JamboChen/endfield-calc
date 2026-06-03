@@ -19,18 +19,15 @@ import type { RegionStructure } from "@/types/structures";
  * file carries only the structure metadata + the bridge declarations.
  *
  * **ID convention**: each structure's `id` is the upstream game
- * building id verbatim (e.g. `liquid_clean_gate_1` from
- * `FactorySewageTreatImportTable.json`). Greppable across the codebase
- * and the upstream data dumps; mirrors how `FacilityId` works.
+ * building id verbatim (e.g. `liquid_clean_gate_1`). Greppable across
+ * the codebase; mirrors how `FacilityId` works.
  *
- * Source tables (`$ENDFIELD_DATA_DIR/TableCfg/`):
- *   - FactorySewageTreatPlantStoreTable.json  — `liquidcleanfactory_005_1`
- *     (domain_2), a 4-level chain: 3 import levels (sewage inlet gates)
- *     + 1 export level (byproduct outlet gate).
- *   - FactorySewageTreatImportTable.json       — `liquid_clean_gate_1`
- *     (treats `item_liquid_sewage`, `msPerRound: 500` → 120/min/building).
- *   - FactorySewageTreatExportTable.json       — `liquid_recycle_gate_1`
- *     (`countCost: 30` sewage → `countProduce: 1` `item_liquid_xiranite_poly`).
+ * Game-mechanic provenance (Wuling Purification Node, `domain_2`):
+ *   - A 4-level chain: 3 import levels (`liquid_clean_gate_1/2/3`,
+ *     sewage inlet gates) + 1 export level (`liquid_recycle_gate_1`,
+ *     byproduct outlet gate).
+ *   - Inlet gate: treats `item_liquid_sewage` at 120/min per building.
+ *   - Outlet gate: 30 sewage → 1 `item_liquid_xiranite_poly`.
  */
 
 // Domain ids are runtime-constructed brands (mirrors the `as DomainId`
