@@ -24,7 +24,7 @@ pnpm run extract:items       # Refresh src/data/items.ts + public/locales/{lang}
 pnpm run extract:aic         # Refresh src/data/aic-plans.ts + public/locales/{lang}/{aic,domain}.json
 ```
 
-Game-data refresh: set `ENDFIELD_DATA_DIR` to the dir containing `TableCfg/` (defaults to `D:\Projects\EndfieldData`). The extract scripts themselves invoke the Bun runtime (`bun run scripts/…`) so Bun must be installed; the user-facing `pnpm run extract:*` wrapper handles the rest.
+Game-data refresh: set `ENDFIELD_DATA_DIR` to the dir containing `TableCfg/` (the scripts fall back to a built-in default if unset — see `scripts/lib/paths.ts`).
 
 ## Cardinal rules (always apply)
 
