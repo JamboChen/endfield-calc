@@ -392,6 +392,16 @@ const RecipeId = {
   GRINDER_PLANT_MOSS_POWDER_2_1: "grinder_plant_moss_powder_2_1",
   GRINDER_PLANT_MOSS_POWDER_3_1: "grinder_plant_moss_powder_3_1",
   GRINDER_QUARTZ_POWDER_1: "grinder_quartz_powder_1",
+  // Synthetic recipes (not in upstream `FactoryMachineCraftTable`) for
+  // the `LIQUID_CLEAN_GATE_1` facility. Exactly one is active at any
+  // time depending on whether the Byproduct Outlet structure
+  // (`LIQUID_RECYCLE_GATE_1`) is enabled — see `facilityRecipeVariants`
+  // in `src/data/index.ts`.
+  // BYPRODUCT: same per-building sewage throughput as DISPOSAL, but
+  // emits `xiranite_poly` at the in-game 30:1 ratio; used when outlet is ON.
+  // DISPOSAL: pure sewage sink (outputs=[]); used when outlet is OFF.
+  LIQUID_CLEAN_GATE_1_BYPRODUCT: "liquid_clean_gate_1_byproduct",
+  LIQUID_CLEAN_GATE_1_DISPOSAL: "liquid_clean_gate_1_disposal",
   LIQUID_PURIFIER_COPPER_ENR_1: "liquid_purifier_copper_enr_1",
   LIQUID_PURIFIER_XIRANITE_POLY_1: "liquid_purifier_xiranite_poly_1",
   PLANTER_PLANT_BBFLOWER_1: "planter_plant_bbflower_1",
@@ -476,6 +486,16 @@ const FacilityId = {
   FURNANCE_1: "furnance_1",
   GRINDER_1: "grinder_1",
   LIQUID_CLEANER_1: "liquid_cleaner_1",
+  // Synthetic facility (not in upstream `FactoryBuildingTable`): models
+  // the Wuling Purification Node's three sewage inlet gates (game IDs
+  // `liquid_clean_gate_1/2/3`) collapsed into a single capped facility —
+  // they have identical recipe semantics, so one LP variable per recipe
+  // variant plus a cap of N (= enabled-inlet count) is the compact model.
+  // Two variants live on this facility — see `facilityRecipeVariants`
+  // in `src/data/index.ts` for the toggle. Facility record is in
+  // `src/data/manual-facilities.ts` (the auto-generated `facilities.ts`
+  // does not emit this id since the script's allowlist excludes it).
+  LIQUID_CLEAN_GATE_1: "liquid_clean_gate_1",
   LIQUID_PURIFIER_1: "liquid_purifier_1",
   LOADER_1: "loader_1",
   MIX_POOL_1: "mix_pool_1",
@@ -499,6 +519,30 @@ const FacilityId = {
 type FacilityId = (typeof FacilityId)[keyof typeof FacilityId];
 
 /**
+ * Region-exclusive special structures: map buildings that can be wired
+ * into a factory but are NOT roster/AIC buildings. Closed enum (small,
+ * finite, hand-curated in `src/data/region-structures.ts`). Today only
+ * the Wuling Purification Node (3 sewage inlet gates + 1 byproduct
+ * outlet gate, a linear prereq chain). Kept distinct from `FacilityId`
+ * because a single structure ID maps to one "tier" of a larger map
+ * building, while a `FacilityId` represents the LP-side capped facility.
+ *
+ * **ID convention**: structure IDs use the upstream game building ID
+ * verbatim (e.g. `liquid_clean_gate_1` comes from
+ * `FactorySewageTreatImportTable.json`). This mirrors the
+ * `FacilityId` convention and makes structures greppable across the
+ * codebase + upstream data dumps.
+ */
+const RegionStructureId = {
+  LIQUID_CLEAN_GATE_1: "liquid_clean_gate_1",
+  LIQUID_CLEAN_GATE_2: "liquid_clean_gate_2",
+  LIQUID_CLEAN_GATE_3: "liquid_clean_gate_3",
+  LIQUID_RECYCLE_GATE_1: "liquid_recycle_gate_1",
+} as const;
+type RegionStructureId =
+  (typeof RegionStructureId)[keyof typeof RegionStructureId];
+
+/**
  * Opaque brand for multi-formula bin identifiers.
  *
  * Unlike ItemId / RecipeId / FacilityId (which are literal-string unions of
@@ -516,10 +560,11 @@ type FacilityId = (typeof FacilityId)[keyof typeof FacilityId];
  */
 type BinId = string & { readonly __brand: "BinId" };
 
-export { ItemId, RecipeId, FacilityId };
+export { ItemId, RecipeId, FacilityId, RegionStructureId };
 export type {
   ItemId as ItemIdType,
   RecipeId as RecipeIdType,
   FacilityId as FacilityIdType,
+  RegionStructureId as RegionStructureIdType,
   BinId,
 };

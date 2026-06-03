@@ -185,6 +185,8 @@
   "grinder_plant_moss_powder_2_1": "시트론 가루 생산",
   "grinder_plant_moss_powder_3_1": "샌드리프 가루 생산",
   "grinder_quartz_powder_1": "자수정 가루 생산",
+  "liquid_clean_gate_1_byproduct": "오염수 처리(유입구+배출구)",
+  "liquid_clean_gate_1_disposal": "오염수 처리(유입구)",
   "liquid_purifier_copper_enr_1": "혁동 용액 정제",
   "liquid_purifier_xiranite_poly_1": "양정 폐액 정제",
   "planter_plant_bbflower_1": "아케톤 생산",

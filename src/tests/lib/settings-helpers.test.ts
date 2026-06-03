@@ -1,18 +1,33 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  cascadeStructureChain,
   countAicResearched,
   countCustomizedCaps,
+  countFacilityCapTargets,
   countRawSourced,
+  countRegionStructuresEnabled,
+  deriveStructuresEnabledFromDisabled,
   filterRegionRawItems,
+  initialStructuresEnabled,
+  resolveActiveTab,
   resolveEditingDomain,
+  structureKey,
+  structuresDisabledFromEnabled,
 } from "@/lib/settings-helpers";
 import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import { AicGroupId } from "@/types/aic";
-import type { AicGroup, AicNode, AicLayerId, AicTechId } from "@/types/aic";
-import { FacilityId } from "@/types/constants";
-import type { Item, ItemId } from "@/types";
+import type {
+  AicGroup,
+  AicNode,
+  AicLayerId,
+  AicTechId,
+  FacilityBaseCap,
+} from "@/types/aic";
+import { FacilityId, ItemId, RegionStructureId } from "@/types/constants";
+import type { Item } from "@/types";
 import type { DomainId } from "@/types/domain";
+import type { RegionStructure } from "@/types/structures";
 
 const DOMAIN_1 = "domain_1" as DomainId;
 const DOMAIN_2 = "domain_2" as DomainId;
@@ -170,5 +185,332 @@ describe("countRawSourced", () => {
       done: 0,
       total: 2,
     });
+  });
+});
+
+describe("countFacilityCapTargets", () => {
+  const baseCaps: FacilityBaseCap[] = [
+    { facilityId: FacilityId.FURNANCE_1, domainId: DOMAIN_2, base: 1 },
+  ];
+  const capRaise = (facilityId: FacilityId, domainId: DomainId): AicNode => ({
+    id: `raise_${facilityId}` as AicTechId,
+    groupId: AicGroupId.WULING,
+    layerId: "L1" as AicLayerId,
+    preNodes: [],
+    alreadyUnlocked: false,
+    action: { kind: "capRaise", facilityId, domainId, delta: 1 },
+    additionalFacilities: [],
+  });
+
+  test("counts a facility with a base cap or a cap-raise (deduped)", () => {
+    const nodes = [capRaise(FacilityId.FURNANCE_1, DOMAIN_2)];
+    // Same facility via base + raise → 1 distinct target.
+    expect(countFacilityCapTargets(baseCaps, nodes, DOMAIN_2)).toBe(1);
+  });
+
+  test("counts a cap-raise-only facility", () => {
+    const nodes = [capRaise(FacilityId.GRINDER_1, DOMAIN_2)];
+    expect(countFacilityCapTargets(baseCaps, nodes, DOMAIN_2)).toBe(2);
+  });
+
+  test("returns 0 for a region with no targets (drives tab hiding)", () => {
+    expect(countFacilityCapTargets(baseCaps, [], DOMAIN_1)).toBe(0);
+  });
+});
+
+// ── Region-structure chain fixtures (Wuling Purification Node) ──────
+const mkStructure = (
+  id: RegionStructureId,
+  requires: RegionStructureId | undefined,
+  index?: number,
+): RegionStructure => ({
+  id,
+  domainId: DOMAIN_2,
+  requires,
+  nameKey: index === undefined ? "byproductOutlet" : "sewageInlet",
+  index,
+  iconSlug: `icon_${id}`,
+  // Test fixtures use the inlet's facility id for the chain's "instance"
+  // structures and the same id for the tail "recipeToggle" — the
+  // cascade helpers don't read `solver`, only `requires`.
+  solver:
+    index === undefined
+      ? { role: "recipeToggle", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 }
+      : { role: "instance", facilityId: FacilityId.LIQUID_CLEAN_GATE_1 },
+});
+
+const CHAIN: RegionStructure[] = [
+  mkStructure(RegionStructureId.LIQUID_CLEAN_GATE_1, undefined, 1),
+  mkStructure(RegionStructureId.LIQUID_CLEAN_GATE_2, RegionStructureId.LIQUID_CLEAN_GATE_1, 2),
+  mkStructure(RegionStructureId.LIQUID_CLEAN_GATE_3, RegionStructureId.LIQUID_CLEAN_GATE_2, 3),
+  mkStructure(RegionStructureId.LIQUID_RECYCLE_GATE_1, RegionStructureId.LIQUID_CLEAN_GATE_3),
+];
+
+describe("cascadeStructureChain", () => {
+  test("enabling a structure pulls in its prereq chain", () => {
+    const next = cascadeStructureChain(
+      CHAIN,
+      new Set(),
+      RegionStructureId.LIQUID_CLEAN_GATE_3,
+    );
+    expect(next).toEqual(
+      new Set([
+        RegionStructureId.LIQUID_CLEAN_GATE_1,
+        RegionStructureId.LIQUID_CLEAN_GATE_2,
+        RegionStructureId.LIQUID_CLEAN_GATE_3,
+      ]),
+    );
+  });
+
+  test("enabling the tail (Byproduct Outlet) enables the whole chain", () => {
+    const next = cascadeStructureChain(
+      CHAIN,
+      new Set(),
+      RegionStructureId.LIQUID_RECYCLE_GATE_1,
+    );
+    expect(next.size).toBe(4);
+  });
+
+  test("disabling the head drops every dependent", () => {
+    const all = new Set([
+      RegionStructureId.LIQUID_CLEAN_GATE_1,
+      RegionStructureId.LIQUID_CLEAN_GATE_2,
+      RegionStructureId.LIQUID_CLEAN_GATE_3,
+      RegionStructureId.LIQUID_RECYCLE_GATE_1,
+    ]);
+    const next = cascadeStructureChain(
+      CHAIN,
+      all,
+      RegionStructureId.LIQUID_CLEAN_GATE_1,
+    );
+    expect(next.size).toBe(0);
+  });
+
+  test("disabling a middle link drops only its dependents", () => {
+    const enabled = new Set([
+      RegionStructureId.LIQUID_CLEAN_GATE_1,
+      RegionStructureId.LIQUID_CLEAN_GATE_2,
+      RegionStructureId.LIQUID_CLEAN_GATE_3,
+    ]);
+    const next = cascadeStructureChain(
+      CHAIN,
+      enabled,
+      RegionStructureId.LIQUID_CLEAN_GATE_2,
+    );
+    expect(next).toEqual(new Set([RegionStructureId.LIQUID_CLEAN_GATE_1]));
+  });
+
+  test("enabling the head alone keeps it minimal", () => {
+    const next = cascadeStructureChain(
+      CHAIN,
+      new Set(),
+      RegionStructureId.LIQUID_CLEAN_GATE_1,
+    );
+    expect(next).toEqual(new Set([RegionStructureId.LIQUID_CLEAN_GATE_1]));
+  });
+});
+
+describe("countRegionStructuresEnabled", () => {
+  test("counts enabled structures for the region against the total", () => {
+    const enabled = new Set<string>([
+      structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_1),
+      structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_2),
+    ]);
+    expect(countRegionStructuresEnabled(enabled, CHAIN, DOMAIN_2)).toEqual({
+      done: 2,
+      total: 4,
+    });
+  });
+
+  test("ignores enabled keys from other regions", () => {
+    const enabled = new Set<string>([
+      structureKey(DOMAIN_1, RegionStructureId.LIQUID_CLEAN_GATE_1),
+    ]);
+    expect(countRegionStructuresEnabled(enabled, CHAIN, DOMAIN_2)).toEqual({
+      done: 0,
+      total: 4,
+    });
+  });
+});
+
+describe("structureKey", () => {
+  test("encodes a NUL-delimited (domain, structure) pair", () => {
+    expect(structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_1)).toBe(
+      "domain_2\u0000liquid_clean_gate_1",
+    );
+  });
+});
+
+describe("resolveActiveTab", () => {
+  test("keeps the requested tab when available", () => {
+    expect(resolveActiveTab("limits", ["plan", "limits", "raws"])).toBe(
+      "limits",
+    );
+  });
+
+  test("falls back to the first available tab when not present", () => {
+    // e.g. on Wuling's Limits, then switch to a region without Limits.
+    expect(resolveActiveTab("limits", ["plan", "raws"])).toBe("plan");
+  });
+
+  test("returns the request unchanged when nothing is available", () => {
+    expect(resolveActiveTab("plan", [])).toBe("plan");
+  });
+});
+
+// ── Structure persistence helpers ──────────────────────────────────
+//
+// Three pure helpers that together implement the default-active /
+// inverted-persistence pattern for region structures, mirroring AIC's
+// (`initialResearchedSet` → `deriveResearchedFromUnresearched`).
+//
+// `initialStructuresEnabled` is the round-trip identity with an
+// empty `disabled` array; `structuresDisabledFromEnabled` and
+// `deriveStructuresEnabledFromDisabled` are mutual inverses on the
+// subset (registry × activeDomains).
+
+const REGISTRY: ReadonlyMap<DomainId, readonly RegionStructure[]> = new Map([
+  [DOMAIN_2, CHAIN],
+]);
+
+describe("initialStructuresEnabled", () => {
+  test("enables every structure in every active domain", () => {
+    const enabled = initialStructuresEnabled(
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(enabled.size).toBe(4);
+    for (const s of CHAIN) {
+      expect(enabled.has(structureKey(DOMAIN_2, s.id))).toBe(true);
+    }
+  });
+
+  test("inactive domains contribute nothing", () => {
+    const enabled = initialStructuresEnabled(
+      REGISTRY,
+      new Set([DOMAIN_1]), // Wuling NOT active
+    );
+    expect(enabled.size).toBe(0);
+  });
+
+  test("empty registry returns empty regardless of active set", () => {
+    const enabled = initialStructuresEnabled(
+      new Map(),
+      new Set([DOMAIN_1, DOMAIN_2]),
+    );
+    expect(enabled.size).toBe(0);
+  });
+});
+
+describe("deriveStructuresEnabledFromDisabled", () => {
+  test("empty disabled list round-trips to initialStructuresEnabled", () => {
+    const active = new Set([DOMAIN_2]);
+    const fromDerive = deriveStructuresEnabledFromDisabled(
+      [],
+      REGISTRY,
+      active,
+    );
+    const fromInitial = initialStructuresEnabled(REGISTRY, active);
+    expect(fromDerive).toEqual(fromInitial);
+  });
+
+  test("one disabled entry excludes only that structure", () => {
+    const enabled = deriveStructuresEnabledFromDisabled(
+      [
+        {
+          domainId: DOMAIN_2,
+          structureId: RegionStructureId.LIQUID_RECYCLE_GATE_1,
+        },
+      ],
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(enabled.size).toBe(3);
+    expect(
+      enabled.has(structureKey(DOMAIN_2, RegionStructureId.LIQUID_RECYCLE_GATE_1)),
+    ).toBe(false);
+    expect(
+      enabled.has(structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_1)),
+    ).toBe(true);
+  });
+
+  test("disabled entry for an inactive domain is irrelevant", () => {
+    // domain_1 isn't in the registry at all; the disabled entry should
+    // be silently ignored without affecting domain_2's structures.
+    const enabled = deriveStructuresEnabledFromDisabled(
+      [
+        {
+          domainId: DOMAIN_1,
+          structureId: RegionStructureId.LIQUID_CLEAN_GATE_1,
+        },
+      ],
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(enabled.size).toBe(4);
+  });
+
+  test("inactive domain's disabled list doesn't leak enabled entries", () => {
+    // If Wuling is inactive, none of its structures should be enabled,
+    // regardless of what's in the disabled list.
+    const enabled = deriveStructuresEnabledFromDisabled(
+      [],
+      REGISTRY,
+      new Set<DomainId>(), // no active domains
+    );
+    expect(enabled.size).toBe(0);
+  });
+});
+
+describe("structuresDisabledFromEnabled", () => {
+  test("computes the absence list as registry minus enabled", () => {
+    const enabled = new Set<string>([
+      structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_1),
+      structureKey(DOMAIN_2, RegionStructureId.LIQUID_CLEAN_GATE_2),
+    ]);
+    const disabled = structuresDisabledFromEnabled(
+      enabled,
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(disabled).toHaveLength(2);
+    const ids = disabled.map((d) => d.structureId).sort();
+    expect(ids).toEqual(
+      [
+        RegionStructureId.LIQUID_CLEAN_GATE_3,
+        RegionStructureId.LIQUID_RECYCLE_GATE_1,
+      ].sort(),
+    );
+  });
+
+  test("all-enabled set produces an empty disabled list", () => {
+    const enabled = initialStructuresEnabled(REGISTRY, new Set([DOMAIN_2]));
+    const disabled = structuresDisabledFromEnabled(
+      enabled,
+      REGISTRY,
+      new Set([DOMAIN_2]),
+    );
+    expect(disabled).toEqual([]);
+  });
+
+  test("inverse of deriveStructuresEnabledFromDisabled on the active subset", () => {
+    const originalDisabled = [
+      {
+        domainId: DOMAIN_2,
+        structureId: RegionStructureId.LIQUID_RECYCLE_GATE_1,
+      },
+    ];
+    const active = new Set([DOMAIN_2]);
+    const enabled = deriveStructuresEnabledFromDisabled(
+      originalDisabled,
+      REGISTRY,
+      active,
+    );
+    const roundTrip = structuresDisabledFromEnabled(
+      enabled,
+      REGISTRY,
+      active,
+    );
+    expect(roundTrip).toEqual(originalDisabled);
   });
 });

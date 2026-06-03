@@ -1,9 +1,32 @@
 import { items } from "./items";
-import { facilities } from "./facilities";
+import { facilities as generatedFacilities } from "./facilities";
+import { manualFacilities } from "./manual-facilities";
 import { recipes } from "./recipes";
-import { FacilityId } from "@/types/constants";
-import type { ItemId } from "@/types";
+import { FacilityId, RecipeId } from "@/types/constants";
+import type { Facility, ItemId, Recipe, RecipeId as RecipeIdType } from "@/types";
 import type { DomainId } from "@/types/domain";
+
+/**
+ * Combined facility roster: the auto-generated set from upstream game
+ * data plus the hand-curated synthetic entries (today:
+ * `LIQUID_CLEAN_GATE_1`). Order is `generated, ...manual` so iteration
+ * order in tests / mappers sees the well-known facilities first and the
+ * synthetic tail last — keeps snapshot-style tests stable when a new
+ * manual entry is added.
+ *
+ * **Dedup**: a manual entry with the same id as an auto-generated entry
+ * wins. This is defensive against a future maintainer adding the
+ * canonical game id (e.g. `liquid_clean_gate_1`) to the
+ * `build-facilities.ts` allowlist — the manual record keeps its
+ * hand-tuned values (power=0, domain-restricted) regardless. The
+ * convention in `manual-facilities.ts` is "don't enable the script
+ * allowlist for these ids", but this filter is the structural backstop.
+ */
+const manualFacilityIds = new Set(manualFacilities.map((f) => f.id));
+const facilities: Facility[] = [
+  ...generatedFacilities.filter((f) => !manualFacilityIds.has(f.id)),
+  ...manualFacilities,
+];
 
 /**
  * Per-raw-material configuration assigning a source facility. The
@@ -187,6 +210,136 @@ const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
   FacilityId.SEEDCOLLECTOR_1,
 ]);
 
+/**
+ * Per-facility recipe-variant pairs gated by a structure toggle.
+ *
+ * Each entry says: "facility F has two interchangeable recipes — the
+ * `default` runs when no enabled structure toggles F, the `toggled`
+ * runs when at least one enabled structure has `solver = { role:
+ * "recipeToggle", facilityId: F }`". The App-layer bridge in
+ * `src/App.tsx` walks this map together with `regionStructures` +
+ * `structures.enabled` to build the `recipeConstraints` exclusion set.
+ *
+ * Today's sole entry is `LIQUID_CLEAN_GATE_1`:
+ *   - `default` = `LIQUID_CLEAN_GATE_1_DISPOSAL` (pure sink; Byproduct Outlet OFF)
+ *   - `toggled` = `LIQUID_CLEAN_GATE_1_BYPRODUCT` (emits xiranite_poly; ON)
+ *
+ * The two recipes share the same facility AND the same per-building
+ * sewage throughput (120/min) by construction, so the LP's facility-cap
+ * constraint on `LIQUID_CLEAN_GATE_1` correctly bounds the number of
+ * physical inlets regardless of which variant is active.
+ *
+ * Invariant (verified at module load by the DEV/test self-check
+ * immediately below): every entry's `default` and `toggled` recipes
+ * must exist in `recipes` AND share their `facilityId` with the map
+ * key. Violating this would make the facility-cap constraint
+ * inconsistent with the recipe filter, causing the LP to silently
+ * misbalance.
+ */
+const facilityRecipeVariants: ReadonlyMap<
+  FacilityId,
+  { readonly default: RecipeIdType; readonly toggled: RecipeIdType }
+> = new Map([
+  [
+    FacilityId.LIQUID_CLEAN_GATE_1,
+    {
+      default: RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
+      toggled: RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT,
+    },
+  ],
+]);
+
+// Module-load self-check for `facilityRecipeVariants`. Verifies three
+// invariants for every entry — caught at boot so the LP can't silently
+// misbalance:
+//
+//   1. Both `default` and `toggled` recipe ids exist in `recipes`.
+//   2. Each recipe's `facilityId` matches the map key.
+//   3. Both variants consume the same items at the same per-minute
+//      rate (output shapes intentionally NOT checked — BYPRODUCT
+//      producing xiranite_poly while DISPOSAL produces nothing IS the
+//      point of a variant pair).
+//
+// **Why input-rate parity matters**: variants share a facility and a
+// building-count budget (the LP allocates one `x_r` per variant from
+// the same `facilityCaps[F]` ceiling). If their consumption rates
+// diverged, toggling the recipeToggle would silently shift the LP's
+// input-balance side and distort upstream production. Today
+// LIQUID_CLEAN_GATE_1 variants both consume 120 sewage/min via
+// (amount=1, time=0.5s) and (amount=30, time=15s); this check pins
+// the equality so future tunings can't drift apart unnoticed.
+//
+// Gated on DEV mode OR test mode so production users never see a
+// crash from a developer error that wasn't caught in CI. Cost is
+// O(V × I) where V = variant pairs and I = avg inputs/recipe
+// (≈ O(2) today); negligible.
+if (
+  import.meta.env?.DEV ||
+  import.meta.env?.MODE === "test"
+) {
+  // Rate calc inlined — importing `calcRate` from `@/lib/utils` would
+  // create a `@/data` → `@/lib/utils` → `@/data` cycle.
+  const inputRateMap = (recipe: Recipe): Map<ItemId, number> => {
+    const m = new Map<ItemId, number>();
+    for (const inp of recipe.inputs) {
+      m.set(
+        inp.itemId,
+        (m.get(inp.itemId) ?? 0) + (inp.amount * 60) / recipe.craftingTime,
+      );
+    }
+    return m;
+  };
+
+  const resolveVariant = (
+    facilityId: FacilityId,
+    variantId: RecipeIdType,
+  ): Recipe => {
+    const recipe = recipes.find((r) => r.id === variantId);
+    if (!recipe) {
+      throw new Error(
+        `facilityRecipeVariants: recipe ${variantId} (mapped under ${facilityId}) is not in \`recipes\``,
+      );
+    }
+    if (recipe.facilityId !== facilityId) {
+      throw new Error(
+        `facilityRecipeVariants: recipe ${variantId} has facilityId ${recipe.facilityId} but the map key is ${facilityId}`,
+      );
+    }
+    return recipe;
+  };
+
+  for (const [facilityId, variants] of facilityRecipeVariants) {
+    const defRecipe = resolveVariant(facilityId, variants.default);
+    const togRecipe = resolveVariant(facilityId, variants.toggled);
+
+    const defRates = inputRateMap(defRecipe);
+    const togRates = inputRateMap(togRecipe);
+    if (defRates.size !== togRates.size) {
+      throw new Error(
+        `facilityRecipeVariants: ${facilityId} variants consume different item sets ` +
+          `(${variants.default}: {${[...defRates.keys()].join(",")}}; ` +
+          `${variants.toggled}: {${[...togRates.keys()].join(",")}})`,
+      );
+    }
+    for (const [itemId, defRate] of defRates) {
+      const togRate = togRates.get(itemId);
+      if (togRate === undefined) {
+        throw new Error(
+          `facilityRecipeVariants: ${facilityId} variants disagree on ${itemId} ` +
+            `(${variants.default} consumes it; ${variants.toggled} does not)`,
+        );
+      }
+      if (Math.abs(defRate - togRate) > 1e-9) {
+        throw new Error(
+          `facilityRecipeVariants: ${facilityId} variants consume ${itemId} at ` +
+            `different rates (${variants.default}: ${defRate}/min; ` +
+            `${variants.toggled}: ${togRate}/min)`,
+        );
+      }
+    }
+  }
+}
+
 export {
   items,
   facilities,
@@ -196,6 +349,8 @@ export {
   costlessRaws,
   forcedDisposalItems,
   bootstrapFacilities,
+  facilityRecipeVariants,
   MAX_TARGETS,
 };
 export type { RawSourceConfig };
+export { regionStructures } from "./region-structures";

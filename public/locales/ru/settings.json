@@ -21,14 +21,25 @@
   "tabs": {
     "plan": "План",
     "limits": "Лимиты",
-    "raws": "Ресурсы"
+    "raws": "Ресурсы",
+    "structures": "Сооружения"
   },
   "status": {
     "researched": "{{done}} / {{total}} исследовано",
     "customized": "{{n}} изменено",
-    "sourced": "{{done}} / {{total}} с источником"
+    "sourced": "{{done}} / {{total}} с источником",
+    "enabled": "{{done}} / {{total}} включено"
+  },
+  "structures": {
+    "purificationNode": "Узел рафинирования",
+    "sewageInlet": "Сточный подвод {{n}}",
+    "byproductOutlet": "Отвод побочных продуктов",
+    "help": "Активируйте сооружения, которые можно подключить к фабрике.",
+    "treats": "Обрабатывает: {{item}}",
+    "produces": "Производит: {{item}}"
   },
   "rawLimits": {
+    "cardTitle": "Природные ресурсы",
     "help": "Пустое поле означает неограниченный запас. Введите значение, чтобы задать лимит.",
     "clearAll": "Очистить всё",
     "placeholder": "∞",

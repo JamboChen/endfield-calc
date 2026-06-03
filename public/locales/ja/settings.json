@@ -21,14 +21,25 @@
   "tabs": {
     "plan": "プラン",
     "limits": "上限",
-    "raws": "資源"
+    "raws": "資源",
+    "structures": "構造物"
   },
   "status": {
     "researched": "{{done}} / {{total}} 研究済み",
     "customized": "{{n}} 件カスタム",
-    "sourced": "{{done}} / {{total}} 入手済み"
+    "sourced": "{{done}} / {{total}} 入手済み",
+    "enabled": "{{done}} / {{total}} 有効"
+  },
+  "structures": {
+    "purificationNode": "浄水装置",
+    "sewageInlet": "汚水入力口 {{n}}",
+    "byproductOutlet": "副産物出力口",
+    "help": "工場に接続できる構造物を有効化します。",
+    "treats": "{{item}}を処理",
+    "produces": "{{item}}を生産"
   },
   "rawLimits": {
+    "cardTitle": "天然資源",
     "help": "空欄はその資源が無制限であることを意味します。数値を入力すると上限を設定できます。",
     "clearAll": "すべてクリア",
     "placeholder": "∞",

@@ -57,9 +57,20 @@
  *     "overrides": [
  *       { "itemId": "...", "domainId": "...", "value": 30 }
  *     ]
+ *   },
+ *   "structures": {
+ *     "disabled": [
+ *       { "domainId": "...", "structureId": "..." }
+ *     ]
  *   }
  * }
  * ```
+ *
+ * Both `aic.unresearched` and `structures.disabled` are **inverted
+ * absence-lists** — empty arrays mean "everything researched /
+ * enabled in active domains". Persistence stores only the user's
+ * explicit opt-outs, so a fresh user (no localStorage) loads with
+ * everything on.
  *
  * `domains.current` is the user's selected factory region. Invariant:
  * always ∈ `activeDomains` (pinned domains are always active so this
@@ -88,14 +99,21 @@
  *   `node.alreadyUnlocked`. Active domains get the "everything
  *   researched" default; inactive domains get the game-default subset.
  * - `rawLimits.overrides` = empty (no caps configured).
+ * - `structures.enabled` = every structure in every active domain
+ *   (default-active mirror of AIC). Inactive-domain structures are
+ *   not enabled. With Valley IV pinned-active and Wuling default-
+ *   inactive today, this means structures.enabled = ∅ for a fresh
+ *   user until they activate Wuling via onboarding (which bulk-
+ *   enables Wuling's full Purification Node chain).
  *
  * # Soft deactivation
  *
- * `toggleDomain` toggles an entry in/out of `inactiveDomains` and leaves
- * `researched` untouched. Re-activating a domain restores prior research
- * state automatically. Pinned domains (Valley IV) refuse deactivation.
- * When the toggle would deactivate `currentDomain`, the setter auto-
- * shifts `currentDomain` to `pickLatestActive` of the post-toggle set
+ * `toggleDomain` toggles an entry in/out of `inactiveDomains` and
+ * leaves `researched` and `structures.enabled` untouched. Re-activating
+ * a domain restores prior research / structures state automatically.
+ * Pinned domains (Valley IV) refuse deactivation. When the toggle
+ * would deactivate `currentDomain`, the setter auto-shifts
+ * `currentDomain` to `pickLatestActive` of the post-toggle set
  * (preserving the invariant); SettingsSheet detects the shift and
  * toasts the user.
  */
@@ -108,7 +126,7 @@ import {
   domains as domainData,
   facilityBaseCaps,
 } from "@/data/aic-plans";
-import { rawAvailabilityByDomain } from "@/data";
+import { rawAvailabilityByDomain, regionStructures } from "@/data";
 import {
   buildNodeIndex,
   cascadeActivate,
@@ -122,6 +140,13 @@ import {
   isGroupAtDefaults,
 } from "@/lib/aic-research-helpers";
 import { parseRawLimitKey, rawLimitKey } from "@/lib/raw-limits-helpers";
+import {
+  cascadeStructureChain,
+  deriveStructuresEnabledFromDisabled,
+  initialStructuresEnabled,
+  structureKey,
+  structuresDisabledFromEnabled,
+} from "@/lib/settings-helpers";
 import type {
   AicGroupId,
   AicLayerId,
@@ -130,6 +155,7 @@ import type {
 } from "@/types/aic";
 import type { Domain, DomainId } from "@/types/domain";
 import type { FacilityId, ItemId } from "@/types";
+import type { RegionStructureId } from "@/types/constants";
 
 const STORAGE_KEY = "endfield-calc:aic-v1";
 
@@ -143,6 +169,11 @@ interface RawLimitOverrideRecord {
   itemId: ItemId;
   domainId: DomainId;
   value: number;
+}
+
+interface StructureDisabledRecord {
+  domainId: DomainId;
+  structureId: RegionStructureId;
 }
 
 /**
@@ -162,6 +193,19 @@ interface PersistedShape {
   };
   rawLimits?: {
     overrides: RawLimitOverrideRecord[];
+  };
+  /**
+   * Region structures (absent in payloads written before the
+   * "Structures" tab). **Default-active**: empty `disabled` list (or
+   * a missing `structures` key entirely) means every structure in
+   * every active domain is enabled. Persistence stores only the
+   * user's explicit opt-outs, mirroring the AIC `unresearched`
+   * pattern. Inactive-domain structures don't appear here (their
+   * state is preserved in memory across deactivation; see
+   * `structuresDisabledFromEnabled` for the writer rule).
+   */
+  structures?: {
+    disabled: StructureDisabledRecord[];
   };
 }
 
@@ -296,6 +340,10 @@ function loadFromStorage(): PersistedShape | null {
     const parsed = JSON.parse(raw);
     const knownTechIds = new Set(aicNodes.map((n) => n.id as string));
     const knownDomainIds = new Set(domainData.map((d) => d.id as string));
+    const knownStructureKeys = new Set<string>();
+    for (const [domainId, list] of regionStructures) {
+      for (const s of list) knownStructureKeys.add(structureKey(domainId, s.id));
+    }
 
     let shape: PersistedShape | null = null;
     if (isNestedShape(parsed)) {
@@ -367,10 +415,34 @@ function loadFromStorage(): PersistedShape | null {
         )
       : [];
 
+    // Region structures — absence-list of disabled (domain, structure)
+    // pairs (inverted persistence, mirrors AIC `unresearched`). Drop
+    // entries whose (domain, structure) pair is not a known structure
+    // (e.g. registry changed, or hand-edited state) — an unknown
+    // disabled entry is meaningless and gets silently dropped, which
+    // effectively re-enables the structure under the default-active
+    // rule. That's the desired behavior on registry changes.
+    const structuresDisabled = Array.isArray(shape.structures?.disabled)
+      ? shape.structures.disabled.filter(
+          (r): r is StructureDisabledRecord =>
+            r !== null &&
+            typeof r === "object" &&
+            typeof r.domainId === "string" &&
+            typeof r.structureId === "string" &&
+            knownStructureKeys.has(
+              structureKey(
+                r.domainId as DomainId,
+                r.structureId as RegionStructureId,
+              ),
+            ),
+        )
+      : [];
+
     return {
       domains: { inactive, current },
       aic: { unresearched, capOverrides },
       rawLimits: { overrides: rawLimitOverrides },
+      structures: { disabled: structuresDisabled },
     };
   } catch {
     return null;
@@ -383,6 +455,7 @@ function persistToStorage(state: {
   capOverrides: ReadonlyMap<string, number>;
   currentDomain: DomainId;
   rawLimitOverrides: ReadonlyMap<string, number>;
+  structuresEnabled: ReadonlySet<string>;
 }): void {
   if (typeof window === "undefined") return;
   try {
@@ -415,6 +488,21 @@ function persistToStorage(state: {
       });
     }
 
+    // Invert the in-memory `enabled` set → persisted `disabled`
+    // absence-list. Walks the registry × active domains; structures
+    // in inactive domains are skipped (their state stays in memory
+    // for soft-deactivation; see `structuresDisabledFromEnabled`
+    // JSDoc).
+    const activeDomains = new Set<DomainId>();
+    for (const d of domainData) {
+      if (!state.inactiveDomains.has(d.id)) activeDomains.add(d.id);
+    }
+    const structuresList = structuresDisabledFromEnabled(
+      state.structuresEnabled,
+      regionStructures,
+      activeDomains,
+    );
+
     const payload: PersistedShape = {
       domains: {
         inactive: Array.from(state.inactiveDomains).sort(),
@@ -432,6 +520,13 @@ function persistToStorage(state: {
         overrides: rawLimitsList.sort((a, b) => {
           if (a.itemId !== b.itemId) return a.itemId.localeCompare(b.itemId);
           return a.domainId.localeCompare(b.domainId);
+        }),
+      },
+      structures: {
+        disabled: structuresList.sort((a, b) => {
+          if (a.domainId !== b.domainId)
+            return a.domainId.localeCompare(b.domainId);
+          return a.structureId.localeCompare(b.structureId);
         }),
       },
     };
@@ -553,6 +648,32 @@ export interface RawLimitsSubState {
   ) => void;
 }
 
+export interface StructuresSubState {
+  /**
+   * Enabled (domain, structure) pairs, keyed by
+   * `structureKey(domainId, structureId)`.
+   *
+   * **Default-active** (mirrors AIC's `researched` semantics): a
+   * fresh user with no localStorage has every structure in every
+   * active domain enabled. Persistence stores only the user's
+   * explicit opt-outs (`structures.disabled` absence-list); empty
+   * disabled list round-trips to the "all enabled in active domains"
+   * default.
+   *
+   * Drives `App.tsx`'s `facilityCaps` aggregation (+1 per enabled
+   * `instance` structure) and the `structureVariantExcluded` filter
+   * (which variant of `facilityRecipeVariants` is active).
+   */
+  readonly enabled: ReadonlySet<string>;
+
+  /**
+   * Toggle one region structure with a prereq-chain cascade (enabling
+   * pulls in prereqs; disabling drops dependents). No-op for unknown
+   * `(domain, structure)` pairs.
+   */
+  toggle: (domainId: DomainId, structureId: RegionStructureId) => void;
+}
+
 export interface DomainSettingsValue {
   /** First-class domain registry from the data dump. */
   readonly domains: readonly Domain[];
@@ -574,12 +695,15 @@ export interface DomainSettingsValue {
   /**
    * Bulk-apply the first-visit onboarding choices. For each `(domainId,
    * isChecked)` pair:
-   *   - Non-pinned + checked → domain active, all nodes researched.
+   *   - Non-pinned + checked → domain active, all nodes researched,
+   *     all structures enabled.
    *   - Non-pinned + unchecked → domain inactive, nodes reset to
-   *     `alreadyUnlocked` only.
-   *   - Pinned + checked → all nodes researched (domain stays active).
-   *   - Pinned + unchecked → nodes reset to `alreadyUnlocked` only
-   *     (domain stays active — pinned domains can't deactivate).
+   *     `alreadyUnlocked` only, no structures enabled.
+   *   - Pinned + checked → all nodes researched, all structures
+   *     enabled (domain stays active).
+   *   - Pinned + unchecked → nodes reset to `alreadyUnlocked` only,
+   *     no structures enabled (domain stays active — pinned domains
+   *     can't deactivate).
    *
    * Domains absent from the map are treated as checked (defensive — the
    * caller defaults to all-checked).
@@ -589,9 +713,9 @@ export interface DomainSettingsValue {
    * the post-confirm active set (the dialog's option list is filtered
    * to `d.isPinned || choices.get(d.id)`).
    *
-   * Atomic: one `setInactiveDomains` + one `setResearched` +
-   * `setCurrentDomain` call, so the persist effect fires once with all
-   * three updates batched by React.
+   * Atomic: one `setInactiveDomains` + one `setResearched` + one
+   * `setStructuresEnabled` + `setCurrentDomain` call, so the persist
+   * effect fires once with all four updates batched by React.
    */
   applyOnboardingChoices: (
     choices: ReadonlyMap<DomainId, boolean>,
@@ -621,6 +745,13 @@ export interface DomainSettingsValue {
    * constraints land with the future solver-enforcement workstream).
    */
   readonly rawLimits: RawLimitsSubState;
+
+  /**
+   * Region-exclusive special structures sub-state (the "Structures" tab).
+   * Opt-in enable flags per `(domain, structure)`; persisted but not yet
+   * consumed by the calc (solver wiring is a later workstream).
+   */
+  readonly structures: StructuresSubState;
 }
 
 /**
@@ -641,6 +772,7 @@ function composeInitialState(): {
   capOverrides: Map<string, number>;
   currentDomain: DomainId;
   rawLimitOverrides: Map<string, number>;
+  structuresEnabled: Set<string>;
 } {
   const persisted = loadFromStorage();
 
@@ -694,12 +826,31 @@ function composeInitialState(): {
     }
   }
 
+  // ── structuresEnabled (default-active mirror of AIC; persistence
+  //    stores an absence-list of explicit opt-outs)
+  //
+  // First-run user (no persisted payload): every structure in every
+  // active domain is enabled.
+  //
+  // Persisted user: derive the enabled set from `disabled` (loader's
+  // defensive unknown-id filter already applied — entries that don't
+  // appear in `regionStructures × initialActive` are filtered out
+  // implicitly by the derive helper).
+  const structuresEnabled = persisted?.structures
+    ? deriveStructuresEnabledFromDisabled(
+        persisted.structures.disabled,
+        regionStructures,
+        initialActive,
+      )
+    : initialStructuresEnabled(regionStructures, initialActive);
+
   return {
     inactiveDomains,
     researched,
     capOverrides,
     currentDomain,
     rawLimitOverrides,
+    structuresEnabled,
   };
 }
 
@@ -731,6 +882,10 @@ export function useDomainSettings(): DomainSettingsValue {
     ReadonlyMap<string, number>
   >(initial.rawLimitOverrides);
 
+  const [structuresEnabled, setStructuresEnabled] = useState<
+    ReadonlySet<string>
+  >(initial.structuresEnabled);
+
   // Derived: active domains (allDomains - inactive). Pinned domains
   // can never be in `inactiveDomains` (the toggler refuses) so they're
   // always active here.
@@ -756,6 +911,7 @@ export function useDomainSettings(): DomainSettingsValue {
       capOverrides,
       currentDomain,
       rawLimitOverrides,
+      structuresEnabled,
     });
   }, [
     researched,
@@ -763,6 +919,7 @@ export function useDomainSettings(): DomainSettingsValue {
     capOverrides,
     currentDomain,
     rawLimitOverrides,
+    structuresEnabled,
   ]);
 
   // Derived: AIC selectors (domain-aware where applicable).
@@ -840,8 +997,8 @@ export function useDomainSettings(): DomainSettingsValue {
   /**
    * First-visit onboarding bulk-apply. See `DomainSettingsValue
    * .applyOnboardingChoices` for semantics. Touches inactive-domains,
-   * researched-nodes, and currentDomain in three setter calls; React
-   * batches them so the persist effect fires once.
+   * researched-nodes, structures-enabled, and currentDomain in four
+   * setter calls; React batches them so the persist effect fires once.
    *
    * `nextCurrentDomain` is validated against the post-confirm active
    * set; if it would land outside, falls back to `pickLatestActive`
@@ -886,6 +1043,14 @@ export function useDomainSettings(): DomainSettingsValue {
         }
         return next;
       });
+
+      // Structures mirror the researched semantics: checked domain →
+      // every structure enabled; unchecked → none enabled. There's no
+      // `alreadyUnlocked` equivalent for structures (no game default
+      // forces any to be on), so unchecked simply means "empty".
+      setStructuresEnabled(
+        initialStructuresEnabled(regionStructures, nextActive),
+      );
 
       setCurrentDomainState(
         nextActive.has(nextCurrentDomain)
@@ -1012,6 +1177,37 @@ export function useDomainSettings(): DomainSettingsValue {
     [],
   );
 
+  /**
+   * Toggle one region structure (opt-in), enforcing the prereq chain via
+   * `cascadeStructureChain`: enabling pulls in prereqs, disabling drops
+   * dependents. No-op for unknown (domain, structure) pairs.
+   */
+  const toggleStructure = useCallback(
+    (domainId: DomainId, structureId: RegionStructureId) => {
+      const structures = regionStructures.get(domainId);
+      if (!structures || !structures.some((s) => s.id === structureId)) return;
+      setStructuresEnabled((prev) => {
+        const domainEnabled = new Set<RegionStructureId>();
+        for (const s of structures) {
+          if (prev.has(structureKey(domainId, s.id))) domainEnabled.add(s.id);
+        }
+        const nextDomainEnabled = cascadeStructureChain(
+          structures,
+          domainEnabled,
+          structureId,
+        );
+        // Clear this domain's keys, then re-add the cascaded enabled set.
+        const next = new Set(prev);
+        for (const s of structures) next.delete(structureKey(domainId, s.id));
+        for (const id of nextDomainEnabled) {
+          next.add(structureKey(domainId, id));
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   const aic: AicSubState = useMemo(
     () => ({
       nodes: aicNodes,
@@ -1057,6 +1253,14 @@ export function useDomainSettings(): DomainSettingsValue {
     [rawLimitOverrides, setRawLimitOverride],
   );
 
+  const structures: StructuresSubState = useMemo(
+    () => ({
+      enabled: structuresEnabled,
+      toggle: toggleStructure,
+    }),
+    [structuresEnabled, toggleStructure],
+  );
+
   return {
     domains: domainData,
     activeDomains,
@@ -1066,5 +1270,6 @@ export function useDomainSettings(): DomainSettingsValue {
     setCurrentDomain,
     aic,
     rawLimits,
+    structures,
   };
 }

@@ -1,7 +1,8 @@
 import { Handle, Position } from "@xyflow/react";
 import type { Node, NodeProps } from "@xyflow/react";
-import { Target, Factory } from "lucide-react";
+import { Target } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { FacilityIcon } from "@/components/FacilityIcon";
 import {
   Tooltip,
   TooltipContent,
@@ -84,15 +85,11 @@ export default function CustomTargetNode({
             {isTerminalTarget && facility && (
               <div className="flex items-center justify-between mx-2.5 mb-2.5 bg-blue-100/50 dark:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 rounded-sm px-2 py-1">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  {facility.iconUrl ? (
-                    <img
-                      src={facility.iconUrl}
-                      alt={facilityName}
-                      className="h-4 w-4 object-contain shrink-0"
-                    />
-                  ) : (
-                    <Factory className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                  )}
+                  <FacilityIcon
+                    facility={facility}
+                    alt={facilityName}
+                    className="h-4 w-4 object-contain shrink-0 text-blue-600 dark:text-blue-400"
+                  />
                   <span className="text-[10px] text-muted-foreground truncate">
                     {facilityName}
                   </span>

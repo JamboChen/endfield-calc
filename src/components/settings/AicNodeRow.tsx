@@ -12,9 +12,11 @@ import { cn } from "@/lib/utils";
 import type { AicNode, AicTechId } from "@/types/aic";
 import { facilities, items, recipes } from "@/data";
 import { recipesByTech } from "@/data/aic-plans";
-import { facilityIconUrl } from "@/lib/facility-icons";
+import { FacilityIcon } from "@/components/FacilityIcon";
 import { getRecipeName } from "@/lib/i18n-helpers";
 import type { FacilityId, RecipeId } from "@/types";
+
+import { settingsRowClass } from "./SettingsCard";
 
 interface AicNodeRowProps {
   node: AicNode;
@@ -181,8 +183,8 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
   return (
     <div
       className={cn(
-        "group/aicrow flex items-center gap-3 min-h-[44px] px-2 py-1.5 rounded-md",
-        "transition-colors",
+        "group/aicrow transition-colors",
+        settingsRowClass,
         isLocked
           ? "opacity-55"
           : "hover:bg-accent/60 dark:hover:bg-accent/40",
@@ -196,15 +198,9 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
         aria-label={ariaLabel}
         className={cn(isImmutable && "data-[state=checked]:bg-muted-foreground data-[state=checked]:border-muted-foreground")}
       />
-      <img
-        src={facilityIconUrl(node.action.facilityId)}
-        alt=""
-        aria-hidden="true"
+      <FacilityIcon
+        facilityId={node.action.facilityId}
         className="size-6 object-contain shrink-0"
-        draggable={false}
-        onError={(e) => {
-          (e.target as HTMLImageElement).style.visibility = "hidden";
-        }}
       />
       <div className="flex-1 min-w-0 flex items-center gap-2">
         <span

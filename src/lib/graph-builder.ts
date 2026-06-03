@@ -1,4 +1,5 @@
 import type { Recipe, ItemId, RecipeId } from "@/types";
+import { forcedDisposalItems } from "@/data";
 import type {
   ProductionMaps,
   BipartiteGraph,
@@ -209,7 +210,183 @@ export function buildBipartiteGraph(
 
   targets.forEach(({ itemId }) => traverse(itemId));
 
+  // ── Pre-LP disposal-recipe injection ────────────────────────────────
+  //
+  // Target-rooted traversal only adds recipes that PRODUCE items needed
+  // for a target — zero-output disposal recipes (Liquid Cleaner; Sewage
+  // Inlet's DISPOSAL variant) never enter the graph that way. Sewage
+  // Inlet's BYPRODUCT variant (which produces xiranite_poly) similarly
+  // only enters if xiranite_poly is reachable from a target. The result
+  // is that the LP can't reason about disposal at all unless we pull
+  // those recipes in here.
+  //
+  // The injection rule: for every forced-disposal item in the graph
+  // (excluding raws), pull in every consumer recipe from
+  // `availableProducersFor`-compatible sources whose outputs are either
+  // empty OR entirely forced-disposal items. The "outputs are all
+  // forced-disposal" gate is what lets BYPRODUCT recipes participate
+  // without dragging in arbitrary downstream chains — we trust the LP
+  // to handle the new disposal item via the same mechanism, recursing
+  // until we hit pure zero-output disposers.
+  //
+  // **Forced-disposal item set** (`@/data/index.ts:forcedDisposalItems`)
+  // today is three items: `item_liquid_sewage`,
+  // `item_liquid_xiranite_poly`, `item_liquid_xiranite_lowpoly`. Of
+  // these, only sewage + xiranite_poly are observable in current plans
+  // (Sewage Inlet's BYPRODUCT variant produces xiranite_poly, which
+  // routes through the Cleaner's xiranite_poly disposer).
+  // `xiranite_lowpoly` has no producer in the current shipping data,
+  // so it never enters the graph today — but the cascade handles it
+  // when it does (e.g. a future POOL_LIQUID_XIRANITE_POLY pool recipe
+  // producing both poly + lowpoly as byproducts).
+  //
+  // Termination: a visited set guards against revisiting an item;
+  // cascading from sewage→xiranite_poly→… always lands at a zero-output
+  // disposer in finite steps (in current data, `liquid_cleaner_1` is
+  // the terminal sink for all three forced-disposal items).
+  //
+  // Recipe-availability gating: the disposal recipes still pass through
+  // `availableProducersFor`-style filters (recipeConstraints) so that
+  // the App-layer's structure-variant filter (drop one of the two
+  // LIQUID_CLEAN_GATE_1 variants) is honoured. We deliberately bypass the
+  // `recipeOverrides` pin check (disposal isn't pin-eligible) and the
+  // dismantler fallback (dismantle recipes can't be disposal recipes —
+  // their inputs start with `item_fbottle_*`, not a forced-disposal
+  // item).
+  injectDisposalRecipesIntoGraph(graph, maps, recipeConstraints);
+
   return graph;
+}
+
+/**
+ * Add disposal recipes (zero-output OR forced-disposal-only-output)
+ * that consume any forced-disposal item present in the graph. Mutates
+ * `graph` in place. See `buildBipartiteGraph` for the rationale.
+ *
+ * Performance: O((D × R) + cascade) where D = number of forced-disposal
+ * items in the graph (≤ |forcedDisposalItems|, today 3) and R = total
+ * recipes. Trivial at our scale.
+ */
+function injectDisposalRecipesIntoGraph(
+  graph: BipartiteGraph,
+  maps: ProductionMaps,
+  recipeConstraints: Map<ItemId, Set<RecipeId>> | undefined,
+): void {
+  // Note: variant-recipe filtering is owned by `calculator.ts`'s
+  // pre-filter on `maps.recipeMap` (and mirrors the App.tsx-side
+  // filter). By the time we get here, opt-in variant recipes whose
+  // facility has no positive cap are already absent from
+  // `maps.recipeMap.values()` — no in-builder filter needed.
+
+  // Seed the queue with forced-disposal items already in the graph
+  // (and not raws — a raw forced-disposal item has infinite supply, no
+  // disposal needed).
+  const queue: ItemId[] = [];
+  const visited = new Set<ItemId>();
+  for (const itemId of graph.itemNodes.keys()) {
+    if (!forcedDisposalItems.has(itemId)) continue;
+    if (graph.itemNodes.get(itemId)!.isRawMaterial) continue;
+    queue.push(itemId);
+    visited.add(itemId);
+  }
+
+  while (queue.length > 0) {
+    const itemId = queue.shift()!;
+
+    for (const recipe of maps.recipeMap.values()) {
+      // Filter 1: recipe must consume `itemId`.
+      if (!recipe.inputs.some((i) => i.itemId === itemId)) continue;
+
+      // Filter 2: recipe must be "disposal-shaped" — either zero outputs
+      // (a pure sink) or every output must itself be a forced-disposal
+      // item (we'll cascade-handle them below). This keeps the
+      // injection contained: an arbitrary multi-output recipe that
+      // happens to consume sewage as a side input (e.g. POOL_LIQUID_
+      // XIRANITE_POLY consumes sewage but produces xiranite_poly +
+      // xiranite_lowpoly — BOTH forced-disposal, so it qualifies) is
+      // included; one consuming sewage to produce something useful
+      // would already be in the graph via target-rooted traversal.
+      const isDisposalShape =
+        recipe.outputs.length === 0 ||
+        recipe.outputs.every((o) => forcedDisposalItems.has(o.itemId));
+      if (!isDisposalShape) continue;
+
+      // Filter 3: honour recipeConstraints (the App-layer's structure-
+      // variant filter lives here). We can't reuse `availableProducersFor`
+      // directly because it's keyed on output items, but the per-item
+      // exclusion semantics are the same.
+      let excluded = false;
+      for (const out of recipe.outputs) {
+        const ex = recipeConstraints?.get(out.itemId);
+        if (ex?.has(recipe.id)) {
+          excluded = true;
+          break;
+        }
+      }
+      if (excluded) continue;
+      // Also honour exclusions keyed under the consumed item itself
+      // (covers zero-output recipes — `outputs` loop above yields no
+      // iterations to check).
+      const exForInput = recipeConstraints?.get(itemId);
+      if (exForInput?.has(recipe.id)) continue;
+
+      // Filter 4: skip if already in the graph (target traversal may
+      // have added it for non-zero-output cases).
+      if (graph.recipeNodes.has(recipe.id)) continue;
+
+      const facility = maps.facilityMap.get(recipe.facilityId);
+      if (!facility) continue;
+
+      // Add recipe node + wire up edges.
+      graph.recipeNodes.set(recipe.id, {
+        recipeId: recipe.id,
+        recipe,
+        facility,
+      });
+      graph.recipeInputs.set(recipe.id, new Set(recipe.inputs.map((i) => i.itemId)));
+      graph.recipeOutputs.set(recipe.id, new Set(recipe.outputs.map((o) => o.itemId)));
+      for (const input of recipe.inputs) {
+        if (!graph.itemConsumedBy.has(input.itemId)) {
+          graph.itemConsumedBy.set(input.itemId, new Set());
+        }
+        graph.itemConsumedBy.get(input.itemId)!.add(recipe.id);
+        // Make sure the input item has a node — disposal recipes can
+        // reference items that target traversal didn't visit (e.g.
+        // xiranite_lowpoly when only sewage was target-reachable).
+        if (!graph.itemNodes.has(input.itemId)) {
+          const inputItem = maps.itemMap.get(input.itemId);
+          if (inputItem) {
+            graph.itemNodes.set(input.itemId, {
+              itemId: input.itemId,
+              item: inputItem,
+              isRawMaterial: false,
+            });
+          }
+        }
+      }
+      for (const output of recipe.outputs) {
+        if (!graph.itemNodes.has(output.itemId)) {
+          const outputItem = maps.itemMap.get(output.itemId);
+          if (outputItem) {
+            graph.itemNodes.set(output.itemId, {
+              itemId: output.itemId,
+              item: outputItem,
+              isRawMaterial: false,
+            });
+          }
+        }
+        // Enqueue newly-introduced forced-disposal items so we cascade
+        // until every disposal chain terminates at a pure sink.
+        if (
+          forcedDisposalItems.has(output.itemId) &&
+          !visited.has(output.itemId)
+        ) {
+          visited.add(output.itemId);
+          queue.push(output.itemId);
+        }
+      }
+    }
+  }
 }
 
 export function detectSCCs(graph: BipartiteGraph): SCCInfo[] {

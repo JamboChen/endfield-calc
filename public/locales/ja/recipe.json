@@ -185,6 +185,8 @@
   "grinder_plant_moss_powder_2_1": "シトローム粉末生産",
   "grinder_plant_moss_powder_3_1": "サンドリーフ粉末生産",
   "grinder_quartz_powder_1": "紫晶粉末生産",
+  "liquid_clean_gate_1_byproduct": "汚水処理(入力口+出力口)",
+  "liquid_clean_gate_1_disposal": "汚水処理(入力口)",
   "liquid_purifier_copper_enr_1": "緋銅溶液精製",
   "liquid_purifier_xiranite_poly_1": "壌晶廃液精製",
   "planter_plant_bbflower_1": "アケトン樹木生産",

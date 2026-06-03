@@ -185,6 +185,8 @@
   "grinder_plant_moss_powder_2_1": "柑实粉末生产",
   "grinder_plant_moss_powder_3_1": "砂叶粉末生产",
   "grinder_quartz_powder_1": "紫晶粉末生产",
+  "liquid_clean_gate_1_byproduct": "污水处理(接入口+排出口)",
+  "liquid_clean_gate_1_disposal": "污水处理(接入口)",
   "liquid_purifier_copper_enr_1": "赫铜溶液提纯",
   "liquid_purifier_xiranite_poly_1": "壤晶废液提纯",
   "planter_plant_bbflower_1": "酮化灌木生产",

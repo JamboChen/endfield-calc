@@ -28,6 +28,7 @@ import { useTranslation } from "react-i18next";
 import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName, getRecipeName } from "@/lib/i18n-helpers";
 import { getTransportCountWithFacilities, getPickupPointCount, getRawSourceRate, formatCount, formatNumber } from "@/lib/utils";
 import { rawMaterialSources, facilities as allFacilities } from "@/data";
+import { FacilityIcon } from "@/components/FacilityIcon";
 
 export type ProductionLineData = {
   item: Item;
@@ -264,7 +265,7 @@ const RecipeIOFull = memo(
 
 RecipeIOFull.displayName = "RecipeIOFull";
 
-const FacilityIcon = memo(
+const FacilityIconCell = memo(
   ({
     facility,
     isRawMaterial,
@@ -282,17 +283,11 @@ const FacilityIcon = memo(
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="flex justify-center cursor-help">
-            {facility.iconUrl ? (
-              <img
-                src={facility.iconUrl}
-                alt={facilityName}
-                className="h-8 w-8 object-contain"
-              />
-            ) : (
-              <div className="h-8 w-8 bg-muted rounded flex items-center justify-center">
-                <span className="text-[10px]">🏭</span>
-              </div>
-            )}
+            <FacilityIcon
+              facility={facility}
+              alt={facilityName}
+              className="h-8 w-8 object-contain"
+            />
           </div>
         </TooltipTrigger>
         <TooltipContent>
@@ -303,7 +298,7 @@ const FacilityIcon = memo(
   },
 );
 
-FacilityIcon.displayName = "FacilityIcon";
+FacilityIconCell.displayName = "FacilityIconCell";
 
 /**
  * Small icon-button rendered in front of a recipe picker whenever the
@@ -584,7 +579,7 @@ const ProductionTable = memo(function ProductionTable({
 
                   {/* Facility icon */}
                   <TableCell className="p-2">
-                    <FacilityIcon
+                    <FacilityIconCell
                       facility={line.facility}
                       isRawMaterial={line.isRawMaterial || isManualRaw}
                     />
