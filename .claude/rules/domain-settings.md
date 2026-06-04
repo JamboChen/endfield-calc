@@ -54,6 +54,7 @@ Region-exclusive **map structures** the user opts into (not roster/AIC buildings
 
 ## Persistence (verified)
 
+- **Channel namespacing**: every localStorage key in this file is the *base* (production) value. Beta builds (served at `/endfield-calc/beta/`) suffix all keys with `:beta` via `namespaceStorageKey` (`src/lib/storage-namespace.ts`), so on beta these become `endfield-calc:aic-v1:beta` and `endfield-calc:onboarding-v1:beta`. The two channels share an origin and would otherwise collide. New persisted keys MUST go through `namespaceStorageKey` for the same reason.
 - Sole version signal: localStorage key `endfield-calc:aic-v1` (line 96). No `v` field inside the JSON.
 - Loader detects shape (line 217-224): nested `{ domains, aic }` is current; flat `{ unresearched, capOverrides, inactiveDomains? }` is v1, migrated in-memory and re-written nested on next save.
 - AIC sub-state uses a **deny-list** for research (`aic.unresearched`); domains use a **deny-list** for activation (`domains.inactive`). `rawLimits.overrides` + `structures.enabled` are **allow-lists** (optional keys; absent in older payloads).

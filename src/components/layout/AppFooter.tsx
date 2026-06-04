@@ -41,6 +41,14 @@ export default function AppFooter() {
           <span className="text-muted-foreground/60">•</span>
           <span>{t("footer.unofficial")}</span>
           <span className="text-muted-foreground/60">•</span>
+          {import.meta.env.BASE_URL.includes("/beta/") && (
+            <>
+              <span className="font-mono uppercase tracking-wider text-[10px] px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-600 dark:text-amber-400">
+                Beta
+              </span>
+              <span className="text-muted-foreground/60">•</span>
+            </>
+          )}
           <span className="font-mono">{__APP_VERSION__}</span>
         </div>
       </div>

@@ -28,6 +28,7 @@ import {
 } from "./data";
 import { parseRawLimitKey } from "./lib/raw-limits-helpers";
 import { structureKey } from "./lib/settings-helpers";
+import { namespaceStorageKey } from "./lib/storage-namespace";
 import type { FacilityId, ItemId } from "./types";
 
 /**
@@ -416,7 +417,7 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+    <ThemeProvider defaultTheme="light" storageKey={namespaceStorageKey("vite-ui-theme")}>
       <DomainSettingsProvider>
         <TooltipProvider>
           <AppContent />
