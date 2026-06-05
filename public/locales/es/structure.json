@@ -1,0 +1,11 @@
+{
+  "structures": {
+    "liquid_clean_gate_1": "Entrada de aguas residuales",
+    "liquid_clean_gate_2": "Entrada de aguas residuales",
+    "liquid_clean_gate_3": "Entrada de aguas residuales",
+    "liquid_recycle_gate_1": "Salida de subproductos"
+  },
+  "nodes": {
+    "liquidcleanfactory_005_1": "Nodo de purificación"
+  }
+}

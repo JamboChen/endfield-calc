@@ -1,47 +1,44 @@
 import { items } from "./items";
 import { facilities as generatedFacilities } from "./facilities";
-import { manualFacilities } from "./manual-facilities";
 import { recipes as generatedRecipes } from "./recipes";
-import { manualRecipes } from "./manual-recipes";
-import { FacilityId, RecipeId } from "@/types/constants";
+import {
+  regionFacilities,
+  regionRecipes,
+  regionFacilityVariants,
+} from "./region-subsystems";
+import { FacilityId } from "@/types/constants";
 import type { Facility, ItemId, Recipe, RecipeId as RecipeIdType } from "@/types";
 import type { DomainId } from "@/types/domain";
 
 /**
- * Combined facility roster: the auto-generated set from upstream game
- * data plus the hand-curated synthetic entries (today:
- * `LIQUID_CLEAN_GATE_1`). Order is `generated, ...manual` so iteration
- * order in tests / mappers sees the well-known facilities first and the
- * synthetic tail last — keeps snapshot-style tests stable when a new
- * manual entry is added.
+ * Combined facility roster: the auto-generated roster from upstream game
+ * data plus the auto-generated region-subsystem facilities (today:
+ * `LIQUID_CLEAN_GATE_1`, the collapsed Wuling Purification Node). Order
+ * is `roster, ...region` so iteration order in tests / mappers sees the
+ * well-known facilities first and the subsystem tail last — keeps
+ * snapshot-style tests stable when a new subsystem entry is added.
  *
- * **Dedup**: a manual entry with the same id as an auto-generated entry
- * wins. This is defensive against a future maintainer adding the
- * canonical game id (e.g. `liquid_clean_gate_1`) to the
- * `build-facilities.ts` allowlist — the manual record keeps its
- * hand-tuned values (power=0, domain-restricted) regardless. The
- * convention in `manual-facilities.ts` is "don't enable the script
- * allowlist for these ids", but this filter is the structural backstop.
+ * **Dedup**: a region entry with the same id as a roster entry wins
+ * (structural backstop should the roster extractor ever emit a building
+ * the region extractor also models).
  */
-const manualFacilityIds = new Set(manualFacilities.map((f) => f.id));
+const regionFacilityIds = new Set(regionFacilities.map((f) => f.id));
 const facilities: Facility[] = [
-  ...generatedFacilities.filter((f) => !manualFacilityIds.has(f.id)),
-  ...manualFacilities,
+  ...generatedFacilities.filter((f) => !regionFacilityIds.has(f.id)),
+  ...regionFacilities,
 ];
 
 /**
- * Combined recipe roster: the auto-generated set from upstream game
- * data plus the hand-curated synthetic entries in
- * `src/data/manual-recipes.ts` (today: the two `LIQUID_CLEAN_GATE_1_*`
- * sewage-inlet variants). Same merge convention as `facilities` —
- * iteration sees generated first, manual tail last; dedup by id with
- * manual winning. Lets the extraction script regenerate `recipes.ts`
- * without dropping hand-tuned values.
+ * Combined recipe roster: the auto-generated roster plus the
+ * auto-generated region-subsystem recipes (today: the two
+ * `LIQUID_CLEAN_GATE_1_*` sewage-inlet variants). Same merge convention
+ * as `facilities` — roster first, region tail last; dedup by id with
+ * region winning.
  */
-const manualRecipeIds = new Set(manualRecipes.map((r) => r.id));
+const regionRecipeIds = new Set(regionRecipes.map((r) => r.id));
 const recipes: Recipe[] = [
-  ...generatedRecipes.filter((r) => !manualRecipeIds.has(r.id)),
-  ...manualRecipes,
+  ...generatedRecipes.filter((r) => !regionRecipeIds.has(r.id)),
+  ...regionRecipes,
 ];
 
 /**
@@ -244,6 +241,10 @@ const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
  * constraint on `LIQUID_CLEAN_GATE_1` correctly bounds the number of
  * physical inlets regardless of which variant is active.
  *
+ * The map itself is auto-generated alongside the structures + recipes in
+ * `src/data/region-subsystems.ts`; re-exported here so consumers keep
+ * importing it from the `@/data` barrel.
+ *
  * Invariant (verified at module load by the DEV/test self-check
  * immediately below): every entry's `default` and `toggled` recipes
  * must exist in `recipes` AND share their `facilityId` with the map
@@ -251,18 +252,7 @@ const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
  * inconsistent with the recipe filter, causing the LP to silently
  * misbalance.
  */
-const facilityRecipeVariants: ReadonlyMap<
-  FacilityId,
-  { readonly default: RecipeIdType; readonly toggled: RecipeIdType }
-> = new Map([
-  [
-    FacilityId.LIQUID_CLEAN_GATE_1,
-    {
-      default: RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
-      toggled: RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT,
-    },
-  ],
-]);
+const facilityRecipeVariants = regionFacilityVariants;
 
 // Module-load self-check for `facilityRecipeVariants`. Verifies three
 // invariants for every entry — caught at boot so the LP can't silently
@@ -368,4 +358,4 @@ export {
   MAX_TARGETS,
 };
 export type { RawSourceConfig };
-export { regionStructures } from "./region-structures";
+export { regionStructures } from "./region-subsystems";

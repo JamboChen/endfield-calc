@@ -31,9 +31,7 @@
     "enabled": "{{done}} / {{total}} 有効"
   },
   "structures": {
-    "purificationNode": "浄水装置",
-    "sewageInlet": "汚水入力口 {{n}}",
-    "byproductOutlet": "副産物出力口",
+    "indexed": "{{name}} {{n}}",
     "help": "工場に接続できる構造物を有効化します。",
     "treats": "{{item}}を処理",
     "produces": "{{item}}を生産"

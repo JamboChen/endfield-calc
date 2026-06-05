@@ -226,8 +226,8 @@ const mkStructure = (
 ): RegionStructure => ({
   id,
   domainId: DOMAIN_2,
+  nodeId: "test_node_1",
   requires,
-  nameKey: index === undefined ? "byproductOutlet" : "sewageInlet",
   index,
   iconSlug: `icon_${id}`,
   // Test fixtures use the inlet's facility id for the chain's "instance"

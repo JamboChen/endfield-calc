@@ -31,9 +31,7 @@
     "enabled": "{{done}} / {{total}} activadas"
   },
   "structures": {
-    "purificationNode": "Nodo de purificación",
-    "sewageInlet": "Entrada de aguas residuales {{n}}",
-    "byproductOutlet": "Salida de subproductos",
+    "indexed": "{{name}} {{n}}",
     "help": "Activa las estructuras que puedes conectar a tu fábrica.",
     "treats": "Procesa {{item}}",
     "produces": "Produce {{item}}"

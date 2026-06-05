@@ -1,0 +1,11 @@
+{
+  "structures": {
+    "liquid_clean_gate_1": "Sewage Inlet",
+    "liquid_clean_gate_2": "Sewage Inlet",
+    "liquid_clean_gate_3": "Sewage Inlet",
+    "liquid_recycle_gate_1": "Byproduct Outlet"
+  },
+  "nodes": {
+    "liquidcleanfactory_005_1": "Purification Node"
+  }
+}
