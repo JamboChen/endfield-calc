@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { parseDomainId } from "@/types/domain";
 import type { Domain, DomainId } from "@/types/domain";
 
 interface RegionPickerProps {
@@ -71,7 +72,10 @@ export function RegionPicker({
       </label>
       <Select
         value={currentDomain}
-        onValueChange={(value) => onChange(value as DomainId)}
+        onValueChange={(value) => {
+          const d = parseDomainId(value);
+          if (d) onChange(d);
+        }}
         disabled={isTrivial}
       >
         <SelectTrigger

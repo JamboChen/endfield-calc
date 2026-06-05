@@ -17,11 +17,11 @@ import { describe, test, expect } from "vitest";
 import { computeAvailableFacilities } from "@/lib/aic-research-helpers";
 import { facilities as gameFacilities } from "@/data";
 import type { Facility } from "@/types";
-import type { DomainId } from "@/types/domain";
+import { DomainId } from "@/types/domain";
 import { FacilityId } from "@/types/constants";
 
-const DOMAIN_1 = "domain_1" as DomainId;
-const DOMAIN_2 = "domain_2" as DomainId;
+const DOMAIN_1 = DomainId.DOMAIN_1;
+const DOMAIN_2 = DomainId.DOMAIN_2;
 
 /** Build a synthetic facility with overridable fields. */
 const fac = (id: string, opts: Partial<Facility> = {}): Facility => ({

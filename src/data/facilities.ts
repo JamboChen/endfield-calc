@@ -1,5 +1,5 @@
 import type { Facility } from "../types";
-import { FacilityId } from "../types/constants";
+import { DomainId, FacilityId } from "../types/constants";
 import { facilityIconUrl, isMonochromeFacilityIcon } from "../lib/facility-icons";
 
 export const facilities: Facility[] = [
@@ -29,7 +29,7 @@ export const facilities: Facility[] = [
     buffersIn: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     buffersOut: { belt: [{ ports: 2 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     cacheSlots: 5,
-    domains: ["domain_2"],
+    domains: [DomainId.DOMAIN_2],
   },
   {
     id: FacilityId.WINDER_1,
@@ -65,7 +65,7 @@ export const facilities: Facility[] = [
     powerConsumption: 20,
     buffersIn: { belt: [{ ports: 6 }], pipe: [] },
     buffersOut: { belt: [{ ports: 6 }], pipe: [{ ports: 1 }] },
-    domains: ["domain_2"],
+    domains: [DomainId.DOMAIN_2],
   },
   {
     id: FacilityId.FILLING_POWDER_MC_1,
@@ -83,7 +83,7 @@ export const facilities: Facility[] = [
     powerConsumption: 50,
     buffersIn: { belt: [], pipe: [{ ports: 1 }] },
     buffersOut: { belt: [], pipe: [] },
-    domains: ["domain_2"],
+    domains: [DomainId.DOMAIN_2],
   },
   {
     id: FacilityId.LIQUID_PURIFIER_1,
@@ -92,7 +92,7 @@ export const facilities: Facility[] = [
     powerConsumption: 50,
     buffersIn: { belt: [], pipe: [{ ports: 2 }] },
     buffersOut: { belt: [], pipe: [{ ports: 1 }, { ports: 1 }] },
-    domains: ["domain_2"],
+    domains: [DomainId.DOMAIN_2],
   },
   {
     id: FacilityId.PLANTER_1,
@@ -119,7 +119,7 @@ export const facilities: Facility[] = [
     powerConsumption: 20,
     buffersIn: { belt: [], pipe: [] },
     buffersOut: { belt: [], pipe: [{ ports: 1 }] },
-    domains: ["domain_2"],
+    domains: [DomainId.DOMAIN_2],
   },
   {
     id: FacilityId.TOOLS_ASSEBLING_MC_1,
@@ -138,7 +138,7 @@ export const facilities: Facility[] = [
     buffersIn: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     buffersOut: { belt: [{ ports: 4 }], pipe: [{ ports: 1 }, { ports: 1 }] },
     cacheSlots: 8,
-    domains: ["domain_2"],
+    domains: [DomainId.DOMAIN_2],
   },
   {
     id: FacilityId.SEEDCOLLECTOR_1,
@@ -156,7 +156,7 @@ export const facilities: Facility[] = [
     powerConsumption: 10,
     buffersIn: { belt: [], pipe: [] },
     buffersOut: { belt: [], pipe: [{ ports: 1 }] },
-    domains: ["domain_2"],
+    domains: [DomainId.DOMAIN_2],
   },
   {
     id: FacilityId.SHAPER_1,
@@ -174,7 +174,7 @@ export const facilities: Facility[] = [
     powerConsumption: 50,
     buffersIn: { belt: [{ ports: 5 }], pipe: [{ ports: 1 }] },
     buffersOut: { belt: [{ ports: 5 }], pipe: [{ ports: 1 }] },
-    domains: ["domain_2"],
+    domains: [DomainId.DOMAIN_2],
   },
   {
     id: FacilityId.THICKENER_1,

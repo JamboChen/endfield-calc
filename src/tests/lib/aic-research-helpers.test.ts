@@ -18,7 +18,7 @@ import type {
   FacilityBaseCap,
 } from "@/types/aic";
 import { AicGroupId } from "@/types/aic";
-import type { DomainId } from "@/types/domain";
+import { DomainId } from "@/types/domain";
 import type { Recipe, RecipeId } from "@/types";
 import { FacilityId } from "@/types/constants";
 
@@ -75,7 +75,7 @@ const OVEN_CAP_PLUS_1: AicNode = {
   action: {
     kind: "capRaise",
     facilityId: FacilityId.XIRANITE_OVEN_1,
-    domainId: "domain_2" as DomainId,
+    domainId: DomainId.DOMAIN_2,
     delta: 1,
   },
   additionalFacilities: [],
@@ -90,7 +90,7 @@ const OVEN_CAP_PLUS_2: AicNode = {
   action: {
     kind: "capRaise",
     facilityId: FacilityId.XIRANITE_OVEN_1,
-    domainId: "domain_2" as DomainId,
+    domainId: DomainId.DOMAIN_2,
     delta: 2,
   },
   additionalFacilities: [],
@@ -106,7 +106,7 @@ const NODES = [
 
 const OVEN_BASE_CAP: FacilityBaseCap = {
   facilityId: FacilityId.XIRANITE_OVEN_1,
-  domainId: "domain_2" as DomainId,
+  domainId: DomainId.DOMAIN_2,
   base: 1,
 };
 
@@ -227,11 +227,14 @@ describe("aic-research-helpers", () => {
       // in AicGroupId.BASIC (mapped to active); depot-bus in WULING
       // (mapped to inactive). Even though both are researched, only the
       // active-domain facility should surface.
+      // Synthetic, off-enum domain ids (double-cast through `unknown`) —
+      // this test exercises arbitrary group→domain tagging, not the real
+      // closed `DomainId` set.
       const synthGroups = [
-        { id: AicGroupId.BASIC, domainId: "domain_active" as DomainId },
-        { id: AicGroupId.WULING, domainId: "domain_inactive" as DomainId },
+        { id: AicGroupId.BASIC, domainId: "domain_active" as unknown as DomainId },
+        { id: AicGroupId.WULING, domainId: "domain_inactive" as unknown as DomainId },
       ];
-      const activeDomains = new Set(["domain_active" as DomainId]);
+      const activeDomains = new Set(["domain_active" as unknown as DomainId]);
 
       // Re-tag the depot-bus-unlock node into WULING for this test.
       const taggedNodes = NODES.map((n) =>
@@ -347,7 +350,7 @@ describe("aic-research-helpers", () => {
   describe("computeEffectiveCaps", () => {
     const ovenKey = capKey(
       FacilityId.XIRANITE_OVEN_1,
-      "domain_2" as DomainId,
+      DomainId.DOMAIN_2,
     );
 
     test("base cap with no raises and no overrides equals base", () => {
@@ -358,7 +361,7 @@ describe("aic-research-helpers", () => {
         [OVEN_BASE_CAP],
       );
       const ovenCaps = result.get(FacilityId.XIRANITE_OVEN_1);
-      expect(ovenCaps?.get("domain_2" as DomainId)).toBe(1);
+      expect(ovenCaps?.get(DomainId.DOMAIN_2)).toBe(1);
     });
 
     test("researched cap raises sum on top of base", () => {
@@ -369,7 +372,7 @@ describe("aic-research-helpers", () => {
         [OVEN_BASE_CAP],
       );
       // base(1) + delta(1) + delta(2) = 4
-      expect(result.get(FacilityId.XIRANITE_OVEN_1)?.get("domain_2" as DomainId)).toBe(4);
+      expect(result.get(FacilityId.XIRANITE_OVEN_1)?.get(DomainId.DOMAIN_2)).toBe(4);
     });
 
     test("override wins over base + raises", () => {
@@ -379,7 +382,7 @@ describe("aic-research-helpers", () => {
         NODES,
         [OVEN_BASE_CAP],
       );
-      expect(result.get(FacilityId.XIRANITE_OVEN_1)?.get("domain_2" as DomainId)).toBe(99);
+      expect(result.get(FacilityId.XIRANITE_OVEN_1)?.get(DomainId.DOMAIN_2)).toBe(99);
     });
 
     test("cap raises without a base cap still surface their delta", () => {
@@ -389,13 +392,13 @@ describe("aic-research-helpers", () => {
         NODES,
         [], // no base caps
       );
-      expect(result.get(FacilityId.XIRANITE_OVEN_1)?.get("domain_2" as DomainId)).toBe(1);
+      expect(result.get(FacilityId.XIRANITE_OVEN_1)?.get(DomainId.DOMAIN_2)).toBe(1);
     });
 
     test("override on a facility with no base or raise is surfaced", () => {
       const ovenKeyOther = capKey(
         FacilityId.FURNANCE_1,
-        "domain_1" as DomainId,
+        DomainId.DOMAIN_1,
       );
       const result = computeEffectiveCaps(
         new Set(),
@@ -403,7 +406,7 @@ describe("aic-research-helpers", () => {
         NODES,
         [],
       );
-      expect(result.get(FacilityId.FURNANCE_1)?.get("domain_1" as DomainId)).toBe(42);
+      expect(result.get(FacilityId.FURNANCE_1)?.get(DomainId.DOMAIN_1)).toBe(42);
     });
 
     test("unresearched cap-raise nodes do not contribute", () => {
@@ -413,7 +416,7 @@ describe("aic-research-helpers", () => {
         NODES,
         [OVEN_BASE_CAP],
       );
-      expect(result.get(FacilityId.XIRANITE_OVEN_1)?.get("domain_2" as DomainId)).toBe(1);
+      expect(result.get(FacilityId.XIRANITE_OVEN_1)?.get(DomainId.DOMAIN_2)).toBe(1);
     });
   });
 

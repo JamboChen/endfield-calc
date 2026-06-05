@@ -43,11 +43,11 @@ import {
 } from "@/data";
 import { domains } from "@/data/aic-plans";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
-import type { DomainId } from "@/types/domain";
+import { DomainId } from "@/types/domain";
 import { ItemId } from "@/types/constants";
 
-const DOMAIN_1 = "domain_1" as DomainId;
-const DOMAIN_2 = "domain_2" as DomainId;
+const DOMAIN_1 = DomainId.DOMAIN_1;
+const DOMAIN_2 = DomainId.DOMAIN_2;
 
 describe("rawAvailabilityByDomain — data shape", () => {
   test("Valley IV (domain_1) contains exactly the 3 solid raws", () => {

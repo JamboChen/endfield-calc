@@ -7,8 +7,13 @@
 
 import type { Facility, Recipe } from "@/types";
 import type { RegionStructure } from "@/types/structures";
-import type { DomainId } from "@/types/domain";
-import { FacilityId, ItemId, RecipeId, RegionStructureId } from "@/types/constants";
+import {
+  DomainId,
+  FacilityId,
+  ItemId,
+  RecipeId,
+  RegionStructureId,
+} from "@/types/constants";
 import { facilityIconUrl, isMonochromeFacilityIcon } from "@/lib/facility-icons";
 
 export const regionFacilities: Facility[] = [
@@ -19,7 +24,7 @@ export const regionFacilities: Facility[] = [
     powerConsumption: 0,
     buffersIn: { belt: [], pipe: [{ ports: 1 }] },
     buffersOut: { belt: [], pipe: [{ ports: 1 }] },
-    domains: ["domain_2"],
+    domains: [DomainId.DOMAIN_2],
   },
 ];
 
@@ -62,18 +67,16 @@ export const regionFacilityVariants: ReadonlyMap<
   ],
 ]);
 
-const DOMAIN_2: DomainId = "domain_2" as DomainId;
-
 export const regionStructures: ReadonlyMap<
   DomainId,
   readonly RegionStructure[]
 > = new Map([
   [
-    DOMAIN_2,
+    DomainId.DOMAIN_2,
     [
       {
         id: RegionStructureId.LIQUID_CLEAN_GATE_1,
-        domainId: DOMAIN_2,
+        domainId: DomainId.DOMAIN_2,
         nodeId: "liquidcleanfactory_005_1",
         index: 1,
         iconSlug: "liquid_clean_gate_1",
@@ -81,7 +84,7 @@ export const regionStructures: ReadonlyMap<
       },
       {
         id: RegionStructureId.LIQUID_CLEAN_GATE_2,
-        domainId: DOMAIN_2,
+        domainId: DomainId.DOMAIN_2,
         nodeId: "liquidcleanfactory_005_1",
         requires: RegionStructureId.LIQUID_CLEAN_GATE_1,
         index: 2,
@@ -90,7 +93,7 @@ export const regionStructures: ReadonlyMap<
       },
       {
         id: RegionStructureId.LIQUID_CLEAN_GATE_3,
-        domainId: DOMAIN_2,
+        domainId: DomainId.DOMAIN_2,
         nodeId: "liquidcleanfactory_005_1",
         requires: RegionStructureId.LIQUID_CLEAN_GATE_2,
         index: 3,
@@ -99,7 +102,7 @@ export const regionStructures: ReadonlyMap<
       },
       {
         id: RegionStructureId.LIQUID_RECYCLE_GATE_1,
-        domainId: DOMAIN_2,
+        domainId: DomainId.DOMAIN_2,
         nodeId: "liquidcleanfactory_005_1",
         requires: RegionStructureId.LIQUID_CLEAN_GATE_3,
         iconSlug: "liquid_recycle_gate_1",

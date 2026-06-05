@@ -13,10 +13,34 @@
  */
 
 /**
- * Brand intersection for in-game domain ids (`domain_1`, `domain_2`, …).
- * Currently only two exist but the schema permits more — kept as a brand.
+ * `DomainId` is a generated closed enum (literal-string union) — defined
+ * in `src/types/constants.ts` (`extract-ids`), re-exported here so the
+ * `@/types/domain` import path (and the `Domain` type below) keep working.
  */
-type DomainId = string & { readonly __brand: "DomainId" };
+import { DomainId } from "./constants";
+
+export { DomainId };
+
+/**
+ * All `DomainId` values as a runtime set — backs the boundary narrowers
+ * below. `DomainId` is a `const` object at runtime, so its values are the
+ * actual domain-id strings.
+ */
+const DOMAIN_ID_VALUES: ReadonlySet<string> = new Set(Object.values(DomainId));
+
+/** Type guard: is `value` a known domain id? */
+export function isDomainId(value: unknown): value is DomainId {
+  return typeof value === "string" && DOMAIN_ID_VALUES.has(value);
+}
+
+/**
+ * Narrow an untrusted string (localStorage, a `<Select>` value, a parsed
+ * composite key) to a `DomainId`, or `undefined` if it isn't a known
+ * domain. Use this at runtime boundaries instead of `as DomainId`.
+ */
+export function parseDomainId(value: unknown): DomainId | undefined {
+  return isDomainId(value) ? value : undefined;
+}
 
 /**
  * A first-class domain entry, surfaced as a top-level section in the
@@ -38,4 +62,4 @@ type Domain = {
   readonly color: string;
 };
 
-export type { DomainId, Domain };
+export type { Domain };

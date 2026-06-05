@@ -1,4 +1,4 @@
-import type { ItemId, RecipeId, FacilityId } from "@/types";
+import type { ItemId, RecipeId, FacilityId, DomainId } from "@/types";
 
 type Item = {
   id: ItemId;
@@ -85,12 +85,12 @@ type Facility = {
    */
   cacheSlots?: number;
   /**
-   * Domain ids where this building may be placed (e.g. `["domain_2"]`);
-   * empty = placeable anywhere. Union of `placeDomains` (the hard
-   * restriction) and `recommendDomains` (a "suggested" location that is,
-   * in practice, enforced by the game today).
+   * Domain ids where this building may be placed (e.g.
+   * `[DomainId.DOMAIN_2]`); empty = placeable anywhere. Union of
+   * `placeDomains` (the hard restriction) and `recommendDomains` (a
+   * "suggested" location that is, in practice, enforced by the game today).
    */
-  domains: string[];
+  domains: DomainId[];
   iconUrl?: string;
   /**
    * True when `iconUrl` points at a monochrome game glyph that needs

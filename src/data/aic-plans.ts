@@ -12,13 +12,13 @@ import type {
   FacilityBaseCap,
 } from "@/types/aic";
 import { AicGroupId } from "@/types/aic";
-import type { Domain, DomainId } from "@/types/domain";
+import type { Domain } from "@/types/domain";
 import type { RecipeId } from "@/types/constants";
-import { FacilityId } from "@/types/constants";
+import { DomainId, FacilityId } from "@/types/constants";
 
 export const aicGroups: readonly AicGroup[] = [
-  { id: AicGroupId.WULING, domainId: "domain_2" as DomainId },
-  { id: AicGroupId.BASIC, domainId: "domain_1" as DomainId },
+  { id: AicGroupId.WULING, domainId: DomainId.DOMAIN_2 },
+  { id: AicGroupId.BASIC, domainId: DomainId.DOMAIN_1 },
 ];
 
 export const aicLayers: readonly AicLayer[] = [
@@ -64,7 +64,7 @@ export const aicNodes: readonly AicNode[] = [
     layerId: "tech_group_jinlong_acid" as AicLayerId,
     preNodes: ["tech_jinlong_2_xiranite_oven_amount_2" as AicTechId],
     alreadyUnlocked: false,
-    action: { kind: "capRaise", facilityId: "xiranite_oven_1" as FacilityId, domainId: "domain_2" as DomainId, delta: 4 },
+    action: { kind: "capRaise", facilityId: "xiranite_oven_1" as FacilityId, domainId: DomainId.DOMAIN_2, delta: 4 },
     additionalFacilities: [],
   },
   {
@@ -73,7 +73,7 @@ export const aicNodes: readonly AicNode[] = [
     layerId: "tech_group_jinlong_acid" as AicLayerId,
     preNodes: ["tech_jinlong_3_xiranite_enr_formula" as AicTechId],
     alreadyUnlocked: false,
-    action: { kind: "capRaise", facilityId: "xiranite_oven_1" as FacilityId, domainId: "domain_2" as DomainId, delta: 4 },
+    action: { kind: "capRaise", facilityId: "xiranite_oven_1" as FacilityId, domainId: DomainId.DOMAIN_2, delta: 4 },
     additionalFacilities: [],
   },
   {
@@ -100,7 +100,7 @@ export const aicNodes: readonly AicNode[] = [
     layerId: "tech_group_jinlong_copper" as AicLayerId,
     preNodes: ["tech_jinlong_1_xiranite_oven_amount_1" as AicTechId],
     alreadyUnlocked: false,
-    action: { kind: "capRaise", facilityId: "xiranite_oven_1" as FacilityId, domainId: "domain_2" as DomainId, delta: 2 },
+    action: { kind: "capRaise", facilityId: "xiranite_oven_1" as FacilityId, domainId: DomainId.DOMAIN_2, delta: 2 },
     additionalFacilities: [],
   },
   {
@@ -163,7 +163,7 @@ export const aicNodes: readonly AicNode[] = [
     layerId: "tech_group_jinlong_liquid" as AicLayerId,
     preNodes: ["tech_jinlong_1_xiranite_oven_1" as AicTechId],
     alreadyUnlocked: false,
-    action: { kind: "capRaise", facilityId: "xiranite_oven_1" as FacilityId, domainId: "domain_2" as DomainId, delta: 1 },
+    action: { kind: "capRaise", facilityId: "xiranite_oven_1" as FacilityId, domainId: DomainId.DOMAIN_2, delta: 1 },
     additionalFacilities: [],
   },
   {
@@ -259,7 +259,7 @@ export const aicNodes: readonly AicNode[] = [
 ];
 
 export const facilityBaseCaps: readonly FacilityBaseCap[] = [
-  { facilityId: "xiranite_oven_1" as FacilityId, domainId: "domain_2" as DomainId, base: 1 },
+  { facilityId: "xiranite_oven_1" as FacilityId, domainId: DomainId.DOMAIN_2, base: 1 },
 ];
 
 /**
@@ -268,8 +268,8 @@ export const facilityBaseCaps: readonly FacilityBaseCap[] = [
  * potential per-domain setting categories that compose against this.
  */
 export const domains: readonly Domain[] = [
-  { id: "domain_1" as DomainId, isPinned: true, sortId: 1, color: "dfef36" },
-  { id: "domain_2" as DomainId, isPinned: false, sortId: 2, color: "07a7a7" },
+  { id: DomainId.DOMAIN_1, isPinned: true, sortId: 1, color: "dfef36" },
+  { id: DomainId.DOMAIN_2, isPinned: false, sortId: 2, color: "07a7a7" },
 ];
 
 /**

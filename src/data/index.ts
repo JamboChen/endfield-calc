@@ -6,9 +6,8 @@ import {
   regionRecipes,
   regionFacilityVariants,
 } from "./region-subsystems";
-import { FacilityId } from "@/types/constants";
+import { DomainId, FacilityId } from "@/types/constants";
 import type { Facility, ItemId, Recipe, RecipeId as RecipeIdType } from "@/types";
-import type { DomainId } from "@/types/domain";
 
 /**
  * Combined facility roster: the auto-generated roster from upstream game
@@ -123,7 +122,7 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
 const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
   new Map<DomainId, ReadonlySet<ItemId>>([
     [
-      "domain_1" as DomainId,
+      DomainId.DOMAIN_1,
       new Set<ItemId>([
         "item_originium_ore",
         "item_iron_ore",
@@ -131,7 +130,7 @@ const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
       ]),
     ],
     [
-      "domain_2" as DomainId,
+      DomainId.DOMAIN_2,
       new Set<ItemId>([
         "item_originium_ore",
         "item_iron_ore",
