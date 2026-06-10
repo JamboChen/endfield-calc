@@ -1,8 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreDependencies": [
-    "pngjs",
-    "@types/pngjs"
+  "entry": [
+    "scripts/extract-item-colors.ts"
   ],
   "ignoreExportsUsedInFile": {
     "interface": true,
