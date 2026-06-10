@@ -283,6 +283,14 @@ export default function ProductionDependencyTree({
   const rfInstance = useRef<ReactFlowInstance<FlowProductionNode, Edge> | null>(
     null,
   );
+  // Mode of the previous layout run. Formula View and Facility View
+  // occupy wildly different extents (one card per bin vs one per
+  // building), so a camera kept from the other mode can land in empty
+  // space — re-fit on the switch. Deliberately ONLY for the
+  // Formula/Facility switch: bin-fusion / alignment toggles and plan
+  // recomputes preserve the camera. `null` = no layout yet (first
+  // mount keeps the `fitView` prop behaviour).
+  const lastLayoutModeRef = useRef<VisualizationMode | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -334,6 +342,31 @@ export default function ProductionDependencyTree({
 
       setNodes(layoutedNodes as FlowProductionNode[]);
       setEdges(styledEdges);
+
+      // Re-center on a Formula ↔ Facility switch. Computed from the
+      // in-hand layouted nodes (positions + dimensions set by
+      // getLayoutedElements) instead of fitView() so there's no race
+      // against the store receiving the new nodes. Limits/padding match
+      // the fitViewOptions on the ReactFlow element.
+      const modeChanged =
+        lastLayoutModeRef.current !== null &&
+        lastLayoutModeRef.current !== visualizationMode;
+      lastLayoutModeRef.current = visualizationMode;
+      if (modeChanged) {
+        const pane = containerRef.current?.getBoundingClientRect();
+        if (pane && rfInstance.current && layoutedNodes.length > 0) {
+          const bounds = getNodesBounds(layoutedNodes);
+          const viewport = getViewportForBounds(
+            bounds,
+            pane.width,
+            pane.height,
+            0.1,
+            1.5,
+            0.2,
+          );
+          rfInstance.current.setViewport(viewport, { duration: 300 });
+        }
+      }
     }
 
     computeLayout();
