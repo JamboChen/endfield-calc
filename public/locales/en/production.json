@@ -58,6 +58,8 @@
     "facilityCount": "Facility count",
     "facilityIndex": "Facility index",
     "item": "Item",
+    "searchNoResults": "No matches",
+    "searchPlaceholder": "Search buildings...",
     "noTarget": "No production target set. Please set a target to view the dependency tree.",
     "partialLoad": "Partial load",
     "power": "Power",

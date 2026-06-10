@@ -58,6 +58,8 @@
     "facilityCount": "設施數量",
     "facilityIndex": "設施序號",
     "item": "物品",
+    "searchNoResults": "無符合項目",
+    "searchPlaceholder": "搜尋建築…",
     "noTarget": "尚未設置目標產出。請設置目標以查看依賴樹。",
     "partialLoad": "部分負載",
     "power": "電力",

@@ -58,6 +58,8 @@
     "facilityCount": "Cantidad de instalaciones",
     "facilityIndex": "Índice de instalación",
     "item": "Artículo",
+    "searchNoResults": "Sin coincidencias",
+    "searchPlaceholder": "Buscar edificios...",
     "noTarget": "No se ha establecido ningún objetivo de producción. Establezca un objetivo para ver el árbol de dependencias.",
     "partialLoad": "Carga parcial",
     "power": "Energía",

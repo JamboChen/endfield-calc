@@ -58,6 +58,8 @@
     "facilityCount": "设施数量",
     "facilityIndex": "设施序号",
     "item": "物品",
+    "searchNoResults": "无匹配项",
+    "searchPlaceholder": "搜索建筑…",
     "noTarget": "尚未设置目标产出。请设置目标以查看依赖树。",
     "partialLoad": "部分负载",
     "power": "电力",

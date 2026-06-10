@@ -58,6 +58,8 @@
     "facilityCount": "시설 수",
     "facilityIndex": "시설 인덱스",
     "item": "아이템",
+    "searchNoResults": "결과 없음",
+    "searchPlaceholder": "건물 검색…",
     "noTarget": "생산 목표가 설정되지 않았습니다. 종속성 트리를 보려면 목표를 설정하세요.",
     "partialLoad": "부분 부하",
     "power": "전력",
