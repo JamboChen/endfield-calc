@@ -106,6 +106,8 @@
   --flow-edge-c: 0.13;
   /* MiniMap mask = area outside the current viewport. */
   --flow-minimap-mask: oklch(0.45 0 0 / 12%);
+  /* Pinned-node ring (gold — "bookmarked"); dark enough for light canvas. */
+  --flow-pin: oklch(0.72 0.15 70);
 }
 
 .dark {
@@ -159,6 +161,8 @@
   --flow-edge-c: 0.14;
   /* MiniMap mask (dark): light translucent so the viewport window reads. */
   --flow-minimap-mask: oklch(0.9 0 0 / 12%);
+  /* Pinned-node ring (dark): brighter gold for the near-black canvas. */
+  --flow-pin: oklch(0.83 0.16 80);
 }
 
 @layer base {
@@ -208,6 +212,26 @@
     box-shadow: 0 1px 2px oklch(0 0 0 / 0.12);
     overflow: hidden;
   }
+}
+
+/* Pinned-node indicator: React Flow puts `.selected` on the wrapper of
+   selected nodes, and pin == selection. Outline (not border) avoids
+   layout shift and leaves the cards' semantic border colours (raw =
+   green, target = blue) intact; the glow keeps the seed findable at
+   overview zoom.
+
+   Deliberately UNLAYERED and with explicit :focus variants: React Flow's
+   stylesheet (also unlayered, so it beats anything in @layer) sets
+   `.react-flow__node.selectable:focus { outline: none }`, which would
+   strip the ring from a just-clicked node. The extra pseudo-class lifts
+   our specificity above it. */
+.flow-theme .react-flow__node.selected,
+.flow-theme .react-flow__node.selected:focus,
+.flow-theme .react-flow__node.selected:focus-visible {
+  outline: 2px solid var(--flow-pin);
+  outline-offset: 3px;
+  border-radius: var(--radius);
+  box-shadow: 0 0 10px var(--flow-pin);
 }
 
 /* ── Item picker animations ── */
