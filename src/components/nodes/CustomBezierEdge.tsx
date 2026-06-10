@@ -5,9 +5,18 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 
+/** Opacity applied to edges (path + label) outside the spotlight. */
+export const EDGE_DIM_OPACITY = 0.08;
+
 /**
  * Custom bezier edge that renders labels as HTML to support multi-line text across all browsers.
  * Standard SVG text doesn't support white-space CSS properties in Chrome.
+ *
+ * Spotlight dimming is applied here (via `data.dimmed`) rather than a CSS
+ * class on the edge group: the label renders in `EdgeLabelRenderer`'s
+ * separate HTML layer, which a class on the SVG group cannot reach.
+ * Path opacity also covers the arrowhead marker (SVG renders markers as
+ * part of the path's group).
  */
 export default function CustomBezierEdge({
   id,
@@ -24,6 +33,7 @@ export default function CustomBezierEdge({
   labelBgStyle,
   labelBgPadding,
   labelBgBorderRadius,
+  data,
 }: EdgeProps) {
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -34,9 +44,22 @@ export default function CustomBezierEdge({
     targetPosition,
   });
 
+  const dimmed = Boolean((data as { dimmed?: boolean } | undefined)?.dimmed);
+
   return (
     <>
-      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          ...style,
+          // Internal edges carry their own opacity (0.7); preserve it
+          // when not dimmed instead of clobbering with undefined.
+          opacity: dimmed ? EDGE_DIM_OPACITY : style.opacity,
+          transition: "opacity 0.15s ease",
+        }}
+      />
       {label && (
         <EdgeLabelRenderer>
           <div
@@ -44,7 +67,9 @@ export default function CustomBezierEdge({
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
               fontSize: 12,
-              pointerEvents: "all",
+              pointerEvents: dimmed ? "none" : "all",
+              opacity: dimmed ? EDGE_DIM_OPACITY : 1,
+              transition: "opacity 0.15s ease",
               ...labelStyle,
             }}
             className="nodrag nopan"

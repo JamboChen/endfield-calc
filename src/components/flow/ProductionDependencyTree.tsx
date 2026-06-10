@@ -1,9 +1,12 @@
-import { useMemo, useEffect, useRef, useState } from "react";
+import { useMemo, useEffect, useRef, useState, useCallback } from "react";
 import {
   ReactFlow,
   Controls,
   Background,
+  MiniMap,
   type NodeTypes,
+  type Node,
+  type OnSelectionChangeFunc,
   BackgroundVariant,
   useNodesState,
   useEdgesState,
@@ -29,6 +32,7 @@ import CustomTargetNode from "../nodes/CustomTargetNode";
 import CustomDisposalNode from "../nodes/CustomDisposalNode";
 import { useTranslation } from "react-i18next";
 import { getLayoutedElements } from "@/lib/layout";
+import { getNeighborhood, getChain } from "@/lib/flow-spotlight";
 import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
 import {
   mapPlanToFlowBinFused,
@@ -252,9 +256,20 @@ export default function ProductionDependencyTree({
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
+  // Spotlight state. Hover = direct neighborhood (the "which belts does
+  // this building connect to" wiring task); click-to-pin (React Flow
+  // selection) = full upstream/downstream chain (the "build this whole
+  // subsystem" task) — pinning survives pan/zoom, hover cannot.
+  // Precedence: pin > hover.
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [pinnedNodeIds, setPinnedNodeIds] = useState<string[]>([]);
+
   useEffect(() => {
     let isMounted = true;
     async function computeLayout() {
+      // Stale spotlight ids must not survive a plan/mode change.
+      setHoveredNodeId(null);
+      setPinnedNodeIds([]);
       if (!plan || plan.nodes.size === 0) {
         setNodes([]);
         setEdges([]);
@@ -324,6 +339,49 @@ export default function ProductionDependencyTree({
     [],
   );
 
+  // Active spotlight: pinned chain wins over hover neighborhood.
+  const spotlight = useMemo(() => {
+    if (pinnedNodeIds.length > 0) return getChain(edges, pinnedNodeIds);
+    if (hoveredNodeId) return getNeighborhood(edges, hoveredNodeId);
+    return null;
+  }, [edges, hoveredNodeId, pinnedNodeIds]);
+
+  // Derived display arrays. With no spotlight these are the state arrays
+  // themselves (zero overhead); with a spotlight, out-of-set elements get
+  // a dim marker (className for nodes, data flag for edges — edge labels
+  // live in a separate HTML layer that CSS classes can't reach).
+  const displayNodes = useMemo(() => {
+    if (!spotlight) return nodes;
+    return nodes.map((node) =>
+      spotlight.nodeIds.has(node.id)
+        ? node
+        : ({ ...node, className: "spotlight-dim" } as typeof node),
+    );
+  }, [nodes, spotlight]);
+
+  const displayEdges = useMemo(() => {
+    if (!spotlight) return edges;
+    return edges.map((edge) =>
+      spotlight.edgeIds.has(edge.id)
+        ? edge
+        : { ...edge, data: { ...edge.data, dimmed: true } },
+    );
+  }, [edges, spotlight]);
+
+  const onNodeMouseEnter = useCallback(
+    (_event: React.MouseEvent, node: Node) => setHoveredNodeId(node.id),
+    [],
+  );
+  const onNodeMouseLeave = useCallback(() => setHoveredNodeId(null), []);
+
+  // Pin = React Flow node selection: click to pin, click canvas to clear,
+  // shift-click / box-select to pin a union of chains.
+  const onSelectionChange: OnSelectionChangeFunc = useCallback(
+    ({ nodes: selectedNodes }) =>
+      setPinnedNodeIds(selectedNodes.map((node) => node.id)),
+    [],
+  );
+
   if (!plan || plan.nodes.size === 0) {
     return (
       <div className="h-full w-full flex items-center justify-center text-muted-foreground">
@@ -337,10 +395,13 @@ export default function ProductionDependencyTree({
       <div className="flex-1" ref={containerRef}>
         <ReactFlow
           className="flow-theme"
-          nodes={nodes}
-          edges={edges}
+          nodes={displayNodes}
+          edges={displayEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeMouseEnter={onNodeMouseEnter}
+          onNodeMouseLeave={onNodeMouseLeave}
+          onSelectionChange={onSelectionChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
@@ -349,6 +410,9 @@ export default function ProductionDependencyTree({
             minZoom: 0.1,
             maxZoom: 1.5,
           }}
+          // Without this, the Controls fit-view button bottoms out at the
+          // default minZoom (0.5) and cannot actually fit large graphs.
+          minZoom={0.1}
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
@@ -362,6 +426,9 @@ export default function ProductionDependencyTree({
               overflow: "hidden",
             }}
           />
+          {/* Colours come from --xy-minimap-* vars in index.css so they
+              flip with the theme (props would freeze them). */}
+          <MiniMap pannable zoomable />
           <ExportImageButton containerRef={containerRef} />
         </ReactFlow>
       </div>

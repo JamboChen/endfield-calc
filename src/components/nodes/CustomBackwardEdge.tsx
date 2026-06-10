@@ -1,8 +1,12 @@
 import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from "@xyflow/react";
+import { EDGE_DIM_OPACITY } from "./CustomBezierEdge";
 
 /**
  * Custom edge for backward connections (when target is to the left of source).
  * Creates a wide arc that goes around the source node to avoid overlap.
+ *
+ * Spotlight dimming mirrors CustomBezierEdge — see the note there about
+ * why it lives in the component rather than CSS.
  */
 export default function CustomBackwardEdge({
   id,
@@ -17,6 +21,7 @@ export default function CustomBackwardEdge({
   labelBgStyle,
   labelBgPadding,
   labelBgBorderRadius,
+  data,
 }: EdgeProps) {
   // Calculate control points for a wide arc that goes up/down to avoid the source node
   // The arc should be large enough to clear the node (nodeHeight ~= 110px)
@@ -58,9 +63,21 @@ export default function CustomBackwardEdge({
     3 * (1 - t) * Math.pow(t, 2) * controlPoint2Y +
     Math.pow(t, 3) * targetY;
 
+  const dimmed = Boolean((data as { dimmed?: boolean } | undefined)?.dimmed);
+
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      <BaseEdge
+        id={id}
+        path={path}
+        markerEnd={markerEnd}
+        style={{
+          ...style,
+          // Preserve any style-provided opacity when not dimmed.
+          opacity: dimmed ? EDGE_DIM_OPACITY : style.opacity,
+          transition: "opacity 0.15s ease",
+        }}
+      />
       {label && (
         <EdgeLabelRenderer>
           <div
@@ -68,7 +85,9 @@ export default function CustomBackwardEdge({
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
               fontSize: 12,
-              pointerEvents: "all",
+              pointerEvents: dimmed ? "none" : "all",
+              opacity: dimmed ? EDGE_DIM_OPACITY : 1,
+              transition: "opacity 0.15s ease",
               ...labelStyle,
             }}
             className="nodrag nopan"

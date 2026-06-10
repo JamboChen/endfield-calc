@@ -140,5 +140,9 @@ declare module "@xyflow/react" {
   interface EdgeData {
     flowRate?: number;
     direction?: EdgeDirection;
+    /** Transported item id — drives the stable per-item edge hue. */
+    itemId?: string;
+    /** Spotlight: edge is outside the hovered/pinned neighborhood. */
+    dimmed?: boolean;
   }
 }
