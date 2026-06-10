@@ -19,6 +19,7 @@ import type {
 } from "@/types";
 import { getTransportCountWithFacilities, getPickupPointCount, getRawSourceRate, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
 import { computeNodeByproducts } from "@/lib/plan-helpers";
+import { pinRingClasses } from "@/components/flow/flow-utils";
 
 /**
  * Type alias for a React Flow node containing production data.
@@ -59,6 +60,7 @@ function hasTargetInfo(
  */
 export default function CustomProductionNode({
   data,
+  selected,
 }: NodeProps<FlowProductionNode>) {
   const { productionNode: node, items, ceilMode } = data;
   const { t } = useTranslation("production");
@@ -263,7 +265,7 @@ export default function CustomProductionNode({
     <Tooltip>
       <TooltipTrigger asChild>
         <Card
-          className={`w-52 shadow-lg ${borderClasses} ${bgClasses} hover:shadow-xl transition-all cursor-help relative`}
+          className={`w-52 shadow-lg ${borderClasses} ${bgClasses} hover:shadow-xl transition-all cursor-help relative ${pinRingClasses(selected)}`}
         >
           <Handle
             type="target"

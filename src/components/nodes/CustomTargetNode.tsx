@@ -13,6 +13,7 @@ import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-help
 import { useTranslation } from "react-i18next";
 import type { TargetSinkNodeData } from "@/types";
 import { getTransportCount, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
+import { pinRingClasses } from "@/components/flow/flow-utils";
 
 /**
  * CustomTargetNode component renders a virtual sink node representing a user-defined production target.
@@ -23,6 +24,7 @@ import { getTransportCount, formatCount, getEffectiveFacilityCount, formatNumber
 export default function CustomTargetNode({
   data,
   targetPosition = Position.Left,
+  selected,
 }: NodeProps<Node<TargetSinkNodeData>>) {
   const { item, targetRate, productionInfo, ceilMode } = data;
   const { t } = useTranslation("production");
@@ -37,12 +39,13 @@ export default function CustomTargetNode({
     <Tooltip>
       <TooltipTrigger asChild>
         <Card
-          className="
+          className={`
             w-52 shadow-xl
             border-2 border-amber-600 dark:border-amber-500
             bg-amber-50/40 dark:bg-amber-950/20
             hover:shadow-2xl transition-all cursor-help relative
-          "
+            ${pinRingClasses(selected)}
+          `}
         >
           {/* Target handle for incoming connections */}
           <Handle

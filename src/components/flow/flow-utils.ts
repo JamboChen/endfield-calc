@@ -78,6 +78,18 @@ export function createEdge(
 }
 
 /**
+ * Tailwind classes marking the pinned (React Flow `selected`) node.
+ * Applied to the node CARD — not the React Flow wrapper — so the ring
+ * sits flush against the card's `border-2` and follows its exact corner
+ * radius (a wrapper-level outline slices through the port handles and
+ * mismatches the radius). `--flow-pin` is the theme-neutral foreground
+ * (see index.css), the only hue not used semantically by card borders.
+ * Shared by all three custom node components so they stay in sync.
+ */
+export const pinRingClasses = (selected: boolean | undefined): string =>
+  selected ? "ring-2 ring-(--flow-pin)" : "";
+
+/**
  * Stable per-item edge colour. Primary source: `itemIconColors` — hue +
  * chroma factor pre-computed from the item's icon by
  * `pnpm run extract:item-colors` (re-run when icons change), so an
