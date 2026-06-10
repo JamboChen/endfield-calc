@@ -126,6 +126,15 @@ function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTM
     const filename =
       format === "svg" ? "production-graph.svg" : "production-graph.png";
 
+    // The low-zoom label fade tracks the LIVE viewport zoom, but the
+    // export renders at its own computed transform — exporting while
+    // zoomed out would bake the faded (invisible) labels into the image.
+    // Strip the class for the capture; spotlight dim state stays as-is
+    // (WYSIWYG by design).
+    const flowEl = containerRef.current?.querySelector(".react-flow");
+    const hadLowZoom = flowEl?.classList.contains("flow-lowzoom") ?? false;
+    if (hadLowZoom) flowEl!.classList.remove("flow-lowzoom");
+
     exportFn(viewport, options)
       .then((dataUrl) => {
         const a = document.createElement("a");
@@ -138,6 +147,9 @@ function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTM
       })
       .catch(() => {
         // ignore export errors
+      })
+      .finally(() => {
+        if (hadLowZoom) flowEl!.classList.add("flow-lowzoom");
       });
   };
 
