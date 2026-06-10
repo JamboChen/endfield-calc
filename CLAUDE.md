@@ -23,9 +23,10 @@ pnpm run extract:recipes     # Refresh src/data/recipes.ts + public/locales/{lan
 pnpm run extract:items       # Refresh src/data/items.ts + public/locales/{lang}/item.json
 pnpm run extract:structures  # Refresh src/data/region-subsystems.ts + public/locales/{lang}/structure.json
 pnpm run extract:aic         # Refresh src/data/aic-plans.ts + public/locales/{lang}/{aic,domain}.json
+pnpm run extract:item-colors # Refresh src/data/item-colors.ts from public/images/items/*.png — STANDALONE, not in extract:all (icons are manually curated); re-run when icons change
 ```
 
-Game-data refresh: set `ENDFIELD_DATA_DIR` to the dir containing `TableCfg/` (the scripts fall back to a built-in default if unset — see `scripts/lib/paths.ts`). Note: `scripts/` is **intentionally untracked** (gitignored — the extraction toolchain stays out of the repo), so the `extract:*` commands and any `scripts/**` references only work on a machine that has the private toolchain; every file stamped AUTO-GENERATED can only be regenerated there.
+Game-data refresh: set `ENDFIELD_DATA_DIR` to the dir containing `TableCfg/` (the scripts fall back to a built-in default if unset — see `scripts/lib/paths.ts`). Note: `scripts/` is **intentionally untracked** (gitignored — the extraction toolchain stays out of the repo), so the `extract:*` commands and any `scripts/**` references only work on a machine that has the private toolchain; every file stamped AUTO-GENERATED can only be regenerated there. `extract:item-colors` is the exception: it reads committed icons, needs no data dir, and is therefore not part of `extract:all`.
 
 ## Cardinal rules (always apply)
 

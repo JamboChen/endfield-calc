@@ -10,6 +10,7 @@ import type {
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
 import { getTransportLabel, getInternalFlowLabel } from "@/lib/i18n-helpers";
+import { itemIconColors } from "@/data/item-colors";
 
 /**
  * Creates a standardized edge for React Flow with optional pre-computed direction.
@@ -77,15 +78,26 @@ export function createEdge(
 }
 
 /**
- * Stable per-item edge colour: hashes the item id to an OKLCH hue. The
- * lightness/chroma live in theme CSS variables (`--flow-edge-l` /
- * `--flow-edge-c`, see index.css) so the same hue stays legible on both
- * the light and dark canvas without recomputing edges on theme switch.
+ * Stable per-item edge colour. Primary source: `itemIconColors` — hue +
+ * chroma factor pre-computed from the item's icon by
+ * `pnpm run extract:item-colors` (re-run when icons change), so an
+ * edge's colour matches the material it carries. Items missing from the
+ * map (icon not yet added) fall back to a hash-derived hue.
+ *
+ * Lightness and base chroma live in theme CSS variables
+ * (`--flow-edge-l` / `--flow-edge-c`, see index.css) so every colour
+ * stays legible on both the light and dark canvas without recomputing
+ * edges on theme switch; the per-item chroma factor scales inside
+ * `calc()` (gray icons → gray-ish edges).
  *
  * Items without an id (defensive) fall back to the muted foreground.
  */
 export function getItemEdgeColor(itemId?: string): string {
   if (!itemId) return "var(--muted-foreground)";
+  const icon = itemIconColors[itemId];
+  if (icon) {
+    return `oklch(var(--flow-edge-l) calc(var(--flow-edge-c) * ${icon.c}) ${icon.h})`;
+  }
   // djb2 string hash — deterministic across sessions.
   let hash = 5381;
   for (let i = 0; i < itemId.length; i++) {
