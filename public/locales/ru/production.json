@@ -58,8 +58,6 @@
     "facilityCount": "Количество объектов",
     "facilityIndex": "Индекс объекта",
     "item": "Предмет",
-    "searchNoResults": "Нет совпадений",
-    "searchPlaceholder": "Поиск зданий…",
     "noTarget": "Цель производства не установлена. Пожалуйста, установите цель для просмотра дерева зависимостей.",
     "partialLoad": "Частичная нагрузка",
     "power": "Энергия",
@@ -89,6 +87,8 @@
     "prefillZoneLabel": "Prefill",
     "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
     "prefillCardTooltip": "This building's formulas form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
-    "prefillCandidates": "Prefill candidates"
+    "prefillCandidates": "Prefill candidates",
+    "searchNoResults": "Нет совпадений",
+    "searchPlaceholder": "Поиск зданий…"
   }
 }

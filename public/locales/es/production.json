@@ -58,8 +58,6 @@
     "facilityCount": "Cantidad de instalaciones",
     "facilityIndex": "Índice de instalación",
     "item": "Artículo",
-    "searchNoResults": "Sin coincidencias",
-    "searchPlaceholder": "Buscar edificios...",
     "noTarget": "No se ha establecido ningún objetivo de producción. Establezca un objetivo para ver el árbol de dependencias.",
     "partialLoad": "Carga parcial",
     "power": "Energía",
@@ -89,6 +87,8 @@
     "prefillZoneLabel": "Prefill",
     "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
     "prefillCardTooltip": "This building's formulas form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
-    "prefillCandidates": "Prefill candidates"
+    "prefillCandidates": "Prefill candidates",
+    "searchNoResults": "Sin coincidencias",
+    "searchPlaceholder": "Buscar edificios..."
   }
 }

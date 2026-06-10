@@ -583,7 +583,11 @@ export default function ProductionDependencyTree({
           {/* Colours come from --xy-minimap-* vars in index.css so they
               flip with the theme (props would freeze them). */}
           <MiniMap pannable zoomable />
-          <GraphSearchPanel nodes={displayNodes} onSelectResult={onSearchSelect} />
+          {/* Stable `nodes` (not displayNodes): spotlight flags are
+              irrelevant to search, and the display array changes
+              identity on every hover — which would rebuild the
+              candidate list (~180 i18n lookups) per hover transition. */}
+          <GraphSearchPanel nodes={nodes} onSelectResult={onSearchSelect} />
           <ExportImageButton containerRef={containerRef} />
         </ReactFlow>
       </div>
