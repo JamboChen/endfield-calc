@@ -1,6 +1,10 @@
 import { describe, test, expect } from "vitest";
 import type { Edge } from "@xyflow/react";
-import { getNeighborhood, getChain } from "@/lib/flow-spotlight";
+import {
+  getNeighborhood,
+  getPinnedSpotlight,
+  mergeSpotlights,
+} from "@/lib/flow-spotlight";
 import { getItemEdgeColor } from "@/components/flow/flow-utils";
 import { itemIconColors } from "@/data/item-colors";
 import { items } from "@/data";
@@ -8,10 +12,12 @@ import { items } from "@/data";
 /**
  * Synthetic graph:
  *
- *   A ──e1──▶ B ──e2──▶ C ──e3──▶ D
+ *   A ──e1──▶ B ──e2──▶ C ──e3──▶ D ──e6──▶ E
  *   X ──e4──────▶ B     C ──e5──▶ Y
  *
- * A and X both feed B; C fans out to D and Y.
+ * A and X both feed B; C fans out to D and Y; D feeds E (two hops
+ * downstream of C — distinguishes "direct consumers" from the old
+ * transitive-downstream chain).
  */
 const edge = (id: string, source: string, target: string): Edge => ({
   id,
@@ -25,6 +31,7 @@ const EDGES: Edge[] = [
   edge("e3", "C", "D"),
   edge("e4", "X", "B"),
   edge("e5", "C", "Y"),
+  edge("e6", "D", "E"),
 ];
 
 describe("getNeighborhood", () => {
@@ -47,36 +54,43 @@ describe("getNeighborhood", () => {
   });
 });
 
-describe("getChain", () => {
-  test("terminal node: full upstream cone, no unrelated branches", () => {
-    const { nodeIds, edgeIds } = getChain(EDGES, ["D"]);
-    // Upstream of D: C, B, A, X. Y and e5 are NOT on any path to D.
-    expect([...nodeIds].sort()).toEqual(["A", "B", "C", "D", "X"]);
-    expect([...edgeIds].sort()).toEqual(["e1", "e2", "e3", "e4"]);
-  });
-
-  test("mid-chain node: union of upstream and downstream", () => {
-    const { nodeIds, edgeIds } = getChain(EDGES, ["C"]);
+describe("getPinnedSpotlight", () => {
+  test("mid-chain pin: upstream cone + direct consumers, nothing beyond", () => {
+    const { nodeIds, edgeIds } = getPinnedSpotlight(EDGES, ["C"]);
+    // Upstream of C: B, A, X. Direct consumers: D and Y. E (consumer of
+    // a consumer) must stay dimmed — the old transitive chain lit it.
     expect([...nodeIds].sort()).toEqual(["A", "B", "C", "D", "X", "Y"]);
     expect([...edgeIds].sort()).toEqual(["e1", "e2", "e3", "e4", "e5"]);
+    expect(nodeIds.has("E")).toBe(false);
+    expect(edgeIds.has("e6")).toBe(false);
   });
 
-  test("source node: downstream only", () => {
-    const { nodeIds, edgeIds } = getChain(EDGES, ["X"]);
-    // Downstream of X: B, C, D, Y. Upstream of B (A, e1) joins because
-    // the chain includes B's full downstream, not B's other suppliers…
-    // — it must NOT: A supplies B but is not reachable from X in either
-    // direction starting at X.
-    expect(nodeIds.has("A")).toBe(false);
-    expect(edgeIds.has("e1")).toBe(false);
-    expect([...nodeIds].sort()).toEqual(["B", "C", "D", "X", "Y"]);
-    expect([...edgeIds].sort()).toEqual(["e2", "e3", "e4", "e5"]);
+  test("early-chain pin: consumers' consumers stay dimmed", () => {
+    const { nodeIds, edgeIds } = getPinnedSpotlight(EDGES, ["B"]);
+    // Upstream: A, X. Direct consumer: C. D/E/Y are beyond one hop.
+    expect([...nodeIds].sort()).toEqual(["A", "B", "C", "X"]);
+    expect([...edgeIds].sort()).toEqual(["e1", "e2", "e4"]);
+  });
+
+  test("terminal pin (target-sink case): full upstream cone, no consumers", () => {
+    const { nodeIds, edgeIds } = getPinnedSpotlight(EDGES, ["E"]);
+    // Everything needed to produce E lights up; Y/e5 are not on any
+    // path to E.
+    expect([...nodeIds].sort()).toEqual(["A", "B", "C", "D", "E", "X"]);
+    expect([...edgeIds].sort()).toEqual(["e1", "e2", "e3", "e4", "e6"]);
+  });
+
+  test("source pin: no upstream, direct consumers only", () => {
+    const { nodeIds, edgeIds } = getPinnedSpotlight(EDGES, ["X"]);
+    expect([...nodeIds].sort()).toEqual(["B", "X"]);
+    expect([...edgeIds].sort()).toEqual(["e4"]);
   });
 
   test("multi-seed union", () => {
-    const { nodeIds, edgeIds } = getChain(EDGES, ["X", "A"]);
-    expect([...nodeIds].sort()).toEqual(["A", "B", "C", "D", "X", "Y"]);
-    expect([...edgeIds].sort()).toEqual(["e1", "e2", "e3", "e4", "e5"]);
+    const { nodeIds, edgeIds } = getPinnedSpotlight(EDGES, ["X", "D"]);
+    // X: consumer B. D: upstream C/B/A/X + consumer E.
+    expect([...nodeIds].sort()).toEqual(["A", "B", "C", "D", "E", "X"]);
+    expect([...edgeIds].sort()).toEqual(["e1", "e2", "e3", "e4", "e6"]);
   });
 
   test("terminates on cycles (backward edges form SCCs)", () => {
@@ -85,15 +99,31 @@ describe("getChain", () => {
       edge("c2", "Q", "P"), // backward edge: cycle
       edge("c3", "Q", "R"),
     ];
-    const { nodeIds, edgeIds } = getChain(cyclic, ["P"]);
+    const { nodeIds, edgeIds } = getPinnedSpotlight(cyclic, ["Q"]);
+    // Upstream of Q: P (via c1), whose supplier is Q again (cycle, via
+    // c2). Direct consumers: P (c2) and R (c3).
     expect([...nodeIds].sort()).toEqual(["P", "Q", "R"]);
     expect([...edgeIds].sort()).toEqual(["c1", "c2", "c3"]);
   });
 
   test("no seeds yields empty sets", () => {
-    const { nodeIds, edgeIds } = getChain(EDGES, []);
+    const { nodeIds, edgeIds } = getPinnedSpotlight(EDGES, []);
     expect(nodeIds.size).toBe(0);
     expect(edgeIds.size).toBe(0);
+  });
+});
+
+describe("mergeSpotlights", () => {
+  test("unions nodes and edges of pin and hover", () => {
+    const pinned = getPinnedSpotlight(EDGES, ["B"]);
+    const hovered = getNeighborhood(EDGES, "D");
+    const merged = mergeSpotlights(pinned, hovered);
+    // Pin(B): A, B, C, X / e1, e2, e4. Hover(D): C, D, E / e3, e6.
+    expect([...merged.nodeIds].sort()).toEqual(["A", "B", "C", "D", "E", "X"]);
+    expect([...merged.edgeIds].sort()).toEqual(["e1", "e2", "e3", "e4", "e6"]);
+    // Inputs unchanged (no mutation).
+    expect(pinned.nodeIds.has("E")).toBe(false);
+    expect(hovered.nodeIds.has("A")).toBe(false);
   });
 });
 

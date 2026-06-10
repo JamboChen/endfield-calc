@@ -32,7 +32,11 @@ import CustomTargetNode from "../nodes/CustomTargetNode";
 import CustomDisposalNode from "../nodes/CustomDisposalNode";
 import { useTranslation } from "react-i18next";
 import { getLayoutedElements } from "@/lib/layout";
-import { getNeighborhood, getChain } from "@/lib/flow-spotlight";
+import {
+  getNeighborhood,
+  getPinnedSpotlight,
+  mergeSpotlights,
+} from "@/lib/flow-spotlight";
 import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
 import {
   mapPlanToFlowBinFused,
@@ -258,9 +262,10 @@ export default function ProductionDependencyTree({
 
   // Spotlight state. Hover = direct neighborhood (the "which belts does
   // this building connect to" wiring task); click-to-pin (React Flow
-  // selection) = full upstream/downstream chain (the "build this whole
-  // subsystem" task) — pinning survives pan/zoom, hover cannot.
-  // Precedence: pin > hover.
+  // selection) = upstream production cone + direct consumers (the
+  // "what do I build to run this, and where does its output go" task)
+  // — pinning survives pan/zoom, hover cannot. Hover stays active while
+  // pinned: the hovered neighborhood lights up ON TOP of the pinned set.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [pinnedNodeIds, setPinnedNodeIds] = useState<string[]>([]);
 
@@ -339,11 +344,19 @@ export default function ProductionDependencyTree({
     [],
   );
 
-  // Active spotlight: pinned chain wins over hover neighborhood.
+  // Active spotlight: pinned set (upstream cone + direct consumers),
+  // hovered neighborhood, or — when both are active — their union, so
+  // hovering keeps working while a pin is held.
   const spotlight = useMemo(() => {
-    if (pinnedNodeIds.length > 0) return getChain(edges, pinnedNodeIds);
-    if (hoveredNodeId) return getNeighborhood(edges, hoveredNodeId);
-    return null;
+    const pinned =
+      pinnedNodeIds.length > 0
+        ? getPinnedSpotlight(edges, pinnedNodeIds)
+        : null;
+    const hovered = hoveredNodeId
+      ? getNeighborhood(edges, hoveredNodeId)
+      : null;
+    if (pinned && hovered) return mergeSpotlights(pinned, hovered);
+    return pinned ?? hovered;
   }, [edges, hoveredNodeId, pinnedNodeIds]);
 
   // Derived display arrays. With no spotlight these are the state arrays
@@ -375,7 +388,7 @@ export default function ProductionDependencyTree({
   const onNodeMouseLeave = useCallback(() => setHoveredNodeId(null), []);
 
   // Pin = React Flow node selection: click to pin, click canvas to clear,
-  // shift-click / box-select to pin a union of chains.
+  // shift-click / box-select to pin a union of spotlights.
   const onSelectionChange: OnSelectionChangeFunc = useCallback(
     ({ nodes: selectedNodes }) =>
       setPinnedNodeIds(selectedNodes.map((node) => node.id)),

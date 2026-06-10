@@ -32,26 +32,28 @@ export function getNeighborhood(edges: Edge[], nodeId: string): SpotlightSet {
 }
 
 /**
- * Full production chain through the seed nodes: everything reachable
- * upstream (transitive suppliers) plus everything reachable downstream
- * (transitive consumers), with the edges traversed along the way.
- * Multiple seeds yield the union of their chains.
+ * Pin spotlight: the seeds' full UPSTREAM production cone (transitive
+ * suppliers, with the edges traversed along the way) plus their DIRECT
+ * consumers (one hop downstream — the edges leaving a seed and the
+ * nodes they land on). No transitive downstream: consumers' own
+ * consumers stay dimmed.
  *
- * In-game framing: "I'm building this subsystem — show me its entire
- * supply cone and where it delivers" (click-to-pin gesture). Pinning a
- * target sink isolates that product's whole subgraph; pinning a raw
- * pickup shows everything that consumes it.
+ * In-game framing: "to run this building, what must I build (supply
+ * cone), and where do I route its output (direct consumers)?" Pinning
+ * a target sink — which has no consumers — lights everything needed to
+ * produce that target. Without the downstream cutoff, pinning e.g. a
+ * Dense Carbon Powder grinder would cascade through Stabilized Carbon
+ * into the entire Xiranite subgraph and beyond.
  *
- * Cycle-safe: production graphs contain cycles (backward edges within
- * SCCs); visited sets bound the BFS.
+ * Multiple seeds yield the union. Cycle-safe: production graphs contain
+ * cycles (backward edges within SCCs); a visited set bounds the BFS.
  */
-export function getChain(edges: Edge[], seedIds: string[]): SpotlightSet {
-  const bySource = new Map<string, Edge[]>();
+export function getPinnedSpotlight(
+  edges: Edge[],
+  seedIds: string[],
+): SpotlightSet {
   const byTarget = new Map<string, Edge[]>();
   for (const edge of edges) {
-    const out = bySource.get(edge.source) ?? [];
-    out.push(edge);
-    bySource.set(edge.source, out);
     const inn = byTarget.get(edge.target) ?? [];
     inn.push(edge);
     byTarget.set(edge.target, inn);
@@ -60,30 +62,44 @@ export function getChain(edges: Edge[], seedIds: string[]): SpotlightSet {
   const nodeIds = new Set<string>(seedIds);
   const edgeIds = new Set<string>();
 
-  // Directional BFS. `adjacency` maps a node to the edges leaving it in
-  // the walk direction; `next` picks the node on the far end.
-  const walk = (
-    adjacency: Map<string, Edge[]>,
-    next: (edge: Edge) => string,
-  ) => {
-    const visited = new Set<string>(seedIds);
-    const queue = [...seedIds];
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      for (const edge of adjacency.get(current) ?? []) {
-        edgeIds.add(edge.id);
-        const far = next(edge);
-        nodeIds.add(far);
-        if (!visited.has(far)) {
-          visited.add(far);
-          queue.push(far);
-        }
+  // Upstream BFS: transitive suppliers.
+  const visited = new Set<string>(seedIds);
+  const queue = [...seedIds];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const edge of byTarget.get(current) ?? []) {
+      edgeIds.add(edge.id);
+      nodeIds.add(edge.source);
+      if (!visited.has(edge.source)) {
+        visited.add(edge.source);
+        queue.push(edge.source);
       }
     }
-  };
+  }
 
-  walk(bySource, (edge) => edge.target); // downstream: consumers
-  walk(byTarget, (edge) => edge.source); // upstream: suppliers
+  // Direct consumers: one hop downstream from the seeds only.
+  const seeds = new Set(seedIds);
+  for (const edge of edges) {
+    if (seeds.has(edge.source)) {
+      edgeIds.add(edge.id);
+      nodeIds.add(edge.target);
+    }
+  }
 
   return { nodeIds, edgeIds };
+}
+
+/**
+ * Union of two spotlights — used when a hover spotlight is active while
+ * a pin is held: the pinned set stays lit and the hovered neighborhood
+ * adds on top (hover-leave falls back to the pin alone).
+ */
+export function mergeSpotlights(
+  a: SpotlightSet,
+  b: SpotlightSet,
+): SpotlightSet {
+  return {
+    nodeIds: new Set([...a.nodeIds, ...b.nodeIds]),
+    edgeIds: new Set([...a.edgeIds, ...b.edgeIds]),
+  };
 }
