@@ -111,6 +111,9 @@
      (green = raw, blue = recipe, amber = target). Resolves through
      --foreground, so one definition serves both themes. */
   --flow-pin: var(--foreground);
+  /* Direct-consumer ring while pinned: amber ("the targets of this
+     item") — same family as target-sink borders. Tailwind amber-600. */
+  --flow-pin-consumer: oklch(0.666 0.179 58.318);
 }
 
 .dark {
@@ -164,6 +167,8 @@
   --flow-edge-c: 0.14;
   /* MiniMap mask (dark): light translucent so the viewport window reads. */
   --flow-minimap-mask: oklch(0.9 0 0 / 12%);
+  /* Direct-consumer ring (dark): brighter amber. Tailwind amber-500. */
+  --flow-pin-consumer: oklch(0.769 0.188 70.08);
 }
 
 @layer base {

@@ -7,6 +7,14 @@ import type { Edge } from "@xyflow/react";
 export interface SpotlightSet {
   nodeIds: Set<string>;
   edgeIds: Set<string>;
+  /**
+   * Subset of `nodeIds`: the pinned seeds' DIRECT consumers — "the
+   * targets of this item". Rendered with an amber ring so they read
+   * apart from the upstream production cone. Always empty for hover
+   * neighborhoods; never contains a seed (a pinned card keeps its
+   * neutral pin ring even in cycles / multi-pin).
+   */
+  consumerNodeIds: Set<string>;
 }
 
 /**
@@ -28,7 +36,7 @@ export function getNeighborhood(edges: Edge[], nodeId: string): SpotlightSet {
       nodeIds.add(edge.source);
     }
   }
-  return { nodeIds, edgeIds };
+  return { nodeIds, edgeIds, consumerNodeIds: new Set() };
 }
 
 /**
@@ -77,16 +85,21 @@ export function getPinnedSpotlight(
     }
   }
 
-  // Direct consumers: one hop downstream from the seeds only.
+  // Direct consumers: one hop downstream from the seeds only. Seeds are
+  // kept out of the consumer set — a pinned card always shows its
+  // neutral pin ring, even when it consumes its own output (cycles) or
+  // another pinned seed's output (multi-pin).
   const seeds = new Set(seedIds);
+  const consumerNodeIds = new Set<string>();
   for (const edge of edges) {
     if (seeds.has(edge.source)) {
       edgeIds.add(edge.id);
       nodeIds.add(edge.target);
+      if (!seeds.has(edge.target)) consumerNodeIds.add(edge.target);
     }
   }
 
-  return { nodeIds, edgeIds };
+  return { nodeIds, edgeIds, consumerNodeIds };
 }
 
 /**
@@ -101,5 +114,6 @@ export function mergeSpotlights(
   return {
     nodeIds: new Set([...a.nodeIds, ...b.nodeIds]),
     edgeIds: new Set([...a.edgeIds, ...b.edgeIds]),
+    consumerNodeIds: new Set([...a.consumerNodeIds, ...b.consumerNodeIds]),
   };
 }

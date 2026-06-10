@@ -78,16 +78,27 @@ export function createEdge(
 }
 
 /**
- * Tailwind classes marking the pinned (React Flow `selected`) node.
- * Applied to the node CARD — not the React Flow wrapper — so the ring
- * sits flush against the card's `border-2` and follows its exact corner
- * radius (a wrapper-level outline slices through the port handles and
- * mismatches the radius). `--flow-pin` is the theme-neutral foreground
- * (see index.css), the only hue not used semantically by card borders.
- * Shared by all three custom node components so they stay in sync.
+ * Tailwind classes marking a node's spotlight role. Applied to the node
+ * CARD — not the React Flow wrapper — so the ring sits flush against
+ * the card's `border-2` and follows its exact corner radius (a
+ * wrapper-level outline slices through the port handles and mismatches
+ * the radius). Shared by all three custom node components.
+ *
+ * Precedence: the pinned node itself (React Flow `selected`) gets the
+ * theme-neutral `--flow-pin` ring; otherwise a direct consumer of the
+ * pinned building (`data.pinConsumer`) gets the amber
+ * `--flow-pin-consumer` ring — "the targets of this item" — so
+ * consumers read apart from the upstream production cone, which stays
+ * ring-less. Both vars live in index.css.
  */
-export const pinRingClasses = (selected: boolean | undefined): string =>
-  selected ? "ring-2 ring-(--flow-pin)" : "";
+export const nodeRingClasses = (
+  selected: boolean | undefined,
+  pinConsumer: boolean | undefined,
+): string => {
+  if (selected) return "ring-2 ring-(--flow-pin)";
+  if (pinConsumer) return "ring-2 ring-(--flow-pin-consumer)";
+  return "";
+};
 
 /**
  * Stable per-item edge colour. Primary source: `itemIconColors` — hue +

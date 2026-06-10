@@ -19,7 +19,7 @@ import type {
 } from "@/types";
 import { getTransportCountWithFacilities, getPickupPointCount, getRawSourceRate, formatCount, getEffectiveFacilityCount, formatNumber, getItemById } from "@/lib/utils";
 import { computeNodeByproducts } from "@/lib/plan-helpers";
-import { pinRingClasses } from "@/components/flow/flow-utils";
+import { nodeRingClasses } from "@/components/flow/flow-utils";
 
 /**
  * Type alias for a React Flow node containing production data.
@@ -265,7 +265,7 @@ export default function CustomProductionNode({
     <Tooltip>
       <TooltipTrigger asChild>
         <Card
-          className={`w-52 shadow-lg ${borderClasses} ${bgClasses} hover:shadow-xl transition-all cursor-help relative ${pinRingClasses(selected)}`}
+          className={`w-52 shadow-lg ${borderClasses} ${bgClasses} hover:shadow-xl transition-all cursor-help relative ${nodeRingClasses(selected, data.pinConsumer)}`}
         >
           <Handle
             type="target"

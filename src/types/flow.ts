@@ -29,6 +29,12 @@ export interface FlowNodeData {
   items: Item[];
   facilities: Facility[];
   ceilMode: boolean;
+  /**
+   * Spotlight: node is a DIRECT consumer of the pinned building —
+   * rendered with an amber ring ("the targets of this item"). Set by
+   * ProductionDependencyTree's display mapping, never by mappers.
+   */
+  pinConsumer?: boolean;
   [key: string]: unknown;
 }
 
@@ -94,6 +100,8 @@ export interface TargetSinkNodeData {
   facilities: Facility[];
   productionInfo?: TerminalTargetProductionInfo;
   ceilMode: boolean;
+  /** Spotlight: direct consumer of the pinned building (amber ring). */
+  pinConsumer?: boolean;
   [key: string]: unknown;
 }
 
@@ -119,6 +127,8 @@ export interface DisposalSinkNodeData {
   items: Item[];
   facilities: Facility[];
   ceilMode: boolean;
+  /** Spotlight: direct consumer of the pinned building (amber ring). */
+  pinConsumer?: boolean;
   [key: string]: unknown;
 }
 

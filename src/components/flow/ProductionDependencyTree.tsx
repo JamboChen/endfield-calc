@@ -362,14 +362,23 @@ export default function ProductionDependencyTree({
   // Derived display arrays. With no spotlight these are the state arrays
   // themselves (zero overhead); with a spotlight, out-of-set elements get
   // a dim marker (className for nodes, data flag for edges — edge labels
-  // live in a separate HTML layer that CSS classes can't reach).
+  // live in a separate HTML layer that CSS classes can't reach), and the
+  // pinned seeds' direct consumers get a data flag the node cards render
+  // as an amber ring.
   const displayNodes = useMemo(() => {
     if (!spotlight) return nodes;
-    return nodes.map((node) =>
-      spotlight.nodeIds.has(node.id)
-        ? node
-        : ({ ...node, className: "spotlight-dim" } as typeof node),
-    );
+    return nodes.map((node) => {
+      if (!spotlight.nodeIds.has(node.id)) {
+        return { ...node, className: "spotlight-dim" } as typeof node;
+      }
+      if (spotlight.consumerNodeIds.has(node.id)) {
+        return {
+          ...node,
+          data: { ...node.data, pinConsumer: true },
+        } as typeof node;
+      }
+      return node;
+    });
   }, [nodes, spotlight]);
 
   const displayEdges = useMemo(() => {
