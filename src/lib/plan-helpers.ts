@@ -613,21 +613,33 @@ export function getItemProducers(
  * edges (pipe/belt connections) in the visualization. Single source of truth
  * for producer→consumer decomposition — used by merged-mapper (per-recipe),
  * bin-fused Recipe View (per-bin), and bin-fused Facility View
- * (per-building instance).
+ * (per-building instance and raw-material pickup instances).
  *
  * Consumers are processed in REGISTRATION ORDER — callers register target
  * sinks before disposal sinks so targets get first claim (see
- * .claude/rules/mappers.md). For each consumer, three tiers:
+ * .claude/rules/mappers.md). For each consumer, the tiers:
  *
  *   1. Exact-fit: a producer whose available output matches the remaining
  *      demand (within MIN_VISIBLE_RATE_PER_MIN) is taken whole. Prevents
  *      a small consumer from nibbling a large producer that exactly
  *      matches a later consumer (the 3-belts-where-2-suffice bug, #91).
  *   2. Whole-fit: the largest producer that fits entirely within the
- *      remaining demand is taken whole (first-fit-decreasing). No split.
- *   3. Best-fit split: only when every remaining producer exceeds the
- *      demand — split the SMALLEST sufficient producer, preserving large
+ *      remaining demand is taken whole (first-fit-decreasing) — UNLESS its
+ *      supply exactly matches a still-pending consumer demand, in which
+ *      case it is reserved for that consumer and skipped here.
+ *   3. Best-fit split: producers exceeding the demand — prefer one whose
+ *      post-split REMAINDER exactly matches a pending demand (the
+ *      remainder becomes a future exact-fit instead of a stray fragment);
+ *      otherwise split the SMALLEST sufficient producer, preserving large
  *      producers whole for later consumers.
+ *   4. Reserved whole-fit: only when nothing else can serve the demand,
+ *      fall back to producers skipped by tier 2.
+ *
+ * The pending-demand reservation (tiers 2–3) is what prevents fragment
+ * daisy-chains: with uniform 60/min pumps feeding 30/min consumers plus a
+ * few partial-load 28.8/min ones, the unreserved greedy ate every 28.8
+ * fragment with whole-fit and re-split a fresh pump for the missing 1.2,
+ * cascading 1.2/28.8 complement edges across the whole pickup row.
  *
  * Every avoided split saves a transport (belts are ceil(rate/30) per edge),
  * so edge minimization is belt minimization in practice.
@@ -647,14 +659,31 @@ export function computeTransportAllocation(
 
   const edges: { producerId: string; consumerId: string; rate: number }[] = [];
 
-  for (const consumer of consumers) {
+  // Demands of consumers not yet processed (current consumer excluded).
+  // A producer (or split remainder) matching one of these is destined to
+  // become that consumer's exact-fit.
+  const pending = consumers.map((c) => c.rate);
+  const matchesPending = (value: number): boolean =>
+    pending.some(
+      (demand) =>
+        demand > MIN_VISIBLE_RATE_PER_MIN &&
+        Math.abs(demand - value) <= MIN_VISIBLE_RATE_PER_MIN,
+    );
+
+  for (let ci = 0; ci < consumers.length; ci++) {
+    const consumer = consumers[ci];
+    pending[ci] = 0; // no longer pending — being processed now
     let need = consumer.rate;
     while (need > MIN_VISIBLE_RATE_PER_MIN) {
       let exactId: string | undefined;
       let wholeId: string | undefined;
       let wholeAvail = 0;
+      let reservedWholeId: string | undefined;
+      let reservedWholeAvail = 0;
       let splitId: string | undefined;
       let splitAvail = Infinity;
+      let splitMatchId: string | undefined;
+      let splitMatchAvail = Infinity;
       for (const [id, avail] of remaining) {
         if (avail <= MIN_VISIBLE_RATE_PER_MIN) continue;
         if (Math.abs(avail - need) <= MIN_VISIBLE_RATE_PER_MIN) {
@@ -662,17 +691,31 @@ export function computeTransportAllocation(
           break;
         }
         if (avail < need) {
-          if (avail > wholeAvail) {
+          if (matchesPending(avail)) {
+            if (avail > reservedWholeAvail) {
+              reservedWholeAvail = avail;
+              reservedWholeId = id;
+            }
+          } else if (avail > wholeAvail) {
             wholeAvail = avail;
             wholeId = id;
           }
-        } else if (avail < splitAvail) {
-          splitAvail = avail;
-          splitId = id;
+        } else {
+          if (matchesPending(avail - need)) {
+            if (avail < splitMatchAvail) {
+              splitMatchAvail = avail;
+              splitMatchId = id;
+            }
+          }
+          if (avail < splitAvail) {
+            splitAvail = avail;
+            splitId = id;
+          }
         }
       }
 
-      const producerId = exactId ?? wholeId ?? splitId;
+      const producerId =
+        exactId ?? wholeId ?? splitMatchId ?? splitId ?? reservedWholeId;
       if (producerId === undefined) break; // demand exceeds total supply
 
       const avail = remaining.get(producerId)!;

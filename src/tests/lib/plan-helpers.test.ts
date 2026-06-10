@@ -289,6 +289,87 @@ describe("computeTransportAllocation", () => {
     expect(result.remainingByProducer.get("P10")).toBeCloseTo(5);
   });
 
+  test("pump pickups: partial demands pair with the partial pickup (no daisy chain)", async () => {
+    // Issue #91 follow-up. Facility View pickups: 60/min pumps, one
+    // partial. Consumers demand 30 except partial-load buildings at
+    // 28.8. The old sequential carving (and the un-reserved greedy)
+    // cascaded 1.2 + 28.8 complement edges across the whole row. The
+    // optimum pairs odd-with-odd: 58.8-pickup → 30 + 28.8 exactly,
+    // every 60-pickup → 30 + 30 — one edge per consumer.
+    // Total demand 118.8 → ceil(118.8 / 60) = 2 pickups: one full pump,
+    // one partial at 58.8 (the emission loop sizes the last pickup to
+    // the residual demand).
+    const producers = [
+      { id: "p0", rate: 60 },
+      { id: "p1", rate: 58.8 },
+    ];
+    const orders: { id: string; rate: number }[][] = [
+      // Partial consumer last (adversarial for the old whole-fit).
+      [
+        { id: "c1", rate: 30 },
+        { id: "c2", rate: 30 },
+        { id: "c3", rate: 30 },
+        { id: "c4", rate: 28.8 },
+      ],
+      // Partial consumer second.
+      [
+        { id: "c1", rate: 30 },
+        { id: "c4", rate: 28.8 },
+        { id: "c2", rate: 30 },
+        { id: "c3", rate: 30 },
+      ],
+      // Partial consumer first.
+      [
+        { id: "c4", rate: 28.8 },
+        { id: "c1", rate: 30 },
+        { id: "c2", rate: 30 },
+        { id: "c3", rate: 30 },
+      ],
+    ];
+    for (const consumers of orders) {
+      const { edges, remainingByProducer } = computeTransportAllocation(
+        producers,
+        consumers,
+      );
+      // One edge per consumer — no complements, no fragments.
+      expect(edges).toHaveLength(4);
+      for (const consumer of consumers) {
+        const inbound = edges.filter((e) => e.consumerId === consumer.id);
+        expect(inbound).toHaveLength(1);
+        expect(inbound[0].rate).toBeCloseTo(consumer.rate, 6);
+      }
+      // Fully drained (supply equals demand).
+      for (const left of remainingByProducer.values()) {
+        expect(left).toBeLessThanOrEqual(1e-9);
+      }
+    }
+  });
+
+  test("whole-fit skips fragments reserved for a pending exact match", async () => {
+    // Producers {60, 58.8}; consumers [30, 30, 30, 28.8]. After C1
+    // splits the 58.8 (remainder 28.8 — reserved for the pending 28.8
+    // consumer), C2's whole-fit must NOT eat that fragment; it splits
+    // the fresh 60 instead (remainder 30 → future exact-fit).
+    const { edges } = computeTransportAllocation(
+      [
+        { id: "p60", rate: 60 },
+        { id: "p58", rate: 58.8 },
+      ],
+      [
+        { id: "c1", rate: 30 },
+        { id: "c2", rate: 30 },
+        { id: "c3", rate: 30 },
+        { id: "c4", rate: 28.8 },
+      ],
+    );
+    expect(edges).toHaveLength(4);
+    // The 28.8 consumer is fed by the 58.8 partial's reserved remainder.
+    const c4Edges = edges.filter((e) => e.consumerId === "c4");
+    expect(c4Edges).toHaveLength(1);
+    expect(c4Edges[0].producerId).toBe("p58");
+    expect(c4Edges[0].rate).toBeCloseTo(28.8, 6);
+  });
+
   test("large producer decomposes along whole smaller producers (belt-aware)", async () => {
     // Producers {40, 20}, consumers [35, 25]: taking the 20 whole into
     // C1 and splitting the 40 yields edges {20, 15, 25} → 3 belts.
