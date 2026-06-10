@@ -210,6 +210,19 @@
     opacity: 0.15;
   }
 
+  /* Low-zoom declutter: at overview zoom (< threshold, toggled via the
+     flow-lowzoom class from ProductionDependencyTree's onMove) edge
+     labels fade out — ~280 unreadable label chips are most of the
+     residual overview noise. Spotlit/hovered edges opt out via
+     edge-label-keep so an active investigation keeps its numbers. */
+  .flow-theme .edge-label {
+    transition: opacity 0.15s ease;
+  }
+  .flow-theme.flow-lowzoom .edge-label:not(.edge-label-keep) {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
   /* MiniMap theming */
   .flow-theme .react-flow__minimap {
     background-color: var(--card);

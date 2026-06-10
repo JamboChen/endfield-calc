@@ -1,5 +1,9 @@
 import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from "@xyflow/react";
-import { EDGE_DIM_OPACITY } from "./CustomBezierEdge";
+import { edgePresentation } from "./edge-presentation";
+import {
+  BACKWARD_ARC_HORIZONTAL,
+  BACKWARD_ARC_VERTICAL,
+} from "@/lib/edge-fit";
 
 /**
  * Custom edge for backward connections (when target is to the left of source).
@@ -24,9 +28,10 @@ export default function CustomBackwardEdge({
   data,
 }: EdgeProps) {
   // Calculate control points for a wide arc that goes up/down to avoid the source node
-  // The arc should be large enough to clear the node (nodeHeight ~= 110px)
-  const verticalOffset = 180; // How far up/down the arc goes
-  const horizontalOffset = 120; // How far right the arc initially goes before curving back
+  // The arc should be large enough to clear the node (nodeHeight ~= 110px).
+  // Constants live in edge-fit.ts so click-to-fit bounds match the geometry.
+  const verticalOffset = BACKWARD_ARC_VERTICAL; // How far up/down the arc goes
+  const horizontalOffset = BACKWARD_ARC_HORIZONTAL; // How far right the arc initially goes before curving back
 
   // Determine if we should arc upward or downward
   // If source is below target (sourceY > targetY), arc downward to go around
@@ -63,21 +68,12 @@ export default function CustomBackwardEdge({
     3 * (1 - t) * Math.pow(t, 2) * controlPoint2Y +
     Math.pow(t, 3) * targetY;
 
-  const dimmed = Boolean((data as { dimmed?: boolean } | undefined)?.dimmed);
+  const { pathStyle, labelOpacity, labelPointerEvents, labelClassName } =
+    edgePresentation(data, style);
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={path}
-        markerEnd={markerEnd}
-        style={{
-          ...style,
-          // Preserve any style-provided opacity when not dimmed.
-          opacity: dimmed ? EDGE_DIM_OPACITY : style.opacity,
-          transition: "opacity 0.15s ease",
-        }}
-      />
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={pathStyle} />
       {label && (
         <EdgeLabelRenderer>
           <div
@@ -85,12 +81,12 @@ export default function CustomBackwardEdge({
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
               fontSize: 12,
-              pointerEvents: dimmed ? "none" : "all",
-              opacity: dimmed ? EDGE_DIM_OPACITY : 1,
+              pointerEvents: labelPointerEvents,
+              opacity: labelOpacity,
               transition: "opacity 0.15s ease",
               ...labelStyle,
             }}
-            className="nodrag nopan"
+            className={labelClassName}
           >
             <div
               style={{

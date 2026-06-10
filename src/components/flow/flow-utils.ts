@@ -65,6 +65,11 @@ export function createEdge(
     sourceHandle: item?.id,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
     label: `${flowRate.toFixed(2)} /min\n${labelTransport}`,
+    // Non-selecting: edge clicks drive hover-emphasis + click-to-fit in
+    // the tree; letting them enter React Flow's selection would clear
+    // the node selection and drop an active pin.
+    selectable: false,
+    focusable: false,
     data: {
       flowRate,
       direction,

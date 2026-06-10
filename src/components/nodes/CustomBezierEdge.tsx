@@ -5,8 +5,7 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 
-/** Opacity applied to edges (path + label) outside the spotlight. */
-export const EDGE_DIM_OPACITY = 0.08;
+import { edgePresentation } from "./edge-presentation";
 
 /**
  * Custom bezier edge that renders labels as HTML to support multi-line text across all browsers.
@@ -44,22 +43,12 @@ export default function CustomBezierEdge({
     targetPosition,
   });
 
-  const dimmed = Boolean((data as { dimmed?: boolean } | undefined)?.dimmed);
+  const { pathStyle, labelOpacity, labelPointerEvents, labelClassName } =
+    edgePresentation(data, style);
 
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        markerEnd={markerEnd}
-        style={{
-          ...style,
-          // Internal edges carry their own opacity (0.7); preserve it
-          // when not dimmed instead of clobbering with undefined.
-          opacity: dimmed ? EDGE_DIM_OPACITY : style.opacity,
-          transition: "opacity 0.15s ease",
-        }}
-      />
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={pathStyle} />
       {label && (
         <EdgeLabelRenderer>
           <div
@@ -67,12 +56,12 @@ export default function CustomBezierEdge({
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
               fontSize: 12,
-              pointerEvents: dimmed ? "none" : "all",
-              opacity: dimmed ? EDGE_DIM_OPACITY : 1,
+              pointerEvents: labelPointerEvents,
+              opacity: labelOpacity,
               transition: "opacity 0.15s ease",
               ...labelStyle,
             }}
-            className="nodrag nopan"
+            className={labelClassName}
           >
             <div
               style={{

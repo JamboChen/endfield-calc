@@ -7,6 +7,7 @@ import {
   type NodeTypes,
   type Node,
   type OnSelectionChangeFunc,
+  type ReactFlowInstance,
   BackgroundVariant,
   useNodesState,
   useEdgesState,
@@ -37,6 +38,8 @@ import {
   getPinnedSpotlight,
   mergeSpotlights,
 } from "@/lib/flow-spotlight";
+import { edgeBounds, computeEdgeFitView } from "@/lib/edge-fit";
+import GraphSearchPanel from "./GraphSearchPanel";
 import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
 import {
   mapPlanToFlowBinFused,
@@ -67,6 +70,9 @@ function isExportFormat(v: string): v is ExportFormat {
 }
 
 const CONTENT_PADDING = 0.1; // 10% padding around nodes
+
+/** Below this zoom, edge labels fade out (spotlit/hovered edges exempt). */
+const LABEL_FADE_ZOOM = 0.5;
 
 function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation("production");
@@ -268,6 +274,15 @@ export default function ProductionDependencyTree({
   // pinned: the hovered neighborhood lights up ON TOP of the pinned set.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [pinnedNodeIds, setPinnedNodeIds] = useState<string[]>([]);
+  // Hovered edge → emphasis (thicker stroke, label forced visible).
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+  // Overview declutter: below this zoom, edge labels fade out (CSS class
+  // toggled here — NOT a per-edge zoom subscription, which would re-render
+  // every edge continuously while zooming).
+  const [lowZoom, setLowZoom] = useState(false);
+  const rfInstance = useRef<ReactFlowInstance<FlowProductionNode, Edge> | null>(
+    null,
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -275,6 +290,7 @@ export default function ProductionDependencyTree({
       // Stale spotlight ids must not survive a plan/mode change.
       setHoveredNodeId(null);
       setPinnedNodeIds([]);
+      setHoveredEdgeId(null);
       if (!plan || plan.nodes.size === 0) {
         setNodes([]);
         setEdges([]);
@@ -382,13 +398,20 @@ export default function ProductionDependencyTree({
   }, [nodes, spotlight]);
 
   const displayEdges = useMemo(() => {
-    if (!spotlight) return edges;
-    return edges.map((edge) =>
-      spotlight.edgeIds.has(edge.id)
-        ? edge
-        : { ...edge, data: { ...edge.data, dimmed: true } },
-    );
-  }, [edges, spotlight]);
+    if (!spotlight && !hoveredEdgeId) return edges;
+    return edges.map((edge) => {
+      const emphasis = edge.id === hoveredEdgeId;
+      const lit = spotlight?.edgeIds.has(edge.id) ?? false;
+      const dimmed = spotlight ? !lit : false;
+      if (!emphasis && !lit && !dimmed) return edge;
+      return {
+        ...edge,
+        // Raise the hovered edge above its siblings.
+        zIndex: emphasis ? 1000 : edge.zIndex,
+        data: { ...edge.data, dimmed, lit, emphasis },
+      };
+    });
+  }, [edges, spotlight, hoveredEdgeId]);
 
   const onNodeMouseEnter = useCallback(
     (_event: React.MouseEvent, node: Node) => setHoveredNodeId(node.id),
@@ -404,6 +427,74 @@ export default function ProductionDependencyTree({
     [],
   );
 
+  const onEdgeMouseEnter = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => setHoveredEdgeId(edge.id),
+    [],
+  );
+  const onEdgeMouseLeave = useCallback(() => setHoveredEdgeId(null), []);
+
+  // Click an edge → bring its WHOLE extent into view, but only when it
+  // isn't already fully visible; the camera only pans/zooms OUT (capped
+  // at the current zoom), never in. Edges are non-selecting (see
+  // createEdge), so this never disturbs an active pin.
+  const onEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      const instance = rfInstance.current;
+      const pane = containerRef.current?.getBoundingClientRect();
+      if (!instance || !pane) return;
+      const source = instance.getNode(edge.source);
+      const target = instance.getNode(edge.target);
+      if (!source || !target) return;
+
+      const rect = (node: Node) => ({
+        x: node.position.x,
+        y: node.position.y,
+        width: node.measured?.width ?? node.width ?? 208,
+        height: node.measured?.height ?? node.height ?? 125,
+      });
+      const bounds = edgeBounds(
+        rect(source),
+        rect(target),
+        edge.type === "backwardEdge",
+      );
+      const fit = computeEdgeFitView(bounds, instance.getViewport(), {
+        width: pane.width,
+        height: pane.height,
+      });
+      if (fit) {
+        instance.setCenter(fit.centerX, fit.centerY, {
+          zoom: fit.zoom,
+          duration: 400,
+        });
+      }
+    },
+    [],
+  );
+
+  // Toggle the label-fade class only when the threshold is crossed
+  // (setState with an unchanged value bails out — no re-render storm).
+  const onMove = useCallback(
+    (_event: unknown, viewport: { zoom: number }) =>
+      setLowZoom(viewport.zoom < LABEL_FADE_ZOOM),
+    [],
+  );
+
+  // Graph search: center happens in the panel (it owns the ReactFlow
+  // context); pinning happens here (selection state lives in `nodes`).
+  const onSearchSelect = useCallback(
+    (nodeId: string) => {
+      setNodes((current) =>
+        current.map((node) =>
+          node.selected !== (node.id === nodeId)
+            ? ({ ...node, selected: node.id === nodeId } as typeof node)
+            : node,
+        ),
+      );
+      setPinnedNodeIds([nodeId]);
+    },
+    [setNodes],
+  );
+
   if (!plan || plan.nodes.size === 0) {
     return (
       <div className="h-full w-full flex items-center justify-center text-muted-foreground">
@@ -416,13 +507,21 @@ export default function ProductionDependencyTree({
     <div className="h-full w-full flex flex-col">
       <div className="flex-1" ref={containerRef}>
         <ReactFlow
-          className="flow-theme"
+          className={`flow-theme${lowZoom ? " flow-lowzoom" : ""}`}
           nodes={displayNodes}
           edges={displayEdges}
+          onInit={(instance) => {
+            rfInstance.current = instance;
+            setLowZoom(instance.getZoom() < LABEL_FADE_ZOOM);
+          }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeMouseEnter={onNodeMouseEnter}
           onNodeMouseLeave={onNodeMouseLeave}
+          onEdgeMouseEnter={onEdgeMouseEnter}
+          onEdgeMouseLeave={onEdgeMouseLeave}
+          onEdgeClick={onEdgeClick}
+          onMove={onMove}
           onSelectionChange={onSelectionChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
@@ -451,6 +550,7 @@ export default function ProductionDependencyTree({
           {/* Colours come from --xy-minimap-* vars in index.css so they
               flip with the theme (props would freeze them). */}
           <MiniMap pannable zoomable />
+          <GraphSearchPanel nodes={displayNodes} onSelectResult={onSearchSelect} />
           <ExportImageButton containerRef={containerRef} />
         </ReactFlow>
       </div>

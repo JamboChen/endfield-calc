@@ -154,5 +154,9 @@ declare module "@xyflow/react" {
     itemId?: string;
     /** Spotlight: edge is outside the hovered/pinned neighborhood. */
     dimmed?: boolean;
+    /** Spotlight: edge is lit — label survives low-zoom fading. */
+    lit?: boolean;
+    /** Hovered edge — thicker stroke, label forced visible. */
+    emphasis?: boolean;
   }
 }
