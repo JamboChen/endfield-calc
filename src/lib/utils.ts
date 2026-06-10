@@ -19,6 +19,14 @@ import { rawMaterialSources } from "@/data";
 const TRANSPORT_BELT_CAPACITY = 30;
 const TRANSPORT_PIPE_CAPACITY = 120;
 
+/**
+ * Absolute tolerance (in transport units) absorbed before ceiling.
+ * Per-building rates carry float noise (e.g. 30.000000000000004/min from
+ * `rate / fullLoadFraction * loadFraction`), which would otherwise ceil a
+ * one-belt 30/min edge to 2 belts.
+ */
+const TRANSPORT_COUNT_TOLERANCE = 1e-9;
+
 export const getTransportCapacity = (item?: Item): number =>
   item?.isLiquid ? TRANSPORT_PIPE_CAPACITY : TRANSPORT_BELT_CAPACITY;
 
@@ -28,7 +36,7 @@ export const getTransportCount = (
   ceil = false,
 ): number => {
   const count = itemsPerMinute / getTransportCapacity(item);
-  return ceil ? Math.ceil(count) : count;
+  return ceil ? Math.max(Math.ceil(count - TRANSPORT_COUNT_TOLERANCE), 0) : count;
 };
 
 /**

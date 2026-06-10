@@ -6,6 +6,7 @@ import {
   mapPlanToFlowBinFusedSeparated,
 } from "@/components/mappers/bin-fused-mapper";
 import { items, recipes, facilities } from "@/data";
+import { getTransportCount } from "@/lib/utils";
 import type { FacilityId, ItemId, ProductionDependencyGraph } from "@/types";
 import type { Edge, Node } from "@xyflow/react";
 import { ALL_RAWS } from "./utils";
@@ -251,5 +252,56 @@ describe("Prefill chip rendering across views", () => {
       const data = node.data as NodeData;
       expect(data.productionNode.prefillCandidates ?? []).toEqual([]);
     }
+  });
+});
+
+describe("belt-minimizing producer→consumer decomposition (issue #91)", () => {
+  // Repro: Hetonite Component @ 6/min, Facility View. The old greedy
+  // drained the largest Xiranite producer building first for every
+  // consumer, splitting one 30/min producer across two consumers — an
+  // extra edge and an extra belt vs. whole-producer pairing. The fix
+  // (`computeTransportAllocation`) assigns whole producer buildings to
+  // whole consumers: 5 full ovens + 1 partial oven feed two forges
+  // (2 × 30 each), one mix pool (30), and one mix pool (18) over the
+  // minimum 6 edges / 6 belts, with no producer split across consumers.
+  test("hetonite component @ 6/min: xiranite powder uses whole-producer belts in Facility View", async () => {
+    const targetId = "item_equip_script_4_2" as ItemId;
+    const plan = await calculateProductionPlan(
+      [{ itemId: targetId, rate: 6 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const targetRates = new Map<ItemId, number>([[targetId, 6]]);
+    const flow = mapPlanToFlowBinFusedSeparated(plan, items, recipes, facilities, targetRates);
+
+    const xiraniteItem = items.find(
+      (i) => i.id === ("item_xiranite_powder" as ItemId),
+    );
+    const xiraniteEdges = flow.edges.filter(
+      (e) => e.sourceHandle === ("item_xiranite_powder" as ItemId),
+    );
+
+    // Whole-producer assignments: minimum edge count, no producer
+    // building split across two consumers (old greedy: 7 edges, one
+    // producer feeding both a mix pool and a forge).
+    expect(xiraniteEdges).toHaveLength(6);
+    const sources = xiraniteEdges.map((e) => e.source);
+    expect(new Set(sources).size).toBe(sources.length);
+
+    // Belt total: one belt per 30/min edge (fp noise in per-building
+    // rates must not ceil a 30/min edge to 2 belts).
+    const belts = xiraniteEdges.reduce(
+      (sum, e) =>
+        sum +
+        getTransportCount(
+          (e.data as { flowRate: number }).flowRate,
+          xiraniteItem,
+          true,
+        ),
+      0,
+    );
+    expect(belts).toBe(6);
   });
 });

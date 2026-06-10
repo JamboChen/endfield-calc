@@ -3,7 +3,7 @@ import { calculateProductionPlan } from "@/lib/calculator";
 import {
   aggregateBinTotals,
   buildBinActivitySums,
-  computeGreedyAllocation,
+  computeTransportAllocation,
   computeNodeByproducts,
   computeOverCapWarnings,
   computeRawOverCapWarnings,
@@ -67,44 +67,44 @@ import type {
 
 import { ALL_RAWS } from "./utils";
 
-describe("computeGreedyAllocation", () => {
+describe("computeTransportAllocation", () => {
   test("single producer, single consumer — direct assignment", async () => {
-    const result = computeGreedyAllocation(
-      [{ recipeId: "A", rate: 60 }],
-      [{ consumerId: "C1", demand: 60 }],
+    const result = computeTransportAllocation(
+      [{ id: "A", rate: 60 }],
+      [{ id: "C1", rate: 60 }],
     );
 
-    expect(result.consumerEdges).toEqual([
-      { producerRecipeId: "A", consumerId: "C1", rate: 60 },
+    expect(result.edges).toEqual([
+      { producerId: "A", consumerId: "C1", rate: 60 },
     ]);
     expect(result.remainingByProducer.get("A")).toBeCloseTo(0);
   });
 
   test("single producer, demand less than production — surplus remains", async () => {
-    const result = computeGreedyAllocation(
-      [{ recipeId: "A", rate: 60 }],
-      [{ consumerId: "C1", demand: 30 }],
+    const result = computeTransportAllocation(
+      [{ id: "A", rate: 60 }],
+      [{ id: "C1", rate: 30 }],
     );
 
-    expect(result.consumerEdges).toEqual([
-      { producerRecipeId: "A", consumerId: "C1", rate: 30 },
+    expect(result.edges).toEqual([
+      { producerId: "A", consumerId: "C1", rate: 30 },
     ]);
     expect(result.remainingByProducer.get("A")).toBeCloseTo(30);
   });
 
-  test("multi-producer, single consumer — largest fills first", async () => {
+  test("multi-producer, single consumer — exact-fit producer wins", async () => {
     // Furnace (60) + Crucible (30) → SCC consumer (60)
-    // Furnace alone satisfies demand. Crucible is surplus.
-    const result = computeGreedyAllocation(
+    // Furnace alone satisfies demand exactly. Crucible is surplus.
+    const result = computeTransportAllocation(
       [
-        { recipeId: "furnace", rate: 60 },
-        { recipeId: "crucible", rate: 30 },
+        { id: "furnace", rate: 60 },
+        { id: "crucible", rate: 30 },
       ],
-      [{ consumerId: "scc", demand: 60 }],
+      [{ id: "scc", rate: 60 }],
     );
 
-    expect(result.consumerEdges).toEqual([
-      { producerRecipeId: "furnace", consumerId: "scc", rate: 60 },
+    expect(result.edges).toEqual([
+      { producerId: "furnace", consumerId: "scc", rate: 60 },
     ]);
     expect(result.remainingByProducer.get("furnace")).toBeCloseTo(0);
     expect(result.remainingByProducer.get("crucible")).toBeCloseTo(30);
@@ -112,48 +112,43 @@ describe("computeGreedyAllocation", () => {
 
   test("multi-producer, single consumer — demand exceeds largest producer", async () => {
     // Producer A (40) + Producer B (30) → Consumer (60)
-    // A fills 40, B fills remaining 20. B has 10 surplus.
-    const result = computeGreedyAllocation(
+    // A fills 40 (whole-fit), B fills remaining 20. B has 10 surplus.
+    const result = computeTransportAllocation(
       [
-        { recipeId: "A", rate: 40 },
-        { recipeId: "B", rate: 30 },
+        { id: "A", rate: 40 },
+        { id: "B", rate: 30 },
       ],
-      [{ consumerId: "C1", demand: 60 }],
+      [{ id: "C1", rate: 60 }],
     );
 
-    expect(result.consumerEdges).toEqual([
-      { producerRecipeId: "A", consumerId: "C1", rate: 40 },
-      { producerRecipeId: "B", consumerId: "C1", rate: 20 },
+    expect(result.edges).toEqual([
+      { producerId: "A", consumerId: "C1", rate: 40 },
+      { producerId: "B", consumerId: "C1", rate: 20 },
     ]);
     expect(result.remainingByProducer.get("A")).toBeCloseTo(0);
     expect(result.remainingByProducer.get("B")).toBeCloseTo(10);
   });
 
-  test("multi-producer, multiple consumers — greedy minimizes edges", async () => {
+  test("multi-producer, multiple consumers — minimizes edges", async () => {
     // Producers: A (30), B (30)
     // Consumers: C1 (30), C2 (20)
-    // Greedy: A fills C1 entirely, B fills C2 with 10 surplus.
-    const result = computeGreedyAllocation(
+    // A (or B) fills C1 entirely, the other fills C2 with 10 surplus.
+    const result = computeTransportAllocation(
       [
-        { recipeId: "A", rate: 30 },
-        { recipeId: "B", rate: 30 },
+        { id: "A", rate: 30 },
+        { id: "B", rate: 30 },
       ],
       [
-        { consumerId: "C1", demand: 30 },
-        { consumerId: "C2", demand: 20 },
+        { id: "C1", rate: 30 },
+        { id: "C2", rate: 20 },
       ],
     );
 
-    // A (or B, both equal rate) fills C1 entirely
-    expect(result.consumerEdges).toHaveLength(2);
+    expect(result.edges).toHaveLength(2);
 
     // Each consumer gets exactly one edge (one producer each)
-    const c1Edges = result.consumerEdges.filter(
-      (e) => e.consumerId === "C1",
-    );
-    const c2Edges = result.consumerEdges.filter(
-      (e) => e.consumerId === "C2",
-    );
+    const c1Edges = result.edges.filter((e) => e.consumerId === "C1");
+    const c2Edges = result.edges.filter((e) => e.consumerId === "C2");
     expect(c1Edges).toHaveLength(1);
     expect(c1Edges[0].rate).toBeCloseTo(30);
     expect(c2Edges).toHaveLength(1);
@@ -167,46 +162,159 @@ describe("computeGreedyAllocation", () => {
   });
 
   test("demand exceeds total production — allocates what's available", async () => {
-    const result = computeGreedyAllocation(
-      [{ recipeId: "A", rate: 30 }],
-      [{ consumerId: "C1", demand: 60 }],
+    const result = computeTransportAllocation(
+      [{ id: "A", rate: 30 }],
+      [{ id: "C1", rate: 60 }],
     );
 
-    expect(result.consumerEdges).toEqual([
-      { producerRecipeId: "A", consumerId: "C1", rate: 30 },
+    expect(result.edges).toEqual([
+      { producerId: "A", consumerId: "C1", rate: 30 },
     ]);
     expect(result.remainingByProducer.get("A")).toBeCloseTo(0);
   });
 
   test("no consumers — all production remains for disposal", async () => {
-    const result = computeGreedyAllocation(
+    const result = computeTransportAllocation(
       [
-        { recipeId: "A", rate: 60 },
-        { recipeId: "B", rate: 30 },
+        { id: "A", rate: 60 },
+        { id: "B", rate: 30 },
       ],
       [],
     );
 
-    expect(result.consumerEdges).toHaveLength(0);
+    expect(result.edges).toHaveLength(0);
     expect(result.remainingByProducer.get("A")).toBeCloseTo(60);
     expect(result.remainingByProducer.get("B")).toBeCloseTo(30);
   });
 
-  test("producers are sorted by rate regardless of input order", async () => {
-    // Input order: small first. Should still assign large producer first.
-    const result = computeGreedyAllocation(
+  test("exact-fit producer is preferred regardless of input order", async () => {
+    // Input order: small first. The exact match (large) should be chosen.
+    const result = computeTransportAllocation(
       [
-        { recipeId: "small", rate: 10 },
-        { recipeId: "large", rate: 50 },
+        { id: "small", rate: 10 },
+        { id: "large", rate: 50 },
       ],
-      [{ consumerId: "C1", demand: 50 }],
+      [{ id: "C1", rate: 50 }],
     );
 
-    expect(result.consumerEdges).toEqual([
-      { producerRecipeId: "large", consumerId: "C1", rate: 50 },
+    expect(result.edges).toEqual([
+      { producerId: "large", consumerId: "C1", rate: 50 },
     ]);
     expect(result.remainingByProducer.get("large")).toBeCloseTo(0);
     expect(result.remainingByProducer.get("small")).toBeCloseTo(10);
+  });
+
+  test("issue #91 — small consumer first does not split the large producer", async () => {
+    // Repro from the Hetonite Component plan: producers {30, 8.4},
+    // consumers registered in the order [forge2 (8.4), forge1 (30)].
+    // Old greedy drained the 30 producer first (8.4 to forge2), forcing
+    // forge1 to take 21.6 + 8.4 — 3 edges / 3 belts. Exact-fit pairing
+    // yields 2 edges / 2 belts.
+    const result = computeTransportAllocation(
+      [
+        { id: "P30", rate: 30 },
+        { id: "P8", rate: 8.4 },
+      ],
+      [
+        { id: "forge2", rate: 8.4 },
+        { id: "forge1", rate: 30 },
+      ],
+    );
+
+    expect(result.edges).toEqual([
+      { producerId: "P8", consumerId: "forge2", rate: 8.4 },
+      { producerId: "P30", consumerId: "forge1", rate: 30 },
+    ]);
+  });
+
+  test("near-exact fit within epsilon is treated as exact", async () => {
+    // Floating-point noise (< MIN_VISIBLE_RATE_PER_MIN) must not break
+    // exact-fit pairing or leave a phantom remainder.
+    const result = computeTransportAllocation(
+      [
+        { id: "P30", rate: 30.0000001 },
+        { id: "P8", rate: 8.4 },
+      ],
+      [
+        { id: "C8", rate: 8.4 },
+        { id: "C30", rate: 30 },
+      ],
+    );
+
+    expect(result.edges).toHaveLength(2);
+    expect(result.remainingByProducer.get("P30")).toBeCloseTo(0, 5);
+    expect(result.remainingByProducer.get("P8")).toBeCloseTo(0, 5);
+  });
+
+  test("whole-fit — smaller producers are consumed whole before splitting", async () => {
+    // Producers {30, 8.4}, consumer 20: take 8.4 whole, split 30 for the
+    // remaining 11.6 — leaves an 18.4 remainder usable by later consumers.
+    const result = computeTransportAllocation(
+      [
+        { id: "P30", rate: 30 },
+        { id: "P8", rate: 8.4 },
+      ],
+      [
+        { id: "C1", rate: 20 },
+        { id: "C2", rate: 18.4 },
+      ],
+    );
+
+    expect(result.edges).toEqual([
+      { producerId: "P8", consumerId: "C1", rate: 8.4 },
+      { producerId: "P30", consumerId: "C1", rate: 11.6 },
+      { producerId: "P30", consumerId: "C2", rate: 18.4 },
+    ]);
+  });
+
+  test("best-fit split — splits the smallest sufficient producer", async () => {
+    // Producers {30, 10}, consumers [5, 30]: splitting the 10 keeps the
+    // 30 whole for the exact-match consumer → 2 main edges. Old greedy
+    // split the 30 first → 3 edges.
+    const result = computeTransportAllocation(
+      [
+        { id: "P30", rate: 30 },
+        { id: "P10", rate: 10 },
+      ],
+      [
+        { id: "C5", rate: 5 },
+        { id: "C30", rate: 30 },
+      ],
+    );
+
+    expect(result.edges).toEqual([
+      { producerId: "P10", consumerId: "C5", rate: 5 },
+      { producerId: "P30", consumerId: "C30", rate: 30 },
+    ]);
+    expect(result.remainingByProducer.get("P10")).toBeCloseTo(5);
+  });
+
+  test("large producer decomposes along whole smaller producers (belt-aware)", async () => {
+    // Producers {40, 20}, consumers [35, 25]: taking the 20 whole into
+    // C1 and splitting the 40 yields edges {20, 15, 25} → 3 belts.
+    // The naive largest-first split gives a 35 edge (2 belts) plus two
+    // more → 4 belts.
+    const result = computeTransportAllocation(
+      [
+        { id: "P40", rate: 40 },
+        { id: "P20", rate: 20 },
+      ],
+      [
+        { id: "C35", rate: 35 },
+        { id: "C25", rate: 25 },
+      ],
+    );
+
+    expect(result.edges).toEqual([
+      { producerId: "P20", consumerId: "C35", rate: 20 },
+      { producerId: "P40", consumerId: "C35", rate: 15 },
+      { producerId: "P40", consumerId: "C25", rate: 25 },
+    ]);
+    const belts = result.edges.reduce(
+      (sum, e) => sum + Math.ceil(e.rate / 30),
+      0,
+    );
+    expect(belts).toBe(3);
   });
 });
 

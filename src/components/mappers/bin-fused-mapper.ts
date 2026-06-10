@@ -40,7 +40,11 @@ import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate, getRawSourceRate } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
-import { buildBinActivitySums, pickBinHeadlineOutput } from "@/lib/plan-helpers";
+import {
+  buildBinActivitySums,
+  computeTransportAllocation,
+  pickBinHeadlineOutput,
+} from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
 
 /**
@@ -224,9 +228,10 @@ export function mapPlanToFlowBinFused(
     consumersByItem.set(inp.itemId, arr);
   }
 
-  // Greedy producer→consumer allocation per item. Produces one edge
-  // per (producer, consumer) pair with the allocated rate. Whole-
-  // producer assignments minimise edge count vs. proportional split.
+  // Producer→consumer allocation per item (shared helper — exact-fit,
+  // whole-fit, then best-fit split). Produces one edge per
+  // (producer, consumer) pair with the allocated rate. Whole-producer
+  // assignments minimise edge/belt count vs. proportional split.
   //
   // Raw byproducts (e.g. Liquid Purifier emits water) are now valid
   // producers — the allocator drains their supply into consumers first,
@@ -237,26 +242,11 @@ export function mapPlanToFlowBinFused(
   for (const [itemId, producers] of producersByItem.entries()) {
     const consumers = consumersByItem.get(itemId) ?? [];
     if (consumers.length === 0) continue;
-    const sortedProducers = [...producers].sort((a, b) => b.rate - a.rate);
-    const remaining = new Map(sortedProducers.map((p) => [p.binId, p.rate]));
-    const out: AllocEdge[] = [];
-    for (const consumer of consumers) {
-      let need = consumer.rate;
-      for (const producer of sortedProducers) {
-        if (need <= MIN_VISIBLE_RATE_PER_MIN) break;
-        const avail = remaining.get(producer.binId) ?? 0;
-        if (avail <= MIN_VISIBLE_RATE_PER_MIN) continue;
-        const take = Math.min(avail, need);
-        remaining.set(producer.binId, avail - take);
-        need -= take;
-        out.push({
-          producerId: producer.binId,
-          consumerId: consumer.binId,
-          rate: take,
-        });
-      }
-    }
-    allocated.set(itemId, out);
+    const { edges } = computeTransportAllocation(
+      producers.map((p) => ({ id: p.binId, rate: p.rate })),
+      consumers.map((c) => ({ id: c.binId, rate: c.rate })),
+    );
+    allocated.set(itemId, edges);
   }
 
   // Per-bin sum of recipe activities — used in ceilMode=OFF to show
@@ -845,32 +835,18 @@ export function mapPlanToFlowBinFusedSeparated(
     consumersByItem.set(inp.itemId, arr);
   }
 
-  // Greedy producer→consumer allocation per item, similar to merged.
+  // Producer→consumer allocation per item via the shared helper, same
+  // as the Recipe View path above.
   type AllocEdge = { producerId: string; consumerId: string; rate: number };
   const allocated = new Map<ItemId, AllocEdge[]>();
   for (const [itemId, producers] of producersByItem.entries()) {
     const consumers = consumersByItem.get(itemId) ?? [];
     if (consumers.length === 0) continue;
-    const sortedProducers = [...producers].sort((a, b) => b.rate - a.rate);
-    const remaining = new Map(sortedProducers.map((p) => [p.instanceId, p.rate]));
-    const out: AllocEdge[] = [];
-    for (const consumer of consumers) {
-      let need = consumer.rate;
-      for (const producer of sortedProducers) {
-        if (need <= MIN_VISIBLE_RATE_PER_MIN) break;
-        const avail = remaining.get(producer.instanceId) ?? 0;
-        if (avail <= MIN_VISIBLE_RATE_PER_MIN) continue;
-        const take = Math.min(avail, need);
-        remaining.set(producer.instanceId, avail - take);
-        need -= take;
-        out.push({
-          producerId: producer.instanceId,
-          consumerId: consumer.instanceId,
-          rate: take,
-        });
-      }
-    }
-    allocated.set(itemId, out);
+    const { edges } = computeTransportAllocation(
+      producers.map((p) => ({ id: p.instanceId, rate: p.rate })),
+      consumers.map((c) => ({ id: c.instanceId, rate: c.rate })),
+    );
+    allocated.set(itemId, edges);
   }
 
   // Emit production-instance nodes. (Singleton-terminal bins were

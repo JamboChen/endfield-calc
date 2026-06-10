@@ -609,61 +609,82 @@ export function getItemProducers(
 }
 
 /**
- * Computes a greedy allocation of producer outputs to consumers, minimizing
- * the number of edges (pipe/belt connections) in the visualization.
+ * Allocates producer outputs to consumer demands, minimizing the number of
+ * edges (pipe/belt connections) in the visualization. Single source of truth
+ * for producer→consumer decomposition — used by merged-mapper (per-recipe),
+ * bin-fused Recipe View (per-bin), and bin-fused Facility View
+ * (per-building instance).
  *
- * Instead of splitting each producer proportionally across all consumers,
- * assigns whole producer outputs to consumers first. A producer is only
- * split across consumers when its output exceeds one consumer's demand or
- * doesn't fully cover it.
+ * Consumers are processed in REGISTRATION ORDER — callers register target
+ * sinks before disposal sinks so targets get first claim (see
+ * .claude/rules/mappers.md). For each consumer, three tiers:
  *
- * Producers are sorted by rate (descending) so large producers are assigned
- * first, maximizing the chance of whole-producer assignments.
+ *   1. Exact-fit: a producer whose available output matches the remaining
+ *      demand (within MIN_VISIBLE_RATE_PER_MIN) is taken whole. Prevents
+ *      a small consumer from nibbling a large producer that exactly
+ *      matches a later consumer (the 3-belts-where-2-suffice bug, #91).
+ *   2. Whole-fit: the largest producer that fits entirely within the
+ *      remaining demand is taken whole (first-fit-decreasing). No split.
+ *   3. Best-fit split: only when every remaining producer exceeds the
+ *      demand — split the SMALLEST sufficient producer, preserving large
+ *      producers whole for later consumers.
  *
- * @returns consumerEdges — edges from producers to consumers with allocated rates
- * @returns remainingByProducer — leftover production per producer (for disposal)
+ * Every avoided split saves a transport (belts are ceil(rate/30) per edge),
+ * so edge minimization is belt minimization in practice.
+ *
+ * @returns edges — producer→consumer edges with allocated rates
+ * @returns remainingByProducer — leftover production per producer (for
+ *   disposal). Contains EVERY producer id, drained ones at 0.
  */
-export function computeGreedyAllocation(
-  producers: { recipeId: string; rate: number }[],
-  consumers: { consumerId: string; demand: number }[],
+export function computeTransportAllocation(
+  producers: { id: string; rate: number }[],
+  consumers: { id: string; rate: number }[],
 ): {
-  consumerEdges: {
-    producerRecipeId: string;
-    consumerId: string;
-    rate: number;
-  }[];
+  edges: { producerId: string; consumerId: string; rate: number }[];
   remainingByProducer: Map<string, number>;
 } {
-  // Sort producers by rate descending — assign large producers first
-  const sorted = [...producers].sort((a, b) => b.rate - a.rate);
-  const remaining = new Map(sorted.map((p) => [p.recipeId, p.rate]));
+  const remaining = new Map(producers.map((p) => [p.id, p.rate]));
 
-  const consumerEdges: {
-    producerRecipeId: string;
-    consumerId: string;
-    rate: number;
-  }[] = [];
+  const edges: { producerId: string; consumerId: string; rate: number }[] = [];
 
   for (const consumer of consumers) {
-    let remainingDemand = consumer.demand;
-    for (const producer of sorted) {
-      if (remainingDemand <= MIN_VISIBLE_RATE_PER_MIN) break;
-      const available = remaining.get(producer.recipeId) || 0;
-      if (available <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    let need = consumer.rate;
+    while (need > MIN_VISIBLE_RATE_PER_MIN) {
+      let exactId: string | undefined;
+      let wholeId: string | undefined;
+      let wholeAvail = 0;
+      let splitId: string | undefined;
+      let splitAvail = Infinity;
+      for (const [id, avail] of remaining) {
+        if (avail <= MIN_VISIBLE_RATE_PER_MIN) continue;
+        if (Math.abs(avail - need) <= MIN_VISIBLE_RATE_PER_MIN) {
+          exactId = id;
+          break;
+        }
+        if (avail < need) {
+          if (avail > wholeAvail) {
+            wholeAvail = avail;
+            wholeId = id;
+          }
+        } else if (avail < splitAvail) {
+          splitAvail = avail;
+          splitId = id;
+        }
+      }
 
-      const allocated = Math.min(available, remainingDemand);
-      remaining.set(producer.recipeId, available - allocated);
-      remainingDemand -= allocated;
+      const producerId = exactId ?? wholeId ?? splitId;
+      if (producerId === undefined) break; // demand exceeds total supply
 
-      consumerEdges.push({
-        producerRecipeId: producer.recipeId,
-        consumerId: consumer.consumerId,
-        rate: allocated,
-      });
+      const avail = remaining.get(producerId)!;
+      const allocated = exactId !== undefined ? avail : Math.min(avail, need);
+      remaining.set(producerId, avail - allocated);
+      need -= allocated;
+
+      edges.push({ producerId, consumerId: consumer.id, rate: allocated });
     }
   }
 
-  return { consumerEdges, remainingByProducer: remaining };
+  return { edges, remainingByProducer: remaining };
 }
 
 /**
