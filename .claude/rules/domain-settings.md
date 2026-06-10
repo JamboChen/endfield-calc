@@ -34,7 +34,7 @@ paths:
 
 Region-exclusive **map structures** the user opts into (not roster/AIC buildings). Today: the Wuling Purification Node (3 Sewage Inlets + 1 Byproduct Outlet, a linear prereq chain). **Wired to the solver** via `facilityRecipeVariants` + the App-layer bridge in `src/App.tsx`.
 
-- **Registry** (hand-curated): `src/data/region-structures.ts` → `regionStructures: ReadonlyMap<DomainId, readonly RegionStructure[]>`. Each entry carries `requires` (the chain), `nameKey` / `index` / `iconSlug` (display), and a `solver: { role, facilityId }` discriminator. The structure's `id` is the upstream game building id verbatim (e.g. `liquid_clean_gate_1`):
+- **Registry** (AUTO-GENERATED — `pnpm run extract:structures`): `src/data/region-subsystems.ts` → `regionStructures: ReadonlyMap<DomainId, readonly RegionStructure[]>`. Each entry carries `requires` (the chain), `nodeId` / `index` / `iconSlug` (display; names resolve from the `structure` locale namespace), and a `solver: { role, facilityId }` discriminator. The structure's `id` is the upstream game building id verbatim (e.g. `liquid_clean_gate_1`):
   - `role: "instance"` — each enabled instance adds +1 to `facilityCaps[facilityId]` (Sewage Inlets 1/2/3 contribute to `LIQUID_CLEAN_GATE_1`).
   - `role: "recipeToggle"` — when enabled, the facility's active recipe switches from the `default` variant to the `toggled` variant declared in `facilityRecipeVariants` (`src/data/index.ts`). Byproduct Outlet toggles `LIQUID_CLEAN_GATE_1` from `DISPOSAL` to `BYPRODUCT`.
   - The structure carries no rate numbers — those live on the real `Recipe` entries pointed to by `facilityRecipeVariants`. Single source of truth between what the UI annotates and what the LP runs.
