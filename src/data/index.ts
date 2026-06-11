@@ -59,9 +59,15 @@ type RawSourceConfig = {
 /**
  * Source-facility map for raw materials. Adding a new raw requires
  * picking the in-game building that supplies it:
- *   - Solid ore/sand → unloader_1 (Depot Unloader, 0 W, 30/min)
+ *   - Solid ore/sand/gatherables → unloader_1 (Depot Unloader, 0 W, 30/min)
  *   - Most liquids → pump_1 (Fluid Pump, 10 W, 60/min)
  *   - Acid → pump_2 (Acid Resistant Pump Mk II, 20 W, 60/min)
+ *
+ * `item_muck_feces_1` (Burdo-Muck) is a pure gather item (its only
+ * upstream obtain way is `item_obtain_gather_muck_feces_1` — collected
+ * from Burdos in the world, never machine-crafted), consumed by the
+ * Wuling-only Xiranite Oven to make Bumper-Rich. Like ores, the player
+ * gathers it and feeds it in via the Depot Unloader.
  *
  * `miner_4`'s in-game water consumption for `item_copper_ore` is
  * intentionally NOT modeled — `unloader_1` is the canonical solid
@@ -76,6 +82,7 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
   ["item_quartz_sand", { sourceFacility: FacilityId.UNLOADER_1 }],
   ["item_iron_ore", { sourceFacility: FacilityId.UNLOADER_1 }],
   ["item_copper_ore", { sourceFacility: FacilityId.UNLOADER_1 }],
+  ["item_muck_feces_1", { sourceFacility: FacilityId.UNLOADER_1 }],
   ["item_liquid_water", { sourceFacility: FacilityId.PUMP_1, ratePerMinute: 60 }],
   ["item_liquid_acid", { sourceFacility: FacilityId.PUMP_2, ratePerMinute: 60 }],
 ]);
@@ -95,7 +102,8 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
  *     no auto-extraction is possible. Hand-curated per region from
  *     observed in-game inventory:
  *       Valley IV (domain_1): originium, ferrium (iron), amethyst (quartz)
- *       Wuling    (domain_2): originium, ferrium (iron), cuprium (copper)
+ *       Wuling    (domain_2): originium, ferrium (iron), cuprium (copper),
+ *                             Burdo-Muck (gathered from Burdos)
  *
  *   - **Liquid raws** are tied to pump deployability. Both `pump_1`
  *     and `pump_2` carry `Facility.domains: ["domain_2"]` (set in the
@@ -135,6 +143,7 @@ const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
         "item_originium_ore",
         "item_iron_ore",
         "item_copper_ore",
+        "item_muck_feces_1",
         "item_liquid_water",
         "item_liquid_acid",
       ]),
