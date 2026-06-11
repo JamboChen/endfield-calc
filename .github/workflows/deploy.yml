@@ -11,7 +11,9 @@
 name: Deploy static content to Pages
 
 on:
-  # New stable release published -> rebuild prod + refresh beta.
+  # New stable release published -> trampoline to a workflow_dispatch
+  # run (see the redispatch job below; release-event deployments at an
+  # already-deployed SHA are silently dropped by the Pages backend).
   release:
     types: [published]
 
@@ -36,7 +38,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Release-event trampoline.
+  #
+  # actions/deploy-pages#383: the Pages backend silently drops the second
+  # deployment of a given SHA on release events specifically -- "Reported
+  # success!" runs, deployments API marks the new deployment active, but
+  # the origin keeps serving the prior tarball. push and workflow_dispatch
+  # deployments are NOT affected; the broken case is exactly "release
+  # event whose SHA was already deployed". The bump-push and the matching
+  # release publish always share a SHA, so every release silently keeps
+  # prod on the previous tag until the next ordinary master push.
+  #
+  # Workflow-level overrides of GITHUB_SHA don't work (the runner re-
+  # injects it every step) and the /pages/deployments REST endpoint
+  # refuses plain GITHUB_TOKEN auth (404 on direct calls -- confirmed
+  # both here and in #383). So instead of trying to deploy on the release
+  # event, re-trigger this workflow as a workflow_dispatch, which the
+  # Pages backend deploys correctly. GITHUB_TOKEN is permitted to trigger
+  # workflow_dispatch -- documented exception to the recursive-workflow
+  # prevention rule.
+  #
+  # Loop safety: the dispatched run's github.event_name is
+  # `workflow_dispatch`, so this job's `if:` skips and only the deploy
+  # job runs.
+  redispatch:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Re-trigger deploy as workflow_dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          echo "Release event detected. Re-dispatching deploy on $DEFAULT_BRANCH"
+          echo "to avoid the actions/deploy-pages#383 release-event dedup."
+          gh workflow run deploy.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$DEFAULT_BRANCH"
+
   deploy:
+    if: github.event_name != 'release'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -100,3 +143,86 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # Smoke check: verify the live origin actually swapped to the
+      # freshly-built artifact. The release trampoline above is the
+      # primary fix for actions/deploy-pages#383; this check is the
+      # safety net for any future variant of stale-deploy weirdness
+      # (CDN bug, upload-artifact regression, a new SHA-keyed dedup,
+      # etc).
+      #
+      # Compares the entry-chunk filename (hash-suffixed by Vite,
+      # changes whenever any source changes) in the just-built
+      # dist/index.html and dist/beta/index.html against what the live
+      # URLs serve, with backoff to absorb CDN propagation (~30s typical,
+      # up to ~4.3 min worst case). On mismatch the run goes red.
+      #
+      # Fallback recovery if the smoke check ever fires and the
+      # trampoline isn't the cause: push any commit to master (an empty
+      # one works: `git commit --allow-empty -m "Redeploy" && git push`).
+      # A new SHA always produces a fresh pages_build_version.
+      - name: Smoke-test live deployment
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -e
+          extract_entry() {
+            # Pulls the prod or beta entry chunk path from an index.html.
+            local prefix="$1"
+            local file="$2"
+            grep -oE "src=\"${prefix}assets/index-[A-Za-z0-9_-]+\\.js\"" "$file" \
+              | head -1 \
+              | sed 's/^src="//;s/"$//'
+          }
+          fetch_live_entry() {
+            local url="$1"
+            local prefix="$2"
+            curl -fsS "$url?cb=$RANDOM-$(date +%s%N)" \
+              | grep -oE "src=\"${prefix}assets/index-[A-Za-z0-9_-]+\\.js\"" \
+              | head -1 \
+              | sed 's/^src="//;s/"$//'
+          }
+
+          PROD_EXPECTED=$(extract_entry "/endfield-calc/" "dist/index.html")
+          BETA_EXPECTED=$(extract_entry "/endfield-calc/beta/" "dist/beta/index.html")
+          if [ -z "$PROD_EXPECTED" ] || [ -z "$BETA_EXPECTED" ]; then
+            echo "::error::could not locate entry chunks in built dist/."
+            echo "  prod expected: '$PROD_EXPECTED'"
+            echo "  beta expected: '$BETA_EXPECTED'"
+            exit 1
+          fi
+          echo "Expected prod entry: $PROD_EXPECTED"
+          echo "Expected beta entry: $BETA_EXPECTED"
+          echo "Live URL: $PAGE_URL"
+
+          ATTEMPTS="1 2 3 4 5 6 7"
+          prod_match=
+          beta_match=
+          for i in $ATTEMPTS; do
+            prod_live=$(fetch_live_entry "${PAGE_URL%/}/" "/endfield-calc/" || true)
+            beta_live=$(fetch_live_entry "${PAGE_URL%/}/beta/" "/endfield-calc/beta/" || true)
+            echo "Attempt $i: prod=$prod_live beta=$beta_live"
+            if [ "$prod_live" = "$PROD_EXPECTED" ]; then prod_match=1; fi
+            if [ "$beta_live" = "$BETA_EXPECTED" ]; then beta_match=1; fi
+            if [ -n "$prod_match" ] && [ -n "$beta_match" ]; then
+              echo "Smoke test passed (live matches built artifact)."
+              exit 0
+            fi
+            # Backoff between attempts (no sleep after the last one):
+            # 10, 20, 30, 45, 60, 90 seconds (~4.3 min total on failure).
+            case "$i" in
+              1) sleep 10 ;;
+              2) sleep 20 ;;
+              3) sleep 30 ;;
+              4) sleep 45 ;;
+              5) sleep 60 ;;
+              6) sleep 90 ;;
+            esac
+          done
+
+          echo "::error::live deployment did not match built artifact after retries."
+          echo "  prod expected: $PROD_EXPECTED"
+          echo "  prod live:     $prod_live"
+          echo "  beta expected: $BETA_EXPECTED"
+          echo "  beta live:     $beta_live"
+          exit 1
