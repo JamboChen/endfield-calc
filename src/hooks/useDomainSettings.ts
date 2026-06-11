@@ -367,6 +367,7 @@ function loadFromStorage(): PersistedShape | null {
         typeof c === "object" &&
         typeof c.facilityId === "string" &&
         typeof c.domainId === "string" &&
+        isDomainId(c.domainId) &&
         typeof c.value === "number" &&
         Number.isFinite(c.value),
     );
