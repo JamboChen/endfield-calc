@@ -25,7 +25,7 @@ pnpm run extract:structures  # Refresh src/data/region-subsystems.ts + public/lo
 pnpm run extract:aic         # Refresh src/data/aic-plans.ts + public/locales/{lang}/{aic,domain}.json
 ```
 
-Game-data refresh: set `ENDFIELD_DATA_DIR` to the dir containing `TableCfg/` (the scripts fall back to a built-in default if unset — see `scripts/lib/paths.ts`).
+Game-data refresh: set `ENDFIELD_DATA_DIR` to the dir containing `TableCfg/` (the scripts fall back to a built-in default if unset — see `scripts/lib/paths.ts`). Note: `scripts/` is **intentionally untracked** (gitignored — the extraction toolchain stays out of the repo), so the `extract:*` commands and any `scripts/**` references only work on a machine that has the private toolchain; every file stamped AUTO-GENERATED can only be regenerated there.
 
 ## Cardinal rules (always apply)
 
