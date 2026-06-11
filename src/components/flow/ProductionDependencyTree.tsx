@@ -426,17 +426,43 @@ export default function ProductionDependencyTree({
   // live in a separate HTML layer that CSS classes can't reach), and the
   // pinned seeds' direct consumers get a data flag the node cards render
   // as an amber ring.
+  //
+  // Decorated variants are cached per BASE node object: while dragging, a
+  // spotlight is always active (the pointer hovers/pins the dragged node)
+  // and `nodes` gets a new array identity every pointer-move frame — but
+  // `applyNodeChanges` keeps every NON-dragged node reference-stable.
+  // Returning the same decorated object for the same base node lets
+  // React Flow's per-node memo skip re-rendering ~150 dimmed cards per
+  // frame (measured: 333–433ms p95 drag frames without the cache). The
+  // decoration depends only on the base node + which variant applies, so
+  // base-object identity is a sound cache key; stale entries die with
+  // their keys (WeakMap).
+  const decoratedNodeCache = useRef(
+    new WeakMap<
+      FlowProductionNode,
+      { dim?: FlowProductionNode; consumer?: FlowProductionNode }
+    >(),
+  );
   const displayNodes = useMemo(() => {
     if (!spotlight) return nodes;
+    const cache = decoratedNodeCache.current;
     return nodes.map((node) => {
       if (!spotlight.nodeIds.has(node.id)) {
-        return { ...node, className: "spotlight-dim" } as typeof node;
+        const hit = cache.get(node);
+        if (hit?.dim) return hit.dim;
+        const dim = { ...node, className: "spotlight-dim" } as typeof node;
+        cache.set(node, { ...hit, dim });
+        return dim;
       }
       if (spotlight.consumerNodeIds.has(node.id)) {
-        return {
+        const hit = cache.get(node);
+        if (hit?.consumer) return hit.consumer;
+        const consumer = {
           ...node,
           data: { ...node.data, pinConsumer: true },
         } as typeof node;
+        cache.set(node, { ...hit, consumer });
+        return consumer;
       }
       return node;
     });

@@ -43,8 +43,13 @@ export default function GraphSearchPanel({
   const { setCenter, getZoom } = useReactFlow();
   const [query, setQuery] = useState("");
 
-  // Candidate list mirrors what the cards display. Rebuilt only when the
-  // node set changes (plan/mode), not per keystroke.
+  // Candidate list mirrors what the cards display. Keyed on the node-ID
+  // SIGNATURE, not the array identity: dragging a node produces a new
+  // `nodes` array every pointer-move frame, and rebuilding here would run
+  // ~360 i18n lookups per frame. Labels depend only on which nodes exist
+  // (ids), never on their positions; `jumpTo` reads fresh positions from
+  // the prop at click time.
+  const nodeIdsKey = useMemo(() => nodes.map((n) => n.id).join("\n"), [nodes]);
   const candidates = useMemo<DisplayCandidate[]>(() => {
     return nodes.map((node) => {
       if (node.type === "productionNode") {
@@ -85,7 +90,11 @@ export default function GraphSearchPanel({
         item: data.item,
       };
     });
-  }, [nodes, t]);
+    // `nodes` is deliberately represented by `nodeIdsKey` (see comment
+    // above); the closure reads node data that is invariant for a given
+    // id set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeIdsKey, t]);
 
   const results = useMemo(
     () =>
