@@ -223,6 +223,8 @@
     pointer-events: none !important;
   }
 
+
+
   /* MiniMap theming */
   .flow-theme .react-flow__minimap {
     background-color: var(--card);
@@ -238,6 +240,20 @@
    through the port handles and mismatching the card's corner radius.
    Each custom node component appends a `ring-2 ring-(--flow-pin)` to its
    Card when React Flow passes `selected: true` (pin == selection). */
+
+/* Low-zoom perf: the ~280 continuously-running dash animations are the
+   view's main idle GPU cost, and at overview zoom the motion is
+   sub-pixel noise anyway. Pausing (not un-animating) keeps the dashed
+   look identical. The hovered edge re-enables itself via an inline
+   animation-play-state from edgePresentation (inline beats any rule);
+   dimmed edges pause at ANY zoom the same way.
+
+   UNLAYERED on purpose: React Flow's stylesheet is unlayered and its
+   `animation:` shorthand on `.react-flow__edge.animated path` implicitly
+   resets play-state — inside @layer this rule silently loses. */
+.flow-theme.flow-lowzoom .react-flow__edge.animated path {
+  animation-play-state: paused;
+}
 
 /* ── Item picker animations ── */
 @layer components {

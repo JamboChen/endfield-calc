@@ -41,6 +41,11 @@ export function edgePresentation(
       // Internal edges carry their own opacity (0.7); preserve it when
       // not dimmed instead of clobbering with undefined.
       opacity: dimmed ? EDGE_DIM_OPACITY : style.opacity,
+      // Perf: dimmed edges stop their dash animation (invisible motion is
+      // pure compositing cost); the hovered edge forces "running", which
+      // also overrides the low-zoom pause in index.css (inline beats the
+      // class rule). Everything else leaves the CSS in control.
+      animationPlayState: dimmed ? "paused" : emphasis ? "running" : undefined,
       transition: "opacity 0.15s ease, stroke-width 0.15s ease",
     },
     labelOpacity: dimmed ? EDGE_DIM_OPACITY : 1,
