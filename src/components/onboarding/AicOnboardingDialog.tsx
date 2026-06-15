@@ -85,6 +85,7 @@ import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { pickLatestActive } from "@/hooks/useDomainSettings";
 import { namespaceStorageKey } from "@/lib/storage-namespace";
 import { cn } from "@/lib/utils";
+import { parseDomainId } from "@/types/domain";
 import type { Domain, DomainId } from "@/types/domain";
 
 const STORAGE_KEY = namespaceStorageKey("endfield-calc:onboarding-v1");
@@ -329,7 +330,10 @@ export function AicOnboardingDialog() {
           </label>
           <Select
             value={stagedCurrent}
-            onValueChange={(value) => setStagedCurrent(value as DomainId)}
+            onValueChange={(value) => {
+              const d = parseDomainId(value);
+              if (d) setStagedCurrent(d);
+            }}
             disabled={isTrivialRegionPick}
           >
             <SelectTrigger

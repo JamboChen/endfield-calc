@@ -1,0 +1,11 @@
+{
+  "structures": {
+    "liquid_clean_gate_1": "Сточный подвод",
+    "liquid_clean_gate_2": "Сточный подвод",
+    "liquid_clean_gate_3": "Сточный подвод",
+    "liquid_recycle_gate_1": "Отвод побочных продуктов"
+  },
+  "nodes": {
+    "liquidcleanfactory_005_1": "Узел рафинирования"
+  }
+}

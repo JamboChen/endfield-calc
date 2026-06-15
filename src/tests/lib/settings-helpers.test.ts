@@ -26,11 +26,11 @@ import type {
 } from "@/types/aic";
 import { FacilityId, ItemId, RegionStructureId } from "@/types/constants";
 import type { Item } from "@/types";
-import type { DomainId } from "@/types/domain";
+import { DomainId } from "@/types/domain";
 import type { RegionStructure } from "@/types/structures";
 
-const DOMAIN_1 = "domain_1" as DomainId;
-const DOMAIN_2 = "domain_2" as DomainId;
+const DOMAIN_1 = DomainId.DOMAIN_1;
+const DOMAIN_2 = DomainId.DOMAIN_2;
 
 describe("resolveEditingDomain", () => {
   test("keeps the requested region when still active", () => {
@@ -226,8 +226,8 @@ const mkStructure = (
 ): RegionStructure => ({
   id,
   domainId: DOMAIN_2,
+  nodeId: "test_node_1",
   requires,
-  nameKey: index === undefined ? "byproductOutlet" : "sewageInlet",
   index,
   iconSlug: `icon_${id}`,
   // Test fixtures use the inlet's facility id for the chain's "instance"

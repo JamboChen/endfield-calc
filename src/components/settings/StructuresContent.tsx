@@ -42,7 +42,7 @@ export function StructuresContent({
   enabled,
   onToggle,
 }: StructuresContentProps) {
-  const { t } = useTranslation(["settings", "item"]);
+  const { t } = useTranslation(["settings", "item", "structure"]);
 
   // Index recipes by id once per render so the per-row annotation lookup
   // is O(1). Memo because the `recipes` array reference is stable but
@@ -52,6 +52,19 @@ export function StructuresContent({
     for (const r of recipes) out.set(r.id, r);
     return out;
   }, []);
+
+  // Group structures by their plant-store node (chain order preserved), so
+  // each node renders its own card titled from the `structure` namespace.
+  // Today one node per domain; this stays correct if a region gains more.
+  const nodes = useMemo(() => {
+    const out: { nodeId: string; list: RegionStructure[] }[] = [];
+    for (const s of structures) {
+      const last = out[out.length - 1];
+      if (last && last.nodeId === s.nodeId) last.list.push(s);
+      else out.push({ nodeId: s.nodeId, list: [s] });
+    }
+    return out;
+  }, [structures]);
 
   if (structures.length === 0) return null;
 
@@ -64,100 +77,96 @@ export function StructuresContent({
         })}
       </p>
 
-      <SettingsCard
-        title={t("structures.purificationNode", {
-          ns: "settings",
-          defaultValue: "Purification Node",
-        })}
-      >
-        <div className="space-y-0.5">
-          {structures.map((s) => {
-            const isEnabled = enabled.has(structureKey(domainId, s.id));
-            // Faded when its prereq isn't enabled yet — a "level" hint, not
-            // a block: clicking cascades the prereq chain in.
-            const isLocked =
-              s.requires != null &&
-              !enabled.has(structureKey(domainId, s.requires)) &&
-              !isEnabled;
-            const name =
-              s.index != null
-                ? t(`structures.${s.nameKey}`, {
-                    ns: "settings",
-                    n: s.index,
-                    defaultValue: `Sewage Inlet ${s.index}`,
-                  })
-                : t(`structures.${s.nameKey}`, {
-                    ns: "settings",
-                    defaultValue: "Byproduct Outlet",
-                  });
-            // Annotation deriving:
-            //   instance      → "Treats <input of default variant>"
-            //   recipeToggle  → "Produces <output of toggled variant>"
-            // Both fall back to a blank annotation when the variants
-            // map doesn't list the facility (defensive — keeps the UI
-            // robust if a new structure is added without its variant
-            // entries).
-            const variants = facilityRecipeVariants.get(s.solver.facilityId);
-            let annotation = "";
-            if (variants) {
-              if (s.solver.role === "instance") {
-                const defaultRecipe = recipesById.get(variants.default);
-                const consumedId = defaultRecipe?.inputs[0]?.itemId;
-                if (consumedId) {
-                  annotation = t("structures.treats", {
-                    ns: "settings",
-                    item: t(consumedId, { ns: "item" }),
-                    defaultValue: `Treats ${t(consumedId, { ns: "item" })}`,
-                  });
-                }
-              } else {
-                const toggledRecipe = recipesById.get(variants.toggled);
-                const producedId = toggledRecipe?.outputs[0]?.itemId;
-                if (producedId) {
-                  annotation = t("structures.produces", {
-                    ns: "settings",
-                    item: t(producedId, { ns: "item" }),
-                    defaultValue: `Produces ${t(producedId, { ns: "item" })}`,
-                  });
+      {nodes.map(({ nodeId, list }) => (
+        <SettingsCard key={nodeId} title={t(`nodes.${nodeId}`, { ns: "structure" })}>
+          <div className="space-y-0.5">
+            {list.map((s) => {
+              const isEnabled = enabled.has(structureKey(domainId, s.id));
+              // Faded when its prereq isn't enabled yet — a "level" hint, not
+              // a block: clicking cascades the prereq chain in.
+              const isLocked =
+                s.requires != null &&
+                !enabled.has(structureKey(domainId, s.requires)) &&
+                !isEnabled;
+              const baseName = t(`structures.${s.id}`, { ns: "structure" });
+              const name =
+                s.index != null
+                  ? t("structures.indexed", {
+                      ns: "settings",
+                      name: baseName,
+                      n: s.index,
+                      defaultValue: `${baseName} ${s.index}`,
+                    })
+                  : baseName;
+              // Annotation deriving:
+              //   instance      → "Treats <input of default variant>"
+              //   recipeToggle  → "Produces <output of toggled variant>"
+              // Both fall back to a blank annotation when the variants
+              // map doesn't list the facility (defensive — keeps the UI
+              // robust if a new structure is added without its variant
+              // entries).
+              const variants = facilityRecipeVariants.get(s.solver.facilityId);
+              let annotation = "";
+              if (variants) {
+                if (s.solver.role === "instance") {
+                  const defaultRecipe = recipesById.get(variants.default);
+                  const consumedId = defaultRecipe?.inputs[0]?.itemId;
+                  if (consumedId) {
+                    annotation = t("structures.treats", {
+                      ns: "settings",
+                      item: t(consumedId, { ns: "item" }),
+                      defaultValue: `Treats ${t(consumedId, { ns: "item" })}`,
+                    });
+                  }
+                } else {
+                  const toggledRecipe = recipesById.get(variants.toggled);
+                  const producedId = toggledRecipe?.outputs[0]?.itemId;
+                  if (producedId) {
+                    annotation = t("structures.produces", {
+                      ns: "settings",
+                      item: t(producedId, { ns: "item" }),
+                      defaultValue: `Produces ${t(producedId, { ns: "item" })}`,
+                    });
+                  }
                 }
               }
-            }
-            return (
-              <label
-                key={s.id}
-                className={cn(
-                  settingsRowClass,
-                  "hover:bg-accent/40 cursor-pointer",
-                  isLocked && "opacity-55",
-                )}
-              >
-                <Checkbox
-                  checked={isEnabled}
-                  onCheckedChange={() => onToggle(domainId, s.id)}
-                  aria-label={name}
-                />
-                <img
-                  src={facilityIconUrl(s.iconSlug)}
-                  alt=""
-                  aria-hidden="true"
-                  // These are pure-white monochrome game glyphs (invisible
-                  // on the light card). Invert to dark in light mode; keep
-                  // them white in dark mode.
-                  className="size-6 object-contain shrink-0 opacity-80 invert dark:invert-0"
-                  draggable={false}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.visibility = "hidden";
-                  }}
-                />
-                <span className="flex-1 min-w-0 truncate">{name}</span>
-                <span className="text-xs text-muted-foreground truncate max-w-[45%]">
-                  {annotation}
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      </SettingsCard>
+              return (
+                <label
+                  key={s.id}
+                  className={cn(
+                    settingsRowClass,
+                    "hover:bg-accent/40 cursor-pointer",
+                    isLocked && "opacity-55",
+                  )}
+                >
+                  <Checkbox
+                    checked={isEnabled}
+                    onCheckedChange={() => onToggle(domainId, s.id)}
+                    aria-label={name}
+                  />
+                  <img
+                    src={facilityIconUrl(s.iconSlug)}
+                    alt=""
+                    aria-hidden="true"
+                    // These are pure-white monochrome game glyphs (invisible
+                    // on the light card). Invert to dark in light mode; keep
+                    // them white in dark mode.
+                    className="size-6 object-contain shrink-0 opacity-80 invert dark:invert-0"
+                    draggable={false}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.visibility = "hidden";
+                    }}
+                  />
+                  <span className="flex-1 min-w-0 truncate">{name}</span>
+                  <span className="text-xs text-muted-foreground truncate max-w-[45%]">
+                    {annotation}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </SettingsCard>
+      ))}
     </div>
   );
 }

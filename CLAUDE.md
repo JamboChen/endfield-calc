@@ -16,11 +16,16 @@ pnpm run lint                # ESLint
 pnpm vitest run              # Run all Vitest tests
 pnpm vitest run <path>       # Run a single test file
 pnpm run knip                # Detect unused code/exports
-pnpm run extract:recipes     # Refresh public/locales/{lang}/recipe.json from game data
+pnpm run extract:all         # Run every extractor in dependency order (recommended)
+pnpm run extract:ids         # Refresh src/types/constants.ts (Item/Recipe/FacilityId enums) + orphan-guard
+pnpm run extract:facilities  # Refresh src/data/facilities.ts + public/locales/{lang}/facility.json
+pnpm run extract:recipes     # Refresh src/data/recipes.ts + public/locales/{lang}/recipe.json
+pnpm run extract:items       # Refresh src/data/items.ts + public/locales/{lang}/item.json
+pnpm run extract:structures  # Refresh src/data/region-subsystems.ts + public/locales/{lang}/structure.json
 pnpm run extract:aic         # Refresh src/data/aic-plans.ts + public/locales/{lang}/{aic,domain}.json
 ```
 
-Game-data refresh: set `ENDFIELD_DATA_DIR` to the dir containing `TableCfg/` (defaults to `D:\Projects\EndfieldData`).
+Game-data refresh: set `ENDFIELD_DATA_DIR` to the dir containing `TableCfg/` (the scripts fall back to a built-in default if unset — see `scripts/lib/paths.ts`). Note: `scripts/` is **intentionally untracked** (gitignored — the extraction toolchain stays out of the repo), so the `extract:*` commands and any `scripts/**` references only work on a machine that has the private toolchain; every file stamped AUTO-GENERATED can only be regenerated there.
 
 ## Cardinal rules (always apply)
 
@@ -50,8 +55,7 @@ One sentence per file. Deep invariants in `.claude/rules/` load when you touch t
 - `src/contexts/DomainSettingsProvider.tsx` — Context wrapper that broadcasts `useDomainSettings()` + renders `AicOnboardingDialog`.
 - `src/hooks/useProductionPlan.ts` — top-level plan orchestration, ineffective-pin detection, `facilityCaps` threading.
 - `src/data/index.ts` — `rawMaterialSources`, `rawAvailabilityByDomain`, `costlessRaws`, `forcedDisposalItems`, `bootstrapFacilities`, `facilityRecipeVariants`. See `.claude/rules/raws.md`.
-- `src/data/manual-facilities.ts` — synthetic facilities not in upstream game data (today: `LIQUID_CLEAN_GATE_1`); merged with auto-generated `facilities.ts` by the `@/data` barrel.
-- `src/data/region-structures.ts` — map structures with `solver: { role, facilityId }` bridge; drives Settings "Structures" tab + the App-layer cap aggregation + variant filter.
+- `src/data/region-subsystems.ts` — AUTO-GENERATED (`extract:structures`) region subsystems: map-placed structures (`regionStructures`, the `solver: { role, facilityId }` bridge that drives the Settings "Structures" tab + App-layer cap aggregation + variant filter) plus the collapsed capped facility (`regionFacilities`), the disposal/byproduct recipe variants (`regionRecipes`), and the toggle map (`regionFacilityVariants`). Derived from `Factory*PlantStoreTable` + the sibling Import/Export + `FactoryBuildingTable`; merged into `facilities`/`recipes` by the `@/data` barrel. Structure names live in `public/locales/{lang}/structure.json`.
 
 Everything else is discoverable via `ls` / `grep`. Game data: `src/data/{items,recipes,facilities}.ts`; types: `src/types/`; UI: `src/components/`; hooks: `src/hooks/`; tests: `src/tests/lib/`.
 

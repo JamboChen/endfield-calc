@@ -20,20 +20,20 @@
 import { describe, expect, test } from "vitest";
 import { parseRawLimitKey, rawLimitKey } from "@/lib/raw-limits-helpers";
 import type { ItemId } from "@/types";
-import type { DomainId } from "@/types/domain";
+import { DomainId } from "@/types/domain";
 
 describe("rawLimitKey / parseRawLimitKey", () => {
   test("encodes a valid (itemId, domainId) pair", () => {
     const key = rawLimitKey(
       "item_iron_ore" as ItemId,
-      "domain_1" as DomainId,
+      DomainId.DOMAIN_1,
     );
     expect(key).toBe("item_iron_ore\u0000domain_1");
   });
 
   test("round-trips through parseRawLimitKey", () => {
     const itemId = "item_copper_ore" as ItemId;
-    const domainId = "domain_2" as DomainId;
+    const domainId = DomainId.DOMAIN_2;
     const key = rawLimitKey(itemId, domainId);
     const parsed = parseRawLimitKey(key);
     expect(parsed).toEqual({ itemId, domainId });
@@ -42,7 +42,7 @@ describe("rawLimitKey / parseRawLimitKey", () => {
   test("uses the NUL delimiter (mirrors capKey convention)", () => {
     const key = rawLimitKey(
       "item_quartz_sand" as ItemId,
-      "domain_1" as DomainId,
+      DomainId.DOMAIN_1,
     );
     // Same delimiter as `capKey` in `aic-research-helpers.ts:48`.
     // Keeps the two cap-override storage systems mutually inspectable
@@ -64,7 +64,7 @@ describe("rawLimitKey / parseRawLimitKey", () => {
     // helper should still split correctly on the first delimiter.
     const odd = rawLimitKey(
       "item_with_underscore" as ItemId,
-      "domain_with-hyphen" as DomainId,
+      "domain_with-hyphen" as unknown as DomainId,
     );
     expect(parseRawLimitKey(odd)).toEqual({
       itemId: "item_with_underscore",

@@ -154,6 +154,7 @@ import type {
   AicNode,
   AicTechId,
 } from "@/types/aic";
+import { isDomainId, parseDomainId } from "@/types/domain";
 import type { Domain, DomainId } from "@/types/domain";
 import type { FacilityId, ItemId } from "@/types";
 import type { RegionStructureId } from "@/types/constants";
@@ -340,7 +341,6 @@ function loadFromStorage(): PersistedShape | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     const knownTechIds = new Set(aicNodes.map((n) => n.id as string));
-    const knownDomainIds = new Set(domainData.map((d) => d.id as string));
     const knownStructureKeys = new Set<string>();
     for (const [domainId, list] of regionStructures) {
       for (const s of list) knownStructureKeys.add(structureKey(domainId, s.id));
@@ -360,15 +360,14 @@ function loadFromStorage(): PersistedShape | null {
     const unresearched = shape.aic.unresearched.filter((id): id is AicTechId =>
       typeof id === "string" && knownTechIds.has(id),
     );
-    const inactive = shape.domains.inactive.filter((id): id is DomainId =>
-      typeof id === "string" && knownDomainIds.has(id),
-    );
+    const inactive = shape.domains.inactive.filter(isDomainId);
     const capOverrides = shape.aic.capOverrides.filter(
       (c): c is CapOverrideRecord =>
         c !== null &&
         typeof c === "object" &&
         typeof c.facilityId === "string" &&
         typeof c.domainId === "string" &&
+        isDomainId(c.domainId) &&
         typeof c.value === "number" &&
         Number.isFinite(c.value),
     );
@@ -382,11 +381,10 @@ function loadFromStorage(): PersistedShape | null {
     // a latent footgun where the loader returns a "valid" current
     // that points to an inactive domain.
     const inactiveSet = new Set<string>(inactive);
+    const parsedCurrent = parseDomainId(shape.domains.current);
     const current =
-      typeof shape.domains.current === "string" &&
-      knownDomainIds.has(shape.domains.current) &&
-      !inactiveSet.has(shape.domains.current)
-        ? (shape.domains.current as DomainId)
+      parsedCurrent && !inactiveSet.has(parsedCurrent)
+        ? parsedCurrent
         : undefined;
 
     // Raw-limit overrides — drop entries whose (itemId, domainId) is
@@ -408,9 +406,9 @@ function loadFromStorage(): PersistedShape | null {
               r.value < 0
             )
               return false;
-            const regionSet = rawAvailabilityByDomain.get(
-              r.domainId as DomainId,
-            );
+            const domainId = parseDomainId(r.domainId);
+            if (!domainId) return false;
+            const regionSet = rawAvailabilityByDomain.get(domainId);
             return regionSet?.has(r.itemId as ItemId) ?? false;
           },
         )
@@ -430,9 +428,10 @@ function loadFromStorage(): PersistedShape | null {
             typeof r === "object" &&
             typeof r.domainId === "string" &&
             typeof r.structureId === "string" &&
+            isDomainId(r.domainId) &&
             knownStructureKeys.has(
               structureKey(
-                r.domainId as DomainId,
+                r.domainId,
                 r.structureId as RegionStructureId,
               ),
             ),
@@ -469,11 +468,12 @@ function persistToStorage(state: {
 
     const capList: CapOverrideRecord[] = [];
     for (const [key, value] of state.capOverrides) {
-      const [facilityId, domainId] = key.split("\u0000");
+      const [facilityId, domainIdRaw] = key.split("\u0000");
+      const domainId = parseDomainId(domainIdRaw);
       if (!facilityId || !domainId) continue;
       capList.push({
         facilityId: facilityId as FacilityId,
-        domainId: domainId as DomainId,
+        domainId,
         value,
       });
     }

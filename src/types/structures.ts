@@ -3,10 +3,9 @@ import type { DomainId } from "./domain";
 
 /**
  * Region-exclusive special structures (map buildings wired into a
- * factory; not roster/AIC buildings). Hand-curated in
- * `src/data/region-structures.ts` from the game's
- * `FactorySewageTreat{Import,Export}Table` +
- * `FactorySewageTreatPlantStoreTable`.
+ * factory; not roster/AIC buildings). Auto-generated into
+ * `src/data/region-subsystems.ts` by `scripts/extract-structures.ts`;
+ * display names live in `public/locales/{lang}/structure.json`.
  *
  * Structures in a region form a linear opt-in chain via `requires`
  * (Wuling: liquid_clean_gate_1 -> _2 -> _3 -> liquid_recycle_gate_1).
@@ -39,10 +38,14 @@ type RegionStructureSolverRole =
 type RegionStructure = {
   readonly id: RegionStructureId;
   readonly domainId: DomainId;
+  /**
+   * Plant-store node this structure belongs to (e.g.
+   * `liquidcleanfactory_005_1`). Used to group rows under a section title
+   * resolved from the `structure` namespace (`nodes.<nodeId>`).
+   */
+  readonly nodeId: string;
   /** Prereq structure in the chain; omitted for the chain head. */
   readonly requires?: RegionStructureId;
-  /** i18n key under the `settings` namespace: `structures.<nameKey>`. */
-  readonly nameKey: string;
   /** Display index for repeated structures (Sewage Inlet 1/2/3). */
   readonly index?: number;
   /** Icon basename under `public/images/facilities/` (no extension). */

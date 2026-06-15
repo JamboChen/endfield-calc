@@ -1,0 +1,11 @@
+{
+  "structures": {
+    "liquid_clean_gate_1": "汚水入力口",
+    "liquid_clean_gate_2": "汚水入力口",
+    "liquid_clean_gate_3": "汚水入力口",
+    "liquid_recycle_gate_1": "副産物出力口"
+  },
+  "nodes": {
+    "liquidcleanfactory_005_1": "浄水装置"
+  }
+}

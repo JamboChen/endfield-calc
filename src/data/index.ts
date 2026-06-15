@@ -1,31 +1,43 @@
 import { items } from "./items";
 import { facilities as generatedFacilities } from "./facilities";
-import { manualFacilities } from "./manual-facilities";
-import { recipes } from "./recipes";
-import { FacilityId, RecipeId } from "@/types/constants";
+import { recipes as generatedRecipes } from "./recipes";
+import {
+  regionFacilities,
+  regionRecipes,
+  regionFacilityVariants,
+} from "./region-subsystems";
+import { DomainId, FacilityId } from "@/types/constants";
 import type { Facility, ItemId, Recipe, RecipeId as RecipeIdType } from "@/types";
-import type { DomainId } from "@/types/domain";
 
 /**
- * Combined facility roster: the auto-generated set from upstream game
- * data plus the hand-curated synthetic entries (today:
- * `LIQUID_CLEAN_GATE_1`). Order is `generated, ...manual` so iteration
- * order in tests / mappers sees the well-known facilities first and the
- * synthetic tail last — keeps snapshot-style tests stable when a new
- * manual entry is added.
+ * Combined facility roster: the auto-generated roster from upstream game
+ * data plus the auto-generated region-subsystem facilities (today:
+ * `LIQUID_CLEAN_GATE_1`, the collapsed Wuling Purification Node). Order
+ * is `roster, ...region` so iteration order in tests / mappers sees the
+ * well-known facilities first and the subsystem tail last — keeps
+ * snapshot-style tests stable when a new subsystem entry is added.
  *
- * **Dedup**: a manual entry with the same id as an auto-generated entry
- * wins. This is defensive against a future maintainer adding the
- * canonical game id (e.g. `liquid_clean_gate_1`) to the
- * `build-facilities.ts` allowlist — the manual record keeps its
- * hand-tuned values (power=0, domain-restricted) regardless. The
- * convention in `manual-facilities.ts` is "don't enable the script
- * allowlist for these ids", but this filter is the structural backstop.
+ * **Dedup**: a region entry with the same id as a roster entry wins
+ * (structural backstop should the roster extractor ever emit a building
+ * the region extractor also models).
  */
-const manualFacilityIds = new Set(manualFacilities.map((f) => f.id));
+const regionFacilityIds = new Set(regionFacilities.map((f) => f.id));
 const facilities: Facility[] = [
-  ...generatedFacilities.filter((f) => !manualFacilityIds.has(f.id)),
-  ...manualFacilities,
+  ...generatedFacilities.filter((f) => !regionFacilityIds.has(f.id)),
+  ...regionFacilities,
+];
+
+/**
+ * Combined recipe roster: the auto-generated roster plus the
+ * auto-generated region-subsystem recipes (today: the two
+ * `LIQUID_CLEAN_GATE_1_*` sewage-inlet variants). Same merge convention
+ * as `facilities` — roster first, region tail last; dedup by id with
+ * region winning.
+ */
+const regionRecipeIds = new Set(regionRecipes.map((r) => r.id));
+const recipes: Recipe[] = [
+  ...generatedRecipes.filter((r) => !regionRecipeIds.has(r.id)),
+  ...regionRecipes,
 ];
 
 /**
@@ -47,9 +59,15 @@ type RawSourceConfig = {
 /**
  * Source-facility map for raw materials. Adding a new raw requires
  * picking the in-game building that supplies it:
- *   - Solid ore/sand → unloader_1 (Depot Unloader, 0 W, 30/min)
+ *   - Solid ore/sand/gatherables → unloader_1 (Depot Unloader, 0 W, 30/min)
  *   - Most liquids → pump_1 (Fluid Pump, 10 W, 60/min)
  *   - Acid → pump_2 (Acid Resistant Pump Mk II, 20 W, 60/min)
+ *
+ * `item_muck_feces_1` (Burdo-Muck) is a pure gather item (its only
+ * upstream obtain way is `item_obtain_gather_muck_feces_1` — collected
+ * from Burdos in the world, never machine-crafted), consumed by the
+ * Wuling-only Xiranite Oven to make Bumper-Rich. Like ores, the player
+ * gathers it and feeds it in via the Depot Unloader.
  *
  * `miner_4`'s in-game water consumption for `item_copper_ore` is
  * intentionally NOT modeled — `unloader_1` is the canonical solid
@@ -64,6 +82,7 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
   ["item_quartz_sand", { sourceFacility: FacilityId.UNLOADER_1 }],
   ["item_iron_ore", { sourceFacility: FacilityId.UNLOADER_1 }],
   ["item_copper_ore", { sourceFacility: FacilityId.UNLOADER_1 }],
+  ["item_muck_feces_1", { sourceFacility: FacilityId.UNLOADER_1 }],
   ["item_liquid_water", { sourceFacility: FacilityId.PUMP_1, ratePerMinute: 60 }],
   ["item_liquid_acid", { sourceFacility: FacilityId.PUMP_2, ratePerMinute: 60 }],
 ]);
@@ -78,13 +97,13 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
  * Two distinct sourcing models, each with a different rule:
  *
  *   - **Solid raws** are tied to discrete in-world POIs (the
- *     `int_minerbase_*` interactive types — confirmed in
- *     `InteractiveMarkDataTable.json` from the upstream data dump).
- *     POI placements are scene-data, NOT in `TableCfg`, so no auto-
- *     extraction is possible. Hand-curated per region from observed
- *     in-game inventory:
+ *     `int_minerbase_*` interactive types). POI placements are
+ *     scene-data, not exposed by the table-driven upstream dump, so
+ *     no auto-extraction is possible. Hand-curated per region from
+ *     observed in-game inventory:
  *       Valley IV (domain_1): originium, ferrium (iron), amethyst (quartz)
- *       Wuling    (domain_2): originium, ferrium (iron), cuprium (copper)
+ *       Wuling    (domain_2): originium, ferrium (iron), cuprium (copper),
+ *                             Burdo-Muck (gathered from Burdos)
  *
  *   - **Liquid raws** are tied to pump deployability. Both `pump_1`
  *     and `pump_2` carry `Facility.domains: ["domain_2"]` (set in the
@@ -111,7 +130,7 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
 const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
   new Map<DomainId, ReadonlySet<ItemId>>([
     [
-      "domain_1" as DomainId,
+      DomainId.DOMAIN_1,
       new Set<ItemId>([
         "item_originium_ore",
         "item_iron_ore",
@@ -119,11 +138,12 @@ const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
       ]),
     ],
     [
-      "domain_2" as DomainId,
+      DomainId.DOMAIN_2,
       new Set<ItemId>([
         "item_originium_ore",
         "item_iron_ore",
         "item_copper_ore",
+        "item_muck_feces_1",
         "item_liquid_water",
         "item_liquid_acid",
       ]),
@@ -229,6 +249,10 @@ const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
  * constraint on `LIQUID_CLEAN_GATE_1` correctly bounds the number of
  * physical inlets regardless of which variant is active.
  *
+ * The map itself is auto-generated alongside the structures + recipes in
+ * `src/data/region-subsystems.ts`; re-exported here so consumers keep
+ * importing it from the `@/data` barrel.
+ *
  * Invariant (verified at module load by the DEV/test self-check
  * immediately below): every entry's `default` and `toggled` recipes
  * must exist in `recipes` AND share their `facilityId` with the map
@@ -236,18 +260,7 @@ const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
  * inconsistent with the recipe filter, causing the LP to silently
  * misbalance.
  */
-const facilityRecipeVariants: ReadonlyMap<
-  FacilityId,
-  { readonly default: RecipeIdType; readonly toggled: RecipeIdType }
-> = new Map([
-  [
-    FacilityId.LIQUID_CLEAN_GATE_1,
-    {
-      default: RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
-      toggled: RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT,
-    },
-  ],
-]);
+const facilityRecipeVariants = regionFacilityVariants;
 
 // Module-load self-check for `facilityRecipeVariants`. Verifies three
 // invariants for every entry — caught at boot so the LP can't silently
@@ -353,4 +366,4 @@ export {
   MAX_TARGETS,
 };
 export type { RawSourceConfig };
-export { regionStructures } from "./region-structures";
+export { regionStructures } from "./region-subsystems";

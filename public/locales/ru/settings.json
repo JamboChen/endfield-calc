@@ -31,9 +31,7 @@
     "enabled": "{{done}} / {{total}} включено"
   },
   "structures": {
-    "purificationNode": "Узел рафинирования",
-    "sewageInlet": "Сточный подвод {{n}}",
-    "byproductOutlet": "Отвод побочных продуктов",
+    "indexed": "{{name}} {{n}}",
     "help": "Активируйте сооружения, которые можно подключить к фабрике.",
     "treats": "Обрабатывает: {{item}}",
     "produces": "Производит: {{item}}"

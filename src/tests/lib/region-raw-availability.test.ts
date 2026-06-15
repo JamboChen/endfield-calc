@@ -43,11 +43,11 @@ import {
 } from "@/data";
 import { domains } from "@/data/aic-plans";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
-import type { DomainId } from "@/types/domain";
+import { DomainId } from "@/types/domain";
 import { ItemId } from "@/types/constants";
 
-const DOMAIN_1 = "domain_1" as DomainId;
-const DOMAIN_2 = "domain_2" as DomainId;
+const DOMAIN_1 = DomainId.DOMAIN_1;
+const DOMAIN_2 = DomainId.DOMAIN_2;
 
 describe("rawAvailabilityByDomain — data shape", () => {
   test("Valley IV (domain_1) contains exactly the 3 solid raws", () => {
@@ -62,7 +62,7 @@ describe("rawAvailabilityByDomain — data shape", () => {
     );
   });
 
-  test("Wuling (domain_2) contains 3 solid raws + 2 liquid raws", () => {
+  test("Wuling (domain_2) contains 4 solid raws + 2 liquid raws", () => {
     const wulingSet = rawAvailabilityByDomain.get(DOMAIN_2);
     expect(wulingSet).toBeDefined();
     expect(wulingSet).toEqual(
@@ -70,6 +70,7 @@ describe("rawAvailabilityByDomain — data shape", () => {
         ItemId.ITEM_ORIGINIUM_ORE,
         ItemId.ITEM_IRON_ORE,
         ItemId.ITEM_COPPER_ORE,
+        ItemId.ITEM_MUCK_FECES_1,
         ItemId.ITEM_LIQUID_WATER,
         ItemId.ITEM_LIQUID_ACID,
       ]),
@@ -167,6 +168,29 @@ describe("rawAvailabilityByDomain — reachability integration", () => {
     // root raw set. Valley IV's set lacks Cuprium → it's not reachable.
     expect(valley.reachableItems.has(ItemId.ITEM_COPPER_ORE)).toBe(false);
     expect(wuling.reachableItems.has(ItemId.ITEM_COPPER_ORE)).toBe(true);
+  });
+
+  test("Bumper-Rich (via gathered Burdo-Muck) is reachable in Wuling only", () => {
+    // Burdo-Muck is a pure gather item (no producer recipe); registering
+    // it as a Wuling raw is what makes the Xiranite Oven's Bumper-Rich
+    // recipe runnable. Valley IV lacks the raw (and the oven), so the
+    // chain stays gated there.
+    const valleyRaws = rawAvailabilityByDomain.get(DOMAIN_1)!;
+    const wulingRaws = rawAvailabilityByDomain.get(DOMAIN_2)!;
+
+    const valley = computeRecipeReachability(
+      recipes,
+      valleyRaws,
+      bootstrapFacilities,
+    );
+    const wuling = computeRecipeReachability(
+      recipes,
+      wulingRaws,
+      bootstrapFacilities,
+    );
+
+    expect(valley.reachableItems.has(ItemId.ITEM_MUCK_XIRANITE_1)).toBe(false);
+    expect(wuling.reachableItems.has(ItemId.ITEM_MUCK_XIRANITE_1)).toBe(true);
   });
 
   test("Amethyst (quartz sand) is unreachable in Wuling; reachable in Valley IV", () => {

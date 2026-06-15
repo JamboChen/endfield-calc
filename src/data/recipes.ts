@@ -1777,40 +1777,6 @@ export const recipes: Recipe[] = [
     facilityId: FacilityId.GRINDER_1,
     craftingTime: 2,
   },
-  // Sewage inlet — byproduct variant. Active when the Byproduct Outlet
-  // structure (LIQUID_RECYCLE_GATE_1) is enabled. Same per-building
-  // sewage throughput as the DISPOSAL variant (120/min); emits
-  // xiranite_poly at the in-game 30:1 ratio (4 xiranite_poly/min per
-  // building). Models the FactorySewageTreatExportTable's
-  // `countCost: 30 sewage → countProduce: 1 xiranite_poly` side-effect.
-  //
-  // Amount/time choice: inputAmount=30, craftingTime=15 is the smallest
-  // integer (amount, time) pair that preserves both
-  //   (a) the documented 30:1 input-to-output ratio, AND
-  //   (b) the inlet's 120 sewage/min per-building throughput
-  //       (game msPerRound: 500 ⇒ 2 sewage/s ⇒ 120/min;
-  //        30 sewage / 15 s ⇒ 2 sewage/s ⇒ 120/min ✓).
-  // A smaller cycle time (e.g. 0.5s with output 1/30) would require
-  // fractional amounts, which this codebase avoids.
-  {
-    id: RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT,
-    inputs: [{ itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 30 }],
-    outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 }],
-    facilityId: FacilityId.LIQUID_CLEAN_GATE_1,
-    craftingTime: 15,
-  },
-  // Sewage inlet — pure disposal variant. Active when the Byproduct
-  // Outlet structure is OFF. Throughput: 1 sewage every 0.5s = 120/min
-  // per building (matches in-game FactorySewageTreatImportTable's
-  // msPerRound: 500). Empty `outputs` => the LP / mapper classify the
-  // bin as a disposal sink (flow-utils:346 + bin-fused-mapper:222).
-  {
-    id: RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
-    inputs: [{ itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 }],
-    outputs: [],
-    facilityId: FacilityId.LIQUID_CLEAN_GATE_1,
-    craftingTime: 0.5,
-  },
   {
     id: RecipeId.LIQUID_PURIFIER_COPPER_ENR_1,
     inputs: [{ itemId: ItemId.ITEM_LIQUID_COPPER, amount: 4 }],

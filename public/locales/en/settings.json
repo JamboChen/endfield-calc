@@ -31,9 +31,7 @@
     "enabled": "{{done}} / {{total}} enabled"
   },
   "structures": {
-    "purificationNode": "Purification Node",
-    "sewageInlet": "Sewage Inlet {{n}}",
-    "byproductOutlet": "Byproduct Outlet",
+    "indexed": "{{name}} {{n}}",
     "help": "Activate structures you can connect to your factory.",
     "treats": "Treats {{item}}",
     "produces": "Produces {{item}}"

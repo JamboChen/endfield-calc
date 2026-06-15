@@ -31,9 +31,7 @@
     "enabled": "已啟用 {{done}} / {{total}}"
   },
   "structures": {
-    "purificationNode": "淨水節點",
-    "sewageInlet": "汙水接入口 {{n}}",
-    "byproductOutlet": "產物排出口",
+    "indexed": "{{name}} {{n}}",
     "help": "啟動可接入工廠的結構物。",
     "treats": "處理{{item}}",
     "produces": "產出{{item}}"

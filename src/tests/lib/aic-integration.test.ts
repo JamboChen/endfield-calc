@@ -27,7 +27,7 @@ import {
 } from "@/data";
 import { aicGroups, aicNodes } from "@/data/aic-plans";
 import type { AicTechId } from "@/types/aic";
-import type { DomainId } from "@/types/domain";
+import { DomainId } from "@/types/domain";
 import { FacilityId, ItemId } from "@/types/constants";
 
 import { ALL_RAWS } from "./utils";
@@ -84,7 +84,7 @@ describe("AIC integration: recipe availability + calculator", () => {
     // Activate Valley IV only; Wuling is inactive → its facilities stay
     // locked unless they're also reachable via Valley IV (none of the
     // Wuling techs share a facility with Valley IV ones today).
-    const activeDomains = new Set(["domain_1"] as DomainId[]);
+    const activeDomains = new Set([DomainId.DOMAIN_1]);
     // Everything researched, but only Valley IV is active. Tests the
     // domain-filter path in computeUnlockedFacilities.
     const unlockedFacilities = computeUnlockedFacilities(
