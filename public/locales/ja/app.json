@@ -30,5 +30,7 @@
     "table": "生産表",
     "tree": "依存関係ツリー"
   },
-  "title": "Endfield Calc"
+  "title": "Endfield Calc",
+  "metastorageRouteConflict": "無在庫転送は転送元地域ごとに1種類のアイテムしか運べません——次の目標を同時に輸入できません：{{items}}",
+  "metastorageBudgetInsufficient": "{{item}}（{{source}} から）：配送あたり {{needed}} の総転送価値が必要ですが、上限は {{cap}} です——転送は適用されません。目標レートを下げるか、現地生産を拡大してください。"
 }

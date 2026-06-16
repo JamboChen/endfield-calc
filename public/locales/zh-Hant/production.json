@@ -47,7 +47,14 @@
       "buildings": "建築總數",
       "power": "總功耗",
       "viaGrouping": "因組合節省",
-      "savingsExplain": "透過將配方打包到多配方建築中節省的建築數量。"
+      "savingsExplain": "透過將配方打包到多配方建築中節省的建築數量。",
+      "ttv": "傳輸總值（{{source}}）"
+    },
+    "metastorage": {
+      "label": "超庫存傳輸（{{source}}）",
+      "tooltip": "超庫存傳輸",
+      "ttv": "傳輸總值",
+      "ttvExplain": "每次配送的傳輸總值：{{used}} / {{cap}}（每件 {{cost}}）。"
     }
   },
   "tree": {
@@ -89,6 +96,11 @@
     "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
     "prefillCandidates": "Prefill candidates",
     "searchNoResults": "無符合項目",
-    "searchPlaceholder": "搜尋建築…"
+    "searchPlaceholder": "搜尋建築…",
+    "metastorage": "超庫存傳輸",
+    "metastorageTooltip": "透過超庫存傳輸送達——無需本地生產，也不消耗來源區域倉庫庫存。",
+    "metastorageSource": "來源區域",
+    "metastorageTtvPerItem": "單件傳輸總值",
+    "metastorageTtvUsage": "每次配送傳輸總值"
   }
 }

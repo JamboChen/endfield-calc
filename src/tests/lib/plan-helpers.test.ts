@@ -962,6 +962,7 @@ describe("aggregateBinTotals (real data)", () => {
       bins: [],
       recipeBinAllocations: new Map(),
       warnings: [],
+      metastorageImports: [],
     };
     const totals = aggregateBinTotals(emptyPlan, facilities, items);
     expect(totals.totalBuildings).toBe(0);
@@ -998,6 +999,7 @@ describe("aggregateBinTotals (real data)", () => {
       ],
       recipeBinAllocations: new Map(),
       warnings: [],
+      metastorageImports: [],
     };
     const totals = aggregateBinTotals(plan, facilities, items);
     expect(totals.totalBuildings).toBe(0);

@@ -22,7 +22,8 @@
     "plan": "플랜",
     "limits": "한도",
     "raws": "자원",
-    "structures": "구조물"
+    "structures": "구조물",
+    "metastorage": "무재고 전송"
   },
   "status": {
     "researched": "{{done}} / {{total}} 연구됨",
@@ -83,5 +84,14 @@
       "resetGroup": "플랜을 기본값으로 재설정함",
       "prereqsRequired": "먼저 선행 기술을 연구하세요."
     }
+  },
+  "metastorage": {
+    "help": "무재고 전송은 배송 1회당 한 종류의 아이템을 다른 지역으로 보냅니다. 이 지역 창고의 재고는 차감되지 않습니다. 지역 발전 레벨 Lv.{{level}}에서 해금되며, 배송({{minutes}}분마다) 1회당 최대 {{ttv}}의 전송 총가치를 운반할 수 있습니다.",
+    "autoExplain": "전송할 아이템은 계산기가 자동으로 선택합니다(대상 {{count}}종). 목적지 플랜을 가장 크게 개선하는 아이템이 선택됩니다.",
+    "cardTitle": "송출 전송",
+    "routeLabel": "전송 대상",
+    "modeAuto": "자동(현재 계획 중인 지역)",
+    "modeDisabled": "비활성화",
+    "modeLocked": "{{region}} 전용"
   }
 }

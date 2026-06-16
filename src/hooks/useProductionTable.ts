@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type {
+  PlanMetastorageImport,
   ProductionDependencyGraph,
   ProductionGraphNode,
   ItemId,
@@ -50,6 +51,14 @@ type MergedRow = {
   isTarget: boolean;
   dependencies: Set<ItemId>;
   level: number;
+  /**
+   * Set when this row represents the item's Metastorage-imported
+   * supply. Items with both local production and an import get one
+   * import row ALONGSIDE their producer rows (sister-row pattern);
+   * import-only items get the import row INSTEAD of the empty
+   * no-producer row. `producerContribution` carries the import rate.
+   */
+  metastorageImport?: PlanMetastorageImport;
 };
 
 /**
@@ -120,12 +129,37 @@ export function mergeItemNodes(
 
   const rows: MergedRow[] = [];
 
+  // Metastorage imports, keyed by item. Each becomes one extra
+  // sister row (or the item's sole row when nothing is produced
+  // locally) so imported supply is visible next to local production.
+  const importByItem = new Map<ItemId, PlanMetastorageImport>();
+  for (const imp of plan.metastorageImports) {
+    if (imp.ratePerMinute <= 0) continue;
+    importByItem.set(imp.itemId, imp);
+  }
+
   plan.nodes.forEach((node) => {
     if (node.type !== "item") return;
 
     const producers = producersByItem.get(node.itemId) ?? [];
+    const metastorageImport = importByItem.get(node.itemId);
+
+    if (metastorageImport) {
+      rows.push({
+        itemId: node.itemId,
+        recipeId: null,
+        facilityCount: 0,
+        producerContribution: metastorageImport.ratePerMinute,
+        isRawMaterial: node.isRawMaterial,
+        isTarget: node.isTarget,
+        dependencies: new Set(),
+        level: 0,
+        metastorageImport,
+      });
+    }
 
     if (producers.length === 0) {
+      if (metastorageImport) return; // import row replaces the empty row
       // Raw / chain-terminator / no-producer item. One row, no recipe.
       rows.push({
         itemId: node.itemId,
@@ -304,6 +338,25 @@ export function useProductionTable(
         ProductionGraphNode,
         { type: "item" }
       >;
+
+      // Metastorage import row: no recipe picker, no facility — the
+      // Recipe column renders a static "Metastorage (region)" label and
+      // the Count column a delivery glyph (see ProductionTable.tsx).
+      if (row.metastorageImport) {
+        return {
+          item: itemNode.item,
+          outputRate: row.producerContribution,
+          availableRecipes: [],
+          selectedRecipeId: "" as const,
+          facility: null,
+          facilityCount: 0,
+          isRawMaterial: false,
+          isTarget: row.isTarget,
+          isManualRawMaterial: false,
+          isInvalidCycle: invalidCycleItemIds.has(row.itemId),
+          metastorageImport: row.metastorageImport,
+        };
+      }
 
       // The dropdown's available-recipes list is the same for every
       // sister row of an item (it's an item-level property). The

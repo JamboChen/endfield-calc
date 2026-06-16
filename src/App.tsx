@@ -23,6 +23,8 @@ import { computeRecipeReachability } from "./lib/recipe-reachability";
 import { computeVariantExclusions } from "./lib/variant-filter";
 import {
   bootstrapFacilities,
+  metastorageExports,
+  metastorageSources,
   rawAvailabilityByDomain,
   regionStructures,
 } from "./data";
@@ -30,6 +32,7 @@ import { parseRawLimitKey } from "./lib/raw-limits-helpers";
 import { structureKey } from "./lib/settings-helpers";
 import { namespaceStorageKey } from "./lib/storage-namespace";
 import type { FacilityId, ItemId } from "./types";
+import type { MetastorageRouteConfig } from "./types/metastorage";
 
 /**
  * Theme-aware Sonner toast portal. Lives inside ThemeProvider so it can
@@ -158,6 +161,49 @@ function AppContent() {
     });
   }, [settings.activeDomains, settings.structures.enabled]);
 
+  // Metastorage routes feeding the current factory region. A source
+  // region's transfer applies here when it has Metastorage capability
+  // (`metastorageSources`), isn't the planned region itself, is active,
+  // and its route mode is "auto" or locked to this region. Each
+  // resolved route carries the full eligible item → TTV-cost map; the
+  // calculator auto-selects the single transferred item per route
+  // (`selectMetastorageImports`).
+  const metastorageRoutes = useMemo(() => {
+    const out: MetastorageRouteConfig[] = [];
+    for (const [source, info] of metastorageSources) {
+      if (source === settings.currentDomain) continue;
+      if (!settings.activeDomains.has(source)) continue;
+      const mode = settings.metastorage.routeModes.get(source) ?? "auto";
+      if (mode !== "auto" && mode !== settings.currentDomain) continue;
+      const itemCosts = metastorageExports.get(source);
+      if (!itemCosts || itemCosts.size === 0) continue;
+      out.push({
+        sourceDomain: source,
+        ttvBudgetPerMinute: info.ttvCapPerCycle / (info.cycleSeconds / 60),
+        cycleSeconds: info.cycleSeconds,
+        itemCosts,
+      });
+    }
+    return out;
+  }, [
+    settings.currentDomain,
+    settings.activeDomains,
+    settings.metastorage.routeModes,
+  ]);
+
+  // Items obtainable via the resolved Metastorage routes. Seeds the
+  // reachability closure (configuration-level capability, unlike
+  // manual raws) so recipes consuming them become runnable and the
+  // items themselves targetable even with no local producer; also
+  // keeps the auto-prune effect from dropping import-only targets.
+  const metastorageSeedItems = useMemo(() => {
+    const out = new Set<ItemId>();
+    for (const route of metastorageRoutes) {
+      for (const itemId of route.itemCosts.keys()) out.add(itemId);
+    }
+    return out;
+  }, [metastorageRoutes]);
+
   const { availableRecipes, reachableItems } = useMemo(() => {
     // Intersect AIC-unlocked with region-permitted facilities so
     // recipes whose host facility is locked to a region the player
@@ -182,6 +228,7 @@ function AppContent() {
       variantFiltered,
       regionRawMaterials,
       bootstrapFacilities,
+      metastorageSeedItems,
     );
     return { availableRecipes: runnableRecipes, reachableItems };
   }, [
@@ -190,6 +237,7 @@ function AppContent() {
     settings.currentDomain,
     regionRawMaterials,
     structureVariantExcluded,
+    metastorageSeedItems,
   ]);
 
   // Items the picker may show as targets: those reachable via the AIC-
@@ -318,6 +366,7 @@ function AppContent() {
     regionRawMaterials,
     facilityCaps,
     rawMaterialCaps,
+    metastorageRoutes,
   );
 
   const targetRates = useMemo(

@@ -3,7 +3,12 @@ import { useTranslation } from "react-i18next";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
-import { items, rawAvailabilityByDomain, regionStructures } from "@/data";
+import {
+  items,
+  metastorageSources,
+  rawAvailabilityByDomain,
+  regionStructures,
+} from "@/data";
 import {
   countAicResearched,
   countCustomizedCaps,
@@ -20,6 +25,7 @@ import type { Item, ItemId } from "@/types";
 
 import { AicPlanContent } from "./AicPlanContent";
 import { FacilityLimitsContent } from "./FacilityLimitsContent";
+import { MetastorageContent } from "./MetastorageContent";
 import { RawLimitsContent } from "./RawLimitsContent";
 import { StructuresContent } from "./StructuresContent";
 
@@ -60,7 +66,8 @@ export function RegionConfigTabs({
   onResetGroup,
 }: RegionConfigTabsProps) {
   const { t } = useTranslation(["settings"]);
-  const { aic, rawLimits, structures } = useDomainSettingsContext();
+  const { aic, rawLimits, structures, metastorage, domains } =
+    useDomainSettingsContext();
 
   const groups = useMemo(
     () => aic.groups.filter((g) => g.domainId === editingDomain),
@@ -121,6 +128,9 @@ export function RegionConfigTabs({
   const limitsAvailable = capTargetCount > 0;
   const rawsAvailable = rawCount.total > 0;
   const structuresAvailable = regionStructureList.length > 0;
+  // Metastorage renders only for SOURCE-capable regions (the route is
+  // configured where the export originates; today: Valley IV).
+  const metastorageAvailable = metastorageSources.has(editingDomain);
 
   const availableTabs = useMemo(() => {
     const out: string[] = [];
@@ -128,8 +138,15 @@ export function RegionConfigTabs({
     if (limitsAvailable) out.push("limits");
     if (rawsAvailable) out.push("raws");
     if (structuresAvailable) out.push("structures");
+    if (metastorageAvailable) out.push("metastorage");
     return out;
-  }, [planAvailable, limitsAvailable, rawsAvailable, structuresAvailable]);
+  }, [
+    planAvailable,
+    limitsAvailable,
+    rawsAvailable,
+    structuresAvailable,
+    metastorageAvailable,
+  ]);
 
   // Controlled tabs: preserve the user's selection across region switches,
   // but fall back to the first available tab when the selected one is not
@@ -174,6 +191,14 @@ export function RegionConfigTabs({
                 {structuresCount.done}/{structuresCount.total}
               </CountBadge>
             )}
+          </TabsTrigger>
+        )}
+        {metastorageAvailable && (
+          <TabsTrigger value="metastorage">
+            {t("tabs.metastorage", {
+              ns: "settings",
+              defaultValue: "Metastorage",
+            })}
           </TabsTrigger>
         )}
       </TabsList>
@@ -268,6 +293,17 @@ export function RegionConfigTabs({
             structures={regionStructureList}
             enabled={structures.enabled}
             onToggle={structures.toggle}
+          />
+        </TabsContent>
+      )}
+
+      {metastorageAvailable && (
+        <TabsContent value="metastorage" className="space-y-3">
+          <MetastorageContent
+            domainId={editingDomain}
+            domains={domains}
+            routeModes={metastorage.routeModes}
+            onSetRouteMode={metastorage.setRouteMode}
           />
         </TabsContent>
       )}

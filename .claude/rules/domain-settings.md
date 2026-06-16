@@ -48,9 +48,17 @@ Region-exclusive **map structures** the user opts into (not roster/AIC buildings
 - **UI**: `StructuresContent.tsx` in a region-conditional "Structures" tab (`RegionConfigTabs`). The tab only renders for regions present in `regionStructures`. Per-row "Treats X" / "Produces Y" annotation is derived from the real `Recipe` data via `facilityRecipeVariants` (inlet → default recipe's first input; outlet → toggled recipe's first output).
 - Pure helpers in `settings-helpers.ts`: `structureKey`, `cascadeStructureChain`, `countRegionStructuresEnabled` (all unit-tested).
 
+## Metastorage (`metastorage` sub-state + "Metastorage" tab)
+
+Per-**source**-region outbound route mode for Metastorage Transfer: `"auto"` (default — exports to whichever region is being planned) / `"disabled"` / a locked destination `DomainId`. State: `metastorage.routeModes` (materialized for every key of `metastorageSources`; in-memory map stores deviations only) + `setRouteMode(source, mode)` (validates capability, rejects self-routes/unknown destinations; `"auto"` deletes the entry). Persisted as the deviations-only `metastorage.routes` block (absent = all auto); loader drops unknown/incapable sources, `mode === source`, unknown destinations — dropping re-defaults to auto.
+
+App bridge (`src/App.tsx`): source `S` feeds the `currentDomain = D` plan iff `S ∈ metastorageSources ∧ S ≠ D ∧ S active ∧ mode ∈ {"auto", D}`. Resolved routes become `MetastorageRouteConfig[]` (budget/min + `cycleSeconds` + full eligible `itemCosts`); their items seed `computeRecipeReachability` (4th param — configuration-level capability, unlike manual raws) AND the `useProductionPlan` auto-prune (import-only targets survive while a route is live).
+
+UI: `MetastorageContent` in a region-conditional tab that renders for **source-capable** regions only (`metastorageSources.has(editingDomain)`) — the inverse of every other tab's "destination-side" framing. No item picker by design (auto-selection is the calculator's job).
+
 ## Conditional + controlled tabs
 
-`RegionConfigTabs` renders a tab only when its region has content: Plan (has groups), Limits (`countFacilityCapTargets > 0`), Resources (has raws), Structures (has registry entries). Plan/Resources are effectively always present. Tabs are **controlled** with `resolveActiveTab(activeTab, availableTabs)` so switching to a region lacking the selected tab falls back to the first available tab instead of leaving a dangling selection.
+`RegionConfigTabs` renders a tab only when its region has content: Plan (has groups), Limits (`countFacilityCapTargets > 0`), Resources (has raws), Structures (has registry entries), Metastorage (source-capable regions). Plan/Resources are effectively always present. Tabs are **controlled** with `resolveActiveTab(activeTab, availableTabs)` so switching to a region lacking the selected tab falls back to the first available tab instead of leaving a dangling selection.
 
 ## Persistence (verified)
 

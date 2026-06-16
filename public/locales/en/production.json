@@ -47,7 +47,14 @@
       "buildings": "Total buildings",
       "power": "Total power",
       "viaGrouping": "via grouping",
-      "savingsExplain": "Buildings saved by packing formulas into shared multi-formula buildings."
+      "savingsExplain": "Buildings saved by packing formulas into shared multi-formula buildings.",
+      "ttv": "TTV ({{source}})"
+    },
+    "metastorage": {
+      "label": "Metastorage ({{source}})",
+      "tooltip": "Metastorage Transfer",
+      "ttv": "TTV",
+      "ttvExplain": "Total Transfer Value per delivery: {{used}} of {{cap}} ({{cost}} per item)."
     }
   },
   "tree": {
@@ -90,6 +97,11 @@
     "prefillCardTooltip": "This building's formulas form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
     "prefillCandidates": "Prefill candidates",
     "searchNoResults": "No matches",
-    "searchPlaceholder": "Search buildings..."
+    "searchPlaceholder": "Search buildings...",
+    "metastorage": "Metastorage",
+    "metastorageTooltip": "Delivered via Metastorage Transfer — no local production or depot debit at the source.",
+    "metastorageSource": "Source region",
+    "metastorageTtvPerItem": "TTV cost per item",
+    "metastorageTtvUsage": "TTV per delivery"
   }
 }

@@ -30,5 +30,7 @@
     "table": "Tabla de Producción",
     "tree": "Árbol de Dependencias"
   },
-  "title": "Endfield Calc"
+  "title": "Endfield Calc",
+  "metastorageRouteConflict": "La transferencia de metaalmacenamiento lleva un solo tipo de objeto por región de origen; estos objetivos no pueden importarse a la vez: {{items}}",
+  "metastorageBudgetInsufficient": "{{item}} desde {{source}}: necesita {{needed}} de VTT por entrega pero el presupuesto es {{cap}}; transferencia no aplicada. Reduce la tasa objetivo o amplía la producción local."
 }

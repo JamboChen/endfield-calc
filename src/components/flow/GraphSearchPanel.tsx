@@ -4,7 +4,7 @@ import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { ItemIcon } from "../production/ProductionTable";
-import { getItemName, getFacilityName } from "@/lib/i18n-helpers";
+import { getDomainName, getItemName, getFacilityName } from "@/lib/i18n-helpers";
 import {
   filterSearchCandidates,
   type SearchCandidate,
@@ -66,9 +66,16 @@ export default function GraphSearchPanel({
         return {
           id: node.id,
           label: getItemName(prod.item),
-          sublabel: prod.facility
-            ? `${getFacilityName(prod.facility)}${indexSuffix}`
-            : undefined,
+          // Metastorage import sources have no facility — their card
+          // chip shows "Metastorage · <source region>" instead, so the
+          // search indexes that (the panel's contract is "names
+          // actually displayed on the cards"). Also disambiguates the
+          // import row from the item's local-producer row in results.
+          sublabel: prod.metastorageImport
+            ? `${t("tree.metastorage")} · ${getDomainName(prod.metastorageImport.sourceDomain)}`
+            : prod.facility
+              ? `${getFacilityName(prod.facility)}${indexSuffix}`
+              : undefined,
           item: prod.item,
         };
       }

@@ -1,13 +1,21 @@
 import type { FacilityId, ItemId, RecipeId } from "@/types";
 import { forcedDisposalItems, costlessRaws } from "@/data";
 import { calcRate } from "@/lib/utils";
-import { solveLP, type LPInput, type LPItemConstraint } from "./lp-solver";
+import {
+  solveLP,
+  type LPInput,
+  type LPItemConstraint,
+  type LPMetastorageImport,
+  type LPSolution,
+} from "./lp-solver";
 import type {
   ProductionMaps,
   BipartiteGraph,
   SCCInfo,
   FlowData,
+  FlowSolveMetrics,
   InvalidSCCInfo,
+  MetastorageFlow,
 } from "./calculator-types";
 
 /**
@@ -69,21 +77,56 @@ export async function calculateFlows(
   manualRawMaterials?: Set<ItemId>,
   rawCaps?: ReadonlyMap<ItemId, number>,
   facilityCaps?: ReadonlyMap<FacilityId, number>,
-): Promise<{ flowData: FlowData; invalidSCCs: InvalidSCCInfo[] }> {
+  /**
+   * Metastorage import routes, **one selected item each** (the
+   * auto-selection enumeration in `calculator.ts` calls this function
+   * once per candidate). Each route adds one supply variable + a soft
+   * TTV budget row to the LP — see `LPMetastorageImport`.
+   */
+  metastorageImports?: readonly LPMetastorageImport[],
+): Promise<{
+  flowData: FlowData;
+  invalidSCCs: InvalidSCCInfo[];
+  /** Solution-quality metrics for the Metastorage candidate enumeration. */
+  metrics: FlowSolveMetrics;
+}> {
   const recipesList = Array.from(graph.recipeNodes.values()).map(
     (r) => r.recipe,
   );
 
-  if (recipesList.length === 0) {
-    // Nothing to solve. Either all targets are raws or the graph is
-    // empty. Return a feasible no-op (no SCCs detected when no recipes).
-    return {
-      flowData: {
-        itemDemands: new Map(targetRates),
-        recipeFacilityCounts: new Map(),
-      },
-      invalidSCCs: [],
-    };
+  // Zero-recipe early return — only when every target is a raw (the
+  // legacy "nothing to solve" case: graph empty or all targets raw).
+  // Two situations deliberately FALL THROUGH to the LP instead:
+  //   - Metastorage routes present: an import-only plan has zero
+  //     recipe variables but live import variables.
+  //   - A non-raw target exists (possible since Metastorage: an
+  //     import-eligible producer-less target skips raw promotion).
+  //     The LP reports it structurally infeasible — returning the
+  //     feasible no-op here would fake success with zero supply.
+  if (recipesList.length === 0 && (metastorageImports?.length ?? 0) === 0) {
+    const allTargetsRaw = Array.from(targetRates.keys()).every((itemId) => {
+      const node = graph.itemNodes.get(itemId);
+      return node ? node.isRawMaterial : true;
+    });
+    if (allTargetsRaw) {
+      return {
+        flowData: {
+          itemDemands: new Map(targetRates),
+          recipeFacilityCounts: new Map(),
+          metastorageFlows: [],
+        },
+        invalidSCCs: [],
+        metrics: {
+          feasible: true,
+          slackMagnitude: 0,
+          ttvOverusePerMinute: 0,
+          totalRawCost: 0,
+          totalBuildingCount: 0,
+          totalPower: 0,
+          totalTtvUsedPerMinute: 0,
+        },
+      };
+    }
   }
 
   // --- Build per-item constraints over every item in the graph ---
@@ -177,12 +220,13 @@ export async function calculateFlows(
     costlessRaws,
     rawCaps,
     facilityCaps,
+    metastorageImports,
     facilityMap: maps.facilityMap,
   };
 
   if (import.meta.env?.DEV) {
     console.log(
-      `[GLOBAL_FLOW] solving LP: ${recipesList.length} recipe vars, ${itemConstraints.size} item constraints, ${rawMaterials.size} raws`,
+      `[GLOBAL_FLOW] solving LP: ${recipesList.length} recipe vars, ${itemConstraints.size} item constraints, ${rawMaterials.size} raws, ${metastorageImports?.length ?? 0} metastorage route(s)`,
     );
   }
 
@@ -204,8 +248,18 @@ export async function calculateFlows(
       flowData: {
         itemDemands: new Map(targetRates),
         recipeFacilityCounts: new Map(),
+        metastorageFlows: [],
       },
       invalidSCCs,
+      metrics: {
+        feasible: false,
+        slackMagnitude: 0,
+        ttvOverusePerMinute: 0,
+        totalRawCost: 0,
+        totalBuildingCount: 0,
+        totalPower: 0,
+        totalTtvUsedPerMinute: 0,
+      },
     };
   }
 
@@ -240,6 +294,21 @@ export async function calculateFlows(
       console.warn(
         `[GLOBAL_FLOW] Raw-cap overuse:`,
         Object.fromEntries(result.rawCapOveruse),
+      );
+    }
+    if (result.importRates.size > 0) {
+      for (const [source, rates] of result.importRates) {
+        console.log(
+          `[GLOBAL_FLOW] Metastorage imports from ${source}:`,
+          Object.fromEntries(rates),
+          `(TTV ${result.ttvUsedPerMinute.get(source)?.toFixed(2) ?? 0}/min)`,
+        );
+      }
+    }
+    if (result.ttvOveruse.size > 0) {
+      console.warn(
+        `[GLOBAL_FLOW] Metastorage TTV budget overuse:`,
+        Object.fromEntries(result.ttvOveruse),
       );
     }
     detectMixedStrategies(graph, result.facilityCounts);
@@ -349,8 +418,62 @@ export async function calculateFlows(
     flowData: {
       itemDemands,
       recipeFacilityCounts: result.facilityCounts,
+      metastorageFlows: buildMetastorageFlows(metastorageImports, result),
     },
     invalidSCCs,
+    metrics: buildSolveMetrics(result),
+  };
+}
+
+/**
+ * Join the input routes with the LP's import-rate / TTV outputs into the
+ * flat per-route report consumed by `calculator.ts` (plan surfacing;
+ * overuse entries feed the candidate-rejection diagnostics). Routes the
+ * LP left unused (rate 0, no overuse) are omitted.
+ */
+function buildMetastorageFlows(
+  metastorageImports: readonly LPMetastorageImport[] | undefined,
+  result: LPSolution,
+): MetastorageFlow[] {
+  if (!metastorageImports || metastorageImports.length === 0) return [];
+  const flows: MetastorageFlow[] = [];
+  for (const route of metastorageImports) {
+    const rate =
+      result.importRates.get(route.sourceDomain)?.get(route.itemId) ?? 0;
+    const overuse = result.ttvOveruse.get(route.sourceDomain) ?? 0;
+    if (rate <= 0 && overuse <= 0) continue;
+    flows.push({
+      sourceDomain: route.sourceDomain,
+      itemId: route.itemId,
+      ratePerMinute: rate,
+      ttvCostPerItem: route.ttvCostPerItem,
+      ttvUsedPerMinute: rate * route.ttvCostPerItem,
+      ttvBudgetPerMinute: route.ttvBudgetPerMinute,
+      ttvOverusePerMinute: overuse,
+    });
+  }
+  return flows;
+}
+
+/** Fold an LP solution into the enumeration-comparison metrics. */
+function buildSolveMetrics(result: LPSolution): FlowSolveMetrics {
+  let slack = 0;
+  for (const v of result.disposalDeficits.values()) slack += v;
+  for (const v of result.disposalSurpluses.values()) slack += v;
+  for (const v of result.rawCapOveruse.values()) slack += v;
+  let ttvOveruse = 0;
+  for (const v of result.ttvOveruse.values()) ttvOveruse += v;
+  slack += ttvOveruse;
+  let ttvUsed = 0;
+  for (const v of result.ttvUsedPerMinute.values()) ttvUsed += v;
+  return {
+    feasible: true,
+    slackMagnitude: slack,
+    ttvOverusePerMinute: ttvOveruse,
+    totalRawCost: result.totalRawCost,
+    totalBuildingCount: result.totalBuildingCount,
+    totalPower: result.totalPower,
+    totalTtvUsedPerMinute: ttvUsed,
   };
 }
 

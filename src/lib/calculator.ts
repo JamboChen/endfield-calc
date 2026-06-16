@@ -2,10 +2,12 @@ import type {
   Item,
   Recipe,
   Facility,
+  DomainId,
   FacilityId,
   ItemId,
   RecipeId,
   BinId,
+  PlanMetastorageImport,
   ProductionNode,
   DetectedCycle,
   InvalidCycleInfo,
@@ -15,17 +17,20 @@ import type {
   Bin,
   RecipeBinAllocation,
 } from "@/types";
+import type { MetastorageRouteConfig } from "@/types/metastorage";
 import { calcRate } from "@/lib/utils";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
 import { computeVariantExclusions } from "@/lib/variant-filter";
 import { buildBipartiteGraph, detectSCCs } from "./graph-builder";
 import { calculateFlows } from "./flow-solver";
+import type { LPMetastorageImport } from "./lp-solver";
 import { packBins } from "./multi-formula-packing";
 import type {
   ProductionMaps,
   BipartiteGraph,
   SCCInfo,
   FlowData,
+  FlowSolveMetrics,
   InvalidSCCInfo,
 } from "./calculator-types";
 
@@ -564,6 +569,7 @@ function buildProductionGraph(
   recipeBinAllocations: Map<RecipeId, RecipeBinAllocation> = new Map(),
   warnings: PlanWarning[] = [],
   recipePrefill: Map<RecipeId, ItemId[]> = new Map(),
+  metastorageImports: PlanMetastorageImport[] = [],
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
@@ -778,10 +784,252 @@ function buildProductionGraph(
     bins,
     recipeBinAllocations,
     warnings,
+    metastorageImports,
   };
 }
 
 
+
+// ── Metastorage auto-selection ──────────────────────────────────────────────
+
+/**
+ * Comparison tolerances for ranking Metastorage candidate solves.
+ * Mirror the LP's own `LEX_TOLERANCE` scale: differences at or below
+ * the tolerance are ties (move to the next key), keeping the winner
+ * deterministic against HiGHS float jitter across separate solves.
+ */
+const METASTORAGE_METRIC_TOLERANCE = {
+  slackMagnitude: 1e-6,
+  totalRawCost: 1e-6,
+  totalBuildingCount: 1e-3,
+  totalPower: 1e-3,
+  totalTtvUsedPerMinute: 1e-6,
+} as const;
+
+/**
+ * Lexicographic comparison of two candidate solves. Negative ⇒ `a` is
+ * strictly better. Order: feasibility → total slack (soft-constraint
+ * violations) → the LP's own lex objectives → TTV used (prefer the
+ * cheaper-TTV candidate among otherwise-equal plans).
+ */
+function compareSolveMetrics(
+  a: FlowSolveMetrics,
+  b: FlowSolveMetrics,
+): number {
+  if (a.feasible !== b.feasible) return a.feasible ? -1 : 1;
+  const keys = [
+    "slackMagnitude",
+    "totalRawCost",
+    "totalBuildingCount",
+    "totalPower",
+    "totalTtvUsedPerMinute",
+  ] as const;
+  for (const key of keys) {
+    const diff = a[key] - b[key];
+    if (Math.abs(diff) > METASTORAGE_METRIC_TOLERANCE[key]) return diff;
+  }
+  return 0;
+}
+
+/**
+ * Candidate items for one route: eligible exports that exist in the
+ * graph as **balanced** items (not raws / manual raws) and are either
+ * targeted or consumed by at least one recipe in the graph — importing
+ * anything else can't improve the plan. Sorted by item id so the
+ * enumeration (and tie-breaking, which keeps the first winner) is
+ * deterministic.
+ */
+function metastorageCandidates(
+  route: MetastorageRouteConfig,
+  graph: BipartiteGraph,
+  targetRates: Map<ItemId, number>,
+  manualRawMaterials?: Set<ItemId>,
+): ItemId[] {
+  const out: ItemId[] = [];
+  for (const itemId of route.itemCosts.keys()) {
+    const node = graph.itemNodes.get(itemId);
+    if (!node || node.isRawMaterial) continue;
+    if (manualRawMaterials?.has(itemId)) continue;
+    const consumed = (graph.itemConsumedBy.get(itemId)?.size ?? 0) > 0;
+    if (!consumed && !targetRates.has(itemId)) continue;
+    out.push(itemId);
+  }
+  return out.sort();
+}
+
+/**
+ * Target items that can ONLY arrive via Metastorage: no producer
+ * recipe survived into the graph, not a raw, but import-eligible on at
+ * least one route. The game transfers one item type per route, so more
+ * such targets than routes is a structural conflict the enumeration
+ * cannot solve — surfaced as a `metastorage-route-conflict` warning
+ * (the losing targets additionally show up as infeasible).
+ */
+function importOnlyTargets(
+  routes: readonly MetastorageRouteConfig[],
+  graph: BipartiteGraph,
+  targetRates: Map<ItemId, number>,
+): ItemId[] {
+  const out: ItemId[] = [];
+  for (const itemId of targetRates.keys()) {
+    const node = graph.itemNodes.get(itemId);
+    if (!node || node.isRawMaterial) continue;
+    let hasProducer = false;
+    for (const outputs of graph.recipeOutputs.values()) {
+      if (outputs.has(itemId)) {
+        hasProducer = true;
+        break;
+      }
+    }
+    if (hasProducer) continue;
+    if (routes.some((r) => r.itemCosts.has(itemId))) out.push(itemId);
+  }
+  return out.sort();
+}
+
+type FlowSolveResult = Awaited<ReturnType<typeof calculateFlows>>;
+
+/**
+ * A candidate the enumeration rejected because its solve needed more
+ * TTV than the route's budget. Thanks to the `TTV_SLACK_PENALTY`
+ * ordering in the LP this only happens when NO within-budget solution
+ * exists for that demand (import-only demand above budget), so the
+ * diagnostic carries exactly the figures the user needs: which item,
+ * how much it would need, and the route's cap.
+ */
+type MetastorageBudgetDiagnostic = {
+  sourceDomain: DomainId;
+  itemId: ItemId;
+  /** TTV/min the demand actually requires (budget + overage). */
+  ttvNeededPerMinute: number;
+  ttvBudgetPerMinute: number;
+  cycleSeconds: number;
+};
+
+/**
+ * Auto-select the single transferred item per Metastorage route.
+ *
+ * Sequential greedy over routes (current data has exactly one
+ * exporting region): for each route, solve the global LP once per
+ * candidate item — plus the implicit "route unused" baseline carried
+ * over from the previous step — and keep the lex-best result
+ * (`compareSolveMetrics`). Strict improvement is required to displace
+ * the baseline, so a route whose best candidate ties the no-import
+ * solve stays unused (the LP's final `ttvCost` pass already zeroes
+ * useless imports within a solve; this mirrors it across solves).
+ *
+ * **Viability gate**: candidates whose solve carries any TTV-budget
+ * overage are never selected — an over-budget plan is physically
+ * unrealizable (the budget is a game constant), so "feasible with
+ * overage" must not outrank "infeasible". Rejected candidates are kept
+ * as `diagnostics` (lowest overage per route) so the caller can emit a
+ * `metastorage-budget-insufficient` warning explaining exactly why no
+ * plan was produced.
+ *
+ * Candidate sets are small in practice (eligible ∩ graph-relevant,
+ * typically well under a dozen), and each solve is a small LP, so the
+ * enumeration stays interactive.
+ */
+async function selectMetastorageImports(
+  routes: readonly MetastorageRouteConfig[],
+  graph: BipartiteGraph,
+  sccs: SCCInfo[],
+  targetRates: Map<ItemId, number>,
+  maps: ProductionMaps,
+  manualRawMaterials?: Set<ItemId>,
+  rawCaps?: ReadonlyMap<ItemId, number>,
+  facilityCaps?: ReadonlyMap<FacilityId, number>,
+): Promise<{
+  selected: LPMetastorageImport[];
+  result: FlowSolveResult;
+  diagnostics: MetastorageBudgetDiagnostic[];
+}> {
+  const solve = (imports: readonly LPMetastorageImport[]) =>
+    calculateFlows(
+      graph,
+      sccs,
+      targetRates,
+      maps,
+      manualRawMaterials,
+      rawCaps,
+      facilityCaps,
+      imports,
+    );
+
+  let selected: LPMetastorageImport[] = [];
+  let best = await solve(selected);
+  const diagnostics: MetastorageBudgetDiagnostic[] = [];
+
+  for (const route of routes) {
+    const candidates = metastorageCandidates(
+      route,
+      graph,
+      targetRates,
+      manualRawMaterials,
+    );
+    if (candidates.length === 0) continue;
+    if (import.meta.env?.DEV) {
+      console.log(
+        `[METASTORAGE] route ${route.sourceDomain}: evaluating ${candidates.length} candidate item(s)`,
+      );
+    }
+    let bestImport: LPMetastorageImport | null = null;
+    let routeDiagnostic: MetastorageBudgetDiagnostic | null = null;
+    for (const itemId of candidates) {
+      const candidate: LPMetastorageImport = {
+        sourceDomain: route.sourceDomain,
+        itemId,
+        ttvCostPerItem: route.itemCosts.get(itemId)!,
+        ttvBudgetPerMinute: route.ttvBudgetPerMinute,
+      };
+      const result = await solve([...selected, candidate]);
+      // Viability gate: any TTV-budget overage disqualifies the
+      // candidate outright (physically unrealizable). Keep the
+      // closest-to-possible rejection per route as the diagnostic.
+      if (
+        result.metrics.ttvOverusePerMinute >
+        METASTORAGE_METRIC_TOLERANCE.totalTtvUsedPerMinute
+      ) {
+        const needed =
+          route.ttvBudgetPerMinute + result.metrics.ttvOverusePerMinute;
+        if (
+          result.metrics.feasible &&
+          (!routeDiagnostic || needed < routeDiagnostic.ttvNeededPerMinute)
+        ) {
+          routeDiagnostic = {
+            sourceDomain: route.sourceDomain,
+            itemId,
+            ttvNeededPerMinute: needed,
+            ttvBudgetPerMinute: route.ttvBudgetPerMinute,
+            cycleSeconds: route.cycleSeconds,
+          };
+        }
+        continue;
+      }
+      if (compareSolveMetrics(result.metrics, best.metrics) < 0) {
+        best = result;
+        bestImport = candidate;
+      }
+    }
+    if (bestImport) {
+      selected = [...selected, bestImport];
+      if (import.meta.env?.DEV) {
+        console.log(
+          `[METASTORAGE] route ${bestImport.sourceDomain}: selected ${bestImport.itemId}`,
+        );
+      }
+    } else if (routeDiagnostic) {
+      diagnostics.push(routeDiagnostic);
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[METASTORAGE] route ${routeDiagnostic.sourceDomain}: no within-budget candidate; ${routeDiagnostic.itemId} would need ${routeDiagnostic.ttvNeededPerMinute.toFixed(2)} TTV/min vs budget ${routeDiagnostic.ttvBudgetPerMinute.toFixed(2)}`,
+        );
+      }
+    }
+  }
+
+  return { selected, result: best, diagnostics };
+}
 
 /**
  * Options bag for `calculateProductionPlan`. Keeps the function signature
@@ -810,6 +1058,16 @@ function buildProductionGraph(
  *   When provided, the Phase 5 MIP gets `Σ x_v ≤ N_F` constraints; when
  *   the cap is infeasible the packer retries without it and emits a
  *   warning into `plan.warnings` rather than failing.
+ * - `metastorageRoutes`: resolved Metastorage import routes feeding the
+ *   planned region (App bridge: source has capability, is active, and
+ *   its route mode is `auto` or locked to this region). The calculator
+ *   auto-selects each route's single transferred item via candidate
+ *   enumeration (`selectMetastorageImports`); the winning imports land
+ *   on `plan.metastorageImports`; routes whose demand cannot fit the
+ *   budget select nothing and emit `metastorage-budget-insufficient`
+ *   warnings instead (the budget is a hard game constant); items whose
+ *   only supply is an import stay balance-constrained instead of
+ *   degrading to raws.
  */
 export interface CalculateProductionPlanOptions {
   rawMaterials: ReadonlySet<ItemId>;
@@ -817,6 +1075,7 @@ export interface CalculateProductionPlanOptions {
   recipeOverrides?: Map<ItemId, RecipeId>;
   manualRawMaterials?: Set<ItemId>;
   facilityCaps?: ReadonlyMap<FacilityId, number>;
+  metastorageRoutes?: readonly MetastorageRouteConfig[];
 }
 
 export async function calculateProductionPlan(
@@ -833,6 +1092,7 @@ export async function calculateProductionPlan(
   const recipeOverrides = options.recipeOverrides;
   const manualRawMaterials = options.manualRawMaterials;
   const facilityCaps = options.facilityCaps;
+  const metastorageRoutes = options.metastorageRoutes ?? [];
 
   // Drop opt-in variant recipes whose facility has no positive cap.
   // Variant recipes (today: `LIQUID_CLEAN_GATE_1_{DISPOSAL,BYPRODUCT}`)
@@ -876,12 +1136,26 @@ export async function calculateProductionPlan(
     console.log(`\n=== PLAN SOLVE ===`);
   }
 
+  // Union of every active route's eligible items. Producer-less items
+  // in this set stay BALANCED in the graph (no raw auto-promotion) so
+  // the LP's import variable is their only — budget-bounded — supply.
+  let importableItems: ReadonlySet<ItemId> | undefined;
+  if (metastorageRoutes.length > 0) {
+    const set = new Set<ItemId>();
+    for (const route of metastorageRoutes) {
+      for (const itemId of route.itemCosts.keys()) set.add(itemId);
+    }
+    importableItems = set;
+  }
+
   const graph = buildBipartiteGraph(
     targets,
     maps,
     rawMaterials,
     recipeOverrides,
     manualRawMaterials,
+    undefined,
+    importableItems,
   );
 
   const sccs = detectSCCs(graph);
@@ -890,15 +1164,84 @@ export async function calculateProductionPlan(
   // LP itself doesn't need a topological order — it solves over the
   // whole recipe set in one shot.
   const targetRatesMap = new Map(targets.map((t) => [t.itemId, t.rate]));
-  const { flowData, invalidSCCs } = await calculateFlows(
-    graph,
-    sccs,
-    targetRatesMap,
-    maps,
-    manualRawMaterials,
-    rawCaps,
-    facilityCaps,
+
+  // Metastorage auto-selection: enumerate candidate items per route and
+  // keep the lex-best solve. Without routes this is the plain single
+  // solve (`selected` stays empty and the baseline result is used).
+  const { selected: selectedImports, result: flowResult, diagnostics } =
+    metastorageRoutes.length > 0
+      ? await selectMetastorageImports(
+          metastorageRoutes,
+          graph,
+          sccs,
+          targetRatesMap,
+          maps,
+          manualRawMaterials,
+          rawCaps,
+          facilityCaps,
+        )
+      : {
+          selected: [],
+          result: await calculateFlows(
+            graph,
+            sccs,
+            targetRatesMap,
+            maps,
+            manualRawMaterials,
+            rawCaps,
+            facilityCaps,
+          ),
+          diagnostics: [] as MetastorageBudgetDiagnostic[],
+        };
+  const { flowData, invalidSCCs } = flowResult;
+
+  // Metastorage plan surfacing + warnings. The viability gate in
+  // `selectMetastorageImports` guarantees the winning solve carries no
+  // budget overage, so these flows are always within budget; routes
+  // whose demand CANNOT fit (import-only demand above budget) selected
+  // nothing and surface via `diagnostics` instead.
+  const routeBySource = new Map(
+    metastorageRoutes.map((r) => [r.sourceDomain, r]),
   );
+  const metastorageImports: PlanMetastorageImport[] =
+    flowData.metastorageFlows.map((flow) => ({
+      sourceDomain: flow.sourceDomain,
+      itemId: flow.itemId,
+      ratePerMinute: flow.ratePerMinute,
+      ttvCostPerItem: flow.ttvCostPerItem,
+      ttvUsedPerMinute: flow.ttvUsedPerMinute,
+      ttvBudgetPerMinute: flow.ttvBudgetPerMinute,
+      cycleSeconds: routeBySource.get(flow.sourceDomain)?.cycleSeconds ?? 3600,
+    }));
+  const metastorageWarnings: PlanWarning[] = diagnostics.map((d) => {
+    const cycleMinutes = d.cycleSeconds / 60;
+    return {
+      kind: "metastorage-budget-insufficient",
+      sourceDomain: d.sourceDomain,
+      itemId: d.itemId,
+      neededPerCycle: d.ttvNeededPerMinute * cycleMinutes,
+      capPerCycle: d.ttvBudgetPerMinute * cycleMinutes,
+    };
+  });
+  if (metastorageRoutes.length > 0) {
+    const conflictTargets = importOnlyTargets(
+      metastorageRoutes,
+      graph,
+      targetRatesMap,
+    );
+    if (conflictTargets.length > metastorageRoutes.length) {
+      metastorageWarnings.push({
+        kind: "metastorage-route-conflict",
+        itemIds: conflictTargets,
+      });
+    }
+  }
+  if (import.meta.env?.DEV && selectedImports.length > 0) {
+    console.log(
+      `[METASTORAGE] final selection:`,
+      selectedImports.map((s) => `${s.sourceDomain}→${s.itemId}`).join(", "),
+    );
+  }
 
   if (invalidSCCs.length === 0 && import.meta.env?.DEV) {
     console.log(`[SUCCESS] Valid production plan found`);
@@ -946,7 +1289,8 @@ export async function calculateProductionPlan(
     recipeOverrides,
     packing.bins,
     packing.allocations,
-    packing.warnings,
+    [...packing.warnings, ...metastorageWarnings],
     recipePrefill,
+    metastorageImports,
   );
 }

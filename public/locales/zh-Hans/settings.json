@@ -22,7 +22,8 @@
     "plan": "方案",
     "limits": "上限",
     "raws": "资源",
-    "structures": "结构物"
+    "structures": "结构物",
+    "metastorage": "超库存"
   },
   "status": {
     "researched": "已研究 {{done}} / {{total}}",
@@ -83,5 +84,14 @@
       "resetGroup": "已恢复方案默认",
       "prereqsRequired": "请先研究前置科技。"
     }
+  },
+  "metastorage": {
+    "help": "超库存传输每次配送向另一个区域输送一种物品——且不消耗本区域仓库的库存。源区域发展等级达到 Lv.{{level}} 后解锁；每次配送（每 {{minutes}} 分钟一次）最多承载 {{ttv}} 点传输总值。",
+    "autoExplain": "计算器会自动选择传输的物品（共 {{count}} 种可选物品），优先选择对目标区域方案提升最大的一种。",
+    "cardTitle": "出站传输",
+    "routeLabel": "传输至",
+    "modeAuto": "自动（当前规划的区域）",
+    "modeDisabled": "已禁用",
+    "modeLocked": "仅 {{region}}"
   }
 }

@@ -22,7 +22,8 @@
     "plan": "プラン",
     "limits": "上限",
     "raws": "資源",
-    "structures": "構造物"
+    "structures": "構造物",
+    "metastorage": "無在庫転送"
   },
   "status": {
     "researched": "{{done}} / {{total}} 研究済み",
@@ -83,5 +84,14 @@
       "resetGroup": "プランをデフォルトに戻しました",
       "prereqsRequired": "先に前提のテクノロジーを研究してください。"
     }
+  },
+  "metastorage": {
+    "help": "無在庫転送は、1回の配送につき1種類のアイテムを他の地域へ送ります——この地域の倉庫からは差し引かれません。地域発展レベル Lv.{{level}} で解放。配送（{{minutes}} 分ごと）1回あたり最大 {{ttv}} の総転送価値を運べます。",
+    "autoExplain": "転送するアイテムは計算機が自動で選択します（対象 {{count}} 種類）。目的地のプランを最も改善するものが選ばれます。",
+    "cardTitle": "送出転送",
+    "routeLabel": "転送先",
+    "modeAuto": "自動（現在プラン中の地域）",
+    "modeDisabled": "無効",
+    "modeLocked": "{{region}} のみ"
   }
 }

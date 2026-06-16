@@ -23,6 +23,7 @@ import type {
   ItemId,
   Recipe,
   Facility,
+  PlanMetastorageImport,
   ProductionDependencyGraph,
   Bin,
   BinId,
@@ -36,7 +37,11 @@ import {
   createTargetSinkNode,
   createDisposalSinkNode,
 } from "../flow/flow-utils";
-import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
+import {
+  createMetastorageSourceId,
+  createTargetSinkId,
+  createRawMaterialId,
+} from "@/lib/node-keys";
 import { calcRate, getRawSourceRate } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
@@ -73,6 +78,16 @@ export function mapPlanToFlowBinFused(
   const recipeById = new Map(recipes.map((r) => [r.id, r] as const));
   const facilityById = new Map(facilities.map((f) => [f.id, f] as const));
   const targetItemIds = new Set(plan.targets);
+
+  // Visible Metastorage imports, keyed by item. Built up front because
+  // the singleton-terminal fold below must NOT trigger for imported
+  // targets (the sink needs real inbound edges from BOTH the local bin
+  // and the import source; an embed can only represent one supply).
+  const importByItem = new Map<ItemId, PlanMetastorageImport>();
+  for (const imp of plan.metastorageImports) {
+    if (imp.ratePerMinute <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    importByItem.set(imp.itemId, imp);
+  }
 
   // Skip disposal bins from regular production-node emission; they
   // become disposal sink nodes below.
@@ -127,6 +142,9 @@ export function mapPlanToFlowBinFused(
     if (bin.externalOutputs.length !== 1) continue;
     const outputItemId = bin.externalOutputs[0].itemId;
     if (!targetItemIds.has(outputItemId)) continue;
+    // Metastorage supplies this target too — the bin is NOT the sole
+    // supply, so it stays a regular node (sink gets two real edges).
+    if (importByItem.has(outputItemId)) continue;
     // Sole producer: no other production bin outputs this item.
     const otherProducer = productionBins.some(
       (b) =>
@@ -226,6 +244,21 @@ export function mapPlanToFlowBinFused(
     const disposalSinkId = `disposal-${bin.recipeIds[0]}`;
     arr.push({ binId: disposalSinkId, rate });
     consumersByItem.set(inp.itemId, arr);
+  }
+
+  // Metastorage imports are external producers: register one producer
+  // entry per imported item so the greedy allocator routes the
+  // imported portion to whichever consumers (bins, target sinks,
+  // disposal sinks) local production doesn't cover. The source node
+  // itself is emitted later, only when at least one visible edge
+  // references it.
+  for (const [itemId, imp] of importByItem) {
+    const arr = producersByItem.get(itemId) ?? [];
+    arr.push({
+      binId: createMetastorageSourceId(itemId),
+      rate: imp.ratePerMinute,
+    });
+    producersByItem.set(itemId, arr);
   }
 
   // Producer→consumer allocation per item (shared helper — exact-fit,
@@ -462,6 +495,42 @@ export function mapPlanToFlowBinFused(
     );
   }
 
+  // Emit Metastorage import source nodes — one per imported item that
+  // ended up with at least one visible allocated edge (guards against
+  // an isolated node when every consumer fell below the display
+  // threshold). `recipe`/`facility` stay null; the card branches on
+  // `metastorageImport` to show the source region + TTV figures.
+  for (const [itemId, imp] of importByItem) {
+    const importNodeId = createMetastorageSourceId(itemId);
+    const hasVisibleEdge = (allocated.get(itemId) ?? []).some(
+      (e) =>
+        e.producerId === importNodeId && e.rate > MIN_VISIBLE_RATE_PER_MIN,
+    );
+    if (!hasVisibleEdge) continue;
+    const item = itemById.get(itemId);
+    if (!item) continue;
+    flowNodes.push(
+      createProductionFlowNode(
+        importNodeId,
+        {
+          item,
+          targetRate: imp.ratePerMinute,
+          recipe: null,
+          facility: null,
+          facilityCount: 0,
+          isRawMaterial: false,
+          isTarget: false,
+          dependencies: [],
+          metastorageImport: imp,
+        },
+        items,
+        facilities,
+        ceilMode,
+        { isDirectTarget: false },
+      ),
+    );
+  }
+
   // Emit edges from the greedy allocation. Defensive endpoint check
   // filters dangling edges in case a producer or consumer was dropped.
   const emittedNodeIds = new Set([
@@ -582,6 +651,15 @@ export function mapPlanToFlowBinFusedSeparated(
   const facilityById = new Map(facilities.map((f) => [f.id, f] as const));
   const targetItemIds = new Set(plan.targets);
 
+  // Visible Metastorage imports, keyed by item — built up front so the
+  // singleton-terminal fold below can bail for imported targets (same
+  // rationale as the Recipe View path above).
+  const importByItem = new Map<ItemId, PlanMetastorageImport>();
+  for (const imp of plan.metastorageImports) {
+    if (imp.ratePerMinute <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    importByItem.set(imp.itemId, imp);
+  }
+
   const isDisposalBin = (bin: Bin): boolean => {
     if (bin.recipeIds.length !== 1) return false;
     const recipe = recipeById.get(bin.recipeIds[0]);
@@ -693,6 +771,9 @@ export function mapPlanToFlowBinFusedSeparated(
     if (Math.max(1, Math.ceil(bin.buildingCount)) !== 1) continue;
     const outputItemId = bin.externalOutputs[0].itemId;
     if (!targetItemIds.has(outputItemId)) continue;
+    // Metastorage supplies this target too — keep the bin's instances
+    // so the sink gets real edges from both supplies.
+    if (importByItem.has(outputItemId)) continue;
     const otherProducer = productionBins.some(
       (b) =>
         b.id !== bin.id &&
@@ -833,6 +914,19 @@ export function mapPlanToFlowBinFusedSeparated(
     const arr = consumersByItem.get(inp.itemId) ?? [];
     arr.push({ instanceId: sinkId, rate });
     consumersByItem.set(inp.itemId, arr);
+  }
+
+  // Metastorage imports as external producers — ONE source entry per
+  // imported item even in Facility View (the delivery lands in the
+  // regional depot; there is no per-building instance to split into).
+  // Mirrors the Recipe View registration above.
+  for (const [itemId, imp] of importByItem) {
+    const arr = producersByItem.get(itemId) ?? [];
+    arr.push({
+      instanceId: createMetastorageSourceId(itemId),
+      rate: imp.ratePerMinute,
+    });
+    producersByItem.set(itemId, arr);
   }
 
   // Producer→consumer allocation per item via the shared helper, same
@@ -1066,6 +1160,39 @@ export function mapPlanToFlowBinFusedSeparated(
         items,
         facilities,
         ceilMode,
+      ),
+    );
+  }
+
+  // Emit Metastorage import source nodes (one per imported item with a
+  // visible allocated edge — same rule as the Recipe View path).
+  for (const [itemId, imp] of importByItem) {
+    const importNodeId = createMetastorageSourceId(itemId);
+    const hasVisibleEdge = (allocated.get(itemId) ?? []).some(
+      (e) =>
+        e.producerId === importNodeId && e.rate > MIN_VISIBLE_RATE_PER_MIN,
+    );
+    if (!hasVisibleEdge) continue;
+    const item = itemById.get(itemId);
+    if (!item) continue;
+    flowNodes.push(
+      createProductionFlowNode(
+        importNodeId,
+        {
+          item,
+          targetRate: imp.ratePerMinute,
+          recipe: null,
+          facility: null,
+          facilityCount: 0,
+          isRawMaterial: false,
+          isTarget: false,
+          dependencies: [],
+          metastorageImport: imp,
+        },
+        items,
+        facilities,
+        ceilMode,
+        { isDirectTarget: false },
       ),
     );
   }

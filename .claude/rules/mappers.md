@@ -62,6 +62,16 @@ Bin external rates scale with per-recipe active slot counts, not `shape.netOutpu
 
 The legacy `mapPlanToFlowMerged` (bf=0) still uses the pickup-only model — pickup card shows NET demand but edges sum to gross consumer demand. Documented limitation; do not "fix" without rewriting the merged-view edge layer.
 
+## Metastorage import sources
+
+`plan.metastorageImports` (one entry per active route; rates per-minute) renders as ONE source node per imported item across all three mappers — id `createMetastorageSourceId(itemId)` (`node-keys.ts`), `recipe`/`facility` null, `isRawMaterial` false, payload on `ProductionNode.metastorageImport`. Facility View deliberately does NOT emit per-instance variants (the delivery lands in the regional depot, not in buildings).
+
+- All three mappers register the import as a **producer** (`producersByItem` / `producersOf`) so `computeTransportAllocation` splits consumer demand between local production and the import. The node is emitted lazily/conditionally — only when ≥1 visible allocated edge references it (prevents isolated-node violations).
+- **Singleton-terminal folding is disabled for imported targets** in all three paths (bf=1 + separated bail in detection; bf=0 routes both the recipe-emission skip AND the input-edge redirect through `isFoldedTerminalRecipe`). The sink needs two real inbound edges (local + import); an embed can only represent one supply.
+- `layout.ts:isRawMaterialNode` includes import sources (left-column alignment + `FIRST_SEPARATE` ELK constraint + compact card dimensions).
+- Table: `mergeItemNodes` emits one import row per imported item (replacing the empty no-producer row for import-only items); `ProductionTable` keys it `import-${item.id}` and shows TTV per delivery in the Count column + a per-route TTV footer chip.
+- Graph search (`GraphSearchPanel`) indexes the import node's sublabel as `"<tree.metastorage> · <source region>"` (facility is null on import nodes) so "metastorage"/region queries find it and result rows disambiguate import vs local producer.
+
 ## Cardinal invariants
 
 - **Singleton-terminal bin detection runs BEFORE producer/consumer map construction**. The bin→sink redirect is baked into map construction; post-hoc remapping leaves phantom state.

@@ -17,3 +17,15 @@ export function createTargetSinkId(itemId: string): string {
 export function createRawMaterialId(itemId: string): string {
   return `raw_${itemId}`;
 }
+
+/**
+ * Create a Metastorage import source node ID (one per imported item —
+ * the delivery arrives at the regional depot, so there is no
+ * per-instance variant even in Facility View).
+ *
+ * @example
+ * createMetastorageSourceId("item_iron_nugget") // "metastorage_item_iron_nugget"
+ */
+export function createMetastorageSourceId(itemId: string): string {
+  return `metastorage_${itemId}`;
+}

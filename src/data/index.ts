@@ -367,3 +367,4 @@ export {
 };
 export type { RawSourceConfig };
 export { regionStructures } from "./region-subsystems";
+export { metastorageExports, metastorageSources } from "./metastorage";

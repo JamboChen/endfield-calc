@@ -30,5 +30,7 @@
     "table": "生產列表",
     "tree": "依賴關係圖"
   },
-  "title": "終末地工廠生產計算器"
+  "title": "終末地工廠生產計算器",
+  "metastorageRouteConflict": "每個來源區域的超庫存傳輸一次只能輸送一種物品——以下目標無法同時進口：{{items}}",
+  "metastorageBudgetInsufficient": "{{item}}（來自 {{source}}）：每次配送需要 {{needed}} 傳輸總值，但上限為 {{cap}}——未套用傳輸。請降低目標速率或擴大本地生產。"
 }

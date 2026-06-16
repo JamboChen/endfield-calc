@@ -22,7 +22,8 @@
     "plan": "Plan",
     "limits": "Límites",
     "raws": "Recursos",
-    "structures": "Estructuras"
+    "structures": "Estructuras",
+    "metastorage": "Metaalmacén"
   },
   "status": {
     "researched": "{{done}} / {{total}} investigado",
@@ -83,5 +84,14 @@
       "resetGroup": "Plan restablecido a los valores predeterminados",
       "prereqsRequired": "Investiga primero la tecnología prerrequisito."
     }
+  },
+  "metastorage": {
+    "help": "La transferencia de metaalmacenamiento envía un tipo de objeto por entrega a otra región, sin restarlo del depósito de esta región. Se desbloquea con el nivel de desarrollo regional {{level}}; cada entrega (cada {{minutes}} min) transporta hasta {{ttv}} de valor total de transferencia.",
+    "autoExplain": "La calculadora elige automáticamente el objeto transferido ({{count}} objetos elegibles), seleccionando el que más mejore el plan de la región de destino.",
+    "cardTitle": "Transferencia saliente",
+    "routeLabel": "Exporta a",
+    "modeAuto": "Auto (región en planificación)",
+    "modeDisabled": "Desactivada",
+    "modeLocked": "Solo {{region}}"
   }
 }

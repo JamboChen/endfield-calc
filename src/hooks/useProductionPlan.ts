@@ -15,11 +15,13 @@ import type {
   ProductionDependencyGraph,
   ProductionGraphNode,
 } from "@/types";
+import type { MetastorageRouteConfig } from "@/types/metastorage";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useProductionStats } from "./useProductionStats";
 import { useProductionTable } from "./useProductionTable";
 import {
+  getDomainName,
   getItemName,
   getFacilityName,
   getRecipeName,
@@ -252,6 +254,22 @@ function formatPlanWarning(
         used: w.used.toFixed(1),
         cap: w.cap,
       });
+    case "metastorage-budget-insufficient":
+      // Per-delivery (game-native) TTV figures. The import was NOT
+      // applied — the budget is a hard game constant — so this
+      // explains why the affected demand is unsatisfied.
+      return t("metastorageBudgetInsufficient", {
+        item: lookupItemName(w.itemId),
+        source: getDomainName(w.sourceDomain),
+        needed: w.neededPerCycle.toFixed(0),
+        cap: w.capPerCycle.toFixed(0),
+      });
+    case "metastorage-route-conflict":
+      // The listed targets are import-only but Metastorage carries one
+      // item type per source region — the plan can't satisfy them all.
+      return t("metastorageRouteConflict", {
+        items: w.itemIds.map(lookupItemName).join(", "),
+      });
   }
 }
 
@@ -281,12 +299,19 @@ function formatPlanWarning(
  * `rawMaterialRequirements`. **No entry in this map = no limit** for
  * that item; items the user hasn't capped don't appear here and don't
  * trigger warnings. Optional and undefined when nothing is capped.
+ *
+ * `metastorageRoutes` are the Metastorage import routes resolved for
+ * the current region by App.tsx. Threaded into
+ * `calculateProductionPlan` (which auto-selects each route's single
+ * transferred item) and consulted by the auto-prune effect so an
+ * import-only target survives while its route is live.
  */
 export function useProductionPlan(
   availableRecipes: readonly Recipe[],
   regionRawMaterials: ReadonlySet<ItemId>,
   facilityCaps?: ReadonlyMap<FacilityId, number>,
   rawMaterialCaps?: ReadonlyMap<ItemId, number>,
+  metastorageRoutes?: readonly MetastorageRouteConfig[],
 ) {
   const { t } = useTranslation("app");
 
@@ -378,6 +403,7 @@ export function useProductionPlan(
         recipeOverrides,
         manualRawMaterials,
         facilityCaps,
+        metastorageRoutes,
       },
     )
       .then((result) => {
@@ -406,6 +432,7 @@ export function useProductionPlan(
     regionRawMaterials,
     facilityCaps,
     rawMaterialCaps,
+    metastorageRoutes,
     t,
   ]);
 
@@ -444,12 +471,26 @@ export function useProductionPlan(
     [availableRecipes],
   );
 
+  // Items obtainable via a live Metastorage route. A target with no
+  // local producer is still honourable while importable, so the prune
+  // below must not drop it; disabling the route shrinks this set and
+  // the prune then fires (mirroring the recipe-shrink behaviour).
+  const metastorageImportableItems = useMemo(() => {
+    const out = new Set<ItemId>();
+    for (const route of metastorageRoutes ?? []) {
+      for (const itemId of route.itemCosts.keys()) out.add(itemId);
+    }
+    return out;
+  }, [metastorageRoutes]);
+
   useEffect(() => {
     let removedOverrides = 0;
     let removedRaws = 0;
 
-    const nextTargets = targets.filter((t) =>
-      reachableProducibleItems.has(t.itemId),
+    const nextTargets = targets.filter(
+      (t) =>
+        reachableProducibleItems.has(t.itemId) ||
+        metastorageImportableItems.has(t.itemId),
     );
     const removedTargets = targets.length - nextTargets.length;
 
@@ -511,6 +552,7 @@ export function useProductionPlan(
   }, [
     reachableProducibleItems,
     availableRecipeIds,
+    metastorageImportableItems,
     targets,
     recipeOverrides,
     manualRawMaterials,

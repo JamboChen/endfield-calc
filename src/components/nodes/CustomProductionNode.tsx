@@ -1,6 +1,6 @@
 import { Handle, type NodeProps, type Node, Position } from "@xyflow/react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Zap, Star, ArrowDownToLine, Boxes, Repeat, AlertTriangle } from "lucide-react";
+import { Zap, Star, ArrowDownToLine, Boxes, Repeat, AlertTriangle, Truck } from "lucide-react";
 import { FacilityIcon } from "@/components/FacilityIcon";
 import {
   Tooltip,
@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
-import { getItemName, getFacilityName, getRecipeName, getTransportLabel } from "@/lib/i18n-helpers";
+import { getDomainName, getItemName, getFacilityName, getRecipeName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type {
   FlowNodeData,
@@ -91,6 +91,16 @@ export default function CustomProductionNode({
 
   const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item.id)];
 
+  // Metastorage import source payload (set only on import source nodes
+  // emitted by the mappers; `recipe`/`facility` are null on those).
+  const metastorageImport = node.metastorageImport;
+  const metastorageSourceName = metastorageImport
+    ? getDomainName(metastorageImport.sourceDomain)
+    : "";
+  const ttvCycleMinutes = metastorageImport
+    ? metastorageImport.cycleSeconds / 60
+    : 0;
+
   // Adjust border/rate colors based on node type for better visual distinction
   let borderClasses = "border-2";
   let bgClasses = "";
@@ -100,6 +110,10 @@ export default function CustomProductionNode({
     borderClasses += " border-green-600 dark:border-green-500";
     bgClasses = "bg-green-50 dark:bg-green-950/40";
     rateColorClasses = "text-green-700 dark:text-green-400";
+  } else if (metastorageImport) {
+    borderClasses += " border-cyan-600 dark:border-cyan-500";
+    bgClasses = "bg-cyan-50 dark:bg-cyan-950/40";
+    rateColorClasses = "text-cyan-700 dark:text-cyan-400";
   } else if (node.recipe) {
     borderClasses += " border-blue-600 dark:border-blue-500";
     bgClasses = "bg-blue-50/30 dark:bg-blue-950/20";
@@ -114,7 +128,33 @@ export default function CustomProductionNode({
       <div className="font-bold mb-1">
         {t("tree.item")}: {itemName}
       </div>
-      {node.isRawMaterial ? (
+      {metastorageImport ? (
+        <div>
+          <p className="text-muted-foreground">
+            {t("tree.metastorageTooltip", {
+              defaultValue:
+                "Delivered via Metastorage Transfer — no local production or depot debit at the source.",
+            })}
+          </p>
+          <div className="mt-1 text-muted-foreground">
+            {t("tree.metastorageSource", { defaultValue: "Source region" })}:{" "}
+            {metastorageSourceName}
+          </div>
+          <div className="text-muted-foreground">
+            {t("tree.metastorageTtvPerItem", {
+              defaultValue: "TTV cost per item",
+            })}
+            : {formatNumber(metastorageImport.ttvCostPerItem)}
+          </div>
+          <div className="text-muted-foreground">
+            {t("tree.metastorageTtvUsage", {
+              defaultValue: "TTV per delivery",
+            })}
+            : {formatNumber(metastorageImport.ttvUsedPerMinute * ttvCycleMinutes, 0)}{" "}
+            / {formatNumber(metastorageImport.ttvBudgetPerMinute * ttvCycleMinutes, 0)}
+          </div>
+        </div>
+      ) : node.isRawMaterial ? (
         <div>
           <p className="text-muted-foreground">{t("tree.trueRawMaterial")}</p>
           <div className="mt-1 text-muted-foreground">
@@ -476,6 +516,20 @@ export default function CustomProductionNode({
                     </span>
                   </div>
                 )}
+              </div>
+            )}
+            {/* Metastorage import source (delivered from another region) */}
+            {metastorageImport && (
+              <div className="flex items-center justify-between mt-2 bg-cyan-100/50 dark:bg-cyan-900/30 border border-cyan-200/50 dark:border-cyan-800/50 rounded-sm px-2 py-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Truck className="h-4 w-4 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                  <span className="text-[10px] text-muted-foreground truncate">
+                    {t("tree.metastorage", { defaultValue: "Metastorage" })}
+                  </span>
+                </div>
+                <span className="text-[10px] text-muted-foreground shrink-0 ml-2 truncate max-w-[45%]">
+                  {metastorageSourceName}
+                </span>
               </div>
             )}
             {/* Pickup point (raw materials) */}
