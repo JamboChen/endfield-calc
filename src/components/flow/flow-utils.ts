@@ -10,6 +10,7 @@ import type {
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
 import { getTransportLabel, getInternalFlowLabel } from "@/lib/i18n-helpers";
+import { itemIconColors } from "@/data/item-colors";
 
 /**
  * Creates a standardized edge for React Flow with optional pre-computed direction.
@@ -64,15 +65,74 @@ export function createEdge(
     sourceHandle: item?.id,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
     label: `${flowRate.toFixed(2)} /min\n${labelTransport}`,
+    // Non-selecting: edge clicks drive hover-emphasis + click-to-fit in
+    // the tree; letting them enter React Flow's selection would clear
+    // the node selection and drop an active pin.
+    selectable: false,
+    focusable: false,
     data: {
       flowRate,
       direction,
+      itemId: item?.id,
     },
     markerEnd: {
       type: MarkerType.ArrowClosed,
       color: "#64748b",
     },
   };
+}
+
+/**
+ * Tailwind classes marking a node's spotlight role. Applied to the node
+ * CARD — not the React Flow wrapper — so the ring sits flush against
+ * the card's `border-2` and follows its exact corner radius (a
+ * wrapper-level outline slices through the port handles and mismatches
+ * the radius). Shared by all three custom node components.
+ *
+ * Precedence: the pinned node itself (React Flow `selected`) gets the
+ * theme-neutral `--flow-pin` ring; otherwise a direct consumer of the
+ * pinned building (`data.pinConsumer`) gets the amber
+ * `--flow-pin-consumer` ring — "the targets of this item" — so
+ * consumers read apart from the upstream production cone, which stays
+ * ring-less. Both vars live in index.css.
+ */
+export const nodeRingClasses = (
+  selected: boolean | undefined,
+  pinConsumer: boolean | undefined,
+): string => {
+  if (selected) return "ring-2 ring-(--flow-pin)";
+  if (pinConsumer) return "ring-2 ring-(--flow-pin-consumer)";
+  return "";
+};
+
+/**
+ * Stable per-item edge colour. Primary source: `itemIconColors` — hue +
+ * chroma factor pre-computed from the item's icon by
+ * `pnpm run extract:item-colors` (re-run when icons change), so an
+ * edge's colour matches the material it carries. Items missing from the
+ * map (icon not yet added) fall back to a hash-derived hue.
+ *
+ * Lightness and base chroma live in theme CSS variables
+ * (`--flow-edge-l` / `--flow-edge-c`, see index.css) so every colour
+ * stays legible on both the light and dark canvas without recomputing
+ * edges on theme switch; the per-item chroma factor scales inside
+ * `calc()` (gray icons → gray-ish edges).
+ *
+ * Items without an id (defensive) fall back to the muted foreground.
+ */
+export function getItemEdgeColor(itemId?: string): string {
+  if (!itemId) return "var(--muted-foreground)";
+  const icon = itemIconColors[itemId];
+  if (icon) {
+    return `oklch(var(--flow-edge-l) calc(var(--flow-edge-c) * ${icon.c}) ${icon.h})`;
+  }
+  // djb2 string hash — deterministic across sessions.
+  let hash = 5381;
+  for (let i = 0; i < itemId.length; i++) {
+    hash = ((hash << 5) + hash + itemId.charCodeAt(i)) | 0;
+  }
+  const hue = ((hash % 360) + 360) % 360;
+  return `oklch(var(--flow-edge-l) var(--flow-edge-c) ${hue})`;
 }
 
 /**
@@ -106,7 +166,7 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
 
   return edges.map((edge) => {
     const data = edge.data as
-      | { flowRate?: number; direction?: EdgeDirection }
+      | { flowRate?: number; direction?: EdgeDirection; itemId?: string }
       | undefined;
 
     if (!data || typeof data.flowRate !== "number") {
@@ -119,8 +179,10 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
     // Calculate stroke width based on flow rate (1-4 range)
     const strokeWidth = 1 + normalizedRate * 3;
 
-    // Calculate color based on normalized flow rate
-    const strokeColor = getFlowRateColor(normalizedRate);
+    // Colour encodes the transported item (stable hue per item id) so a
+    // material can be traced across the canvas. Rate remains encoded via
+    // stroke width, animation speed, and the label.
+    const strokeColor = getItemEdgeColor(data.itemId);
 
     // Calculate animation speed based on flow rate
     // Higher rate = faster animation (shorter duration)
@@ -203,52 +265,6 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
       },
     };
   });
-}
-
-/**
- * Interpolates between two RGB colors based on a factor (0-1).
- */
-function interpolateColor(
-  color1: string,
-  color2: string,
-  factor: number,
-): string {
-  const hex1 = color1.replace("#", "");
-  const hex2 = color2.replace("#", "");
-
-  const r1 = parseInt(hex1.substring(0, 2), 16);
-  const g1 = parseInt(hex1.substring(2, 4), 16);
-  const b1 = parseInt(hex1.substring(4, 6), 16);
-
-  const r2 = parseInt(hex2.substring(0, 2), 16);
-  const g2 = parseInt(hex2.substring(2, 4), 16);
-  const b2 = parseInt(hex2.substring(4, 6), 16);
-
-  const r = Math.round(r1 + (r2 - r1) * factor);
-  const g = Math.round(g1 + (g2 - g1) * factor);
-  const b = Math.round(b1 + (b2 - b1) * factor);
-
-  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
-}
-
-/**
- * Maps a normalized flow rate (0-1) to a color on the heat map gradient.
- * 0.0 → Blue (cold, low flow)
- * 0.5 → Green (medium flow)
- * 1.0 → Red (hot, high flow)
- */
-function getFlowRateColor(normalizedRate: number): string {
-  const blue = "#3b82f6";
-  const green = "#10b981";
-  const red = "#ef4444";
-
-  if (normalizedRate <= 0.5) {
-    // Interpolate between blue and green
-    return interpolateColor(blue, green, normalizedRate * 2);
-  } else {
-    // Interpolate between green and red
-    return interpolateColor(green, red, (normalizedRate - 0.5) * 2);
-  }
 }
 
 /**

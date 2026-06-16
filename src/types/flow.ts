@@ -29,6 +29,12 @@ export interface FlowNodeData {
   items: Item[];
   facilities: Facility[];
   ceilMode: boolean;
+  /**
+   * Spotlight: node is a DIRECT consumer of the pinned building —
+   * rendered with an amber ring ("the targets of this item"). Set by
+   * ProductionDependencyTree's display mapping, never by mappers.
+   */
+  pinConsumer?: boolean;
   [key: string]: unknown;
 }
 
@@ -94,6 +100,8 @@ export interface TargetSinkNodeData {
   facilities: Facility[];
   productionInfo?: TerminalTargetProductionInfo;
   ceilMode: boolean;
+  /** Spotlight: direct consumer of the pinned building (amber ring). */
+  pinConsumer?: boolean;
   [key: string]: unknown;
 }
 
@@ -119,6 +127,8 @@ export interface DisposalSinkNodeData {
   items: Item[];
   facilities: Facility[];
   ceilMode: boolean;
+  /** Spotlight: direct consumer of the pinned building (amber ring). */
+  pinConsumer?: boolean;
   [key: string]: unknown;
 }
 
@@ -140,5 +150,13 @@ declare module "@xyflow/react" {
   interface EdgeData {
     flowRate?: number;
     direction?: EdgeDirection;
+    /** Transported item id — drives the stable per-item edge hue. */
+    itemId?: string;
+    /** Spotlight: edge is outside the hovered/pinned neighborhood. */
+    dimmed?: boolean;
+    /** Spotlight: edge is lit — label survives low-zoom fading. */
+    lit?: boolean;
+    /** Hovered edge — thicker stroke, label forced visible. */
+    emphasis?: boolean;
   }
 }

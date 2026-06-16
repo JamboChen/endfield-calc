@@ -5,9 +5,17 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 
+import { edgePresentation } from "./edge-presentation";
+
 /**
  * Custom bezier edge that renders labels as HTML to support multi-line text across all browsers.
  * Standard SVG text doesn't support white-space CSS properties in Chrome.
+ *
+ * Spotlight dimming is applied here (via `data.dimmed`) rather than a CSS
+ * class on the edge group: the label renders in `EdgeLabelRenderer`'s
+ * separate HTML layer, which a class on the SVG group cannot reach.
+ * Path opacity also covers the arrowhead marker (SVG renders markers as
+ * part of the path's group).
  */
 export default function CustomBezierEdge({
   id,
@@ -24,6 +32,7 @@ export default function CustomBezierEdge({
   labelBgStyle,
   labelBgPadding,
   labelBgBorderRadius,
+  data,
 }: EdgeProps) {
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -34,9 +43,12 @@ export default function CustomBezierEdge({
     targetPosition,
   });
 
+  const { pathStyle, labelOpacity, labelPointerEvents, labelClassName } =
+    edgePresentation(data, style);
+
   return (
     <>
-      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={pathStyle} />
       {label && (
         <EdgeLabelRenderer>
           <div
@@ -44,10 +56,12 @@ export default function CustomBezierEdge({
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
               fontSize: 12,
-              pointerEvents: "all",
+              pointerEvents: labelPointerEvents,
+              opacity: labelOpacity,
+              transition: "opacity 0.15s ease",
               ...labelStyle,
             }}
-            className="nodrag nopan"
+            className={labelClassName}
           >
             <div
               style={{

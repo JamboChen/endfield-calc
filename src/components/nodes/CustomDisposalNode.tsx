@@ -13,6 +13,7 @@ import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-help
 import { useTranslation } from "react-i18next";
 import type { DisposalSinkNodeData } from "@/types";
 import { getTransportCountWithFacilities, formatCount, getEffectiveFacilityCount, formatNumber } from "@/lib/utils";
+import { nodeRingClasses } from "@/components/flow/flow-utils";
 
 /**
  * CustomDisposalNode renders a disposal sink node that consumes waste byproducts.
@@ -21,6 +22,7 @@ import { getTransportCountWithFacilities, formatCount, getEffectiveFacilityCount
 export default function CustomDisposalNode({
   data,
   targetPosition = Position.Left,
+  selected,
 }: NodeProps<Node<DisposalSinkNodeData>>) {
   const { item, disposalRate, facility, facilityCount, ceilMode } = data;
   const { t } = useTranslation("production");
@@ -31,12 +33,13 @@ export default function CustomDisposalNode({
     <Tooltip>
       <TooltipTrigger asChild>
         <Card
-          className="
+          className={`
             w-52 shadow-xl
             border-2 border-rose-600 dark:border-rose-500
             bg-rose-50/40 dark:bg-rose-950/20
             hover:shadow-2xl transition-all cursor-help relative
-          "
+            ${nodeRingClasses(selected, data.pinConsumer)}
+          `}
         >
           <Handle
             type="target"

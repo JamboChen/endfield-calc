@@ -25,10 +25,10 @@ The `bf` URL hash flag persists in `SavedPlan` JSON alongside `ceilMode`. Toggle
 Phase 3 emits `plan.bins: Bin[]` + `plan.recipeBinAllocations: Map<RecipeId, RecipeBinAllocation>`. Even single-formula recipes get a singleton `Bin` so downstream consumers see a uniform shape.
 
 `bin-fused-mapper.ts` has two entry points:
-- `mapPlanToFlowBinFused` (line 51) — Recipe View, one node per bin.
-- `mapPlanToFlowBinFusedSeparated` (line 573) — Facility View, one node per ceiled building.
+- `mapPlanToFlowBinFused` (line 55) — Recipe View, one node per bin.
+- `mapPlanToFlowBinFusedSeparated` (line 563) — Facility View, one node per ceiled building.
 
-Both call `assertFlowIntegrity` (lines 556, 1219) before returning.
+Both call `assertFlowIntegrity` (lines 546, 1199) before returning.
 
 ## `assertFlowIntegrity` (`flow-assertions.ts:128`)
 
@@ -40,11 +40,17 @@ Checks: (1) missing edge endpoints, (2) isolated nodes (when graph has >1 node),
 
 ## Pickup-count semantics
 
-`getRawSourceRate(itemId, item)` (`src/lib/utils.ts:57`): returns the per-facility rate. Reads `rawMaterialSources.get(itemId)?.ratePerMinute`, falling back to `getTransportCapacity(item)`.
+`getRawSourceRate(itemId, item)` (`src/lib/utils.ts:65`): returns the per-facility rate. Reads `rawMaterialSources.get(itemId)?.ratePerMinute`, falling back to `getTransportCapacity(item)`.
 
-`getPickupPointCount(demandRate, perFacilityRate)` (`src/lib/utils.ts:78`): returns a **fractional** value. Display sites apply `formatCount(value, ceilMode)` for the ceiled/fractional toggle.
+`getPickupPointCount(demandRate, perFacilityRate)` (`src/lib/utils.ts:86`): returns a **fractional** value. Display sites apply `formatCount(value, ceilMode)` for the ceiled/fractional toggle.
 
 Signature is `(demandRate, perFacilityRate)` — NOT `(demandRate, item)`. The caller must pre-compute `perFacilityRate` via `getRawSourceRate(itemId, item)` so pump-rate overrides (60/min vs pipe's 120/min) are honoured.
+
+## Producer→consumer allocation (`computeTransportAllocation`)
+
+`computeTransportAllocation` (`src/lib/plan-helpers.ts`) is the **single source of truth** for producer→consumer edge decomposition — merged-mapper, both bin-fused paths, AND the Facility-View raw-pickup edges all route through it (issue #91 + follow-up: a fourth sequential-carving copy in the pickup path daisy-chained 1.2/28.8 fragment edges across whole pickup rows).
+
+Tiers per consumer, in registration order: exact-fit → whole-fit (skipping producers whose supply matches a still-PENDING consumer demand — reserved as that consumer's future exact-fit) → best-fit split (preferring splits whose remainder matches a pending demand) → reserved whole-fit as last resort. The pending-demand reservation is what prevents fragment daisy-chains; tests pin it in `plan-helpers.test.ts` ("pump pickups" / "whole-fit skips fragments") and `flow-integrity.test.ts` ("exactly one pump").
 
 ## Active-rate bin I/O
 
@@ -73,4 +79,6 @@ The legacy `mapPlanToFlowMerged` (bf=0) still uses the pickup-only model — pic
 - DO NOT pass `item` to `getPickupPointCount`. The signature is `(demandRate, perFacilityRate)` — get `perFacilityRate` via `getRawSourceRate(itemId, item)` first.
 - DO NOT use bare `0.001` literals — import `MIN_VISIBLE_RATE_PER_MIN` from `@/lib/flow-thresholds`.
 - DO NOT use `line.item.id` alone as a React key. Use `${item.id}-${recipeId}` to disambiguate sister rows under `mergeItemNodes`.
-- DO NOT set `elk.layered.priority.direction` to a negative value. Lower bound is 0 (see `layout.ts:268`); values below are silently clamped.
+- DO NOT set `elk.layered.priority.direction` to a negative value. Lower bound is 0 (see `layout.ts:319`); values below are silently clamped.
+- DO NOT allocate producer→consumer edges with bespoke loops (sequential carving, proportional splits). Route through `computeTransportAllocation` — every bespoke copy has produced fragment daisy-chains (#91).
+- DO NOT style the pinned-node indicator on the React Flow wrapper. The ring lives on the node CARDS via `nodeRingClasses` (`flow-utils.ts`) — wrapper-level outlines slice through port handles and mismatch the card radius.

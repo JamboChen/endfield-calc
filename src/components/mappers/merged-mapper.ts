@@ -20,7 +20,7 @@ import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate, getRawSourceRate } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
-import { getRecipeOutputItemId, getRecipeInputItemId, getItemProducers, isRecipeTerminal, computeGreedyAllocation } from "@/lib/plan-helpers";
+import { getRecipeOutputItemId, getRecipeInputItemId, getItemProducers, isRecipeTerminal, computeTransportAllocation } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
 
 /**
@@ -109,15 +109,15 @@ export function mapPlanToFlowMerged(
     }
   });
 
-  // Pre-compute greedy allocation for multi-producer items.
-  // Instead of splitting each producer proportionally across all consumers,
-  // assigns whole producer outputs to consumers first, minimizing pipe connections.
+  // Pre-compute producer→consumer allocation for multi-producer items.
+  // Assigns whole producer outputs to consumers wherever possible (exact-fit,
+  // then whole-fit, then best-fit split), minimizing pipe/belt connections.
   // Only applies to items with 2+ non-disposal producers.
-  type GreedyResult = {
-    consumerEdges: { producerRecipeId: string; consumerId: string; rate: number }[];
+  type AllocationResult = {
+    edges: { producerId: string; consumerId: string; rate: number }[];
     remainingByProducer: Map<string, number>;
   };
-  const greedyAllocations = new Map<string, GreedyResult>();
+  const greedyAllocations = new Map<string, AllocationResult>();
 
   {
     // Collect all non-disposal consumers per item
@@ -172,13 +172,16 @@ export function mapPlanToFlowMerged(
       }
     });
 
-    // Run greedy allocation for multi-producer items
+    // Run the allocation for multi-producer items
     itemConsumers.forEach((consumers, itemId) => {
       const producers = getItemProducers(plan, itemId);
       if (producers.length <= 1) return;
       greedyAllocations.set(
         itemId,
-        computeGreedyAllocation(producers, consumers),
+        computeTransportAllocation(
+          producers.map((p) => ({ id: p.recipeId, rate: p.rate })),
+          consumers.map((c) => ({ id: c.consumerId, rate: c.demand })),
+        ),
       );
     });
   }
@@ -229,14 +232,14 @@ export function mapPlanToFlowMerged(
       const greedy = greedyAllocations.get(edge.from);
 
       if (greedy) {
-        // Multi-producer: use pre-computed greedy allocation
-        for (const ae of greedy.consumerEdges) {
+        // Multi-producer: use pre-computed allocation
+        for (const ae of greedy.edges) {
           if (ae.consumerId !== edge.to) continue;
           if (ae.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
           flowEdges.push(
             createEdge(
               `e${edgeIdCounter++}`,
-              ae.producerRecipeId,
+              ae.producerId,
               flowTargetId,
               ae.rate,
               sourceNode.item,
@@ -381,11 +384,11 @@ export function mapPlanToFlowMerged(
         const edgesToCreate: { producerRecipeId: string; rate: number }[] = [];
 
         if (greedy) {
-          // Multi-producer: use pre-computed greedy allocation
-          for (const ae of greedy.consumerEdges) {
+          // Multi-producer: use pre-computed allocation
+          for (const ae of greedy.edges) {
             if (ae.consumerId !== targetNodeId) continue;
             if (ae.rate > MIN_VISIBLE_RATE_PER_MIN) {
-              edgesToCreate.push({ producerRecipeId: ae.producerRecipeId, rate: ae.rate });
+              edgesToCreate.push({ producerRecipeId: ae.producerId, rate: ae.rate });
             }
           }
         } else if (producers.length > 0) {

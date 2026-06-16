@@ -99,6 +99,21 @@
   --tier-3-muted: oklch(0.60 0.24 297 / 15%);
   --tier-4-muted: oklch(0.83 0.17 81 / 15%);
   --tier-5-muted: oklch(0.71 0.20 47 / 15%);
+  /* Item-coloured flow edges: hue comes from the item id hash
+     (getItemEdgeColor); lightness/chroma per theme keep every hue
+     legible on the canvas background. */
+  --flow-edge-l: 0.55;
+  --flow-edge-c: 0.13;
+  /* MiniMap mask = area outside the current viewport. */
+  --flow-minimap-mask: oklch(0.45 0 0 / 12%);
+  /* Pinned-node ring: theme-neutral foreground (black on light, white on
+     dark) — the only hue not already used semantically by card borders
+     (green = raw, blue = recipe, amber = target). Resolves through
+     --foreground, so one definition serves both themes. */
+  --flow-pin: var(--foreground);
+  /* Direct-consumer ring while pinned: amber ("the targets of this
+     item") — same family as target-sink borders. Tailwind amber-600. */
+  --flow-pin-consumer: oklch(0.666 0.179 58.318);
 }
 
 .dark {
@@ -146,6 +161,14 @@
   --tier-3-muted: oklch(0.64 0.22 297 / 12%);
   --tier-4-muted: oklch(0.86 0.16 81 / 12%);
   --tier-5-muted: oklch(0.75 0.19 47 / 12%);
+  /* Item-coloured flow edges (dark): brighter + slightly more chroma so
+     hues don't sink into the near-black canvas. */
+  --flow-edge-l: 0.74;
+  --flow-edge-c: 0.14;
+  /* MiniMap mask (dark): light translucent so the viewport window reads. */
+  --flow-minimap-mask: oklch(0.9 0 0 / 12%);
+  /* Direct-consumer ring (dark): brighter amber. Tailwind amber-500. */
+  --flow-pin-consumer: oklch(0.769 0.188 70.08);
 }
 
 @layer base {
@@ -165,12 +188,71 @@
     --xy-controls-button-background-color-hover: var(--accent);
     --xy-controls-button-color-hover: var(--accent-foreground);
     --xy-controls-box-shadow: 0 1px 2px oklch(0 0 0 / 0.12);
+    --xy-minimap-background-color: var(--card);
+    --xy-minimap-mask-background-color: var(--flow-minimap-mask);
+    --xy-minimap-node-background-color: var(--muted-foreground);
+    --xy-minimap-node-stroke-color: transparent;
   }
 
   .flow-controls .react-flow__controls-button:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: -2px;
   }
+
+  /* Spotlight: nodes outside the hovered/pinned neighborhood fade out.
+     Edges + their HTML labels are dimmed inside the custom edge
+     components (the labels render in a separate layer, out of reach of
+     this class). */
+  .flow-theme .react-flow__node {
+    transition: opacity 0.15s ease;
+  }
+  .flow-theme .react-flow__node.spotlight-dim {
+    opacity: 0.15;
+  }
+
+  /* Low-zoom declutter: at overview zoom (< threshold, toggled via the
+     flow-lowzoom class from ProductionDependencyTree's onMove) edge
+     labels fade out — ~280 unreadable label chips are most of the
+     residual overview noise. Spotlit/hovered edges opt out via
+     edge-label-keep so an active investigation keeps its numbers. */
+  .flow-theme .edge-label {
+    transition: opacity 0.15s ease;
+  }
+  .flow-theme.flow-lowzoom .edge-label:not(.edge-label-keep) {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+
+
+  /* MiniMap theming */
+  .flow-theme .react-flow__minimap {
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 2px oklch(0 0 0 / 0.12);
+    overflow: hidden;
+  }
+}
+
+/* Pinned-node indicator lives on the node CARDS, not here: styling the
+   React Flow wrapper draws a rectangle at the wrapper bounds — slicing
+   through the port handles and mismatching the card's corner radius.
+   Each custom node component appends a `ring-2 ring-(--flow-pin)` to its
+   Card when React Flow passes `selected: true` (pin == selection). */
+
+/* Low-zoom perf: the ~280 continuously-running dash animations are the
+   view's main idle GPU cost, and at overview zoom the motion is
+   sub-pixel noise anyway. Pausing (not un-animating) keeps the dashed
+   look identical. The hovered edge re-enables itself via an inline
+   animation-play-state from edgePresentation (inline beats any rule);
+   dimmed edges pause at ANY zoom the same way.
+
+   UNLAYERED on purpose: React Flow's stylesheet is unlayered and its
+   `animation:` shorthand on `.react-flow__edge.animated path` implicitly
+   resets play-state — inside @layer this rule silently loses. */
+.flow-theme.flow-lowzoom .react-flow__edge.animated path {
+  animation-play-state: paused;
 }
 
 /* ── Item picker animations ── */

@@ -1,9 +1,13 @@
-import { useMemo, useEffect, useRef, useState } from "react";
+import { useMemo, useEffect, useRef, useState, useCallback } from "react";
 import {
   ReactFlow,
   Controls,
   Background,
+  MiniMap,
   type NodeTypes,
+  type Node,
+  type OnSelectionChangeFunc,
+  type ReactFlowInstance,
   BackgroundVariant,
   useNodesState,
   useEdgesState,
@@ -29,6 +33,13 @@ import CustomTargetNode from "../nodes/CustomTargetNode";
 import CustomDisposalNode from "../nodes/CustomDisposalNode";
 import { useTranslation } from "react-i18next";
 import { getLayoutedElements } from "@/lib/layout";
+import {
+  getNeighborhood,
+  getPinnedSpotlight,
+  mergeSpotlights,
+} from "@/lib/flow-spotlight";
+import { edgeBounds, computeEdgeFitView } from "@/lib/edge-fit";
+import GraphSearchPanel from "./GraphSearchPanel";
 import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
 import {
   mapPlanToFlowBinFused,
@@ -59,6 +70,9 @@ function isExportFormat(v: string): v is ExportFormat {
 }
 
 const CONTENT_PADDING = 0.1; // 10% padding around nodes
+
+/** Below this zoom, edge labels fade out (spotlit/hovered edges exempt). */
+const LABEL_FADE_ZOOM = 0.5;
 
 function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation("production");
@@ -112,6 +126,15 @@ function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTM
     const filename =
       format === "svg" ? "production-graph.svg" : "production-graph.png";
 
+    // The low-zoom label fade tracks the LIVE viewport zoom, but the
+    // export renders at its own computed transform — exporting while
+    // zoomed out would bake the faded (invisible) labels into the image.
+    // Strip the class for the capture; spotlight dim state stays as-is
+    // (WYSIWYG by design).
+    const flowEl = containerRef.current?.querySelector(".react-flow");
+    const hadLowZoom = flowEl?.classList.contains("flow-lowzoom") ?? false;
+    if (hadLowZoom) flowEl!.classList.remove("flow-lowzoom");
+
     exportFn(viewport, options)
       .then((dataUrl) => {
         const a = document.createElement("a");
@@ -124,6 +147,9 @@ function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTM
       })
       .catch(() => {
         // ignore export errors
+      })
+      .finally(() => {
+        if (hadLowZoom) flowEl!.classList.add("flow-lowzoom");
       });
   };
 
@@ -252,9 +278,39 @@ export default function ProductionDependencyTree({
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
+  // Spotlight state. Hover = direct neighborhood (the "which belts does
+  // this building connect to" wiring task); click-to-pin (React Flow
+  // selection) = upstream production cone + direct consumers (the
+  // "what do I build to run this, and where does its output go" task)
+  // — pinning survives pan/zoom, hover cannot. Hover stays active while
+  // pinned: the hovered neighborhood lights up ON TOP of the pinned set.
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [pinnedNodeIds, setPinnedNodeIds] = useState<string[]>([]);
+  // Hovered edge → emphasis (thicker stroke, label forced visible).
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+  // Overview declutter: below this zoom, edge labels fade out (CSS class
+  // toggled here — NOT a per-edge zoom subscription, which would re-render
+  // every edge continuously while zooming).
+  const [lowZoom, setLowZoom] = useState(false);
+  const rfInstance = useRef<ReactFlowInstance<FlowProductionNode, Edge> | null>(
+    null,
+  );
+  // Mode of the previous layout run. Formula View and Facility View
+  // occupy wildly different extents (one card per bin vs one per
+  // building), so a camera kept from the other mode can land in empty
+  // space — re-fit on the switch. Deliberately ONLY for the
+  // Formula/Facility switch: bin-fusion / alignment toggles and plan
+  // recomputes preserve the camera. `null` = no layout yet (first
+  // mount keeps the `fitView` prop behaviour).
+  const lastLayoutModeRef = useRef<VisualizationMode | null>(null);
+
   useEffect(() => {
     let isMounted = true;
     async function computeLayout() {
+      // Stale spotlight ids must not survive a plan/mode change.
+      setHoveredNodeId(null);
+      setPinnedNodeIds([]);
+      setHoveredEdgeId(null);
       if (!plan || plan.nodes.size === 0) {
         setNodes([]);
         setEdges([]);
@@ -298,6 +354,31 @@ export default function ProductionDependencyTree({
 
       setNodes(layoutedNodes as FlowProductionNode[]);
       setEdges(styledEdges);
+
+      // Re-center on a Formula ↔ Facility switch. Computed from the
+      // in-hand layouted nodes (positions + dimensions set by
+      // getLayoutedElements) instead of fitView() so there's no race
+      // against the store receiving the new nodes. Limits/padding match
+      // the fitViewOptions on the ReactFlow element.
+      const modeChanged =
+        lastLayoutModeRef.current !== null &&
+        lastLayoutModeRef.current !== visualizationMode;
+      lastLayoutModeRef.current = visualizationMode;
+      if (modeChanged) {
+        const pane = containerRef.current?.getBoundingClientRect();
+        if (pane && rfInstance.current && layoutedNodes.length > 0) {
+          const bounds = getNodesBounds(layoutedNodes);
+          const viewport = getViewportForBounds(
+            bounds,
+            pane.width,
+            pane.height,
+            0.1,
+            1.5,
+            0.2,
+          );
+          rfInstance.current.setViewport(viewport, { duration: 300 });
+        }
+      }
     }
 
     computeLayout();
@@ -324,6 +405,167 @@ export default function ProductionDependencyTree({
     [],
   );
 
+  // Active spotlight: pinned set (upstream cone + direct consumers),
+  // hovered neighborhood, or — when both are active — their union, so
+  // hovering keeps working while a pin is held.
+  const spotlight = useMemo(() => {
+    const pinned =
+      pinnedNodeIds.length > 0
+        ? getPinnedSpotlight(edges, pinnedNodeIds)
+        : null;
+    const hovered = hoveredNodeId
+      ? getNeighborhood(edges, hoveredNodeId)
+      : null;
+    if (pinned && hovered) return mergeSpotlights(pinned, hovered);
+    return pinned ?? hovered;
+  }, [edges, hoveredNodeId, pinnedNodeIds]);
+
+  // Derived display arrays. With no spotlight these are the state arrays
+  // themselves (zero overhead); with a spotlight, out-of-set elements get
+  // a dim marker (className for nodes, data flag for edges — edge labels
+  // live in a separate HTML layer that CSS classes can't reach), and the
+  // pinned seeds' direct consumers get a data flag the node cards render
+  // as an amber ring.
+  //
+  // Decorated variants are cached per BASE node object: while dragging, a
+  // spotlight is always active (the pointer hovers/pins the dragged node)
+  // and `nodes` gets a new array identity every pointer-move frame — but
+  // `applyNodeChanges` keeps every NON-dragged node reference-stable.
+  // Returning the same decorated object for the same base node lets
+  // React Flow's per-node memo skip re-rendering ~150 dimmed cards per
+  // frame (measured: 333–433ms p95 drag frames without the cache). The
+  // decoration depends only on the base node + which variant applies, so
+  // base-object identity is a sound cache key; stale entries die with
+  // their keys (WeakMap).
+  const decoratedNodeCache = useRef(
+    new WeakMap<
+      FlowProductionNode,
+      { dim?: FlowProductionNode; consumer?: FlowProductionNode }
+    >(),
+  );
+  const displayNodes = useMemo(() => {
+    if (!spotlight) return nodes;
+    const cache = decoratedNodeCache.current;
+    return nodes.map((node) => {
+      if (!spotlight.nodeIds.has(node.id)) {
+        const hit = cache.get(node);
+        if (hit?.dim) return hit.dim;
+        const dim = { ...node, className: "spotlight-dim" } as typeof node;
+        cache.set(node, { ...hit, dim });
+        return dim;
+      }
+      if (spotlight.consumerNodeIds.has(node.id)) {
+        const hit = cache.get(node);
+        if (hit?.consumer) return hit.consumer;
+        const consumer = {
+          ...node,
+          data: { ...node.data, pinConsumer: true },
+        } as typeof node;
+        cache.set(node, { ...hit, consumer });
+        return consumer;
+      }
+      return node;
+    });
+  }, [nodes, spotlight]);
+
+  const displayEdges = useMemo(() => {
+    if (!spotlight && !hoveredEdgeId) return edges;
+    return edges.map((edge) => {
+      const emphasis = edge.id === hoveredEdgeId;
+      const lit = spotlight?.edgeIds.has(edge.id) ?? false;
+      const dimmed = spotlight ? !lit : false;
+      if (!emphasis && !lit && !dimmed) return edge;
+      return {
+        ...edge,
+        // Raise the hovered edge above its siblings.
+        zIndex: emphasis ? 1000 : edge.zIndex,
+        data: { ...edge.data, dimmed, lit, emphasis },
+      };
+    });
+  }, [edges, spotlight, hoveredEdgeId]);
+
+  const onNodeMouseEnter = useCallback(
+    (_event: React.MouseEvent, node: Node) => setHoveredNodeId(node.id),
+    [],
+  );
+  const onNodeMouseLeave = useCallback(() => setHoveredNodeId(null), []);
+
+  // Pin = React Flow node selection: click to pin, click canvas to clear,
+  // shift-click / box-select to pin a union of spotlights.
+  const onSelectionChange: OnSelectionChangeFunc = useCallback(
+    ({ nodes: selectedNodes }) =>
+      setPinnedNodeIds(selectedNodes.map((node) => node.id)),
+    [],
+  );
+
+  const onEdgeMouseEnter = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => setHoveredEdgeId(edge.id),
+    [],
+  );
+  const onEdgeMouseLeave = useCallback(() => setHoveredEdgeId(null), []);
+
+  // Click an edge → bring its WHOLE extent into view, but only when it
+  // isn't already fully visible; the camera only pans/zooms OUT (capped
+  // at the current zoom), never in. Edges are non-selecting (see
+  // createEdge), so this never disturbs an active pin.
+  const onEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      const instance = rfInstance.current;
+      const pane = containerRef.current?.getBoundingClientRect();
+      if (!instance || !pane) return;
+      const source = instance.getNode(edge.source);
+      const target = instance.getNode(edge.target);
+      if (!source || !target) return;
+
+      const rect = (node: Node) => ({
+        x: node.position.x,
+        y: node.position.y,
+        width: node.measured?.width ?? node.width ?? 208,
+        height: node.measured?.height ?? node.height ?? 125,
+      });
+      const bounds = edgeBounds(
+        rect(source),
+        rect(target),
+        edge.type === "backwardEdge",
+      );
+      const fit = computeEdgeFitView(bounds, instance.getViewport(), {
+        width: pane.width,
+        height: pane.height,
+      });
+      if (fit) {
+        instance.setCenter(fit.centerX, fit.centerY, {
+          zoom: fit.zoom,
+          duration: 400,
+        });
+      }
+    },
+    [],
+  );
+
+  // Toggle the label-fade class only when the threshold is crossed
+  // (setState with an unchanged value bails out — no re-render storm).
+  const onMove = useCallback(
+    (_event: unknown, viewport: { zoom: number }) =>
+      setLowZoom(viewport.zoom < LABEL_FADE_ZOOM),
+    [],
+  );
+
+  // Graph search: center happens in the panel (it owns the ReactFlow
+  // context); pinning happens here (selection state lives in `nodes`).
+  const onSearchSelect = useCallback(
+    (nodeId: string) => {
+      setNodes((current) =>
+        current.map((node) =>
+          node.selected !== (node.id === nodeId)
+            ? ({ ...node, selected: node.id === nodeId } as typeof node)
+            : node,
+        ),
+      );
+      setPinnedNodeIds([nodeId]);
+    },
+    [setNodes],
+  );
+
   if (!plan || plan.nodes.size === 0) {
     return (
       <div className="h-full w-full flex items-center justify-center text-muted-foreground">
@@ -336,11 +578,22 @@ export default function ProductionDependencyTree({
     <div className="h-full w-full flex flex-col">
       <div className="flex-1" ref={containerRef}>
         <ReactFlow
-          className="flow-theme"
-          nodes={nodes}
-          edges={edges}
+          className={`flow-theme${lowZoom ? " flow-lowzoom" : ""}`}
+          nodes={displayNodes}
+          edges={displayEdges}
+          onInit={(instance) => {
+            rfInstance.current = instance;
+            setLowZoom(instance.getZoom() < LABEL_FADE_ZOOM);
+          }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeMouseEnter={onNodeMouseEnter}
+          onNodeMouseLeave={onNodeMouseLeave}
+          onEdgeMouseEnter={onEdgeMouseEnter}
+          onEdgeMouseLeave={onEdgeMouseLeave}
+          onEdgeClick={onEdgeClick}
+          onMove={onMove}
+          onSelectionChange={onSelectionChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
@@ -349,6 +602,9 @@ export default function ProductionDependencyTree({
             minZoom: 0.1,
             maxZoom: 1.5,
           }}
+          // Without this, the Controls fit-view button bottoms out at the
+          // default minZoom (0.5) and cannot actually fit large graphs.
+          minZoom={0.1}
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
@@ -362,6 +618,14 @@ export default function ProductionDependencyTree({
               overflow: "hidden",
             }}
           />
+          {/* Colours come from --xy-minimap-* vars in index.css so they
+              flip with the theme (props would freeze them). */}
+          <MiniMap pannable zoomable />
+          {/* Stable `nodes` (not displayNodes): spotlight flags are
+              irrelevant to search, and the display array changes
+              identity on every hover — which would rebuild the
+              candidate list (~180 i18n lookups) per hover transition. */}
+          <GraphSearchPanel nodes={nodes} onSelectResult={onSearchSelect} />
           <ExportImageButton containerRef={containerRef} />
         </ReactFlow>
       </div>

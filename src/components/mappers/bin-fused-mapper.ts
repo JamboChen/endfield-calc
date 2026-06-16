@@ -40,7 +40,11 @@ import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
 import { calcRate, getRawSourceRate } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
-import { buildBinActivitySums, pickBinHeadlineOutput } from "@/lib/plan-helpers";
+import {
+  buildBinActivitySums,
+  computeTransportAllocation,
+  pickBinHeadlineOutput,
+} from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
 
 /**
@@ -224,9 +228,10 @@ export function mapPlanToFlowBinFused(
     consumersByItem.set(inp.itemId, arr);
   }
 
-  // Greedy producer→consumer allocation per item. Produces one edge
-  // per (producer, consumer) pair with the allocated rate. Whole-
-  // producer assignments minimise edge count vs. proportional split.
+  // Producer→consumer allocation per item (shared helper — exact-fit,
+  // whole-fit, then best-fit split). Produces one edge per
+  // (producer, consumer) pair with the allocated rate. Whole-producer
+  // assignments minimise edge/belt count vs. proportional split.
   //
   // Raw byproducts (e.g. Liquid Purifier emits water) are now valid
   // producers — the allocator drains their supply into consumers first,
@@ -237,26 +242,11 @@ export function mapPlanToFlowBinFused(
   for (const [itemId, producers] of producersByItem.entries()) {
     const consumers = consumersByItem.get(itemId) ?? [];
     if (consumers.length === 0) continue;
-    const sortedProducers = [...producers].sort((a, b) => b.rate - a.rate);
-    const remaining = new Map(sortedProducers.map((p) => [p.binId, p.rate]));
-    const out: AllocEdge[] = [];
-    for (const consumer of consumers) {
-      let need = consumer.rate;
-      for (const producer of sortedProducers) {
-        if (need <= MIN_VISIBLE_RATE_PER_MIN) break;
-        const avail = remaining.get(producer.binId) ?? 0;
-        if (avail <= MIN_VISIBLE_RATE_PER_MIN) continue;
-        const take = Math.min(avail, need);
-        remaining.set(producer.binId, avail - take);
-        need -= take;
-        out.push({
-          producerId: producer.binId,
-          consumerId: consumer.binId,
-          rate: take,
-        });
-      }
-    }
-    allocated.set(itemId, out);
+    const { edges } = computeTransportAllocation(
+      producers.map((p) => ({ id: p.binId, rate: p.rate })),
+      consumers.map((c) => ({ id: c.binId, rate: c.rate })),
+    );
+    allocated.set(itemId, edges);
   }
 
   // Per-bin sum of recipe activities — used in ceilMode=OFF to show
@@ -845,32 +835,18 @@ export function mapPlanToFlowBinFusedSeparated(
     consumersByItem.set(inp.itemId, arr);
   }
 
-  // Greedy producer→consumer allocation per item, similar to merged.
+  // Producer→consumer allocation per item via the shared helper, same
+  // as the Recipe View path above.
   type AllocEdge = { producerId: string; consumerId: string; rate: number };
   const allocated = new Map<ItemId, AllocEdge[]>();
   for (const [itemId, producers] of producersByItem.entries()) {
     const consumers = consumersByItem.get(itemId) ?? [];
     if (consumers.length === 0) continue;
-    const sortedProducers = [...producers].sort((a, b) => b.rate - a.rate);
-    const remaining = new Map(sortedProducers.map((p) => [p.instanceId, p.rate]));
-    const out: AllocEdge[] = [];
-    for (const consumer of consumers) {
-      let need = consumer.rate;
-      for (const producer of sortedProducers) {
-        if (need <= MIN_VISIBLE_RATE_PER_MIN) break;
-        const avail = remaining.get(producer.instanceId) ?? 0;
-        if (avail <= MIN_VISIBLE_RATE_PER_MIN) continue;
-        const take = Math.min(avail, need);
-        remaining.set(producer.instanceId, avail - take);
-        need -= take;
-        out.push({
-          producerId: producer.instanceId,
-          consumerId: consumer.instanceId,
-          rate: take,
-        });
-      }
-    }
-    allocated.set(itemId, out);
+    const { edges } = computeTransportAllocation(
+      producers.map((p) => ({ id: p.instanceId, rate: p.rate })),
+      consumers.map((c) => ({ id: c.instanceId, rate: c.rate })),
+    );
+    allocated.set(itemId, edges);
   }
 
   // Emit production-instance nodes. (Singleton-terminal bins were
@@ -1128,17 +1104,21 @@ export function mapPlanToFlowBinFusedSeparated(
     }
   }
 
-  // Raw-material → consumer edges (one per consumer-instance, drawn
-  // from sequential pickup-point capacity). Per-pickup capacity here is
-  // the SOURCE-FACILITY rate (30/min unloader / 60/min pump), not pipe
-  // capacity — keeps the pickup-count math identical to the emission
-  // loop above. Edge labels downstream still use transport capacity for
-  // belt/pipe counts via getTransportCount.
+  // Raw-material → consumer edges, routed through the shared
+  // belt-minimizing allocator (issue #91 follow-up: this path was the
+  // FOURTH greedy copy — sequential pickup carving daisy-chained
+  // fragments across the row, e.g. 60/min pumps feeding 30/min
+  // consumers with a few partial-load 28.8/min ones produced cascading
+  // 1.2 + 28.8 complement edges). Per-pickup capacity is the
+  // SOURCE-FACILITY rate (30/min unloader / 60/min pump), not pipe
+  // capacity — keeps the math identical to the emission loop above.
+  // Edge labels downstream still use transport capacity for belt/pipe
+  // counts via getTransportCount.
   //
   // Consumers may already have part of their demand met by byproduct
-  // producers (the greedy allocator handles those above). The pickup
-  // absorbs only each consumer's UNMET demand — when byproduct fully
-  // covers a consumer, no pickup edge is emitted for that consumer.
+  // producers (the allocator handled those above). The pickups absorb
+  // only each consumer's UNMET demand — when byproduct fully covers a
+  // consumer, no pickup edge is emitted for that consumer.
   for (const [itemId, consumers] of consumersByItem.entries()) {
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item" || !node.isRawMaterial) continue;
@@ -1151,8 +1131,8 @@ export function mapPlanToFlowBinFusedSeparated(
     if (!item) continue;
     const sourceRate = getRawSourceRate(itemId, item);
     if (sourceRate <= 0) continue;
-    // Per-consumer-instance allocation already assigned by greedy
-    // producer distribution (byproducts).
+    // Per-consumer-instance allocation already assigned by the
+    // producer distribution above (byproducts).
     const allocByConsumer = new Map<string, number>();
     for (const a of allocated.get(itemId) ?? []) {
       allocByConsumer.set(
@@ -1165,49 +1145,49 @@ export function mapPlanToFlowBinFusedSeparated(
     const totalDemand = node.productionRate;
     // Subtract MIN_VISIBLE_RATE_PER_MIN from totalDemand before ceiling
     // to avoid emitting an extra empty pickup node when totalDemand is
-    // an exact multiple of sourceRate plus FP noise. The downstream
-    // allocator skips pickups with capacity below this same threshold,
-    // so any such sub-visible "p_N" would be isolated.
+    // an exact multiple of sourceRate plus FP noise. The allocator
+    // skips producers with capacity below this same threshold, so any
+    // such sub-visible "p_N" would be isolated.
     const pickupCount = Math.max(
       1,
       Math.ceil((totalDemand - MIN_VISIBLE_RATE_PER_MIN) / sourceRate),
     );
-    const pickupRemaining: number[] = [];
+    // Producers: one per pickup instance — full source rate each, the
+    // last one partial. Ids MUST match the emission loop above.
+    const pickupProducers: { id: string; rate: number }[] = [];
     for (let i = 0; i < pickupCount; i++) {
-      pickupRemaining.push(
-        Math.min(sourceRate, totalDemand - i * sourceRate),
-      );
+      pickupProducers.push({
+        id: `${createRawMaterialId(itemId)}-p${i}`,
+        rate: Math.min(sourceRate, totalDemand - i * sourceRate),
+      });
     }
-    let pickupIdx = 0;
+    // Consumers: per-instance UNMET demand (net of byproduct edges).
+    const pickupConsumers: { id: string; rate: number }[] = [];
     for (const consumer of consumers) {
       if (consumer.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       if (!emittedNodeIds.has(consumer.instanceId)) continue;
-      // Subtract byproduct already routed to this consumer-instance.
       const alloc = allocByConsumer.get(consumer.instanceId) ?? 0;
-      let need = consumer.rate - alloc;
-      while (need > MIN_VISIBLE_RATE_PER_MIN && pickupIdx < pickupCount) {
-        const avail = pickupRemaining[pickupIdx];
-        if (avail <= MIN_VISIBLE_RATE_PER_MIN) {
-          pickupIdx += 1;
-          continue;
-        }
-        const take = Math.min(avail, need);
-        pickupRemaining[pickupIdx] = avail - take;
-        need -= take;
-        const pickupId = `${createRawMaterialId(itemId)}-p${pickupIdx}`;
-        flowEdges.push(
-          createEdge(
-            `e${edgeIdCounter++}`,
-            pickupId,
-            consumer.instanceId,
-            take,
-            item,
-            undefined,
-            ceilMode,
-          ),
-        );
-        if (avail - take <= MIN_VISIBLE_RATE_PER_MIN) pickupIdx += 1;
-      }
+      const unmet = consumer.rate - alloc;
+      if (unmet <= MIN_VISIBLE_RATE_PER_MIN) continue;
+      pickupConsumers.push({ id: consumer.instanceId, rate: unmet });
+    }
+    const { edges: pickupEdges } = computeTransportAllocation(
+      pickupProducers,
+      pickupConsumers,
+    );
+    for (const edge of pickupEdges) {
+      if (edge.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+      flowEdges.push(
+        createEdge(
+          `e${edgeIdCounter++}`,
+          edge.producerId,
+          edge.consumerId,
+          edge.rate,
+          item,
+          undefined,
+          ceilMode,
+        ),
+      );
     }
   }
 

@@ -6,6 +6,7 @@ import {
   mapPlanToFlowBinFusedSeparated,
 } from "@/components/mappers/bin-fused-mapper";
 import { items, recipes, facilities } from "@/data";
+import { getTransportCount } from "@/lib/utils";
 import type { FacilityId, ItemId, ProductionDependencyGraph } from "@/types";
 import type { Edge, Node } from "@xyflow/react";
 import { ALL_RAWS } from "./utils";
@@ -251,5 +252,108 @@ describe("Prefill chip rendering across views", () => {
       const data = node.data as NodeData;
       expect(data.productionNode.prefillCandidates ?? []).toEqual([]);
     }
+  });
+});
+
+describe("belt-minimizing producer→consumer decomposition (issue #91)", () => {
+  // Repro: Hetonite Component @ 6/min, Facility View. The old greedy
+  // drained the largest Xiranite producer building first for every
+  // consumer, splitting one 30/min producer across two consumers — an
+  // extra edge and an extra belt vs. whole-producer pairing. The fix
+  // (`computeTransportAllocation`) assigns whole producer buildings to
+  // whole consumers: 5 full ovens + 1 partial oven feed two forges
+  // (2 × 30 each), one mix pool (30), and one mix pool (18) over the
+  // minimum 6 edges / 6 belts, with no producer split across consumers.
+  test("hetonite component @ 6/min: xiranite powder uses whole-producer belts in Facility View", async () => {
+    const targetId = "item_equip_script_4_2" as ItemId;
+    const plan = await calculateProductionPlan(
+      [{ itemId: targetId, rate: 6 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const targetRates = new Map<ItemId, number>([[targetId, 6]]);
+    const flow = mapPlanToFlowBinFusedSeparated(plan, items, recipes, facilities, targetRates);
+
+    const xiraniteItem = items.find(
+      (i) => i.id === ("item_xiranite_powder" as ItemId),
+    );
+    const xiraniteEdges = flow.edges.filter(
+      (e) => e.sourceHandle === ("item_xiranite_powder" as ItemId),
+    );
+
+    // Whole-producer assignments: minimum edge count, no producer
+    // building split across two consumers (old greedy: 7 edges, one
+    // producer feeding both a mix pool and a forge).
+    expect(xiraniteEdges).toHaveLength(6);
+    const sources = xiraniteEdges.map((e) => e.source);
+    expect(new Set(sources).size).toBe(sources.length);
+
+    // Belt total: one belt per 30/min edge (fp noise in per-building
+    // rates must not ceil a 30/min edge to 2 belts).
+    const belts = xiraniteEdges.reduce(
+      (sum, e) =>
+        sum +
+        getTransportCount(
+          (e.data as { flowRate: number }).flowRate,
+          xiraniteItem,
+          true,
+        ),
+      0,
+    );
+    expect(belts).toBe(6);
+  });
+
+  // Follow-up repro: the raw-material pickup → consumer path was a
+  // FOURTH greedy copy (sequential carving) that the original fix never
+  // touched. With 60/min water pumps feeding 30/min consumers plus
+  // partial-load 28.8/min ones, it daisy-chained 1.2 + 28.8 complement
+  // edges across the whole pickup row (observed in this exact plan:
+  // Clean Water #4 → 1.2 to one building + 28.8 to another, the latter
+  // complemented by 1.2 from Clean Water #3, repeating).
+  test("hetonite component @ 6/min: every water consumer drinks from exactly one pump", async () => {
+    const targetId = "item_equip_script_4_2" as ItemId;
+    const plan = await calculateProductionPlan(
+      [{ itemId: targetId, rate: 6 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const targetRates = new Map<ItemId, number>([[targetId, 6]]);
+    const flow = mapPlanToFlowBinFusedSeparated(plan, items, recipes, facilities, targetRates);
+
+    // Pickup-instance node ids: raw_item_liquid_water-p{i}.
+    const waterPickupEdges = flow.edges.filter((e) =>
+      e.source.startsWith("raw_item_liquid_water-p"),
+    );
+    expect(waterPickupEdges.length).toBeGreaterThan(0);
+
+    const byConsumer = new Map<string, number[]>();
+    for (const e of waterPickupEdges) {
+      const rates = byConsumer.get(e.target) ?? [];
+      rates.push((e.data as { flowRate: number }).flowRate);
+      byConsumer.set(e.target, rates);
+    }
+
+    // Demand profile of this plan: 26 consumers × 30/min + 4 × 18/min
+    // = 852/min → 15 pumps (14 × 60 + one 12 partial). The four 18s
+    // total 72 = 60 + 12, and no whole 18 fits into the 12-partial, so
+    // EXACTLY ONE consumer must draw from two pickups (12 + 6); every
+    // other consumer gets a single pickup edge. The old carving instead
+    // daisy-chained complement pairs across the whole row.
+    expect(byConsumer.size).toBe(30);
+    expect(waterPickupEdges).toHaveLength(31);
+    const multiFed = [...byConsumer.entries()].filter(
+      ([, rates]) => rates.length > 1,
+    );
+    expect(
+      multiFed.map(([c, rates]) => `${c} <- ${rates.length} pumps`),
+    ).toHaveLength(1);
+    // The seam consumer's two edges still sum to its 18/min demand.
+    expect(
+      multiFed[0][1].reduce((a, b) => a + b, 0),
+    ).toBeCloseTo(18, 3);
   });
 });
