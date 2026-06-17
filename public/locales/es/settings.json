@@ -86,12 +86,10 @@
     }
   },
   "metastorage": {
-    "help": "La transferencia de metaalmacenamiento envía un tipo de objeto por entrega a otra región, sin restarlo del depósito de esta región. Se desbloquea con el nivel de desarrollo regional {{level}}; cada entrega (cada {{minutes}} min) transporta hasta {{ttv}} de valor total de transferencia.",
-    "autoExplain": "La calculadora elige automáticamente el objeto transferido ({{count}} objetos elegibles), seleccionando el que más mejore el plan de la región de destino.",
+    "help": "La calculadora elige automáticamente el objeto a transferir entre los {{count}} objetos elegibles de esta región, seleccionando el que más mejore el plan.",
     "cardTitle": "Transferencia saliente",
     "routeLabel": "Exporta a",
-    "modeAuto": "Auto (región en planificación)",
-    "modeDisabled": "Desactivada",
-    "modeLocked": "Solo {{region}}"
+    "modeAuto": "Auto",
+    "modeDisabled": "Desactivada"
   }
 }

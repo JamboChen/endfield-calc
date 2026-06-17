@@ -39,9 +39,8 @@ interface MetastorageContentProps {
  *
  * The transferred item is NOT picked here: the game ships one item type
  * per delivery and the calculator auto-selects whichever most improves
- * the destination plan. Capability numbers (TTV cap, delivery interval,
- * unlock level, eligible item count) come from the generated
- * `metastorageSources` / `metastorageExports` data.
+ * the plan. Source capability and the eligible-item count come from the
+ * generated `metastorageSources` / `metastorageExports` data.
  */
 export function MetastorageContent({
   domainId,
@@ -65,26 +64,14 @@ export function MetastorageContent({
 
   if (!info) return null;
 
-  const cycleMinutes = info.cycleSeconds / 60;
-
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground leading-relaxed px-1">
         {t("metastorage.help", {
           ns: "settings",
-          level: info.unlockLosslessLevel,
-          ttv: info.ttvCapPerCycle,
-          minutes: cycleMinutes,
-          defaultValue:
-            "Metastorage Transfer ships one item type per delivery to another region — without taking it from this region's depot. Unlocked at Regional Development Lv. {{level}}; each delivery (every {{minutes}} min) carries up to {{ttv}} Total Transfer Value.",
-        })}
-      </p>
-      <p className="text-xs text-muted-foreground leading-relaxed px-1">
-        {t("metastorage.autoExplain", {
-          ns: "settings",
           count: eligibleCount,
           defaultValue:
-            "The calculator picks the transferred item automatically ({{count}} eligible items), choosing whichever most improves the destination plan.",
+            "The calculator auto-selects the exported item from this region's {{count}} eligible items, choosing whichever most improves the plan.",
         })}
       </p>
 
@@ -120,7 +107,7 @@ export function MetastorageContent({
               <SelectItem value="auto" className="text-xs">
                 {t("metastorage.modeAuto", {
                   ns: "settings",
-                  defaultValue: "Auto (region being planned)",
+                  defaultValue: "Auto",
                 })}
               </SelectItem>
               <SelectItem value="disabled" className="text-xs">
@@ -131,11 +118,12 @@ export function MetastorageContent({
               </SelectItem>
               {destinations.map((d) => (
                 <SelectItem key={d.id} value={d.id} className="text-xs">
-                  {t("metastorage.modeLocked", {
-                    ns: "settings",
-                    region: getDomainName(d.id),
-                    defaultValue: "Only {{region}}",
-                  })}
+                  <span
+                    aria-hidden="true"
+                    className="inline-block size-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: `#${d.color}` }}
+                  />
+                  <span className="truncate">{getDomainName(d.id)}</span>
                 </SelectItem>
               ))}
             </SelectContent>

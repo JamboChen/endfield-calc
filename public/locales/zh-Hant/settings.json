@@ -86,12 +86,10 @@
     }
   },
   "metastorage": {
-    "help": "超庫存傳輸每次配送向另一個區域輸送一種物品——且不消耗本區域倉庫的庫存。來源區域發展等級達到 Lv.{{level}} 後解鎖；每次配送（每 {{minutes}} 分鐘一次）最多承載 {{ttv}} 點傳輸總值。",
-    "autoExplain": "計算器會自動選擇傳輸的物品（共 {{count}} 種可選物品），優先選擇對目標區域方案提升最大的一種。",
+    "help": "計算器會從本區域的 {{count}} 種可選物品中自動選擇要傳輸的物品，優先選擇對方案提升最大的一種。",
     "cardTitle": "出站傳輸",
     "routeLabel": "傳輸至",
-    "modeAuto": "自動（目前規劃的區域）",
-    "modeDisabled": "已停用",
-    "modeLocked": "僅 {{region}}"
+    "modeAuto": "自動",
+    "modeDisabled": "已停用"
   }
 }

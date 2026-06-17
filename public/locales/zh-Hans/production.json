@@ -98,7 +98,7 @@
     "searchNoResults": "无匹配项",
     "searchPlaceholder": "搜索建筑…",
     "metastorage": "超库存传输",
-    "metastorageTooltip": "通过超库存传输送达——无需本地生产，也不消耗源区域仓库库存。",
+    "metastorageTooltip": "通过超库存传输送达。无需本地生产，也不消耗源区域仓库库存。",
     "metastorageSource": "源区域",
     "metastorageTtvPerItem": "单件传输总值",
     "metastorageTtvUsage": "每次配送传输总值"

@@ -99,7 +99,7 @@
     "searchNoResults": "No matches",
     "searchPlaceholder": "Search buildings...",
     "metastorage": "Metastorage",
-    "metastorageTooltip": "Delivered via Metastorage Transfer — no local production or depot debit at the source.",
+    "metastorageTooltip": "Delivered via Metastorage Transfer. No local production or depot debit at the source.",
     "metastorageSource": "Source region",
     "metastorageTtvPerItem": "TTV cost per item",
     "metastorageTtvUsage": "TTV per delivery"

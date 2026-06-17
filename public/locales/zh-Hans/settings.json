@@ -86,12 +86,10 @@
     }
   },
   "metastorage": {
-    "help": "超库存传输每次配送向另一个区域输送一种物品——且不消耗本区域仓库的库存。源区域发展等级达到 Lv.{{level}} 后解锁；每次配送（每 {{minutes}} 分钟一次）最多承载 {{ttv}} 点传输总值。",
-    "autoExplain": "计算器会自动选择传输的物品（共 {{count}} 种可选物品），优先选择对目标区域方案提升最大的一种。",
+    "help": "计算器会从本区域的 {{count}} 种可选物品中自动选择要传输的物品，优先选择对方案提升最大的一种。",
     "cardTitle": "出站传输",
     "routeLabel": "传输至",
-    "modeAuto": "自动（当前规划的区域）",
-    "modeDisabled": "已禁用",
-    "modeLocked": "仅 {{region}}"
+    "modeAuto": "自动",
+    "modeDisabled": "已禁用"
   }
 }

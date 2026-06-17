@@ -86,12 +86,10 @@
     }
   },
   "metastorage": {
-    "help": "Metastorage Transfer ships one item type per delivery to another region — without taking it from this region's depot. Unlocked at Regional Development Lv. {{level}}; each delivery (every {{minutes}} min) carries up to {{ttv}} Total Transfer Value.",
-    "autoExplain": "The calculator picks the transferred item automatically ({{count}} eligible items), choosing whichever most improves the destination plan.",
+    "help": "The calculator auto-selects the exported item from this region's {{count}} eligible items, choosing whichever most improves the plan.",
     "cardTitle": "Outbound transfer",
     "routeLabel": "Exports to",
-    "modeAuto": "Auto (region being planned)",
-    "modeDisabled": "Disabled",
-    "modeLocked": "Only {{region}}"
+    "modeAuto": "Auto",
+    "modeDisabled": "Disabled"
   }
 }

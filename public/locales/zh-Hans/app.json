@@ -31,6 +31,6 @@
     "tree": "依赖关系图"
   },
   "title": "终末地工厂生产计算器",
-  "metastorageRouteConflict": "每个源区域的超库存传输一次只能输送一种物品——以下目标无法同时进口：{{items}}",
-  "metastorageBudgetInsufficient": "{{item}}（来自 {{source}}）：每次配送需要 {{needed}} 传输总值，但上限为 {{cap}}——未应用传输。请降低目标速率或扩大本地生产。"
+  "metastorageRouteConflict": "每个源区域的超库存传输一次只能输送一种物品。以下目标无法同时进口：{{items}}",
+  "metastorageBudgetInsufficient": "{{item}}（来自 {{source}}）：每次配送需要 {{needed}} 传输总值，但上限为 {{cap}}。未应用传输。请降低目标速率或扩大本地生产。"
 }
