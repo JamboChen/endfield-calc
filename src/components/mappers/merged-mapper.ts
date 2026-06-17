@@ -58,31 +58,44 @@ export function mapPlanToFlowMerged(
   // single-vs-multi-producer branching below treats imported supply
   // uniformly; `ensureImportNode` lazily emits the source node the
   // first time an edge references it.
-  const importByItem = new Map<ItemId, PlanMetastorageImport>();
+  // Keyed by the raw item-id string: lookups below use `edge.from` /
+  // `getRecipeOutputItemId` (both `string`), so a string key avoids
+  // `as ItemId` casts at every call site. The value is a LIST because
+  // a region can receive the same item from multiple source regions —
+  // each is a distinct producer node (`createMetastorageSourceId`
+  // keys on source + item). `importByNodeId` reverse-maps a producer
+  // node id back to its import for lazy emission.
+  const importsByItem = new Map<string, PlanMetastorageImport[]>();
+  const importByNodeId = new Map<string, PlanMetastorageImport>();
   for (const imp of plan.metastorageImports) {
     if (imp.ratePerMinute <= MIN_VISIBLE_RATE_PER_MIN) continue;
-    importByItem.set(imp.itemId, imp);
+    const list = importsByItem.get(imp.itemId) ?? [];
+    list.push(imp);
+    importsByItem.set(imp.itemId, list);
+    importByNodeId.set(
+      createMetastorageSourceId(imp.sourceDomain, imp.itemId),
+      imp,
+    );
   }
   const producersOf = (itemId: string): { id: string; rate: number }[] => {
     const out: { id: string; rate: number }[] = getItemProducers(
       plan,
       itemId,
     ).map((p) => ({ id: p.recipeId, rate: p.rate }));
-    const imp = importByItem.get(itemId as ItemId);
-    if (imp) {
+    for (const imp of importsByItem.get(itemId) ?? []) {
       out.push({
-        id: createMetastorageSourceId(itemId),
+        id: createMetastorageSourceId(imp.sourceDomain, imp.itemId),
         rate: imp.ratePerMinute,
       });
     }
     return out;
   };
-  const ensureImportNode = (itemId: ItemId): void => {
-    const importNodeId = createMetastorageSourceId(itemId);
+  /** Emit the import source node for `imp` once (idempotent). */
+  const ensureImportNode = (imp: PlanMetastorageImport): void => {
+    const importNodeId = createMetastorageSourceId(imp.sourceDomain, imp.itemId);
     if (flowNodes.some((n) => n.id === importNodeId)) return;
-    const imp = importByItem.get(itemId);
-    const node = plan.nodes.get(itemId);
-    if (!imp || node?.type !== "item") return;
+    const node = plan.nodes.get(imp.itemId);
+    if (node?.type !== "item") return;
     flowNodes.push(
       createProductionFlowNode(
         importNodeId,
@@ -105,10 +118,9 @@ export function mapPlanToFlowMerged(
     );
   };
   /** Emit the import node first when the edge's producer is the import source. */
-  const ensureProducerNode = (producerId: string, itemId: string): void => {
-    if (producerId === createMetastorageSourceId(itemId)) {
-      ensureImportNode(itemId as ItemId);
-    }
+  const ensureProducerNode = (producerId: string): void => {
+    const imp = importByNodeId.get(producerId);
+    if (imp) ensureImportNode(imp);
   };
   /**
    * Terminal-target recipes normally fold into the target sink (embed).
@@ -121,7 +133,7 @@ export function mapPlanToFlowMerged(
   const isFoldedTerminalRecipe = (recipeNodeId: string): boolean => {
     if (!isRecipeTerminal(plan, recipeNodeId)) return false;
     const outputItemId = getRecipeOutputItemId(plan, recipeNodeId);
-    if (outputItemId && importByItem.has(outputItemId as ItemId)) return false;
+    if (outputItemId && importsByItem.has(outputItemId)) return false;
     return true;
   };
 
@@ -236,7 +248,7 @@ export function mapPlanToFlowMerged(
       const anyHasFlowNode = producers.some((p) =>
         flowNodes.some((n) => n.id === p.id),
       );
-      if (!isTerminalTarget || anyHasFlowNode || importByItem.has(node.itemId)) {
+      if (!isTerminalTarget || anyHasFlowNode || importsByItem.has(node.itemId)) {
         const targetSinkId = createTargetSinkId(node.itemId);
         const userTargetRate =
           targetRates?.get(node.itemId) ?? node.productionRate;
@@ -318,7 +330,7 @@ export function mapPlanToFlowMerged(
         for (const ae of greedy.edges) {
           if (ae.consumerId !== edge.to) continue;
           if (ae.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
-          ensureProducerNode(ae.producerId, edge.from);
+          ensureProducerNode(ae.producerId);
           flowEdges.push(
             createEdge(
               `e${edgeIdCounter++}`,
@@ -334,7 +346,7 @@ export function mapPlanToFlowMerged(
       } else if (producers.length > 0) {
         // Single producer (possibly the Metastorage import source):
         // direct edge at full rate
-        ensureProducerNode(producers[0].id, edge.from);
+        ensureProducerNode(producers[0].id);
         flowEdges.push(
           createEdge(
             `e${edgeIdCounter++}`,
@@ -419,7 +431,7 @@ export function mapPlanToFlowMerged(
 
       // Find ALL producers of this target item (recipes + Metastorage)
       const producers = producersOf(nodeId);
-      const hasImport = importByItem.has(node.itemId);
+      const hasImport = importsByItem.has(node.itemId);
 
       const isTerminalTarget = !upstreamItemIds.has(nodeId);
 
@@ -491,7 +503,7 @@ export function mapPlanToFlowMerged(
         }
 
         for (const { producerRecipeId, rate: edgeRate } of edgesToCreate) {
-          ensureProducerNode(producerRecipeId, nodeId);
+          ensureProducerNode(producerRecipeId);
           const producerNode = plan.nodes.get(producerRecipeId);
           let edgeFacilityCount: number | undefined;
           if (producerNode?.type === "recipe") {

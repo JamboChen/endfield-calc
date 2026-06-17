@@ -10,6 +10,7 @@ import type {
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
 import { calcRate } from "@/lib/utils";
+import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import type { BinAggregates } from "@/lib/plan-helpers";
 import { getRecipeInputItemId } from "@/lib/plan-helpers";
 
@@ -129,22 +130,28 @@ export function mergeItemNodes(
 
   const rows: MergedRow[] = [];
 
-  // Metastorage imports, keyed by item. Each becomes one extra
-  // sister row (or the item's sole row when nothing is produced
-  // locally) so imported supply is visible next to local production.
-  const importByItem = new Map<ItemId, PlanMetastorageImport>();
+  // Metastorage imports, grouped by item: each (source, item) becomes
+  // one extra sister row (or, for an import-only item, replaces the
+  // empty no-producer row) so imported supply is visible next to local
+  // production. A list per item because a region can receive the same
+  // item from multiple source regions. `MIN_VISIBLE_RATE_PER_MIN`
+  // matches the mappers' import-node cutoff so a sub-visible import
+  // never yields a table row without a graph node (or vice versa).
+  const importsByItem = new Map<ItemId, PlanMetastorageImport[]>();
   for (const imp of plan.metastorageImports) {
-    if (imp.ratePerMinute <= 0) continue;
-    importByItem.set(imp.itemId, imp);
+    if (imp.ratePerMinute <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    const list = importsByItem.get(imp.itemId) ?? [];
+    list.push(imp);
+    importsByItem.set(imp.itemId, list);
   }
 
   plan.nodes.forEach((node) => {
     if (node.type !== "item") return;
 
     const producers = producersByItem.get(node.itemId) ?? [];
-    const metastorageImport = importByItem.get(node.itemId);
+    const imports = importsByItem.get(node.itemId) ?? [];
 
-    if (metastorageImport) {
+    for (const metastorageImport of imports) {
       rows.push({
         itemId: node.itemId,
         recipeId: null,
@@ -159,7 +166,7 @@ export function mergeItemNodes(
     }
 
     if (producers.length === 0) {
-      if (metastorageImport) return; // import row replaces the empty row
+      if (imports.length > 0) return; // import rows replace the empty row
       // Raw / chain-terminator / no-producer item. One row, no recipe.
       rows.push({
         itemId: node.itemId,

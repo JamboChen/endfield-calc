@@ -19,13 +19,21 @@ export function createRawMaterialId(itemId: string): string {
 }
 
 /**
- * Create a Metastorage import source node ID (one per imported item —
- * the delivery arrives at the regional depot, so there is no
- * per-instance variant even in Facility View).
+ * Create a Metastorage import source node ID, unique per
+ * (source region, imported item). The delivery arrives at the regional
+ * depot so there is no per-instance variant even in Facility View, but
+ * two source regions CAN ship the same item into one plan (a region
+ * may receive from multiple sources), so the source domain must be
+ * part of the id — otherwise the two imports collide on one node and
+ * one supply silently disappears from the graph/table.
  *
  * @example
- * createMetastorageSourceId("item_iron_nugget") // "metastorage_item_iron_nugget"
+ * createMetastorageSourceId("domain_1", "item_iron_nugget")
+ * //=> "metastorage_domain_1_item_iron_nugget"
  */
-export function createMetastorageSourceId(itemId: string): string {
-  return `metastorage_${itemId}`;
+export function createMetastorageSourceId(
+  sourceDomain: string,
+  itemId: string,
+): string {
+  return `metastorage_${sourceDomain}_${itemId}`;
 }

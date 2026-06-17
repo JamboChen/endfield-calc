@@ -858,33 +858,112 @@ function metastorageCandidates(
 }
 
 /**
- * Target items that can ONLY arrive via Metastorage: no producer
- * recipe survived into the graph, not a raw, but import-eligible on at
- * least one route. The game transfers one item type per route, so more
- * such targets than routes is a structural conflict the enumeration
- * cannot solve — surfaced as a `metastorage-route-conflict` warning
- * (the losing targets additionally show up as infeasible).
+ * Items that can ONLY arrive via Metastorage and are **necessarily**
+ * demanded by the plan: no surviving producer recipe, not a raw, but
+ * import-eligible on ≥1 route, AND provably required (not avoidable via
+ * an alternative recipe).
+ *
+ * Necessity is a fixpoint from the targets: a target with rate > 0 is
+ * necessary; an item is necessary if it is consumed by **every**
+ * surviving producer of some already-necessary item (the intersection
+ * of producer inputs — if even one producer avoids it, the LP can too).
+ * This is a sound under-approximation: every item returned is genuinely
+ * unavoidable, so there are no false-positive conflicts. Covers both
+ * import-only targets AND import-only intermediates (which the old
+ * target-only check missed).
  */
-function importOnlyTargets(
+function necessaryImportOnlyItems(
   routes: readonly MetastorageRouteConfig[],
   graph: BipartiteGraph,
   targetRates: Map<ItemId, number>,
 ): ItemId[] {
-  const out: ItemId[] = [];
-  for (const itemId of targetRates.keys()) {
-    const node = graph.itemNodes.get(itemId);
-    if (!node || node.isRawMaterial) continue;
-    let hasProducer = false;
-    for (const outputs of graph.recipeOutputs.values()) {
-      if (outputs.has(itemId)) {
-        hasProducer = true;
-        break;
+  // Invert recipeOutputs → producers per item (active graph recipes).
+  const producersByItem = new Map<ItemId, RecipeId[]>();
+  for (const [recipeId, outputs] of graph.recipeOutputs) {
+    for (const itemId of outputs) {
+      const arr = producersByItem.get(itemId) ?? [];
+      arr.push(recipeId);
+      producersByItem.set(itemId, arr);
+    }
+  }
+
+  const necessary = new Set<ItemId>();
+  const queue: ItemId[] = [];
+  for (const [itemId, rate] of targetRates) {
+    if (rate > 0 && graph.itemNodes.has(itemId)) {
+      necessary.add(itemId);
+      queue.push(itemId);
+    }
+  }
+  while (queue.length > 0) {
+    const item = queue.pop()!;
+    const producers = producersByItem.get(item) ?? [];
+    if (producers.length === 0) continue; // leaf (raw / import-only)
+    // Inputs common to ALL producers are unavoidable for this item.
+    let common: Set<ItemId> | null = null;
+    for (const recipeId of producers) {
+      const inputs = graph.recipeInputs.get(recipeId) ?? new Set<ItemId>();
+      if (common === null) {
+        common = new Set(inputs);
+      } else {
+        for (const x of [...common]) if (!inputs.has(x)) common.delete(x);
       }
     }
-    if (hasProducer) continue;
-    if (routes.some((r) => r.itemCosts.has(itemId))) out.push(itemId);
+    for (const input of common ?? []) {
+      if (!necessary.has(input)) {
+        necessary.add(input);
+        queue.push(input);
+      }
+    }
+  }
+
+  const eligible = new Set<ItemId>();
+  for (const r of routes) for (const it of r.itemCosts.keys()) eligible.add(it);
+
+  const out: ItemId[] = [];
+  for (const itemId of necessary) {
+    const node = graph.itemNodes.get(itemId);
+    if (!node || node.isRawMaterial) continue;
+    if ((producersByItem.get(itemId)?.length ?? 0) > 0) continue;
+    if (!eligible.has(itemId)) continue;
+    out.push(itemId);
   }
   return out.sort();
+}
+
+/**
+ * Can every item in `items` be assigned to a DISTINCT route that
+ * exports it? Each source region carries one item type per delivery
+ * (`routeNum: 1`), so this is a bipartite matching: items ↔ routes,
+ * edge iff the route's `itemCosts` includes the item. Returns false
+ * when no matching covers all items — i.e. the import-only demands
+ * structurally can't be satisfied simultaneously. Kuhn's algorithm;
+ * sets are tiny (≤ handful of items / routes).
+ */
+function canRoutesCoverItems(
+  items: readonly ItemId[],
+  routes: readonly MetastorageRouteConfig[],
+): boolean {
+  const adj = items.map((itemId) =>
+    routes.flatMap((r, ri) => (r.itemCosts.has(itemId) ? [ri] : [])),
+  );
+  const routeToItem = new Array<number>(routes.length).fill(-1);
+  const augment = (u: number, seen: boolean[]): boolean => {
+    for (const v of adj[u]) {
+      if (seen[v]) continue;
+      seen[v] = true;
+      if (routeToItem[v] === -1 || augment(routeToItem[v], seen)) {
+        routeToItem[v] = u;
+        return true;
+      }
+    }
+    return false;
+  };
+  let matched = 0;
+  for (let u = 0; u < items.length; u++) {
+    if (augment(u, new Array<boolean>(routes.length).fill(false))) matched++;
+  }
+  return matched === items.length;
 }
 
 type FlowSolveResult = Awaited<ReturnType<typeof calculateFlows>>;
@@ -960,6 +1039,16 @@ async function selectMetastorageImports(
   let best = await solve(selected);
   const diagnostics: MetastorageBudgetDiagnostic[] = [];
 
+  // DEV-only enumeration cost telemetry. Each candidate triggers one
+  // full lexicographic solve; measured overhead is ~130ms on a heavy
+  // 5-target / 17-candidate plan (HiGHS solves ≈2ms each on these
+  // graphs), comfortably under the hook's 300ms loading-overlay
+  // debounce — so no screening/short-circuit is warranted at current
+  // scale. This log surfaces the cost if a future multi-route or wider
+  // candidate set pushes it past that budget.
+  const enumStart = import.meta.env?.DEV ? performance.now() : 0;
+  let candidatesEvaluated = 0;
+
   for (const route of routes) {
     const candidates = metastorageCandidates(
       route,
@@ -968,6 +1057,7 @@ async function selectMetastorageImports(
       manualRawMaterials,
     );
     if (candidates.length === 0) continue;
+    candidatesEvaluated += candidates.length;
     if (import.meta.env?.DEV) {
       console.log(
         `[METASTORAGE] route ${route.sourceDomain}: evaluating ${candidates.length} candidate item(s)`,
@@ -1026,6 +1116,14 @@ async function selectMetastorageImports(
         );
       }
     }
+  }
+
+  if (import.meta.env?.DEV && candidatesEvaluated > 0) {
+    console.log(
+      `[METASTORAGE] enumeration: ${candidatesEvaluated} candidate solve(s) in ${(
+        performance.now() - enumStart
+      ).toFixed(0)}ms → ${selected.length} import(s) selected`,
+    );
   }
 
   return { selected, result: best, diagnostics };
@@ -1224,15 +1322,22 @@ export async function calculateProductionPlan(
     };
   });
   if (metastorageRoutes.length > 0) {
-    const conflictTargets = importOnlyTargets(
+    // Import-only items the plan provably needs (targets + unavoidable
+    // intermediates). If they can't all be matched to distinct routes
+    // (one item type per source delivery), the plan is structurally
+    // unsatisfiable — surface the competing items.
+    const conflictItems = necessaryImportOnlyItems(
       metastorageRoutes,
       graph,
       targetRatesMap,
     );
-    if (conflictTargets.length > metastorageRoutes.length) {
+    if (
+      conflictItems.length > 0 &&
+      !canRoutesCoverItems(conflictItems, metastorageRoutes)
+    ) {
       metastorageWarnings.push({
         kind: "metastorage-route-conflict",
-        itemIds: conflictTargets,
+        itemIds: conflictItems,
       });
     }
   }

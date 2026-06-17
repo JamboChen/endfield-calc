@@ -31,7 +31,7 @@ import {
 import { parseRawLimitKey } from "./lib/raw-limits-helpers";
 import { structureKey } from "./lib/settings-helpers";
 import { namespaceStorageKey } from "./lib/storage-namespace";
-import type { FacilityId, ItemId } from "./types";
+import type { DomainId, FacilityId, ItemId } from "./types";
 import type { MetastorageRouteConfig } from "./types/metastorage";
 
 /**
@@ -161,28 +161,22 @@ function AppContent() {
     });
   }, [settings.activeDomains, settings.structures.enabled]);
 
-  // Metastorage routes feeding the current factory region. A source
-  // region's transfer applies here when it has Metastorage capability
-  // (`metastorageSources`), isn't the planned region itself, is active,
-  // and its route mode is "auto" or locked to this region. Each
-  // resolved route carries the full eligible item → TTV-cost map; the
-  // calculator auto-selects the single transferred item per route
-  // (`selectMetastorageImports`).
-  const metastorageRoutes = useMemo(() => {
-    const out: MetastorageRouteConfig[] = [];
-    for (const [source, info] of metastorageSources) {
+  // Source regions whose Metastorage transfer feeds the current
+  // factory region: has capability (`metastorageSources`), isn't the
+  // planned region, is active, route mode is "auto" or locked to this
+  // region, and exports ≥1 modeled item. This recomputes on every
+  // route-mode edit, but it's a tiny array — the heavy `metastorageRoutes`
+  // build below keys on its CONTENT signature so an edit that doesn't
+  // change the resolved source set never re-triggers the calc.
+  const metastorageRouteSources = useMemo(() => {
+    const out: DomainId[] = [];
+    for (const source of metastorageSources.keys()) {
       if (source === settings.currentDomain) continue;
       if (!settings.activeDomains.has(source)) continue;
       const mode = settings.metastorage.routeModes.get(source) ?? "auto";
       if (mode !== "auto" && mode !== settings.currentDomain) continue;
-      const itemCosts = metastorageExports.get(source);
-      if (!itemCosts || itemCosts.size === 0) continue;
-      out.push({
-        sourceDomain: source,
-        ttvBudgetPerMinute: info.ttvCapPerCycle / (info.cycleSeconds / 60),
-        cycleSeconds: info.cycleSeconds,
-        itemCosts,
-      });
+      if (!metastorageExports.get(source)?.size) continue;
+      out.push(source);
     }
     return out;
   }, [
@@ -190,6 +184,33 @@ function AppContent() {
     settings.activeDomains,
     settings.metastorage.routeModes,
   ]);
+
+  // Content signature of the resolved source set. `itemCosts` /
+  // budget / cycle are all static per source (`metastorageExports` +
+  // `metastorageSources`), so the source-id list fully determines the
+  // route configs — keying the memo on this string keeps the
+  // `metastorageRoutes` identity (and thus the calc-effect input)
+  // stable across no-op route-mode edits (e.g. toggling a source the
+  // current region doesn't import from).
+  const metastorageRouteSig = metastorageRouteSources.join("|");
+
+  // Resolved route configs for the calculator. Each carries the full
+  // eligible item → TTV-cost map; the calculator auto-selects the
+  // single transferred item per route (`selectMetastorageImports`).
+  const metastorageRoutes = useMemo(() => {
+    return metastorageRouteSources.map((source): MetastorageRouteConfig => {
+      const info = metastorageSources.get(source)!;
+      return {
+        sourceDomain: source,
+        ttvBudgetPerMinute: info.ttvCapPerCycle / (info.cycleSeconds / 60),
+        cycleSeconds: info.cycleSeconds,
+        itemCosts: metastorageExports.get(source)!,
+      };
+    });
+    // `metastorageRouteSources` is fully captured by `metastorageRouteSig`
+    // (see above); the body reads only static data otherwise.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metastorageRouteSig]);
 
   // Items obtainable via the resolved Metastorage routes. Seeds the
   // reachability closure (configuration-level capability, unlike

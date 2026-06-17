@@ -7,13 +7,20 @@ import {
   computeNodeByproducts,
   computeOverCapWarnings,
   computeRawOverCapWarnings,
+  filterPlanForDisplay,
 } from "@/lib/plan-helpers";
 import { items, recipes, facilities, rawMaterialSources } from "@/data";
 import { getRawSourceRate } from "@/lib/utils";
-import { ItemId as ItemIdEnum, FacilityId as FacilityIdEnum } from "@/types/constants";
+import {
+  DomainId as DomainIdEnum,
+  ItemId as ItemIdEnum,
+  FacilityId as FacilityIdEnum,
+} from "@/types/constants";
 import type {
+  PlanMetastorageImport,
   PlanWarning,
   ProductionDependencyGraph,
+  ProductionGraphNode,
 } from "@/types";
 
 /**
@@ -1540,5 +1547,145 @@ describe("computeOverCapWarnings (integration)", () => {
       [FacilityIdEnum.MIX_POOL_2, 0],
     ]);
     expect(computeOverCapWarnings(raw, caps)).toEqual([]);
+  });
+});
+
+describe("filterPlanForDisplay", () => {
+  const itemNode = (
+    id: string,
+    productionRate: number,
+    opts: { isTarget?: boolean; isRawMaterial?: boolean } = {},
+  ): ProductionGraphNode => ({
+    type: "item",
+    itemId: id as ItemId,
+    item: { id: id as ItemId, tier: 1 },
+    productionRate,
+    isRawMaterial: opts.isRawMaterial ?? false,
+    isTarget: opts.isTarget ?? false,
+  });
+
+  const makePlan = (
+    nodes: [string, ProductionGraphNode][],
+    edges: { from: string; to: string }[],
+    targets: string[],
+    metastorageImports: PlanMetastorageImport[] = [],
+  ): ProductionDependencyGraph => ({
+    nodes: new Map(nodes),
+    edges,
+    targets: new Set(targets as ItemId[]),
+    detectedCycles: [],
+    invalidCycles: [],
+    bins: [],
+    recipeBinAllocations: new Map(),
+    warnings: [],
+    metastorageImports,
+  });
+
+  const imp = (id: string): PlanMetastorageImport => ({
+    sourceDomain: DomainIdEnum.DOMAIN_1,
+    itemId: id as ItemId,
+    ratePerMinute: 20,
+    ttvCostPerItem: 1,
+    ttvUsedPerMinute: 20,
+    ttvBudgetPerMinute: 25,
+    cycleSeconds: 3600,
+  });
+
+  test("keeps an import-only intermediate (local rate 0) and its consuming edge", () => {
+    // The regression: `mid` is supplied 100% by import, so its LOCAL
+    // productionRate is 0 — but it is fully active and must survive the
+    // display filter along with the edge feeding the target's producer.
+    const plan = makePlan(
+      [
+        ["out", itemNode("out", 20, { isTarget: true })],
+        ["mid", itemNode("mid", 0)],
+      ],
+      [{ from: "mid", to: "out" }],
+      ["out"],
+      [imp("mid")],
+    );
+    const filtered = filterPlanForDisplay(plan);
+    expect(filtered.nodes.has("mid")).toBe(true);
+    expect(filtered.edges).toContainEqual({ from: "mid", to: "out" });
+  });
+
+  test("still drops a zero-rate item that is neither target nor imported", () => {
+    const plan = makePlan(
+      [
+        ["out", itemNode("out", 20, { isTarget: true })],
+        ["dead", itemNode("dead", 0)],
+      ],
+      [{ from: "dead", to: "out" }],
+      ["out"],
+    );
+    const filtered = filterPlanForDisplay(plan);
+    expect(filtered.nodes.has("dead")).toBe(false);
+    expect(filtered.edges).toHaveLength(0);
+  });
+
+  test("drops fc=0 recipe nodes but keeps active ones", () => {
+    const recipeNode = (
+      id: string,
+      facilityCount: number,
+    ): ProductionGraphNode => ({
+      type: "recipe",
+      recipeId: id as never,
+      recipe: {
+        id: id as never,
+        inputs: [],
+        outputs: [],
+        craftingTime: 2,
+        facilityId: "fac" as never,
+      },
+      facility: {
+        id: "fac" as never,
+        tier: 1,
+        category: 0,
+        powerConsumption: 0,
+        buffersIn: { belt: [], pipe: [] },
+        buffersOut: { belt: [], pipe: [] },
+        domains: [],
+      },
+      facilityCount,
+    });
+    const plan = makePlan(
+      [
+        ["out", itemNode("out", 20, { isTarget: true })],
+        ["r_active", recipeNode("r_active", 1)],
+        ["r_dead", recipeNode("r_dead", 0)],
+      ],
+      [],
+      ["out"],
+    );
+    const filtered = filterPlanForDisplay(plan);
+    expect(filtered.nodes.has("r_active")).toBe(true);
+    expect(filtered.nodes.has("r_dead")).toBe(false);
+  });
+
+  test("sub-visible import does NOT keep its item (threshold parity with table/mappers)", () => {
+    // An import below MIN_VISIBLE_RATE_PER_MIN renders no table row and
+    // no graph node; the display filter must not keep the item alive on
+    // its account, else a stray zero-rate empty row would appear.
+    const subVisible: PlanMetastorageImport = {
+      sourceDomain: DomainIdEnum.DOMAIN_1,
+      itemId: "mid" as ItemId,
+      ratePerMinute: 0.0005, // < MIN_VISIBLE_RATE_PER_MIN (0.001)
+      ttvCostPerItem: 1,
+      ttvUsedPerMinute: 0.0005,
+      ttvBudgetPerMinute: 25,
+      cycleSeconds: 3600,
+    };
+    const plan = makePlan(
+      [
+        ["out", itemNode("out", 20, { isTarget: true })],
+        ["mid", itemNode("mid", 0)],
+      ],
+      [{ from: "mid", to: "out" }],
+      ["out"],
+      [subVisible],
+    );
+    const filtered = filterPlanForDisplay(plan);
+    expect(filtered.nodes.has("mid")).toBe(false);
+    expect(filtered.edges).toHaveLength(0);
   });
 });

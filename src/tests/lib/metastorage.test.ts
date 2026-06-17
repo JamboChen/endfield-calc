@@ -483,6 +483,91 @@ describe("calculateProductionPlan metastorage auto-selection", () => {
       [ItemId.ITEM_BOTTLED_FOOD_1, ItemId.ITEM_PROC_BATTERY_1].sort(),
     );
   });
+
+  test("two import-only INTERMEDIATES on one route: conflict (closure beyond targets)", async () => {
+    // The single target is locally producible, but its recipe needs
+    // TWO distinct import-only intermediates (nugget + glass, neither
+    // with a producer here). The necessity closure must reach past the
+    // target into its unavoidable inputs and flag the route conflict —
+    // the old target-only check missed this entirely.
+    const batteryFromTwo: Recipe[] = [
+      {
+        id: "tools_battery_from_two" as RecipeId,
+        inputs: [
+          { itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 },
+          { itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 1 },
+        ],
+        outputs: [{ itemId: ItemId.ITEM_PROC_BATTERY_1, amount: 1 }],
+        facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
+        craftingTime: 2,
+      },
+    ];
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_PROC_BATTERY_1, rate: 5 }],
+      mockItems,
+      batteryFromTwo,
+      mockFacilities,
+      {
+        rawMaterials: new Set<ItemId>(),
+        metastorageRoutes: [
+          syntheticRoute(
+            new Map([
+              [ItemId.ITEM_IRON_NUGGET, 1],
+              [ItemId.ITEM_QUARTZ_GLASS, 1],
+            ]),
+          ),
+        ],
+      },
+    );
+    const conflict = plan.warnings.find(
+      (w) => w.kind === "metastorage-route-conflict",
+    );
+    if (conflict?.kind !== "metastorage-route-conflict") {
+      throw new Error("expected metastorage-route-conflict warning");
+    }
+    expect(conflict.itemIds).toEqual(
+      [ItemId.ITEM_IRON_NUGGET, ItemId.ITEM_QUARTZ_GLASS].sort(),
+    );
+  });
+
+  test("conflict detection does not false-positive when matching is satisfiable", async () => {
+    // Two import-only targets, each exported by its OWN route → the
+    // bipartite matching covers both, so NO conflict warning fires
+    // (the items are not competing for one route). Locks the matching
+    // path against a naive count-based check that would warn on
+    // "2 import-only items". (Whether the sequential greedy then
+    // *selects* both is a separate, documented limitation — joint
+    // multi-route necessity is unreachable in 1.x single-route data.)
+    const plan = await calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_PROC_BATTERY_1, rate: 1 },
+        { itemId: ItemId.ITEM_BOTTLED_FOOD_1, rate: 1 },
+      ],
+      mockItems,
+      simpleRecipes,
+      mockFacilities,
+      {
+        rawMaterials: ALL_RAWS,
+        metastorageRoutes: [
+          {
+            sourceDomain: DomainId.DOMAIN_1,
+            ttvBudgetPerMinute: 25,
+            cycleSeconds: 3600,
+            itemCosts: new Map([[ItemId.ITEM_PROC_BATTERY_1, 1]]),
+          },
+          {
+            sourceDomain: DomainId.DOMAIN_2,
+            ttvBudgetPerMinute: 25,
+            cycleSeconds: 3600,
+            itemCosts: new Map([[ItemId.ITEM_BOTTLED_FOOD_1, 1]]),
+          },
+        ],
+      },
+    );
+    expect(
+      plan.warnings.filter((w) => w.kind === "metastorage-route-conflict"),
+    ).toHaveLength(0);
+  });
 });
 
 // ── 3. Real game data ───────────────────────────────────────────────────────

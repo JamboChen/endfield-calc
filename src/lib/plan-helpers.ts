@@ -740,3 +740,70 @@ export function getRecipeInputItemId(
   return plan.edges.find((e) => e.to === recipeId)?.from;
 }
 
+/**
+ * Filter a solved plan down to its **display** subgraph: drop recipe
+ * nodes the LP didn't run (`facilityCount === 0`) and item nodes with
+ * no throughput (`productionRate === 0`), then drop edges that lost an
+ * endpoint. Targets and invalid-cycle nodes are always kept so the
+ * user can still see requested outputs and what went wrong.
+ *
+ * **Metastorage exemption**: an item-node's `productionRate` counts
+ * LOCAL production only — imported supply lives on
+ * `plan.metastorageImports`, never folded into the node (see
+ * `calculator.ts:buildProductionGraph`). An item supplied entirely by
+ * import therefore has `productionRate === 0` yet is fully active;
+ * without this exemption it (and its consuming edges) would vanish
+ * from the table, the TTV footer, and the merged (bf=0) graph while
+ * the bin-fused view — which reads `plan.bins` + imports directly —
+ * still rendered it, leaving the two views contradicting each other.
+ *
+ * Pure (no React state); the hook memoises the call. Unit-tested in
+ * `plan-helpers.test.ts`.
+ */
+export function filterPlanForDisplay(
+  plan: ProductionDependencyGraph,
+): ProductionDependencyGraph {
+  const invalidCycleItems = new Set<ItemId>();
+  const invalidCycleRecipes = new Set<RecipeId>();
+  for (const ic of plan.invalidCycles) {
+    ic.involvedItemIds.forEach((id) => invalidCycleItems.add(id));
+    ic.involvedRecipeIds.forEach((id) => invalidCycleRecipes.add(id));
+  }
+  // Only VISIBLE imports keep their item alive — the table
+  // (`mergeItemNodes`) and mappers both gate import rendering at
+  // `MIN_VISIBLE_RATE_PER_MIN`, so exempting a sub-visible import here
+  // would keep a zero-local-rate item node with no import row/node to
+  // match (a stray empty table row). Same threshold everywhere.
+  const importedItems = new Set<ItemId>();
+  for (const imp of plan.metastorageImports) {
+    if (imp.ratePerMinute > MIN_VISIBLE_RATE_PER_MIN) {
+      importedItems.add(imp.itemId);
+    }
+  }
+
+  const activeNodes = new Map<string, ProductionGraphNode>();
+  for (const [key, node] of plan.nodes) {
+    if (
+      node.type === "recipe" &&
+      node.facilityCount === 0 &&
+      !invalidCycleRecipes.has(node.recipeId)
+    ) {
+      continue;
+    }
+    if (
+      node.type === "item" &&
+      node.productionRate === 0 &&
+      !plan.targets.has(node.itemId) &&
+      !invalidCycleItems.has(node.itemId) &&
+      !importedItems.has(node.itemId)
+    ) {
+      continue;
+    }
+    activeNodes.set(key, node);
+  }
+  const activeEdges = plan.edges.filter(
+    (edge) => activeNodes.has(edge.from) && activeNodes.has(edge.to),
+  );
+  return { ...plan, nodes: activeNodes, edges: activeEdges };
+}
+

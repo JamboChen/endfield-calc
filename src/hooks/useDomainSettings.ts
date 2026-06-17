@@ -474,10 +474,12 @@ function loadFromStorage(): PersistedShape | null {
     // Metastorage routes — deviations-only list (absent = every capable
     // source on "auto"). Drop entries whose source isn't a known domain
     // with Metastorage capability, whose mode is neither "disabled" nor
-    // a known domain, or whose locked destination equals the source
-    // (self-routes are meaningless). Dropping an entry re-defaults that
-    // source to "auto" — the desired behavior when a game patch changes
-    // the capable-source set.
+    // a known domain in the registry, or whose locked destination equals
+    // the source (self-routes are meaningless). The destination gate
+    // (`domainData` membership) is identical to `setMetastorageRouteMode`
+    // below, so the load and set paths can't drift. Dropping an entry
+    // re-defaults that source to "auto" — the desired behavior when a
+    // game patch changes the capable-source set.
     const metastorageRoutes = Array.isArray(shape.metastorage?.routes)
       ? shape.metastorage.routes.filter((r): r is MetastorageRouteRecord => {
           if (r === null || typeof r === "undefined") return false;
@@ -486,7 +488,11 @@ function loadFromStorage(): PersistedShape | null {
           if (!source || !metastorageSources.has(source)) return false;
           if (r.mode === "disabled") return true;
           const dest = parseDomainId(r.mode);
-          return dest !== undefined && dest !== source;
+          return (
+            dest !== undefined &&
+            dest !== source &&
+            domainData.some((d) => d.id === dest)
+          );
         })
       : [];
 

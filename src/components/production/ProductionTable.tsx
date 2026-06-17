@@ -508,7 +508,7 @@ const ProductionTable = memo(function ProductionTable({
               const rowKey = line.isDisposal
                 ? `disposal-${line.item.id}-${line.selectedRecipeId || "noproducer"}`
                 : isImport
-                  ? `import-${line.item.id}`
+                  ? `import-${line.metastorageImport!.sourceDomain}-${line.item.id}`
                   : `${line.item.id}-${line.selectedRecipeId || "noproducer"}`;
               return (
                 <TableRow
@@ -1065,7 +1065,14 @@ const ProductionTable = memo(function ProductionTable({
               const cycleMinutes = imp.cycleSeconds / 60;
               const used = imp.ttvUsedPerMinute * cycleMinutes;
               const cap = imp.ttvBudgetPerMinute * cycleMinutes;
-              const overBudget = used > cap + 1e-6;
+              // Compare in per-MINUTE units (source-of-truth scale) so
+              // the epsilon matches; comparing the ×cycleMinutes
+              // per-delivery values against a per-minute epsilon could
+              // paint an exact-budget plan red on float noise. (The
+              // selection gate already guarantees used ≤ budget, so this
+              // is defensive — but unit-correct.)
+              const overBudget =
+                imp.ttvUsedPerMinute > imp.ttvBudgetPerMinute + 1e-6;
               return (
                 <div
                   key={`ttv-${imp.sourceDomain}-${imp.itemId}`}
