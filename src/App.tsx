@@ -23,13 +23,16 @@ import { computeRecipeReachability } from "./lib/recipe-reachability";
 import { computeVariantExclusions } from "./lib/variant-filter";
 import {
   bootstrapFacilities,
+  metastorageExports,
+  metastorageSources,
   rawAvailabilityByDomain,
   regionStructures,
 } from "./data";
 import { parseRawLimitKey } from "./lib/raw-limits-helpers";
 import { structureKey } from "./lib/settings-helpers";
 import { namespaceStorageKey } from "./lib/storage-namespace";
-import type { FacilityId, ItemId } from "./types";
+import type { DomainId, FacilityId, ItemId } from "./types";
+import type { MetastorageRouteConfig } from "./types/metastorage";
 
 /**
  * Theme-aware Sonner toast portal. Lives inside ThemeProvider so it can
@@ -158,6 +161,70 @@ function AppContent() {
     });
   }, [settings.activeDomains, settings.structures.enabled]);
 
+  // Source regions whose Metastorage transfer feeds the current
+  // factory region: has capability (`metastorageSources`), isn't the
+  // planned region, is active, route mode is "auto" or locked to this
+  // region, and exports ≥1 modeled item. This recomputes on every
+  // route-mode edit, but it's a tiny array — the heavy `metastorageRoutes`
+  // build below keys on its CONTENT signature so an edit that doesn't
+  // change the resolved source set never re-triggers the calc.
+  const metastorageRouteSources = useMemo(() => {
+    const out: DomainId[] = [];
+    for (const source of metastorageSources.keys()) {
+      if (source === settings.currentDomain) continue;
+      if (!settings.activeDomains.has(source)) continue;
+      const mode = settings.metastorage.routeModes.get(source) ?? "auto";
+      if (mode !== "auto" && mode !== settings.currentDomain) continue;
+      if (!metastorageExports.get(source)?.size) continue;
+      out.push(source);
+    }
+    return out;
+  }, [
+    settings.currentDomain,
+    settings.activeDomains,
+    settings.metastorage.routeModes,
+  ]);
+
+  // Content signature of the resolved source set. `itemCosts` /
+  // budget / cycle are all static per source (`metastorageExports` +
+  // `metastorageSources`), so the source-id list fully determines the
+  // route configs — keying the memo on this string keeps the
+  // `metastorageRoutes` identity (and thus the calc-effect input)
+  // stable across no-op route-mode edits (e.g. toggling a source the
+  // current region doesn't import from).
+  const metastorageRouteSig = metastorageRouteSources.join("|");
+
+  // Resolved route configs for the calculator. Each carries the full
+  // eligible item → TTV-cost map; the calculator auto-selects the
+  // single transferred item per route (`selectMetastorageImports`).
+  const metastorageRoutes = useMemo(() => {
+    return metastorageRouteSources.map((source): MetastorageRouteConfig => {
+      const info = metastorageSources.get(source)!;
+      return {
+        sourceDomain: source,
+        ttvBudgetPerMinute: info.ttvCapPerCycle / (info.cycleSeconds / 60),
+        cycleSeconds: info.cycleSeconds,
+        itemCosts: metastorageExports.get(source)!,
+      };
+    });
+    // `metastorageRouteSources` is fully captured by `metastorageRouteSig`
+    // (see above); the body reads only static data otherwise.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metastorageRouteSig]);
+
+  // Items obtainable via the resolved Metastorage routes. Seeds the
+  // reachability closure (configuration-level capability, unlike
+  // manual raws) so recipes consuming them become runnable and the
+  // items themselves targetable even with no local producer; also
+  // keeps the auto-prune effect from dropping import-only targets.
+  const metastorageSeedItems = useMemo(() => {
+    const out = new Set<ItemId>();
+    for (const route of metastorageRoutes) {
+      for (const itemId of route.itemCosts.keys()) out.add(itemId);
+    }
+    return out;
+  }, [metastorageRoutes]);
+
   const { availableRecipes, reachableItems } = useMemo(() => {
     // Intersect AIC-unlocked with region-permitted facilities so
     // recipes whose host facility is locked to a region the player
@@ -182,6 +249,7 @@ function AppContent() {
       variantFiltered,
       regionRawMaterials,
       bootstrapFacilities,
+      metastorageSeedItems,
     );
     return { availableRecipes: runnableRecipes, reachableItems };
   }, [
@@ -190,6 +258,7 @@ function AppContent() {
     settings.currentDomain,
     regionRawMaterials,
     structureVariantExcluded,
+    metastorageSeedItems,
   ]);
 
   // Items the picker may show as targets: those reachable via the AIC-
@@ -318,6 +387,7 @@ function AppContent() {
     regionRawMaterials,
     facilityCaps,
     rawMaterialCaps,
+    metastorageRoutes,
   );
 
   const targetRates = useMemo(

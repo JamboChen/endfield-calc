@@ -22,7 +22,8 @@
     "plan": "方案",
     "limits": "上限",
     "raws": "资源",
-    "structures": "结构物"
+    "structures": "结构物",
+    "metastorage": "超库存"
   },
   "status": {
     "researched": "已研究 {{done}} / {{total}}",
@@ -83,5 +84,12 @@
       "resetGroup": "已恢复方案默认",
       "prereqsRequired": "请先研究前置科技。"
     }
+  },
+  "metastorage": {
+    "help": "计算器会从本区域的 {{count}} 种可选物品中自动选择要传输的物品，优先选择对方案提升最大的一种。",
+    "cardTitle": "出站传输",
+    "routeLabel": "传输至",
+    "modeAuto": "自动",
+    "modeDisabled": "已禁用"
   }
 }

@@ -124,6 +124,7 @@ function buildMixedStrategyPlan(): ProductionDependencyGraph {
     bins: [],
     recipeBinAllocations: new Map(),
     warnings: [],
+    metastorageImports: [],
   };
 }
 
@@ -257,6 +258,7 @@ describe("mergeItemNodes row-per-producer contract", () => {
       bins: [],
       recipeBinAllocations: new Map(),
       warnings: [],
+      metastorageImports: [],
     };
 
     const rows = mergeItemNodes(plan);
@@ -365,6 +367,7 @@ describe("mergeItemNodes row-per-producer contract", () => {
       bins: [],
       recipeBinAllocations: new Map(),
       warnings: [],
+      metastorageImports: [],
     };
 
     const rows = mergeItemNodes(plan);

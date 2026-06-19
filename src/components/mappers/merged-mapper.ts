@@ -3,6 +3,7 @@ import type {
   Item,
   ItemId,
   Facility,
+  PlanMetastorageImport,
   ProductionDependencyGraph,
   ProductionGraphNode,
   FlowNodeData,
@@ -16,7 +17,11 @@ import {
   createTargetSinkNode,
   createDisposalSinkNode,
 } from "../flow/flow-utils";
-import { createTargetSinkId, createRawMaterialId } from "@/lib/node-keys";
+import {
+  createMetastorageSourceId,
+  createTargetSinkId,
+  createRawMaterialId,
+} from "@/lib/node-keys";
 import { calcRate, getRawSourceRate } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
@@ -47,6 +52,91 @@ export function mapPlanToFlowMerged(
     }
   });
 
+  // Metastorage imports act as additional producers throughout this
+  // mapper. `producersOf` wraps `getItemProducers` with the per-item
+  // import pseudo-producer (id = `createMetastorageSourceId`), so the
+  // single-vs-multi-producer branching below treats imported supply
+  // uniformly; `ensureImportNode` lazily emits the source node the
+  // first time an edge references it.
+  // Keyed by the raw item-id string: lookups below use `edge.from` /
+  // `getRecipeOutputItemId` (both `string`), so a string key avoids
+  // `as ItemId` casts at every call site. The value is a LIST because
+  // a region can receive the same item from multiple source regions —
+  // each is a distinct producer node (`createMetastorageSourceId`
+  // keys on source + item). `importByNodeId` reverse-maps a producer
+  // node id back to its import for lazy emission.
+  const importsByItem = new Map<string, PlanMetastorageImport[]>();
+  const importByNodeId = new Map<string, PlanMetastorageImport>();
+  for (const imp of plan.metastorageImports) {
+    if (imp.ratePerMinute <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    const list = importsByItem.get(imp.itemId) ?? [];
+    list.push(imp);
+    importsByItem.set(imp.itemId, list);
+    importByNodeId.set(
+      createMetastorageSourceId(imp.sourceDomain, imp.itemId),
+      imp,
+    );
+  }
+  const producersOf = (itemId: string): { id: string; rate: number }[] => {
+    const out: { id: string; rate: number }[] = getItemProducers(
+      plan,
+      itemId,
+    ).map((p) => ({ id: p.recipeId, rate: p.rate }));
+    for (const imp of importsByItem.get(itemId) ?? []) {
+      out.push({
+        id: createMetastorageSourceId(imp.sourceDomain, imp.itemId),
+        rate: imp.ratePerMinute,
+      });
+    }
+    return out;
+  };
+  /** Emit the import source node for `imp` once (idempotent). */
+  const ensureImportNode = (imp: PlanMetastorageImport): void => {
+    const importNodeId = createMetastorageSourceId(imp.sourceDomain, imp.itemId);
+    if (flowNodes.some((n) => n.id === importNodeId)) return;
+    const node = plan.nodes.get(imp.itemId);
+    if (node?.type !== "item") return;
+    flowNodes.push(
+      createProductionFlowNode(
+        importNodeId,
+        {
+          item: node.item,
+          targetRate: imp.ratePerMinute,
+          recipe: null,
+          facility: null,
+          facilityCount: 0,
+          isRawMaterial: false,
+          isTarget: false,
+          dependencies: [],
+          metastorageImport: imp,
+        },
+        items,
+        facilities,
+        ceilMode,
+        { isDirectTarget: false },
+      ),
+    );
+  };
+  /** Emit the import node first when the edge's producer is the import source. */
+  const ensureProducerNode = (producerId: string): void => {
+    const imp = importByNodeId.get(producerId);
+    if (imp) ensureImportNode(imp);
+  };
+  /**
+   * Terminal-target recipes normally fold into the target sink (embed).
+   * When the output item is also Metastorage-supplied the fold is
+   * disabled — the sink needs two real inbound edges (local producer +
+   * import source), which an embed cannot represent. Used by both the
+   * recipe-emission skip and the input-edge redirect so they stay in
+   * lockstep.
+   */
+  const isFoldedTerminalRecipe = (recipeNodeId: string): boolean => {
+    if (!isRecipeTerminal(plan, recipeNodeId)) return false;
+    const outputItemId = getRecipeOutputItemId(plan, recipeNodeId);
+    if (outputItemId && importsByItem.has(outputItemId)) return false;
+    return true;
+  };
+
   // Create production nodes (recipe nodes only)
   plan.nodes.forEach((node, nodeId) => {
     if (node.type === "recipe") {
@@ -57,10 +147,12 @@ export function mapPlanToFlowMerged(
           | undefined)
         : undefined;
 
-      // Skip recipe node if it's a terminal target (has no consumers and
-      // no secondary outputs feeding into other recipes). Multi-output recipes
-      // that participate in cycles must NOT be skipped.
-      if (outputItemNode && !isRecipeTerminal(plan, nodeId)) {
+      // Skip recipe node if it's a folded terminal target (no consumers,
+      // no secondary outputs feeding other recipes, and not sharing its
+      // target with a Metastorage import — see `isFoldedTerminalRecipe`).
+      // Multi-output recipes that participate in cycles must NOT be
+      // skipped.
+      if (outputItemNode && !isFoldedTerminalRecipe(nodeId)) {
         // Use per-recipe output rate rather than total item production rate.
         // For single-producer items these are equal; for multi-producer items
         // (e.g. feeder + override both producing the same item) each visual
@@ -149,14 +241,14 @@ export function mapPlanToFlowMerged(
     // Also collect target sink consumers for multi-producer target items
     plan.nodes.forEach((node, nodeId) => {
       if (node.type !== "item" || !node.isTarget || node.isRawMaterial) return;
-      const producers = getItemProducers(plan, nodeId);
+      const producers = producersOf(nodeId);
       if (producers.length <= 1) return;
 
       const isTerminalTarget = !upstreamItemIds.has(nodeId);
       const anyHasFlowNode = producers.some((p) =>
-        flowNodes.some((n) => n.id === p.recipeId),
+        flowNodes.some((n) => n.id === p.id),
       );
-      if (!isTerminalTarget || anyHasFlowNode) {
+      if (!isTerminalTarget || anyHasFlowNode || importsByItem.has(node.itemId)) {
         const targetSinkId = createTargetSinkId(node.itemId);
         const userTargetRate =
           targetRates?.get(node.itemId) ?? node.productionRate;
@@ -174,12 +266,12 @@ export function mapPlanToFlowMerged(
 
     // Run the allocation for multi-producer items
     itemConsumers.forEach((consumers, itemId) => {
-      const producers = getItemProducers(plan, itemId);
+      const producers = producersOf(itemId);
       if (producers.length <= 1) return;
       greedyAllocations.set(
         itemId,
         computeTransportAllocation(
-          producers.map((p) => ({ id: p.recipeId, rate: p.rate })),
+          producers,
           consumers.map((c) => ({ id: c.consumerId, rate: c.demand })),
         ),
       );
@@ -204,12 +296,14 @@ export function mapPlanToFlowMerged(
       // Skip disposal recipe edges — disposal sinks create their own edges
       if (targetNode.isDisposal) return;
 
-      // Find ALL recipes that produce this item (handles multi-producer items
-      // like liquid_sewage produced by both pool_xiranite_poly_1 and furnace)
-      const producers = getItemProducers(plan, edge.from);
+      // Find ALL producers of this item — recipes plus the Metastorage
+      // import pseudo-producer (handles multi-producer items like
+      // liquid_sewage produced by both pool_xiranite_poly_1 and furnace)
+      const producers = producersOf(edge.from);
 
-      // Determine where this flow should end
-      const isTerminalTargetRecipe = isRecipeTerminal(plan, edge.to);
+      // Determine where this flow should end (redirect uses the same
+      // fold predicate as the recipe-emission skip above).
+      const isTerminalTargetRecipe = isFoldedTerminalRecipe(edge.to);
 
       let flowTargetId = edge.to;
       if (isTerminalTargetRecipe) {
@@ -236,6 +330,7 @@ export function mapPlanToFlowMerged(
         for (const ae of greedy.edges) {
           if (ae.consumerId !== edge.to) continue;
           if (ae.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+          ensureProducerNode(ae.producerId);
           flowEdges.push(
             createEdge(
               `e${edgeIdCounter++}`,
@@ -249,11 +344,13 @@ export function mapPlanToFlowMerged(
           );
         }
       } else if (producers.length > 0) {
-        // Single producer: direct edge at full rate
+        // Single producer (possibly the Metastorage import source):
+        // direct edge at full rate
+        ensureProducerNode(producers[0].id);
         flowEdges.push(
           createEdge(
             `e${edgeIdCounter++}`,
-            producers[0].recipeId,
+            producers[0].id,
             flowTargetId,
             totalFlowRate,
             sourceNode.item,
@@ -332,24 +429,28 @@ export function mapPlanToFlowMerged(
     if (node.type === "item" && node.isTarget && !node.isRawMaterial) {
       const targetNodeId = createTargetSinkId(node.itemId);
 
-      // Find ALL recipes producing this target item
-      const producers = getItemProducers(plan, nodeId);
+      // Find ALL producers of this target item (recipes + Metastorage)
+      const producers = producersOf(nodeId);
+      const hasImport = importsByItem.has(node.itemId);
 
       const isTerminalTarget = !upstreamItemIds.has(nodeId);
 
       // Check if ANY producer already has a production flow node
       const anyProducerHasFlowNode = producers.some((p) =>
-        flowNodes.some((n) => n.id === p.recipeId),
+        flowNodes.some((n) => n.id === p.id),
       );
 
       const userTargetRate =
         targetRates?.get(node.itemId) ?? node.productionRate;
 
       // Only embed recipe info in the sink when there's exactly one producer
-      // without a separate flow node (terminal target with single recipe)
+      // without a separate flow node (terminal target with single recipe).
+      // An import pseudo-producer never embeds — `plan.nodes` has no
+      // entry for the import source id, so the lookup stays undefined
+      // and the sink gets a regular import edge instead.
       const soleProducer =
         producers.length === 1
-          ? (plan.nodes.get(producers[0].recipeId) as
+          ? (plan.nodes.get(producers[0].id) as
               | Extract<ProductionGraphNode, { type: "recipe" }>
               | undefined)
           : undefined;
@@ -373,11 +474,16 @@ export function mapPlanToFlowMerged(
         ),
       );
 
-      // Edge from producer recipe(s) to target sink:
+      // Edge from producer(s) to target sink:
       // - Always for non-terminal targets
       // - Also for terminal targets when the recipe already has a production node
       //   (byproduct scenario: recipe serves a primary output elsewhere)
-      if (producers.length > 0 && (!isTerminalTarget || anyProducerHasFlowNode)) {
+      // - Also when Metastorage supplies this target (the import source
+      //   node replaces the embed for import-only targets)
+      if (
+        producers.length > 0 &&
+        (!isTerminalTarget || anyProducerHasFlowNode || hasImport)
+      ) {
         const greedy = greedyAllocations.get(nodeId);
 
         // Determine which producers contribute and how much
@@ -393,10 +499,11 @@ export function mapPlanToFlowMerged(
           }
         } else if (producers.length > 0) {
           // Single producer: full target rate
-          edgesToCreate.push({ producerRecipeId: producers[0].recipeId, rate: userTargetRate });
+          edgesToCreate.push({ producerRecipeId: producers[0].id, rate: userTargetRate });
         }
 
         for (const { producerRecipeId, rate: edgeRate } of edgesToCreate) {
+          ensureProducerNode(producerRecipeId);
           const producerNode = plan.nodes.get(producerRecipeId);
           let edgeFacilityCount: number | undefined;
           if (producerNode?.type === "recipe") {

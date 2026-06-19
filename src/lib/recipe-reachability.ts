@@ -65,17 +65,26 @@ import type { FacilityId, ItemId, Recipe, RecipeId } from "@/types";
  * a configuration-level capability. If a user pins an unreachable
  * intermediate as raw, the corresponding recipe stays filtered out
  * (manual-raw rescue is intentionally disabled — see commit notes).
+ *
+ * `seedItems` (optional) are additional items available from outside
+ * the local production chain — today the Metastorage-importable items
+ * of routes feeding the planned region. Unlike manual raws this IS a
+ * configuration-level capability (the route is region settings), so
+ * it joins the closure seed: downstream recipes become runnable and
+ * the items themselves become targetable.
  */
 export function computeRecipeReachability(
   recipes: readonly Recipe[],
   rawMaterials: ReadonlySet<ItemId>,
   bootstrapFacilities: ReadonlySet<FacilityId> = new Set(),
+  seedItems: ReadonlySet<ItemId> = new Set(),
 ): {
   reachableItems: ReadonlySet<ItemId>;
   runnableRecipes: readonly Recipe[];
   blockedRecipes: readonly Recipe[];
 } {
   const reachableItems = new Set<ItemId>(rawMaterials);
+  for (const itemId of seedItems) reachableItems.add(itemId);
   const runnableIds = new Set<RecipeId>();
 
   // Bootstrap pass: facility-level exception to the chain check.

@@ -1,6 +1,13 @@
 import i18next from "@/i18n";
-import type { Item, Facility, Recipe, RecipeId } from "@/types";
+import type { DomainId, Item, Facility, Recipe, RecipeId } from "@/types";
 import { getTransportCapacity } from "./utils";
+
+export const getDomainName = (domainId: DomainId) => {
+  return i18next.t(`domains.${domainId}.name`, {
+    ns: "domain",
+    defaultValue: domainId,
+  });
+};
 
 export const getItemName = (item: Item) => {
   return i18next.t(item.id, { ns: "item", defaultValue: item.id });

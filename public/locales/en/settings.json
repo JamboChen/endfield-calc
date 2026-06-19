@@ -22,7 +22,8 @@
     "plan": "Plan",
     "limits": "Limits",
     "raws": "Resources",
-    "structures": "Structures"
+    "structures": "Structures",
+    "metastorage": "Metastorage"
   },
   "status": {
     "researched": "{{done}} / {{total}} researched",
@@ -83,5 +84,12 @@
       "resetGroup": "Reset plan to defaults",
       "prereqsRequired": "Research the prerequisite tech first."
     }
+  },
+  "metastorage": {
+    "help": "The calculator auto-selects the exported item from this region's {{count}} eligible items, choosing whichever most improves the plan.",
+    "cardTitle": "Outbound transfer",
+    "routeLabel": "Exports to",
+    "modeAuto": "Auto",
+    "modeDisabled": "Disabled"
   }
 }

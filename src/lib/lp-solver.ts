@@ -17,7 +17,14 @@
 
 import { calcRate } from "@/lib/utils";
 import { solve as highsSolve } from "@/lib/highs-wrapper";
-import type { ItemId, RecipeId, FacilityId, Recipe, Facility } from "@/types";
+import type {
+  DomainId,
+  ItemId,
+  RecipeId,
+  FacilityId,
+  Recipe,
+  Facility,
+} from "@/types";
 
 /** Numerical tolerance used for sign / equality checks against LP output. */
 const LP_EPSILON = 1e-9;
@@ -46,11 +53,17 @@ const FACILITY_COUNT_EPSILON = 1e-6;
  *   1. `rawCost` — total non-liquid raw material consumption per minute.
  *   2. `buildingCount` — total fractional facility count (Σ x_r).
  *   3. `power` — total power consumption per minute (gated by `MINIMIZE_POWER`).
+ *   4. `ttvCost` — total Metastorage TTV consumed per minute. **Only
+ *      appended when the input carries eligible import routes** (see
+ *      `solveLP`); import variables are free in passes 1-3 (the lex LP
+ *      spends the TTV budget wherever it improves raws / buildings /
+ *      power), and this final pass drives *useless* imports to zero and
+ *      prefers the cheapest-TTV solution among lex-equal plans.
  *
  * To disable the power pass (e.g. if it ever dominates solve time), set
  * `MINIMIZE_POWER = false`. The lex chain auto-shortens.
  */
-type LexObjective = "rawCost" | "buildingCount" | "power";
+type LexObjective = "rawCost" | "buildingCount" | "power" | "ttvCost";
 
 const MINIMIZE_POWER = true;
 
@@ -64,12 +77,31 @@ const LEX_ORDER: readonly LexObjective[] = MINIMIZE_POWER
  * (1e-6) because raw cost is the dominant lex term; the others are
  * looser since they're tie-breakers and small numerical drift across
  * vertex transitions can otherwise spuriously block feasibility.
+ * (`ttvCost` is always the final pass, so its tolerance is never used
+ * as a cap; listed for record completeness.)
  */
 const LEX_TOLERANCE: Record<LexObjective, number> = {
   rawCost: 1e-6,
   buildingCount: 1e-3,
   power: 1e-3,
+  ttvCost: 1e-6,
 };
+
+/**
+ * Cap tolerance for the final `ttvCost` pass, replacing the per-objective
+ * `LEX_TOLERANCE` values. The ttv pass re-anchors every cap on the
+ * immediately-previous pass's **actual solution totals** (not the
+ * per-pass optima), so feasibility is guaranteed by construction — the
+ * previous solution itself satisfies the caps — and only solver-level
+ * float noise needs absorbing.
+ *
+ * Why tight: under the regular `buildingCount` tolerance (1e-3) the ttv
+ * pass could "nibble" — spin up ~1e-3 phantom buildings of local
+ * production to shave a few TTV-units of import. 1e-6 keeps any nibble
+ * at or below `FACILITY_COUNT_EPSILON`, where the extraction clamp
+ * zeroes it.
+ */
+const TTV_PASS_CAP_TOLERANCE = 1e-6;
 
 /**
  * Cost coefficient on disposal-slack variables in every objective.
@@ -79,6 +111,36 @@ const LEX_TOLERANCE: Record<LexObjective, number> = {
  * per-facility cost in the current data set.
  */
 const SLACK_PENALTY = 1e6;
+
+/**
+ * Cost coefficient on the Metastorage TTV-budget slack — deliberately
+ * TWO orders of magnitude above `SLACK_PENALTY`.
+ *
+ * Every other soft cap in this LP (raw caps, facility caps, disposal
+ * balance) models a USER-imposed or operationally-recoverable limit:
+ * exceeding it is realizable in-game (mine more ore, build another
+ * facility) and surfaces as a warning. The TTV budget is a GAME
+ * CONSTANT — a delivery physically cannot carry more than the cap, so
+ * a plan that exceeds it is unrealizable, full stop.
+ *
+ * If both penalties were equal, a demand that must violate *some* soft
+ * constraint becomes a degenerate tie (e.g. 1 Steel Part/min over =
+ * 2 ore/min of raw-cap slack locally OR 2 TTV/min of budget slack
+ * imported) and HiGHS may route the violation into the impossible
+ * valve. The ordering guarantees the LP exhausts every recoverable
+ * slack first; TTV slack engages ONLY when no within-budget solution
+ * exists at all (import-only demand above budget), making
+ * `ttvOveruse` a pure impossibility diagnostic. The selection layer
+ * (`calculator.ts:selectMetastorageImports`) rejects any candidate
+ * with overuse, so over-budget imports never reach a final plan.
+ *
+ * Magnitude: must dominate `SLACK_PENALTY × (substituted soft-slack
+ * units per TTV unit)`. The worst plausible ratio in current data is
+ * well under 100 (upstream raw units per TTV point); 1e8 gives that
+ * full factor of headroom while staying ~10 orders below the float
+ * range HiGHS handles comfortably.
+ */
+const TTV_SLACK_PENALTY = 1e8;
 
 /**
  * Tiny positive baseline added to each recipe's `power` cost so zero-power
@@ -128,6 +190,43 @@ export type LPItemConstraint = {
    */
   type: "disposal-slack";
   rhs: number;
+};
+
+/**
+ * One Metastorage import route for the LP: the (already-selected)
+ * single item a source region transfers into the planned region.
+ *
+ * The route becomes one variable `metaimp_<idx>` (items/min) with a
+ * `+1` coefficient on the item's balance constraint and a budget row
+ * `ttvCostPerItem × rate ≤ ttvBudgetPerMinute + slack`. The slack is
+ * **diagnostic-only**: it carries `TTV_SLACK_PENALTY` (≫
+ * `SLACK_PENALTY`, see that constant's JSDoc) so the LP exhausts every
+ * user-imposed soft cap (raw caps, facility caps) and all local
+ * production before touching it — the budget is a game constant, and
+ * `ttvOveruse` therefore reports "no within-budget solution exists"
+ * (import-only demand above budget), never "the LP took a shortcut".
+ * The selection layer (`selectMetastorageImports`) rejects candidates
+ * with overuse, so over-budget imports never reach a final plan.
+ * Import variables cost nothing in `rawCost` / `buildingCount` /
+ * `power` and are sized by the final `ttvCost` pass.
+ *
+ * Routes whose item has no balance row (raws / manual raws / items
+ * absent from the constraint map) or a `disposal-slack` row are
+ * silently skipped — importing them is meaningless or distorting.
+ *
+ * Single-item-per-route is the caller's contract (the game transfers
+ * one item type per source); `calculator.ts` enumerates candidates and
+ * calls `solveLP` once per candidate.
+ */
+export type LPMetastorageImport = {
+  /** Exporting region (route key for reporting). */
+  sourceDomain: DomainId;
+  /** The single item this route transfers. */
+  itemId: ItemId;
+  /** TTV cost per unit of the item (> 0). */
+  ttvCostPerItem: number;
+  /** TTV budget per minute (cap-per-cycle ÷ cycle minutes). */
+  ttvBudgetPerMinute: number;
 };
 
 export type LPInput = {
@@ -218,6 +317,11 @@ export type LPInput = {
    * exists (in which case slack engages with very high penalty).
    */
   facilityCaps?: ReadonlyMap<FacilityId, number>;
+  /**
+   * Metastorage import routes (one selected item each). **Optional**:
+   * absent or empty means no import variables. See `LPMetastorageImport`.
+   */
+  metastorageImports?: readonly LPMetastorageImport[];
   /** Facility lookup for power-cost computation. */
   facilityMap: Map<FacilityId, Facility>;
 };
@@ -255,6 +359,28 @@ export type LPSolution = {
    * consume this directly.
    */
   rawCapOveruse: Map<ItemId, number>;
+  /**
+   * Per-source-region Metastorage import rates (items/min) for the
+   * routes in `LPInput.metastorageImports`. Only entries above the
+   * numerical clamp appear; the inner map carries the route's single
+   * item. Empty when no routes were supplied (or none were eligible).
+   */
+  importRates: Map<DomainId, Map<ItemId, number>>;
+  /**
+   * Per-source-region TTV consumed per minute
+   * (`Σ ttvCostPerItem × rate` over that source's import vars).
+   */
+  ttvUsedPerMinute: Map<DomainId, number>;
+  /**
+   * Per-source-region TTV budget overage (slack value > LP_EPSILON),
+   * in TTV/min. Thanks to the `TTV_SLACK_PENALTY` ordering this is a
+   * pure impossibility diagnostic: non-empty ⟺ an import-only demand
+   * exceeds the route budget and NO within-budget solution exists.
+   * `selectMetastorageImports` rejects such candidates (they never
+   * become the final plan) and turns the overage into a
+   * `metastorage-budget-insufficient` warning.
+   */
+  ttvOveruse: Map<DomainId, number>;
   totalRawCost: number;
   /**
    * Total fractional facility count (Σ x_r over recipe variables; slack
@@ -343,6 +469,12 @@ type LPModel = {
 
 const buildModel = (
   input: LPInput,
+  /**
+   * Pre-filtered Metastorage routes (see `eligibleImportRoutes`): every
+   * entry's item is guaranteed to have a non-`disposal-slack` balance
+   * row, so each becomes exactly one `metaimp_<idx>` variable.
+   */
+  importRoutes: readonly LPMetastorageImport[],
   objective: LexObjective,
   /**
    * Upper-bound caps from previously-solved lex passes. Each entry adds a
@@ -352,12 +484,20 @@ const buildModel = (
    * the documented slack semantics (see SLACK_PENALTY comment).
    */
   previousCaps: ReadonlyMap<LexObjective, number> = new Map(),
+  /**
+   * When set, replaces `LEX_TOLERANCE[capObj]` for every cap row. Used
+   * by the `ttvCost` pass together with solution-anchored caps — see
+   * `TTV_PASS_CAP_TOLERANCE`.
+   */
+  capToleranceOverride?: number,
 ): {
   model: LPModel;
   recipeIndexMap: Map<string, RecipeId>;
   disposalDeficitSlackVarMap: Map<string, ItemId>;
   disposalSurplusSlackVarMap: Map<string, ItemId>;
   rawCapSlackVarMap: Map<string, ItemId>;
+  importVarMap: Map<string, LPMetastorageImport>;
+  ttvSlackVarMap: Map<string, DomainId>;
 } => {
   // Stable variable names: x_<index>; map back to RecipeId via the index map.
   // Raw materials are excluded from balance constraints — their consumption
@@ -429,12 +569,14 @@ const buildModel = (
       rawCost: SLACK_PENALTY,
       buildingCount: SLACK_PENALTY,
       power: SLACK_PENALTY,
+      ttvCost: SLACK_PENALTY,
     };
     variables[surName] = {
       [constraintName]: -1,
       rawCost: SLACK_PENALTY,
       buildingCount: SLACK_PENALTY,
       power: SLACK_PENALTY,
+      ttvCost: SLACK_PENALTY,
     };
   }
 
@@ -480,6 +622,7 @@ const buildModel = (
         rawCost: SLACK_PENALTY,
         buildingCount: SLACK_PENALTY,
         power: SLACK_PENALTY,
+        ttvCost: SLACK_PENALTY,
       };
     }
 
@@ -562,29 +705,82 @@ const buildModel = (
         rawCost: SLACK_PENALTY,
         buildingCount: SLACK_PENALTY,
         power: SLACK_PENALTY,
+        ttvCost: SLACK_PENALTY,
       };
       facilityCapSlackVarMap.set(slackName, facilityId);
     }
   }
 
+  // Metastorage import variables + per-route TTV budget rows.
+  //
+  // For each pre-filtered route r (single item i):
+  //   variable `metaimp_<r>` (items/min) with coefficient +1 on item i's
+  //   balance constraint — an external supply, free in `rawCost` /
+  //   `buildingCount` / `power` (no coefficient = 0) but costing
+  //   `ttvCostPerItem` in the final `ttvCost` pass.
+  //
+  //   budget row: `ttvCostPerItem × metaimp − slack ≤ ttvBudgetPerMinute`,
+  //   slack ≥ 0 penalized by TTV_SLACK_PENALTY in every lex objective.
+  //
+  // **Why the slack exists at all**: pure diagnostics. A hard budget
+  // returns a bare "infeasible" when import-only demand exceeds the
+  // route budget; the penalized slack instead reports exactly which
+  // item and by how much (`ttvOveruse`) so the calc layer can emit an
+  // actionable `metastorage-budget-insufficient` warning. The penalty
+  // ordering (≫ SLACK_PENALTY) guarantees the slack never absorbs a
+  // violation that any user-imposed soft cap or local production could
+  // — see TTV_SLACK_PENALTY's JSDoc.
+  const importVarMap = new Map<string, LPMetastorageImport>();
+  const ttvSlackVarMap = new Map<string, DomainId>();
+  importRoutes.forEach((route, idx) => {
+    const constraintName = itemConstraintNames.get(route.itemId);
+    if (!constraintName) return; // defensive; eligibleImportRoutes filtered already
+    const varName = `metaimp_${idx}_${route.itemId}`;
+    const budgetName = `ttvbudget_${idx}_${route.sourceDomain}`;
+    const slackName = `ttvbudget_slack_${idx}_${route.sourceDomain}`;
+    constraints[budgetName] = { max: route.ttvBudgetPerMinute };
+    variables[varName] = {
+      [constraintName]: 1,
+      [budgetName]: route.ttvCostPerItem,
+      ttvCost: route.ttvCostPerItem,
+    };
+    // TTV_SLACK_PENALTY (not SLACK_PENALTY): the budget is a game
+    // constant, so its slack must lose every tie against the
+    // user-imposed soft caps — see the constant's JSDoc.
+    variables[slackName] = {
+      [budgetName]: -1,
+      rawCost: TTV_SLACK_PENALTY,
+      buildingCount: TTV_SLACK_PENALTY,
+      power: TTV_SLACK_PENALTY,
+      ttvCost: TTV_SLACK_PENALTY,
+    };
+    importVarMap.set(varName, route);
+    ttvSlackVarMap.set(slackName, route.sourceDomain);
+  });
+
   // Lex caps: every previously-optimised objective gets an upper-bound
   // constraint here, so the current pass cannot regress on prior wins.
-  // ALL slack vars (disposal-slack, rawcap-slack, facility-cap-slack)
-  // are EXCLUDED from cap coefficients — they carry SLACK_PENALTY in
-  // `rawCost` / `buildingCount` / `power` but `previousCaps[obj]` is
-  // recipe-only (slack penalty isn't summed into a pass's reported
-  // total). Including slack would force caps to ~tolerance and block
-  // feasibility whenever an earlier pass had slack > 0. Slack is
-  // independently minimised via SLACK_PENALTY in each pass's own
-  // objective.
+  // ALL slack vars (disposal-slack, rawcap-slack, facility-cap-slack,
+  // ttv-budget-slack) are EXCLUDED from cap coefficients — they carry
+  // SLACK_PENALTY in `rawCost` / `buildingCount` / `power` / `ttvCost`
+  // but `previousCaps[obj]` is recipe-only (slack penalty isn't summed
+  // into a pass's reported total). Including slack would force caps to
+  // ~tolerance and block feasibility whenever an earlier pass had
+  // slack > 0. Slack is independently minimised via SLACK_PENALTY in
+  // each pass's own objective. (Import vars are structural and stay
+  // included — their coefficients on passes 1-3 are 0, so the cap rows
+  // ignore them; `ttvCost` is always the final pass and never capped.)
   for (const [capObj, capValue] of previousCaps.entries()) {
     const capName = `lex_cap_${capObj}`;
-    constraints[capName] = { max: capValue + LEX_TOLERANCE[capObj] };
+    constraints[capName] = {
+      max: capValue + (capToleranceOverride ?? LEX_TOLERANCE[capObj]),
+    };
     for (const [varName, coefs] of Object.entries(variables)) {
       if (disposalDeficitSlackVarMap.has(varName)) continue;
       if (disposalSurplusSlackVarMap.has(varName)) continue;
       if (rawCapSlackVarMap.has(varName)) continue;
       if (facilityCapSlackVarMap.has(varName)) continue;
+      if (ttvSlackVarMap.has(varName)) continue;
       coefs[capName] = coefs[capObj] ?? 0;
     }
   }
@@ -600,6 +796,8 @@ const buildModel = (
     disposalDeficitSlackVarMap,
     disposalSurplusSlackVarMap,
     rawCapSlackVarMap,
+    importVarMap,
+    ttvSlackVarMap,
   };
 };
 
@@ -608,9 +806,13 @@ type ExtractedSolution = {
   disposalDeficits: Map<ItemId, number>;
   disposalSurpluses: Map<ItemId, number>;
   rawCapOveruse: Map<ItemId, number>;
+  importRates: Map<DomainId, Map<ItemId, number>>;
+  ttvUsedPerMinute: Map<DomainId, number>;
+  ttvOveruse: Map<DomainId, number>;
   totalRaw: number;
   totalBuildings: number;
   totalPower: number;
+  totalTtv: number;
 };
 
 const extractSolution = (
@@ -619,6 +821,8 @@ const extractSolution = (
   disposalDeficitSlackVarMap: Map<string, ItemId>,
   disposalSurplusSlackVarMap: Map<string, ItemId>,
   rawCapSlackVarMap: Map<string, ItemId>,
+  importVarMap: Map<string, LPMetastorageImport>,
+  ttvSlackVarMap: Map<string, DomainId>,
   recipes: Recipe[],
   facilityMap: Map<FacilityId, Facility>,
   rawMaterials: Set<ItemId>,
@@ -670,14 +874,50 @@ const extractSolution = (
     }
   }
 
+  // Metastorage import rates + per-source TTV totals. The same
+  // FACILITY_COUNT_EPSILON clamp as recipe vars applies: tiny
+  // degenerate-vertex artefacts are reported as "no import".
+  const importRates = new Map<DomainId, Map<ItemId, number>>();
+  const ttvUsedPerMinute = new Map<DomainId, number>();
+  let totalTtv = 0;
+  for (const [varName, route] of importVarMap.entries()) {
+    const v = rawResult[varName];
+    const rate =
+      typeof v === "number" && Math.abs(v) > FACILITY_COUNT_EPSILON ? v : 0;
+    if (rate <= 0) continue;
+    let perSource = importRates.get(route.sourceDomain);
+    if (!perSource) {
+      perSource = new Map<ItemId, number>();
+      importRates.set(route.sourceDomain, perSource);
+    }
+    perSource.set(route.itemId, (perSource.get(route.itemId) ?? 0) + rate);
+    const ttv = rate * route.ttvCostPerItem;
+    ttvUsedPerMinute.set(
+      route.sourceDomain,
+      (ttvUsedPerMinute.get(route.sourceDomain) ?? 0) + ttv,
+    );
+    totalTtv += ttv;
+  }
+  const ttvOveruse = new Map<DomainId, number>();
+  for (const [varName, sourceDomain] of ttvSlackVarMap.entries()) {
+    const v = rawResult[varName];
+    if (typeof v === "number" && v > LP_EPSILON) {
+      ttvOveruse.set(sourceDomain, (ttvOveruse.get(sourceDomain) ?? 0) + v);
+    }
+  }
+
   return {
     facilityCounts,
     disposalDeficits,
     disposalSurpluses,
     rawCapOveruse,
+    importRates,
+    ttvUsedPerMinute,
+    ttvOveruse,
     totalRaw,
     totalBuildings,
     totalPower,
+    totalTtv,
   };
 };
 
@@ -693,7 +933,30 @@ const extractObjectiveTotal = (
       return sol.totalBuildings;
     case "power":
       return sol.totalPower;
+    case "ttvCost":
+      return sol.totalTtv;
   }
+};
+
+/**
+ * Objective value of `sol` under the **model coefficients** of `obj` —
+ * i.e. what the cap row `lex_cap_<obj>` actually sums for this
+ * solution. Differs from `extractObjectiveTotal` only for `power`:
+ * each recipe variable's `coefs.power` carries `POWER_COST_FLOOR` on
+ * top of the facility's wattage, while `totalPower` reports pure
+ * wattage. An anchored cap computed from `totalPower` would exclude
+ * the anchor solution itself (off by `floor × totalBuildings`),
+ * silently forcing the next pass to shave facility counts — the exact
+ * bug class the ttvCost pass's tight tolerance would otherwise hit.
+ */
+const coefficientConsistentTotal = (
+  sol: ExtractedSolution,
+  obj: LexObjective,
+): number => {
+  const base = extractObjectiveTotal(sol, obj);
+  return obj === "power"
+    ? base + POWER_COST_FLOOR * sol.totalBuildings
+    : base;
 };
 
 const finaliseSolution = (sol: ExtractedSolution): LPSolution => ({
@@ -702,6 +965,9 @@ const finaliseSolution = (sol: ExtractedSolution): LPSolution => ({
   disposalDeficits: sol.disposalDeficits,
   disposalSurpluses: sol.disposalSurpluses,
   rawCapOveruse: sol.rawCapOveruse,
+  importRates: sol.importRates,
+  ttvUsedPerMinute: sol.ttvUsedPerMinute,
+  ttvOveruse: sol.ttvOveruse,
   totalRawCost: sol.totalRaw,
   totalBuildingCount: sol.totalBuildings,
   totalPower: sol.totalPower,
@@ -717,7 +983,9 @@ const finaliseSolution = (sol: ExtractedSolution): LPSolution => ({
  * Current order: `rawCost → buildingCount → power`. `buildingCount` was
  * added to satisfy the user's "fewer buildings beats more buildings even
  * at equal raw cost" preference, ahead of `power` (which is the
- * tie-breaker for plans where building count also ties).
+ * tie-breaker for plans where building count also ties). When the input
+ * carries eligible Metastorage routes a final `ttvCost` pass is
+ * appended (see `LEX_ORDER`'s JSDoc and `TTV_PASS_CAP_TOLERANCE`).
  *
  * Returns one of:
  *   - `{ feasible: true, facilityCounts, disposalDeficits, totalRawCost,
@@ -733,31 +1001,92 @@ const finaliseSolution = (sol: ExtractedSolution): LPSolution => ({
  * lex preference.
  */
 export const solveLP = async (input: LPInput): Promise<LPResult> => {
-  if (input.recipes.length === 0) {
+  // Metastorage routes whose item can actually accept an import
+  // variable: the item must carry a balance constraint (raws and
+  // manual raws are excluded from balance — importing them is
+  // meaningless) and not a `disposal-slack` row (importing a
+  // forced-disposal byproduct would just demand more disposal).
+  const eligibleRoutes: readonly LPMetastorageImport[] = (
+    input.metastorageImports ?? []
+  ).filter((route) => {
+    if (input.rawMaterials.has(route.itemId)) return false;
+    if (!(route.ttvCostPerItem > 0)) return false;
+    const constraint = input.itemConstraints.get(route.itemId);
+    return constraint !== undefined && constraint.type !== "disposal-slack";
+  });
+
+  if (input.recipes.length === 0 && eligibleRoutes.length === 0) {
+    // With no variables at all, the all-zeros assignment is the only
+    // candidate. It satisfies every constraint EXCEPT a positive-rhs
+    // demand on a non-raw item (`0 ≥ rhs` fails) — that case is
+    // structurally infeasible and must be reported as such, not as a
+    // vacuous success. Reachable since Metastorage: an import-eligible
+    // target with no local producer stays balance-constrained (no raw
+    // auto-promotion), so a zero-recipe graph can carry a real demand.
+    for (const [itemId, c] of input.itemConstraints) {
+      if (input.rawMaterials.has(itemId)) continue;
+      if (c.rhs > 0) return { feasible: false, reason: "infeasible" };
+    }
     return {
       feasible: true,
       facilityCounts: new Map(),
       disposalDeficits: new Map(),
       disposalSurpluses: new Map(),
       rawCapOveruse: new Map(),
+      importRates: new Map(),
+      ttvUsedPerMinute: new Map(),
+      ttvOveruse: new Map(),
       totalRawCost: 0,
       totalBuildingCount: 0,
       totalPower: 0,
     };
   }
 
+  // The `ttvCost` pass only exists when import variables exist — it
+  // pins useless imports to zero and, among lex-equal plans, prefers
+  // the one spending the least TTV. Without imports the chain is the
+  // classic 3-pass order.
+  const lexOrder: readonly LexObjective[] =
+    eligibleRoutes.length > 0 ? [...LEX_ORDER, "ttvCost"] : LEX_ORDER;
+
   const caps = new Map<LexObjective, number>();
   let lastSolution: ExtractedSolution | null = null;
 
-  for (let passIdx = 0; passIdx < LEX_ORDER.length; passIdx++) {
-    const objective = LEX_ORDER[passIdx];
+  for (let passIdx = 0; passIdx < lexOrder.length; passIdx++) {
+    const objective = lexOrder[passIdx];
+
+    // The `ttvCost` pass re-anchors every cap on the previous pass's
+    // ACTUAL solution totals (which satisfy all original constraints)
+    // with the tight `TTV_PASS_CAP_TOLERANCE` instead of the loose
+    // per-objective tolerances. Rationale in the constant's JSDoc:
+    // prevents the pass from trading phantom sub-tolerance buildings
+    // for TTV savings. Only objectives that actually ran are anchored
+    // (respects `MINIMIZE_POWER = false`).
+    const isTtvPass = objective === "ttvCost";
+    const passCaps = isTtvPass && lastSolution
+      ? new Map<LexObjective, number>(
+          LEX_ORDER.map((obj) => [
+            obj,
+            coefficientConsistentTotal(lastSolution!, obj),
+          ]),
+        )
+      : caps;
+
     const {
       model,
       recipeIndexMap,
       disposalDeficitSlackVarMap,
       disposalSurplusSlackVarMap,
       rawCapSlackVarMap,
-    } = buildModel(input, objective, caps);
+      importVarMap,
+      ttvSlackVarMap,
+    } = buildModel(
+      input,
+      eligibleRoutes,
+      objective,
+      passCaps,
+      isTtvPass ? TTV_PASS_CAP_TOLERANCE : undefined,
+    );
 
     let result: Record<string, number | boolean | undefined>;
     try {
@@ -802,15 +1131,19 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       disposalDeficitSlackVarMap,
       disposalSurplusSlackVarMap,
       rawCapSlackVarMap,
+      importVarMap,
+      ttvSlackVarMap,
       input.recipes,
       input.facilityMap,
       input.rawMaterials,
       input.costlessRaws,
     );
-    caps.set(objective, extractObjectiveTotal(lastSolution, objective));
+    // Store the cap row-consistently (see `coefficientConsistentTotal`)
+    // so any future pass capping on `power` admits this solution.
+    caps.set(objective, coefficientConsistentTotal(lastSolution, objective));
   }
 
-  // lastSolution is guaranteed non-null: LEX_ORDER has ≥ 1 entry, so the
+  // lastSolution is guaranteed non-null: lexOrder has ≥ 1 entry, so the
   // loop ran at least once and either populated lastSolution or returned
   // early on infeasibility.
   return finaliseSolution(lastSolution!);

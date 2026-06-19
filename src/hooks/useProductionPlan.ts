@@ -13,13 +13,14 @@ import type {
   RecipeId,
   PlanWarning,
   ProductionDependencyGraph,
-  ProductionGraphNode,
 } from "@/types";
+import type { MetastorageRouteConfig } from "@/types/metastorage";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useProductionStats } from "./useProductionStats";
 import { useProductionTable } from "./useProductionTable";
 import {
+  getDomainName,
   getItemName,
   getFacilityName,
   getRecipeName,
@@ -28,6 +29,7 @@ import {
   aggregateBinTotals,
   computeOverCapWarnings,
   computeRawOverCapWarnings,
+  filterPlanForDisplay,
 } from "@/lib/plan-helpers";
 import { formatCount, getItemById } from "@/lib/utils";
 
@@ -252,6 +254,22 @@ function formatPlanWarning(
         used: w.used.toFixed(1),
         cap: w.cap,
       });
+    case "metastorage-budget-insufficient":
+      // Per-delivery (game-native) TTV figures. The import was NOT
+      // applied — the budget is a hard game constant — so this
+      // explains why the affected demand is unsatisfied.
+      return t("metastorageBudgetInsufficient", {
+        item: lookupItemName(w.itemId),
+        source: getDomainName(w.sourceDomain),
+        needed: w.neededPerCycle.toFixed(0),
+        cap: w.capPerCycle.toFixed(0),
+      });
+    case "metastorage-route-conflict":
+      // The listed targets are import-only but Metastorage carries one
+      // item type per source region — the plan can't satisfy them all.
+      return t("metastorageRouteConflict", {
+        items: w.itemIds.map(lookupItemName).join(", "),
+      });
   }
 }
 
@@ -281,12 +299,19 @@ function formatPlanWarning(
  * `rawMaterialRequirements`. **No entry in this map = no limit** for
  * that item; items the user hasn't capped don't appear here and don't
  * trigger warnings. Optional and undefined when nothing is capped.
+ *
+ * `metastorageRoutes` are the Metastorage import routes resolved for
+ * the current region by App.tsx. Threaded into
+ * `calculateProductionPlan` (which auto-selects each route's single
+ * transferred item) and consulted by the auto-prune effect so an
+ * import-only target survives while its route is live.
  */
 export function useProductionPlan(
   availableRecipes: readonly Recipe[],
   regionRawMaterials: ReadonlySet<ItemId>,
   facilityCaps?: ReadonlyMap<FacilityId, number>,
   rawMaterialCaps?: ReadonlyMap<ItemId, number>,
+  metastorageRoutes?: readonly MetastorageRouteConfig[],
 ) {
   const { t } = useTranslation("app");
 
@@ -378,6 +403,7 @@ export function useProductionPlan(
         recipeOverrides,
         manualRawMaterials,
         facilityCaps,
+        metastorageRoutes,
       },
     )
       .then((result) => {
@@ -406,6 +432,7 @@ export function useProductionPlan(
     regionRawMaterials,
     facilityCaps,
     rawMaterialCaps,
+    metastorageRoutes,
     t,
   ]);
 
@@ -444,12 +471,26 @@ export function useProductionPlan(
     [availableRecipes],
   );
 
+  // Items obtainable via a live Metastorage route. A target with no
+  // local producer is still honourable while importable, so the prune
+  // below must not drop it; disabling the route shrinks this set and
+  // the prune then fires (mirroring the recipe-shrink behaviour).
+  const metastorageImportableItems = useMemo(() => {
+    const out = new Set<ItemId>();
+    for (const route of metastorageRoutes ?? []) {
+      for (const itemId of route.itemCosts.keys()) out.add(itemId);
+    }
+    return out;
+  }, [metastorageRoutes]);
+
   useEffect(() => {
     let removedOverrides = 0;
     let removedRaws = 0;
 
-    const nextTargets = targets.filter((t) =>
-      reachableProducibleItems.has(t.itemId),
+    const nextTargets = targets.filter(
+      (t) =>
+        reachableProducibleItems.has(t.itemId) ||
+        metastorageImportableItems.has(t.itemId),
     );
     const removedTargets = targets.length - nextTargets.length;
 
@@ -471,14 +512,18 @@ export function useProductionPlan(
       // is redundant but harmless).
       //
       // Drop pins on items that are completely unreachable: no
-      // available recipe produces them AND they aren't a regional raw.
-      // Rationale: a manual-raw pin on an unsourceable item in the
-      // current region is meaningless — there's no chain to override.
-      // Cuprium-in-Valley-IV pins get dropped here; the user gets a
-      // toast and the affected target (if any) is auto-pruned too.
+      // available recipe produces them, not a regional raw, AND not
+      // Metastorage-importable here. Rationale: a manual-raw pin on an
+      // unsourceable item in the current region is meaningless — there's
+      // no chain to override. Cuprium-in-Valley-IV pins get dropped
+      // here; the user gets a toast and the affected target (if any) is
+      // auto-pruned too. An importable item is a legitimate pin target
+      // (hand-feed it as a raw, freeing the route for another item), so
+      // it survives — symmetric with the target-prune predicate above.
       if (
         reachableProducibleItems.has(itemId) ||
-        regionRawMaterials.has(itemId)
+        regionRawMaterials.has(itemId) ||
+        metastorageImportableItems.has(itemId)
       ) {
         nextRaws.add(itemId);
       } else {
@@ -511,6 +556,7 @@ export function useProductionPlan(
   }, [
     reachableProducibleItems,
     availableRecipeIds,
+    metastorageImportableItems,
     targets,
     recipeOverrides,
     manualRawMaterials,
@@ -554,31 +600,10 @@ export function useProductionPlan(
   // hooks (`useProductionStats`, `useProductionTable`) consume `displayPlan`
   // for nodes/edges but read `plan.bins` for aggregates via
   // `aggregateBinTotals`, which is the single source of truth.
-  const displayPlan = useMemo(() => {
-    if (!plan) return plan;
-
-    // Build sets of items/recipes involved in invalid cycles — these must
-    // not be filtered out so the user can see what went wrong.
-    const invalidCycleItems = new Set<ItemId>();
-    const invalidCycleRecipes = new Set<RecipeId>();
-    for (const ic of plan.invalidCycles) {
-      ic.involvedItemIds.forEach((id) => invalidCycleItems.add(id as ItemId));
-      ic.involvedRecipeIds.forEach((id) => invalidCycleRecipes.add(id as RecipeId));
-    }
-
-    // Filter 0-rate nodes, but never filter out target items or invalid-cycle nodes
-    const activeNodes = new Map<string, ProductionGraphNode>();
-    for (const [key, node] of plan.nodes) {
-      if (node.type === "recipe" && node.facilityCount === 0 && !invalidCycleRecipes.has(node.recipeId)) continue;
-      if (node.type === "item" && node.productionRate === 0 && !plan.targets.has(node.itemId) && !invalidCycleItems.has(node.itemId)) continue;
-      activeNodes.set(key, node);
-    }
-    // Filter edges that connect to removed nodes
-    const activeEdges = plan.edges.filter(
-      (edge) => activeNodes.has(edge.from) && activeNodes.has(edge.to)
-    );
-    return { ...plan, nodes: activeNodes, edges: activeEdges } as ProductionDependencyGraph;
-  }, [plan]);
+  const displayPlan = useMemo(
+    () => (plan ? filterPlanForDisplay(plan) : plan),
+    [plan],
+  );
 
   // Set of item ids the user has pinned a recipe for. Threaded into the
   // Production Table so the recipe picker can render a reset affordance

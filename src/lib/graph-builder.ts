@@ -94,7 +94,11 @@ const getOrThrow = <K, V>(map: Map<K, V>, key: K, type: string): V => {
  * Items become `isRawMaterial = true` when they are in the passed
  * `rawMaterials` set (the plan's per-region raw classification),
  * user-marked manual raws, or have no surviving producers (terminal
- * leaves of the chain).
+ * leaves of the chain) — UNLESS the producer-less item is in
+ * `importableItems` (Metastorage-eligible for an active route), in
+ * which case it stays a balanced item so the LP's import variable can
+ * supply it under the TTV budget instead of pretending infinite free
+ * supply.
  *
  * `rawMaterials` is required. The caller (`calculateProductionPlan`)
  * passes the per-region raw set; tests pass whatever matches their
@@ -113,6 +117,7 @@ export function buildBipartiteGraph(
   recipeOverrides?: Map<ItemId, RecipeId>,
   manualRawMaterials?: Set<ItemId>,
   recipeConstraints?: Map<ItemId, Set<RecipeId>>,
+  importableItems?: ReadonlySet<ItemId>,
 ): BipartiteGraph {
   const graph: BipartiteGraph = {
     itemNodes: new Map(),
@@ -151,6 +156,11 @@ export function buildBipartiteGraph(
     );
 
     if (producers.length === 0) {
+      // Metastorage-importable items stay BALANCED items even with no
+      // local producer: the LP's import variable is their only supply,
+      // bounded by the route's TTV budget. Promoting them to raw would
+      // grant infinite free supply and bypass the budget entirely.
+      if (importableItems?.has(itemId)) return;
       // No way to produce this item under current constraints — treat as
       // a chain-terminating raw. Downstream LP sees infinite supply for
       // it (raws are excluded from balance constraints).

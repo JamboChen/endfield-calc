@@ -47,7 +47,14 @@
       "buildings": "建物総数",
       "power": "総電力",
       "viaGrouping": "グループ化による節約",
-      "savingsExplain": "複数レシピを同一の建物にパックすることで節約した建物数。"
+      "savingsExplain": "複数レシピを同一の建物にパックすることで節約した建物数。",
+      "ttv": "総転送価値（{{source}}）"
+    },
+    "metastorage": {
+      "label": "無在庫転送（{{source}}）",
+      "tooltip": "無在庫転送",
+      "ttv": "転送価値",
+      "ttvExplain": "配送あたりの総転送価値：{{used}} / {{cap}}（1個あたり {{cost}}）。"
     }
   },
   "tree": {
@@ -89,6 +96,11 @@
     "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
     "prefillCandidates": "Prefill candidates",
     "searchNoResults": "該当なし",
-    "searchPlaceholder": "施設を検索…"
+    "searchPlaceholder": "施設を検索…",
+    "metastorage": "無在庫転送",
+    "metastorageTooltip": "無在庫転送で届きます。現地生産は不要で、転送元の倉庫在庫も減りません。",
+    "metastorageSource": "転送元地域",
+    "metastorageTtvPerItem": "1個あたりの総転送価値",
+    "metastorageTtvUsage": "配送あたりの総転送価値"
   }
 }

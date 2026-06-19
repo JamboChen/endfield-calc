@@ -22,7 +22,8 @@
     "plan": "Plan",
     "limits": "Límites",
     "raws": "Recursos",
-    "structures": "Estructuras"
+    "structures": "Estructuras",
+    "metastorage": "Metaalmacén"
   },
   "status": {
     "researched": "{{done}} / {{total}} investigado",
@@ -83,5 +84,12 @@
       "resetGroup": "Plan restablecido a los valores predeterminados",
       "prereqsRequired": "Investiga primero la tecnología prerrequisito."
     }
+  },
+  "metastorage": {
+    "help": "La calculadora elige automáticamente el objeto a transferir entre los {{count}} objetos elegibles de esta región, seleccionando el que más mejore el plan.",
+    "cardTitle": "Transferencia saliente",
+    "routeLabel": "Exporta a",
+    "modeAuto": "Auto",
+    "modeDisabled": "Desactivada"
   }
 }

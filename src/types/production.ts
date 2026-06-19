@@ -1,4 +1,13 @@
-import type { Item, Recipe, Facility, ItemId, RecipeId, FacilityId, BinId } from "@/types";
+import type {
+  Item,
+  Recipe,
+  Facility,
+  DomainId,
+  ItemId,
+  RecipeId,
+  FacilityId,
+  BinId,
+} from "@/types";
 
 /**
  * Structured warning emitted from the calc/packer layers. Display
@@ -76,7 +85,68 @@ export type PlanWarning =
       itemId: ItemId;
       used: number;
       cap: number;
+    }
+  | {
+      /**
+       * A Metastorage route could not be used because every viable
+       * item assignment would exceed the route's TTV budget — only
+       * possible when the demand is import-only (no local producer):
+       * the LP's `TTV_SLACK_PENALTY` ordering exhausts local
+       * production and every user-imposed soft cap (raw caps,
+       * facility caps) before ever touching budget overage, and the
+       * selection gate in `selectMetastorageImports` rejects any
+       * candidate that still carries overage. **No import is applied**
+       * (the budget is a game constant; an over-budget plan is
+       * unrealizable), so the affected demand goes unsatisfied and the
+       * plan typically comes out infeasible — this warning is the
+       * explanation.
+       *
+       * Figures come from the closest-to-possible rejected candidate,
+       * in per-delivery-cycle units (game-native, e.g. "needs 1800,
+       * budget 1500").
+       */
+      kind: "metastorage-budget-insufficient";
+      sourceDomain: DomainId;
+      itemId: ItemId;
+      neededPerCycle: number;
+      capPerCycle: number;
+    }
+  | {
+      /**
+       * Two or more **target** items can only be supplied via
+       * Metastorage (no local producer, not a raw) but the available
+       * route(s) transfer one item type each — the plan cannot satisfy
+       * all of them simultaneously. Emitted by
+       * `calculateProductionPlan` before solving; the affected targets
+       * surface as infeasible in the plan itself.
+       */
+      kind: "metastorage-route-conflict";
+      itemIds: ItemId[];
     };
+
+/**
+ * One active Metastorage import in the final plan: the auto-selected
+ * item arriving from `sourceDomain`. Carried on
+ * `ProductionDependencyGraph.metastorageImports`; mappers render it as
+ * an import source node and the table as an Imports row. Rates are
+ * per-minute (calc-layer convention); `cycleSeconds` lets the UI
+ * convert TTV figures to the game-native per-delivery unit.
+ */
+export type PlanMetastorageImport = {
+  sourceDomain: DomainId;
+  itemId: ItemId;
+  ratePerMinute: number;
+  ttvCostPerItem: number;
+  /**
+   * TTV/min consumed. Always ≤ `ttvBudgetPerMinute` in a final plan —
+   * the selection gate rejects over-budget candidates outright.
+   */
+  ttvUsedPerMinute: number;
+  /** TTV/min budget of the route. */
+  ttvBudgetPerMinute: number;
+  /** Real-time seconds per delivery cycle (3600 in current data). */
+  cycleSeconds: number;
+};
 
 /**
  * Represents a single step in the production chain.
@@ -151,6 +221,16 @@ export type ProductionNode = {
    * Empty / undefined when no prefill is needed.
    */
   prefillCandidates?: ItemId[];
+
+  /**
+   * Set when this flow node is a **Metastorage import source** (the
+   * item arrives from another region's depot). Mappers emit one such
+   * node per imported item (`createMetastorageSourceId`); the card
+   * renders the source region + TTV figures from this payload instead
+   * of recipe/facility info (`recipe` and `facility` are null,
+   * `isRawMaterial` stays false). Absent on every other node kind.
+   */
+  metastorageImport?: PlanMetastorageImport;
 };
 
 /**
@@ -256,12 +336,22 @@ export type ProductionDependencyGraph = {
    *
    *   - Phase 3 bin packing: recipe-override pin infeasibility, packer
    *     fallback, and (Step 2) per-facility cap overflow.
+   *   - Metastorage selection: budget-insufficient routes, route conflicts.
    *
    * Warnings are emitted as structured `PlanWarning` discriminants so
    * the display layer can apply `ceilMode` + i18n at format time.
    * `useProductionPlan.warnings` (a memo) is the canonical formatter.
    */
   warnings: PlanWarning[];
+  /**
+   * Active Metastorage imports feeding this plan (one per route; the
+   * item is auto-selected by the candidate enumeration in
+   * `calculateProductionPlan`). Empty when no route applies. Item
+   * nodes' `productionRate` stays LOCAL-only — imported supply lives
+   * here exclusively, so consumers (mappers, table, stats) must add it
+   * explicitly and nothing double-counts.
+   */
+  metastorageImports: PlanMetastorageImport[];
 };
 
 /**

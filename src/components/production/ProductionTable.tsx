@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Truck } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -22,10 +22,18 @@ import {
 } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import type { Item, Recipe, Facility, ItemId, RecipeId, BinId } from "@/types";
+import type {
+  Item,
+  Recipe,
+  Facility,
+  ItemId,
+  PlanMetastorageImport,
+  RecipeId,
+  BinId,
+} from "@/types";
 import type { IneffectivePin } from "@/hooks/useProductionPlan";
 import { useTranslation } from "react-i18next";
-import { getTransportLabel, getTransportTooltip, getFacilityName, getItemName, getRecipeName } from "@/lib/i18n-helpers";
+import { getDomainName, getTransportLabel, getTransportTooltip, getFacilityName, getItemName, getRecipeName } from "@/lib/i18n-helpers";
 import { getTransportCountWithFacilities, getPickupPointCount, getRawSourceRate, formatCount, formatNumber } from "@/lib/utils";
 import { rawMaterialSources, facilities as allFacilities } from "@/data";
 import { FacilityIcon } from "@/components/FacilityIcon";
@@ -71,6 +79,14 @@ export type ProductionLineData = {
    * surfaced in the UI tooltip.
    */
   binSpanningInfo?: Array<{ binId: BinId; buildingCount: number; slots: number }>;
+  /**
+   * Set when this row is the item's Metastorage-imported supply (one
+   * row per active route item, alongside any local-producer rows). The
+   * Recipe column shows a static "Metastorage (region)" label, the
+   * Count column a delivery glyph with TTV tooltip, and the footer
+   * aggregates per-route TTV usage from these rows.
+   */
+  metastorageImport?: PlanMetastorageImport;
 };
 
 /**
@@ -452,6 +468,7 @@ const ProductionTable = memo(function ProductionTable({
               })();
 
               const isManualRaw = line.isManualRawMaterial;
+              const isImport = line.metastorageImport !== undefined;
 
               const shouldDim =
                 hoveredItemId !== null && !highlightedItemIds.has(line.item.id);
@@ -472,6 +489,9 @@ const ProductionTable = memo(function ProductionTable({
               } else if (isManualRaw) {
                 rowClassName =
                   "h-12 transition-all duration-200 bg-blue-50/50 dark:bg-blue-900/10 hover:bg-blue-100/70 dark:hover:bg-blue-900/30";
+              } else if (isImport) {
+                rowClassName =
+                  "h-12 transition-all duration-200 bg-cyan-50/50 dark:bg-cyan-900/10 hover:bg-cyan-100/70 dark:hover:bg-cyan-900/30";
               }
               if (isDependency) {
                 rowClassName += " bg-green-50/30 dark:bg-green-900/10";
@@ -482,10 +502,14 @@ const ProductionTable = memo(function ProductionTable({
               // producer model). Pre-cfcc37e the key was just `item.id`,
               // which collided as soon as two non-disposal rows shared an
               // item. Including the recipe id disambiguates sisters and
-              // preserves the existing disposal-row carve-out.
+              // preserves the existing disposal-row carve-out. Metastorage
+              // rows get their own prefix — they coexist with the item's
+              // local-producer rows AND with a recipe-less ghost state.
               const rowKey = line.isDisposal
                 ? `disposal-${line.item.id}-${line.selectedRecipeId || "noproducer"}`
-                : `${line.item.id}-${line.selectedRecipeId || "noproducer"}`;
+                : isImport
+                  ? `import-${line.metastorageImport!.sourceDomain}-${line.item.id}`
+                  : `${line.item.id}-${line.selectedRecipeId || "noproducer"}`;
               return (
                 <TableRow
                   key={rowKey}
@@ -513,6 +537,10 @@ const ProductionTable = memo(function ProductionTable({
                       isManualRaw &&
                         !line.isInvalidCycle &&
                         "before:absolute before:left-0 before:top-0 before:h-full before:w-1 before:bg-blue-500",
+                      isImport &&
+                        !line.isInvalidCycle &&
+                        !line.isTarget &&
+                        "before:absolute before:left-0 before:top-0 before:h-full before:w-1 before:bg-cyan-500",
                       isHovered &&
                         "after:absolute after:left-0 after:top-0 after:h-full after:w-1 after:bg-blue-500 after:shadow-[0_0_8px_rgba(59,130,246,0.5)]",
                       isDependency &&
@@ -579,15 +607,71 @@ const ProductionTable = memo(function ProductionTable({
 
                   {/* Facility icon */}
                   <TableCell className="p-2">
-                    <FacilityIconCell
-                      facility={line.facility}
-                      isRawMaterial={line.isRawMaterial || isManualRaw}
-                    />
+                    {isImport ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex justify-center cursor-help">
+                            <Truck className="h-6 w-6 text-cyan-600 dark:text-cyan-400" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">
+                            {t("table.metastorage.tooltip", {
+                              defaultValue: "Metastorage Transfer",
+                            })}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <FacilityIconCell
+                        facility={line.facility}
+                        isRawMaterial={line.isRawMaterial || isManualRaw}
+                      />
+                    )}
                   </TableCell>
 
                   {/* Facility count */}
                   <TableCell className="text-right font-mono text-sm tabular-nums p-2">
-                    {line.isRawMaterial ? (() => {
+                    {isImport ? (() => {
+                      const imp = line.metastorageImport!;
+                      const cycleMinutes = imp.cycleSeconds / 60;
+                      return (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex flex-col items-end cursor-help">
+                              <span className="text-cyan-700 dark:text-cyan-400 font-semibold">
+                                {formatNumber(
+                                  imp.ttvUsedPerMinute * cycleMinutes,
+                                  0,
+                                )}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {t("table.metastorage.ttv", {
+                                  defaultValue: "TTV",
+                                })}
+                              </span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="left" className="max-w-[260px]">
+                            <p className="text-xs">
+                              {t("table.metastorage.ttvExplain", {
+                                defaultValue:
+                                  "Total Transfer Value per delivery: {{used}} of {{cap}} ({{cost}} per item).",
+                                used: formatNumber(
+                                  imp.ttvUsedPerMinute * cycleMinutes,
+                                  0,
+                                ),
+                                cap: formatNumber(
+                                  imp.ttvBudgetPerMinute * cycleMinutes,
+                                  0,
+                                ),
+                                cost: formatNumber(imp.ttvCostPerItem),
+                              })}
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })() : line.isRawMaterial ? (() => {
                       const cfg = rawMaterialSources.get(line.item.id);
                       const sourceFac = cfg
                         ? allFacilities.find((f) => f.id === cfg.sourceFacility)
@@ -681,7 +765,16 @@ const ProductionTable = memo(function ProductionTable({
 
                   {/* Recipe - hide when manually marked as raw material */}
                   <TableCell className="p-2">
-                    {line.isRawMaterial ? (
+                    {isImport ? (
+                      <div className="text-xs text-cyan-700 dark:text-cyan-400 font-medium">
+                        {t("table.metastorage.label", {
+                          defaultValue: "Metastorage ({{source}})",
+                          source: getDomainName(
+                            line.metastorageImport!.sourceDomain,
+                          ),
+                        })}
+                      </div>
+                    ) : line.isRawMaterial ? (
                       <div className="text-xs text-muted-foreground">
                         {t("table.rawMaterial")}
                       </div>
@@ -786,7 +879,7 @@ const ProductionTable = memo(function ProductionTable({
                    * shows power; other co-located rows show "(grouped)".
                    * Sums across rows match plan-level total exactly. */}
                   <TableCell className="text-right font-mono text-sm tabular-nums p-2">
-                    {line.isRawMaterial || isManualRaw ? (
+                    {line.isRawMaterial || isManualRaw || isImport ? (
                       <span className="text-muted-foreground">-</span>
                     ) : isGrouped && !line.isBinPrimary ? (
                       <Tooltip>
@@ -816,6 +909,7 @@ const ProductionTable = memo(function ProductionTable({
                     <div className="flex justify-center">
                       {!line.isTarget &&
                         !line.isDisposal &&
+                        !isImport &&
                         !(line.isRawMaterial && !line.isManualRawMaterial) && (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -964,6 +1058,46 @@ const ProductionTable = memo(function ProductionTable({
       </Table>
       {data.length > 0 && (
         <div className="border-t bg-muted/20 px-4 py-2 flex items-center justify-end gap-6 text-xs">
+          {data
+            .filter((d) => d.metastorageImport)
+            .map((d) => {
+              const imp = d.metastorageImport!;
+              const cycleMinutes = imp.cycleSeconds / 60;
+              const used = imp.ttvUsedPerMinute * cycleMinutes;
+              const cap = imp.ttvBudgetPerMinute * cycleMinutes;
+              // Compare in per-MINUTE units (source-of-truth scale) so
+              // the epsilon matches; comparing the ×cycleMinutes
+              // per-delivery values against a per-minute epsilon could
+              // paint an exact-budget plan red on float noise. (The
+              // selection gate already guarantees used ≤ budget, so this
+              // is defensive — but unit-correct.)
+              const overBudget =
+                imp.ttvUsedPerMinute > imp.ttvBudgetPerMinute + 1e-6;
+              return (
+                <div
+                  key={`ttv-${imp.sourceDomain}-${imp.itemId}`}
+                  className="flex items-center gap-2"
+                >
+                  <Truck className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
+                  <span className="text-muted-foreground">
+                    {t("table.totals.ttv", {
+                      defaultValue: "TTV ({{source}})",
+                      source: getDomainName(imp.sourceDomain),
+                    })}
+                    :
+                  </span>
+                  <span
+                    className={`font-mono font-semibold tabular-nums ${
+                      overBudget
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-cyan-700 dark:text-cyan-400"
+                    }`}
+                  >
+                    {formatNumber(used, 0)} / {formatNumber(cap, 0)}
+                  </span>
+                </div>
+              );
+            })}
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">
               {t("table.totals.buildings", { defaultValue: "Total buildings" })}:

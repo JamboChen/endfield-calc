@@ -22,7 +22,8 @@
     "plan": "プラン",
     "limits": "上限",
     "raws": "資源",
-    "structures": "構造物"
+    "structures": "構造物",
+    "metastorage": "無在庫転送"
   },
   "status": {
     "researched": "{{done}} / {{total}} 研究済み",
@@ -83,5 +84,12 @@
       "resetGroup": "プランをデフォルトに戻しました",
       "prereqsRequired": "先に前提のテクノロジーを研究してください。"
     }
+  },
+  "metastorage": {
+    "help": "計算機がこの地域の {{count}} 種類の対象アイテムから転送するアイテムを自動で選択し、プランを最も改善するものを選びます。",
+    "cardTitle": "送出転送",
+    "routeLabel": "転送先",
+    "modeAuto": "自動",
+    "modeDisabled": "無効"
   }
 }

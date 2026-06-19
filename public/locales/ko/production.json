@@ -47,7 +47,14 @@
       "buildings": "총 건물 수",
       "power": "총 전력",
       "viaGrouping": "묶음으로 절약",
-      "savingsExplain": "여러 공식을 다중 공식 건물에 패킹하여 절약된 건물 수입니다."
+      "savingsExplain": "여러 공식을 다중 공식 건물에 패킹하여 절약된 건물 수입니다.",
+      "ttv": "전송 총가치({{source}})"
+    },
+    "metastorage": {
+      "label": "무재고 전송({{source}})",
+      "tooltip": "무재고 전송",
+      "ttv": "전송 총가치",
+      "ttvExplain": "배송당 전송 총가치: {{used}} / {{cap}} (개당 {{cost}})."
     }
   },
   "tree": {
@@ -89,6 +96,11 @@
     "prefillCardTooltip": "This building's formulas form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
     "prefillCandidates": "Prefill candidates",
     "searchNoResults": "결과 없음",
-    "searchPlaceholder": "건물 검색…"
+    "searchPlaceholder": "건물 검색…",
+    "metastorage": "무재고 전송",
+    "metastorageTooltip": "무재고 전송으로 도착합니다. 현지 생산이 필요 없고 출발 지역 창고 재고도 줄지 않습니다.",
+    "metastorageSource": "출발 지역",
+    "metastorageTtvPerItem": "개당 전송 총가치",
+    "metastorageTtvUsage": "배송당 전송 총가치"
   }
 }

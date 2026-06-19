@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type {
+  PlanMetastorageImport,
   ProductionDependencyGraph,
   ProductionGraphNode,
   ItemId,
@@ -9,6 +10,7 @@ import type {
 } from "@/types";
 import type { ProductionLineData } from "@/components/production/ProductionTable";
 import { calcRate } from "@/lib/utils";
+import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import type { BinAggregates } from "@/lib/plan-helpers";
 import { getRecipeInputItemId } from "@/lib/plan-helpers";
 
@@ -50,6 +52,14 @@ type MergedRow = {
   isTarget: boolean;
   dependencies: Set<ItemId>;
   level: number;
+  /**
+   * Set when this row represents the item's Metastorage-imported
+   * supply. Items with both local production and an import get one
+   * import row ALONGSIDE their producer rows (sister-row pattern);
+   * import-only items get the import row INSTEAD of the empty
+   * no-producer row. `producerContribution` carries the import rate.
+   */
+  metastorageImport?: PlanMetastorageImport;
 };
 
 /**
@@ -120,12 +130,43 @@ export function mergeItemNodes(
 
   const rows: MergedRow[] = [];
 
+  // Metastorage imports, grouped by item: each (source, item) becomes
+  // one extra sister row (or, for an import-only item, replaces the
+  // empty no-producer row) so imported supply is visible next to local
+  // production. A list per item because a region can receive the same
+  // item from multiple source regions. `MIN_VISIBLE_RATE_PER_MIN`
+  // matches the mappers' import-node cutoff so a sub-visible import
+  // never yields a table row without a graph node (or vice versa).
+  const importsByItem = new Map<ItemId, PlanMetastorageImport[]>();
+  for (const imp of plan.metastorageImports) {
+    if (imp.ratePerMinute <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    const list = importsByItem.get(imp.itemId) ?? [];
+    list.push(imp);
+    importsByItem.set(imp.itemId, list);
+  }
+
   plan.nodes.forEach((node) => {
     if (node.type !== "item") return;
 
     const producers = producersByItem.get(node.itemId) ?? [];
+    const imports = importsByItem.get(node.itemId) ?? [];
+
+    for (const metastorageImport of imports) {
+      rows.push({
+        itemId: node.itemId,
+        recipeId: null,
+        facilityCount: 0,
+        producerContribution: metastorageImport.ratePerMinute,
+        isRawMaterial: node.isRawMaterial,
+        isTarget: node.isTarget,
+        dependencies: new Set(),
+        level: 0,
+        metastorageImport,
+      });
+    }
 
     if (producers.length === 0) {
+      if (imports.length > 0) return; // import rows replace the empty row
       // Raw / chain-terminator / no-producer item. One row, no recipe.
       rows.push({
         itemId: node.itemId,
@@ -304,6 +345,25 @@ export function useProductionTable(
         ProductionGraphNode,
         { type: "item" }
       >;
+
+      // Metastorage import row: no recipe picker, no facility — the
+      // Recipe column renders a static "Metastorage (region)" label and
+      // the Count column a delivery glyph (see ProductionTable.tsx).
+      if (row.metastorageImport) {
+        return {
+          item: itemNode.item,
+          outputRate: row.producerContribution,
+          availableRecipes: [],
+          selectedRecipeId: "" as const,
+          facility: null,
+          facilityCount: 0,
+          isRawMaterial: false,
+          isTarget: row.isTarget,
+          isManualRawMaterial: false,
+          isInvalidCycle: invalidCycleItemIds.has(row.itemId),
+          metastorageImport: row.metastorageImport,
+        };
+      }
 
       // The dropdown's available-recipes list is the same for every
       // sister row of an item (it's an item-level property). The

@@ -21,6 +21,7 @@ pnpm run extract:ids         # Refresh src/types/constants.ts (Item/Recipe/Facil
 pnpm run extract:facilities  # Refresh src/data/facilities.ts + public/locales/{lang}/facility.json
 pnpm run extract:recipes     # Refresh src/data/recipes.ts + public/locales/{lang}/recipe.json
 pnpm run extract:items       # Refresh src/data/items.ts + public/locales/{lang}/item.json
+pnpm run extract:metastorage # Refresh src/data/metastorage.ts (TTV caps + per-item costs)
 pnpm run extract:structures  # Refresh src/data/region-subsystems.ts + public/locales/{lang}/structure.json
 pnpm run extract:aic         # Refresh src/data/aic-plans.ts + public/locales/{lang}/{aic,domain}.json
 pnpm run extract:item-colors # Refresh src/data/item-colors.ts from public/images/items/*.png — STANDALONE, not in extract:all (icons are manually curated); re-run when icons change
@@ -57,6 +58,7 @@ One sentence per file. Deep invariants in `.claude/rules/` load when you touch t
 - `src/hooks/useProductionPlan.ts` — top-level plan orchestration, ineffective-pin detection, `facilityCaps` threading.
 - `src/data/index.ts` — `rawMaterialSources`, `rawAvailabilityByDomain`, `costlessRaws`, `forcedDisposalItems`, `bootstrapFacilities`, `facilityRecipeVariants`. See `.claude/rules/raws.md`.
 - `src/data/region-subsystems.ts` — AUTO-GENERATED (`extract:structures`) region subsystems: map-placed structures (`regionStructures`, the `solver: { role, facilityId }` bridge that drives the Settings "Structures" tab + App-layer cap aggregation + variant filter) plus the collapsed capped facility (`regionFacilities`), the disposal/byproduct recipe variants (`regionRecipes`), and the toggle map (`regionFacilityVariants`). Derived from `Factory*PlantStoreTable` + the sibling Import/Export + `FactoryBuildingTable`; merged into `facilities`/`recipes` by the `@/data` barrel. Structure names live in `public/locales/{lang}/structure.json`.
+- `src/data/metastorage.ts` — AUTO-GENERATED (`extract:metastorage`) Metastorage Transfer capability: `metastorageSources` (per-source TTV cap/cycle/unlock) + `metastorageExports` (source → item → TTV cost). Feeds the LP import variables (`lp-solver.ts`), the per-route auto-item-selection (`calculator.ts:selectMetastorageImports`), the `useDomainSettings.metastorage` route modes, and the App-layer route resolution + reachability seeding. See `.claude/rules/solver.md` + `domain-settings.md`.
 
 Everything else is discoverable via `ls` / `grep`. Game data: `src/data/{items,recipes,facilities}.ts`; types: `src/types/`; UI: `src/components/`; hooks: `src/hooks/`; tests: `src/tests/lib/`.
 

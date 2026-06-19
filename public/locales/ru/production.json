@@ -47,7 +47,14 @@
       "buildings": "Всего зданий",
       "power": "Всего энергии",
       "viaGrouping": "за счёт группировки",
-      "savingsExplain": "Здания, сэкономленные за счёт упаковки формул в общие многоформульные здания."
+      "savingsExplain": "Здания, сэкономленные за счёт упаковки формул в общие многоформульные здания.",
+      "ttv": "ОСТ ({{source}})"
+    },
+    "metastorage": {
+      "label": "Трансфер ({{source}})",
+      "tooltip": "Межхранилищный трансфер",
+      "ttv": "ОСТ",
+      "ttvExplain": "Общая стоимость трансфера за поставку: {{used}} из {{cap}} ({{cost}} за предмет)."
     }
   },
   "tree": {
@@ -89,6 +96,11 @@
     "prefillCardTooltip": "This building's formulas form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
     "prefillCandidates": "Prefill candidates",
     "searchNoResults": "Нет совпадений",
-    "searchPlaceholder": "Поиск зданий…"
+    "searchPlaceholder": "Поиск зданий…",
+    "metastorage": "Трансфер",
+    "metastorageTooltip": "Доставляется межхранилищным трансфером, без местного производства и без списания со склада источника.",
+    "metastorageSource": "Регион-источник",
+    "metastorageTtvPerItem": "Стоимость трансфера за предмет",
+    "metastorageTtvUsage": "Стоимость за поставку"
   }
 }

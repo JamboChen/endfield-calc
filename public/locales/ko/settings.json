@@ -22,7 +22,8 @@
     "plan": "플랜",
     "limits": "한도",
     "raws": "자원",
-    "structures": "구조물"
+    "structures": "구조물",
+    "metastorage": "무재고 전송"
   },
   "status": {
     "researched": "{{done}} / {{total}} 연구됨",
@@ -83,5 +84,12 @@
       "resetGroup": "플랜을 기본값으로 재설정함",
       "prereqsRequired": "먼저 선행 기술을 연구하세요."
     }
+  },
+  "metastorage": {
+    "help": "계산기가 이 지역의 대상 아이템 {{count}}종 중에서 전송할 아이템을 자동으로 선택하며, 플랜을 가장 크게 개선하는 아이템을 고릅니다.",
+    "cardTitle": "송출 전송",
+    "routeLabel": "전송 대상",
+    "modeAuto": "자동",
+    "modeDisabled": "비활성화"
   }
 }

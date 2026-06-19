@@ -62,15 +62,20 @@
  *     "disabled": [
  *       { "domainId": "...", "structureId": "..." }
  *     ]
+ *   },
+ *   "metastorage": {
+ *     "routes": [
+ *       { "source": "domain_1", "mode": "disabled" }
+ *     ]
  *   }
  * }
  * ```
  *
- * Both `aic.unresearched` and `structures.disabled` are **inverted
- * absence-lists** — empty arrays mean "everything researched /
- * enabled in active domains". Persistence stores only the user's
- * explicit opt-outs, so a fresh user (no localStorage) loads with
- * everything on.
+ * `aic.unresearched`, `structures.disabled`, and `metastorage.routes`
+ * are **inverted absence-lists / deviations-only** — empty arrays mean
+ * "everything researched / enabled in active domains / every capable
+ * source on auto". Persistence stores only the user's explicit
+ * opt-outs, so a fresh user (no localStorage) loads with everything on.
  *
  * `domains.current` is the user's selected factory region. Invariant:
  * always ∈ `activeDomains` (pinned domains are always active so this
@@ -99,6 +104,8 @@
  *   `node.alreadyUnlocked`. Active domains get the "everything
  *   researched" default; inactive domains get the game-default subset.
  * - `rawLimits.overrides` = empty (no caps configured).
+ * - `metastorage.routeModes` = `"auto"` for every capable source (no
+ *   stored deviations).
  * - `structures.enabled` = every structure in every active domain
  *   (default-active mirror of AIC). Inactive-domain structures are
  *   not enabled. With Valley IV pinned-active and Wuling default-
@@ -126,7 +133,11 @@ import {
   domains as domainData,
   facilityBaseCaps,
 } from "@/data/aic-plans";
-import { rawAvailabilityByDomain, regionStructures } from "@/data";
+import {
+  metastorageSources,
+  rawAvailabilityByDomain,
+  regionStructures,
+} from "@/data";
 import {
   buildNodeIndex,
   cascadeActivate,
@@ -156,6 +167,7 @@ import type {
 } from "@/types/aic";
 import { isDomainId, parseDomainId } from "@/types/domain";
 import type { Domain, DomainId } from "@/types/domain";
+import type { MetastorageRouteMode } from "@/types/metastorage";
 import type { FacilityId, ItemId } from "@/types";
 import type { RegionStructureId } from "@/types/constants";
 
@@ -176,6 +188,17 @@ interface RawLimitOverrideRecord {
 interface StructureDisabledRecord {
   domainId: DomainId;
   structureId: RegionStructureId;
+}
+
+/**
+ * One persisted Metastorage route deviation. Only non-`"auto"` modes
+ * are stored (`"auto"` is the default for every capable source);
+ * `mode` is either the literal `"disabled"` or the locked destination
+ * `DomainId`.
+ */
+interface MetastorageRouteRecord {
+  source: DomainId;
+  mode: "disabled" | DomainId;
 }
 
 /**
@@ -208,6 +231,16 @@ interface PersistedShape {
    */
   structures?: {
     disabled: StructureDisabledRecord[];
+  };
+  /**
+   * Metastorage Transfer route modes (absent in payloads written
+   * before the feature landed). **Default-auto**: an empty `routes`
+   * list (or a missing `metastorage` key) means every capable source
+   * region exports to whichever region is being planned. Persistence
+   * stores only deviations — `"disabled"` or a locked destination.
+   */
+  metastorage?: {
+    routes: MetastorageRouteRecord[];
   };
 }
 
@@ -438,11 +471,37 @@ function loadFromStorage(): PersistedShape | null {
         )
       : [];
 
+    // Metastorage routes — deviations-only list (absent = every capable
+    // source on "auto"). Drop entries whose source isn't a known domain
+    // with Metastorage capability, whose mode is neither "disabled" nor
+    // a known domain in the registry, or whose locked destination equals
+    // the source (self-routes are meaningless). The destination gate
+    // (`domainData` membership) is identical to `setMetastorageRouteMode`
+    // below, so the load and set paths can't drift. Dropping an entry
+    // re-defaults that source to "auto" — the desired behavior when a
+    // game patch changes the capable-source set.
+    const metastorageRoutes = Array.isArray(shape.metastorage?.routes)
+      ? shape.metastorage.routes.filter((r): r is MetastorageRouteRecord => {
+          if (r === null || typeof r === "undefined") return false;
+          if (typeof r !== "object") return false;
+          const source = parseDomainId(r.source);
+          if (!source || !metastorageSources.has(source)) return false;
+          if (r.mode === "disabled") return true;
+          const dest = parseDomainId(r.mode);
+          return (
+            dest !== undefined &&
+            dest !== source &&
+            domainData.some((d) => d.id === dest)
+          );
+        })
+      : [];
+
     return {
       domains: { inactive, current },
       aic: { unresearched, capOverrides },
       rawLimits: { overrides: rawLimitOverrides },
       structures: { disabled: structuresDisabled },
+      metastorage: { routes: metastorageRoutes },
     };
   } catch {
     return null;
@@ -456,6 +515,7 @@ function persistToStorage(state: {
   currentDomain: DomainId;
   rawLimitOverrides: ReadonlyMap<string, number>;
   structuresEnabled: ReadonlySet<string>;
+  metastorageRouteModes: ReadonlyMap<DomainId, "disabled" | DomainId>;
 }): void {
   if (typeof window === "undefined") return;
   try {
@@ -504,6 +564,14 @@ function persistToStorage(state: {
       activeDomains,
     );
 
+    // Metastorage deviations (in-memory map already stores only
+    // non-"auto" modes; serialize as records sorted by source).
+    const metastorageList: MetastorageRouteRecord[] = [];
+    for (const [source, mode] of state.metastorageRouteModes) {
+      metastorageList.push({ source, mode });
+    }
+    metastorageList.sort((a, b) => a.source.localeCompare(b.source));
+
     const payload: PersistedShape = {
       domains: {
         inactive: Array.from(state.inactiveDomains).sort(),
@@ -529,6 +597,9 @@ function persistToStorage(state: {
             return a.domainId.localeCompare(b.domainId);
           return a.structureId.localeCompare(b.structureId);
         }),
+      },
+      metastorage: {
+        routes: metastorageList,
       },
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -675,6 +746,37 @@ export interface StructuresSubState {
   toggle: (domainId: DomainId, structureId: RegionStructureId) => void;
 }
 
+/**
+ * Metastorage Transfer sub-state — peer to `aic` / `rawLimits` /
+ * `structures` on `DomainSettingsValue`. Models the per-**source**-
+ * region outbound route mode:
+ *
+ *   - `"auto"` (default) — the source exports to whichever region is
+ *     currently being planned.
+ *   - `"disabled"` — no plan imports from this source.
+ *   - a `DomainId` — locked: only plans for that region import from
+ *     this source.
+ *
+ * Consumed by `App.tsx`, which resolves the routes feeding
+ * `currentDomain` (source capable + active + mode ∈ {auto, current})
+ * into `MetastorageRouteConfig`s for the calc layer, and seeds the
+ * reachability closure with the routes' eligible items.
+ */
+export interface MetastorageSubState {
+  /**
+   * Route mode per capable source region (every key of
+   * `metastorageSources` is present; unset sources read `"auto"`).
+   */
+  readonly routeModes: ReadonlyMap<DomainId, MetastorageRouteMode>;
+
+  /**
+   * Set a source's route mode. No-ops for sources without Metastorage
+   * capability, self-routes (`mode === source`), and unknown
+   * destination ids. Setting `"auto"` clears the stored deviation.
+   */
+  setRouteMode: (source: DomainId, mode: MetastorageRouteMode) => void;
+}
+
 export interface DomainSettingsValue {
   /** First-class domain registry from the data dump. */
   readonly domains: readonly Domain[];
@@ -753,6 +855,9 @@ export interface DomainSettingsValue {
    * consumed by the calc (solver wiring is a later workstream).
    */
   readonly structures: StructuresSubState;
+
+  /** Metastorage Transfer route modes (the "Metastorage" tab). */
+  readonly metastorage: MetastorageSubState;
 }
 
 /**
@@ -774,6 +879,7 @@ function composeInitialState(): {
   currentDomain: DomainId;
   rawLimitOverrides: Map<string, number>;
   structuresEnabled: Set<string>;
+  metastorageRouteModes: Map<DomainId, "disabled" | DomainId>;
 } {
   const persisted = loadFromStorage();
 
@@ -845,6 +951,16 @@ function composeInitialState(): {
       )
     : initialStructuresEnabled(regionStructures, initialActive);
 
+  // ── metastorageRouteModes (deviations-only; absence = "auto" for
+  //    every capable source — the loader's capability filter already
+  //    dropped stale entries)
+  const metastorageRouteModes = new Map<DomainId, "disabled" | DomainId>();
+  if (persisted?.metastorage) {
+    for (const r of persisted.metastorage.routes) {
+      metastorageRouteModes.set(r.source, r.mode);
+    }
+  }
+
   return {
     inactiveDomains,
     researched,
@@ -852,6 +968,7 @@ function composeInitialState(): {
     currentDomain,
     rawLimitOverrides,
     structuresEnabled,
+    metastorageRouteModes,
   };
 }
 
@@ -887,6 +1004,10 @@ export function useDomainSettings(): DomainSettingsValue {
     ReadonlySet<string>
   >(initial.structuresEnabled);
 
+  const [metastorageRouteModes, setMetastorageRouteModes] = useState<
+    ReadonlyMap<DomainId, "disabled" | DomainId>
+  >(initial.metastorageRouteModes);
+
   // Derived: active domains (allDomains - inactive). Pinned domains
   // can never be in `inactiveDomains` (the toggler refuses) so they're
   // always active here.
@@ -913,6 +1034,7 @@ export function useDomainSettings(): DomainSettingsValue {
       currentDomain,
       rawLimitOverrides,
       structuresEnabled,
+      metastorageRouteModes,
     });
   }, [
     researched,
@@ -921,6 +1043,7 @@ export function useDomainSettings(): DomainSettingsValue {
     currentDomain,
     rawLimitOverrides,
     structuresEnabled,
+    metastorageRouteModes,
   ]);
 
   // Derived: AIC selectors (domain-aware where applicable).
@@ -1209,6 +1332,30 @@ export function useDomainSettings(): DomainSettingsValue {
     [],
   );
 
+  /**
+   * Set a source region's Metastorage route mode. The in-memory map
+   * stores only deviations from the `"auto"` default, so `"auto"`
+   * deletes the entry. Validation mirrors the loader: source must have
+   * Metastorage capability; a locked destination must be a known
+   * domain different from the source.
+   */
+  const setMetastorageRouteMode = useCallback(
+    (source: DomainId, mode: MetastorageRouteMode) => {
+      if (!metastorageSources.has(source)) return;
+      if (mode !== "auto" && mode !== "disabled") {
+        if (mode === source) return;
+        if (!domainData.some((d) => d.id === mode)) return;
+      }
+      setMetastorageRouteModes((prev) => {
+        const next = new Map(prev);
+        if (mode === "auto") next.delete(source);
+        else next.set(source, mode);
+        return next;
+      });
+    },
+    [],
+  );
+
   const aic: AicSubState = useMemo(
     () => ({
       nodes: aicNodes,
@@ -1262,6 +1409,16 @@ export function useDomainSettings(): DomainSettingsValue {
     [structuresEnabled, toggleStructure],
   );
 
+  const metastorage: MetastorageSubState = useMemo(() => {
+    // Materialize a mode for every capable source so consumers never
+    // need the "absent = auto" rule.
+    const routeModes = new Map<DomainId, MetastorageRouteMode>();
+    for (const source of metastorageSources.keys()) {
+      routeModes.set(source, metastorageRouteModes.get(source) ?? "auto");
+    }
+    return { routeModes, setRouteMode: setMetastorageRouteMode };
+  }, [metastorageRouteModes, setMetastorageRouteMode]);
+
   return {
     domains: domainData,
     activeDomains,
@@ -1272,5 +1429,6 @@ export function useDomainSettings(): DomainSettingsValue {
     aic,
     rawLimits,
     structures,
+    metastorage,
   };
 }

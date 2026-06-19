@@ -96,8 +96,9 @@ function getNodeDimensions(node: Node): { width: number; height: number } {
   if (node.type === "productionNode") {
     const prodNode = node as FlowProductionNode;
 
-    // Check if it's a raw material node
-    if (prodNode.data.productionNode.isRawMaterial) {
+    // Raw material pickups + Metastorage import sources share the
+    // compact external-source card dimensions.
+    if (isRawMaterialNode(node)) {
       const isPartialLoad =
         "isPartialLoad" in prodNode.data && prodNode.data.isPartialLoad;
       return isPartialLoad
@@ -117,11 +118,16 @@ function getNodeDimensions(node: Node): { width: number; height: number } {
   return NODE_DIMENSIONS.PRODUCTION_NODE;
 }
 
+/**
+ * External-source predicate for the left-column alignment: raw-material
+ * pickups AND Metastorage import sources. Both are supply-only leaves
+ * (no inputs), so pinning them to the leftmost column keeps the
+ * left-to-right reading order intact.
+ */
 function isRawMaterialNode(node: Node): node is FlowProductionNode {
-  return (
-    node.type === "productionNode" &&
-    (node as FlowProductionNode).data.productionNode.isRawMaterial
-  );
+  if (node.type !== "productionNode") return false;
+  const data = (node as FlowProductionNode).data.productionNode;
+  return data.isRawMaterial || data.metastorageImport !== undefined;
 }
 
 const VERTICAL_GAP = 100;
@@ -297,8 +303,9 @@ export const getLayoutedElements = async (
 
       if (twoEndAlignment) {
         if (node.type === "productionNode") {
-          const prodNode = node as FlowProductionNode;
-          if (prodNode.data.productionNode.isRawMaterial) {
+          // Raw pickups AND Metastorage import sources pin to the first
+          // layer — both are supply-only leaves (see isRawMaterialNode).
+          if (isRawMaterialNode(node)) {
             elkNode.layoutOptions = {
               "org.eclipse.elk.layered.layeringConstraint": "FIRST_SEPARATE",
             };

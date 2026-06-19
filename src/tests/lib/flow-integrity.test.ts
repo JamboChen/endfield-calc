@@ -5,9 +5,26 @@ import {
   mapPlanToFlowBinFused,
   mapPlanToFlowBinFusedSeparated,
 } from "@/components/mappers/bin-fused-mapper";
-import { items, recipes, facilities } from "@/data";
+import {
+  items,
+  recipes,
+  facilities,
+  metastorageExports,
+  metastorageSources,
+  rawAvailabilityByDomain,
+} from "@/data";
+import { createMetastorageSourceId } from "@/lib/node-keys";
+import { filterPlanForDisplay } from "@/lib/plan-helpers";
 import { getTransportCount } from "@/lib/utils";
-import type { FacilityId, ItemId, ProductionDependencyGraph } from "@/types";
+import type {
+  FacilityId,
+  ItemId,
+  ProductionDependencyGraph,
+  Recipe,
+  RecipeId,
+} from "@/types";
+import type { MetastorageRouteConfig } from "@/types/metastorage";
+import { DomainId } from "@/types/constants";
 import type { Edge, Node } from "@xyflow/react";
 import { ALL_RAWS } from "./utils";
 
@@ -78,6 +95,301 @@ describe("flow mapper integrity", () => {
       expect(isolated).toEqual([]);
     });
   }
+});
+
+describe("metastorage import flow integrity", () => {
+  // Wuling plans fed by the real Valley IV route. Two shapes:
+  //   - Dense Originium Powder 30/min — MIXED supply (import 25/min at
+  //     the TTV cap + 5/min local thickener chain), so the import
+  //     source coexists with recipe producers.
+  //   - Quartz Glass 20/min — IMPORT-ONLY (Wuling has no quartz sand),
+  //     so the entire flow graph is one import source + the target sink.
+  const wulingRaws = rawAvailabilityByDomain.get(DomainId.DOMAIN_2)!;
+  const valleyInfo = metastorageSources.get(DomainId.DOMAIN_1)!;
+  const realRoute: MetastorageRouteConfig = {
+    sourceDomain: DomainId.DOMAIN_1,
+    ttvBudgetPerMinute:
+      valleyInfo.ttvCapPerCycle / (valleyInfo.cycleSeconds / 60),
+    cycleSeconds: valleyInfo.cycleSeconds,
+    itemCosts: metastorageExports.get(DomainId.DOMAIN_1)!,
+  };
+
+  const importCases: { name: string; targetId: ItemId; rate: number }[] = [
+    {
+      name: "dense originium powder (mixed import + local)",
+      targetId: "item_originium_enr_powder" as ItemId,
+      rate: 30,
+    },
+    {
+      name: "quartz glass (import-only)",
+      targetId: "item_quartz_glass" as ItemId,
+      rate: 20,
+    },
+  ];
+
+  const importPlans = new Map<
+    string,
+    { plan: ProductionDependencyGraph; targetRates: Map<ItemId, number> }
+  >();
+
+  beforeAll(async () => {
+    for (const c of importCases) {
+      const plan = await calculateProductionPlan(
+        [{ itemId: c.targetId, rate: c.rate }],
+        items,
+        recipes,
+        facilities,
+        { rawMaterials: wulingRaws, metastorageRoutes: [realRoute] },
+      );
+      importPlans.set(c.name, {
+        plan,
+        targetRates: new Map([[c.targetId, c.rate]]),
+      });
+    }
+  });
+
+  for (const c of importCases) {
+    test(`${c.name}: all three mappers stay integrity-clean and emit the import source`, () => {
+      const { plan, targetRates } = importPlans.get(c.name)!;
+      expect(plan.metastorageImports.length).toBeGreaterThan(0);
+      const importNodeIds = new Set(
+        plan.metastorageImports.map((imp) =>
+          createMetastorageSourceId(imp.sourceDomain, imp.itemId),
+        ),
+      );
+
+      const flows = [
+        mapPlanToFlowMerged(plan, items, facilities, targetRates),
+        mapPlanToFlowBinFused(plan, items, recipes, facilities, targetRates),
+        mapPlanToFlowBinFusedSeparated(
+          plan,
+          items,
+          recipes,
+          facilities,
+          targetRates,
+        ),
+      ];
+      for (const flow of flows) {
+        const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
+        expect(dangling).toEqual([]);
+        expect(isolated).toEqual([]);
+        // Every plan-level import surfaces as a source node with at
+        // least one outgoing edge carrying the imported item.
+        for (const importNodeId of importNodeIds) {
+          const node = flow.nodes.find((n) => n.id === importNodeId);
+          expect(node, `${importNodeId} node missing`).toBeDefined();
+          const outEdges = flow.edges.filter((e) => e.source === importNodeId);
+          expect(outEdges.length).toBeGreaterThan(0);
+          const total = outEdges.reduce(
+            (sum, e) => sum + ((e.data as { flowRate: number }).flowRate ?? 0),
+            0,
+          );
+          const imp = plan.metastorageImports.find(
+            (i) => createMetastorageSourceId(i.sourceDomain, i.itemId) === importNodeId,
+          )!;
+          expect(total).toBeCloseTo(imp.ratePerMinute, 2);
+        }
+      }
+    });
+  }
+
+  test("synthetic mixed-supply intermediate keeps integrity in every view", async () => {
+    // Iron nugget supplied by furnace (5/min) + import (25/min), both
+    // feeding the grinder — the import source must split-merge cleanly
+    // with the recipe producer in all three mappers.
+    const { mockItems, mockFacilities, simpleRecipes } = await import(
+      "./fixtures/test-data"
+    );
+    const plan = await calculateProductionPlan(
+      [{ itemId: "item_iron_powder" as ItemId, rate: 30 }],
+      mockItems,
+      simpleRecipes,
+      mockFacilities,
+      {
+        rawMaterials: ALL_RAWS,
+        metastorageRoutes: [
+          {
+            sourceDomain: DomainId.DOMAIN_1,
+            ttvBudgetPerMinute: 25,
+            cycleSeconds: 3600,
+            itemCosts: new Map([["item_iron_nugget" as ItemId, 1]]),
+          },
+        ],
+      },
+    );
+    const targetRates = new Map<ItemId, number>([
+      ["item_iron_powder" as ItemId, 30],
+    ]);
+    const flows = [
+      mapPlanToFlowMerged(plan, mockItems, mockFacilities, targetRates),
+      mapPlanToFlowBinFused(
+        plan,
+        mockItems,
+        simpleRecipes,
+        mockFacilities,
+        targetRates,
+      ),
+      mapPlanToFlowBinFusedSeparated(
+        plan,
+        mockItems,
+        simpleRecipes,
+        mockFacilities,
+        targetRates,
+      ),
+    ];
+    const importNodeId = createMetastorageSourceId(DomainId.DOMAIN_1, "item_iron_nugget");
+    for (const flow of flows) {
+      const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
+      expect(dangling).toEqual([]);
+      expect(isolated).toEqual([]);
+      const outEdges = flow.edges.filter((e) => e.source === importNodeId);
+      const total = outEdges.reduce(
+        (sum, e) => sum + ((e.data as { flowRate: number }).flowRate ?? 0),
+        0,
+      );
+      expect(total).toBeCloseTo(25, 2);
+    }
+  });
+
+  test("import-only intermediate survives display filtering in every view", async () => {
+    // Regression for the `displayPlan` zero-rate filter bug: a target
+    // (battery) is produced locally from an intermediate (nugget) that
+    // has NO local producer and is NOT itself importable — only the
+    // intermediate is. The auto-selector imports the nugget, so its
+    // LOCAL productionRate is 0. The mappers must run on the
+    // display-FILTERED plan (as the hook does) and still surface the
+    // import source + its edge; a naive zero-rate filter drops the
+    // nugget node + edge silently (no integrity violation fires).
+    const { mockItems, mockFacilities } = await import("./fixtures/test-data");
+    const batteryFromNugget: Recipe[] = [
+      {
+        id: "tools_battery_from_nugget" as RecipeId,
+        inputs: [{ itemId: "item_iron_nugget" as ItemId, amount: 1 }],
+        outputs: [{ itemId: "item_proc_battery_1" as ItemId, amount: 1 }],
+        facilityId: "tools_assebling_mc_1" as FacilityId,
+        craftingTime: 2,
+      },
+    ];
+    const rawPlan = await calculateProductionPlan(
+      [{ itemId: "item_proc_battery_1" as ItemId, rate: 20 }],
+      mockItems,
+      batteryFromNugget,
+      mockFacilities,
+      {
+        // Empty raw set: nugget has no producer here, so it would
+        // normally degrade to a raw — the route keeps it balanced.
+        rawMaterials: new Set<ItemId>(),
+        metastorageRoutes: [
+          {
+            sourceDomain: DomainId.DOMAIN_1,
+            ttvBudgetPerMinute: 25,
+            cycleSeconds: 3600,
+            itemCosts: new Map([["item_iron_nugget" as ItemId, 1]]),
+          },
+        ],
+      },
+    );
+    expect(rawPlan.metastorageImports).toHaveLength(1);
+    expect(rawPlan.metastorageImports[0].itemId).toBe("item_iron_nugget");
+
+    // Run mappers on the FILTERED plan, exactly as the hook does.
+    const plan = filterPlanForDisplay(rawPlan);
+    const targetRates = new Map<ItemId, number>([
+      ["item_proc_battery_1" as ItemId, 20],
+    ]);
+    const importNodeId = createMetastorageSourceId(DomainId.DOMAIN_1, "item_iron_nugget");
+    const flows = [
+      mapPlanToFlowMerged(plan, mockItems, mockFacilities, targetRates),
+      mapPlanToFlowBinFused(
+        plan,
+        mockItems,
+        batteryFromNugget,
+        mockFacilities,
+        targetRates,
+      ),
+      mapPlanToFlowBinFusedSeparated(
+        plan,
+        mockItems,
+        batteryFromNugget,
+        mockFacilities,
+        targetRates,
+      ),
+    ];
+    for (const flow of flows) {
+      const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
+      expect(dangling).toEqual([]);
+      expect(isolated).toEqual([]);
+      const node = flow.nodes.find((n) => n.id === importNodeId);
+      expect(node, "import source node missing after display filter").toBeDefined();
+      const outTotal = flow.edges
+        .filter((e) => e.source === importNodeId)
+        .reduce((s, e) => s + ((e.data as { flowRate: number }).flowRate ?? 0), 0);
+      expect(outTotal).toBeCloseTo(20, 2);
+    }
+  });
+
+  test("two sources importing the same item render as distinct nodes", async () => {
+    // A region may receive the same item from multiple source regions.
+    // Both must survive as separate producer nodes (keyed per source);
+    // a by-item collapse would silently drop one source's supply.
+    // ore→nugget→powder; both routes import nugget (cost 1, 25/min cap
+    // each) → 50/min imported + 10/min local for a 60/min powder target.
+    const { mockItems, mockFacilities, simpleRecipes } = await import(
+      "./fixtures/test-data"
+    );
+    const plan = await calculateProductionPlan(
+      [{ itemId: "item_iron_powder" as ItemId, rate: 60 }],
+      mockItems,
+      simpleRecipes,
+      mockFacilities,
+      {
+        rawMaterials: ALL_RAWS,
+        metastorageRoutes: [
+          {
+            sourceDomain: DomainId.DOMAIN_1,
+            ttvBudgetPerMinute: 25,
+            cycleSeconds: 3600,
+            itemCosts: new Map([["item_iron_nugget" as ItemId, 1]]),
+          },
+          {
+            sourceDomain: DomainId.DOMAIN_2,
+            ttvBudgetPerMinute: 25,
+            cycleSeconds: 3600,
+            itemCosts: new Map([["item_iron_nugget" as ItemId, 1]]),
+          },
+        ],
+      },
+    );
+    // Both routes selected the same item from distinct sources.
+    expect(plan.metastorageImports).toHaveLength(2);
+    expect(new Set(plan.metastorageImports.map((i) => i.sourceDomain)).size).toBe(2);
+    expect(
+      plan.metastorageImports.every((i) => i.itemId === "item_iron_nugget"),
+    ).toBe(true);
+
+    const targetRates = new Map<ItemId, number>([
+      ["item_iron_powder" as ItemId, 60],
+    ]);
+    const id1 = createMetastorageSourceId(DomainId.DOMAIN_1, "item_iron_nugget");
+    const id2 = createMetastorageSourceId(DomainId.DOMAIN_2, "item_iron_nugget");
+    const flows = [
+      mapPlanToFlowMerged(plan, mockItems, mockFacilities, targetRates),
+      mapPlanToFlowBinFused(plan, mockItems, simpleRecipes, mockFacilities, targetRates),
+      mapPlanToFlowBinFusedSeparated(plan, mockItems, simpleRecipes, mockFacilities, targetRates),
+    ];
+    for (const flow of flows) {
+      const { dangling, isolated } = checkIntegrity(flow.nodes, flow.edges);
+      expect(dangling).toEqual([]);
+      expect(isolated).toEqual([]);
+      // Two distinct import nodes, neither collapsed onto the other.
+      expect(flow.nodes.find((n) => n.id === id1)).toBeDefined();
+      expect(flow.nodes.find((n) => n.id === id2)).toBeDefined();
+      const total = flow.edges
+        .filter((e) => e.source === id1 || e.source === id2)
+        .reduce((s, e) => s + ((e.data as { flowRate: number }).flowRate ?? 0), 0);
+      expect(total).toBeCloseTo(50, 2);
+    }
+  });
 });
 
 describe("Phase 3 bin-aware integrity", () => {
