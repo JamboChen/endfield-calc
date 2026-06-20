@@ -184,9 +184,9 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
   test("issue #90: Byproduct Outlet ON — excess sewage disposed at 0 W, no Water Treatment Unit", async () => {
     // Repro from the issue: Wuling Purification Node fully enabled (3
     // Sewage Inlets + Byproduct Outlet), target 6/min Hetonite Part
-    // (item_copper_enr_cmpt). The Hetonite chain emits 30 sewage/min
-    // (POOL_COPPER_ENR_1 byproduct) and has no productive xiranite_poly
-    // consumer.
+    // (item_copper_enr_cmpt). The Hetonite enrichment chain emits sewage
+    // as a byproduct across its pool steps (≈270 sewage/min at this
+    // target) and has no productive xiranite_poly consumer.
     //
     // Pre-fix, the App dropped DISPOSAL, so sewage was forced through
     // BYPRODUCT → xiranite_poly → Water Treatment Unit (50 W) purely to
@@ -231,7 +231,8 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
 
     // The bug fix: no Water Treatment Unit is pulled in to destroy
     // effluent (xiranite_poly) — nor to dispose sewage (the Inlet cap of
-    // 3×120 = 360/min covers the 30/min comfortably).
+    // 3×120 = 360/min covers the chain's ≈270/min load with room to
+    // spare; DISPOSAL runs ≈2.25 inlets).
     expect(
       recipeNode(
         plan,

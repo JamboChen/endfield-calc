@@ -47,6 +47,16 @@ import type { FacilityId, RecipeId } from "@/types";
  *   a signal that reflects only structure-derived instance count.
  *   Today they coincide (LIQUID_CLEAN_GATE_1 has no AIC cap-raise
  *   nodes); the separation defends against future drift.
+ *
+ *   **Cross-layer invariant (toggle ON)**: keeping both variants here is
+ *   only consistent with the calculator's `cap-zero-only` backstop
+ *   because the App threads `facilityCaps[F] > 0` for every `F` in
+ *   `availableInstances` (both signals derive from the same
+ *   enabled-`instance` structure set — see `App.tsx`'s `facilityCaps` and
+ *   `structureVariantExcluded` memos). If a future change ever let
+ *   `availableInstances` hold a facility whose cap stayed `0`, the
+ *   `cap-zero-only` gate would re-drop BOTH variants and silently undo the
+ *   additive (issue #90) routing. Keep the two App memos in lockstep.
  */
 export type VariantExclusionOpts =
   | {
