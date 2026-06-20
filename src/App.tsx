@@ -122,7 +122,8 @@ function AppContent() {
   //     is in the set). Drives "is the facility physically present?".
   //   - `toggledFacilities`: facilities whose `recipeToggle` structure
   //     is enabled (e.g. Byproduct Outlet on → LIQUID_CLEAN_GATE_1 is
-  //     in the set). Drives which variant is "active".
+  //     in the set). Makes the `toggled` variant ADDITIONALLY available
+  //     alongside the `default` (additive — issue #90), not a swap.
   //
   // Why this lives at the App layer (alongside the existing AIC filter):
   // the calc / graph-builder / LP all operate on whatever recipe set
@@ -240,8 +241,10 @@ function AppContent() {
       availableFacilities,
       settings.aic.unlockedModes,
     ).availableRecipes;
-    // Apply the structure-variant filter BEFORE reachability so the
-    // inactive variant can't leak into the reachable set or the LP.
+    // Apply the structure-variant filter BEFORE reachability so any
+    // excluded variant can't leak into the reachable set or the LP. (With
+    // the toggle ON nothing is excluded — both variants are kept; see
+    // `computeVariantExclusions`.)
     const variantFiltered = aicFiltered.filter(
       (r) => !structureVariantExcluded.has(r.id),
     );

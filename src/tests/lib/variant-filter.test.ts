@@ -128,15 +128,21 @@ describe("computeVariantExclusions — structure-aware mode", () => {
     expect(excluded.size).toBe(1);
   });
 
-  test("instance available + toggle on: excludes only the default variant", () => {
+  test("instance available + toggle on: excludes NOTHING (additive — issue #90)", () => {
+    // The toggle is additive: enabling the Byproduct Outlet keeps BOTH
+    // the pure-sink DISPOSAL variant AND the BYPRODUCT variant in the LP,
+    // sharing the facility cap. The LP routes BYPRODUCT up to real
+    // xiranite_poly demand and dumps the rest via DISPOSAL (0 W) — it is
+    // NOT forced through xiranite_poly → Water Treatment Unit. This makes
+    // structure-aware (toggle on) converge with cap-zero-only (cap > 0).
     const excluded = computeVariantExclusions({
       mode: "structure-aware",
       availableInstances: new Set([LCG1]),
       toggledFacilities: new Set([LCG1]),
     });
-    expect(excluded.has(DEFAULT_VARIANT)).toBe(true);
+    expect(excluded.has(DEFAULT_VARIANT)).toBe(false);
     expect(excluded.has(TOGGLED_VARIANT)).toBe(false);
-    expect(excluded.size).toBe(1);
+    expect(excluded.size).toBe(0);
   });
 
   test("degenerate: toggle on without instance excludes both", () => {

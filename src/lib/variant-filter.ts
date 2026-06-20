@@ -27,9 +27,17 @@ import type { FacilityId, RecipeId } from "@/types";
  *   - F not in `availableInstances` → exclude both
  *     (no physical buildings — neither variant should appear in the LP).
  *   - F in `availableInstances` + not in `toggledFacilities` →
- *     exclude `toggled` (default variant active).
+ *     exclude `toggled` (toggle OFF — only the default/pure-sink variant).
  *   - F in `availableInstances` + in `toggledFacilities` →
- *     exclude `default` (toggled variant active).
+ *     exclude NOTHING. The toggle is **additive** (issue #90): both
+ *     variants stay in the LP, sharing the facility cap, and the LP
+ *     routes the `toggled` recipe up to real downstream demand and falls
+ *     back to `default` for the rest. This mirrors the `cap-zero-only`
+ *     "cap > 0 → exclude nothing" branch. Concretely: the Byproduct
+ *     Outlet lets a Sewage Inlet ALSO tap xiranite_poly from sewage it is
+ *     already disposing — it does NOT force every unit through the
+ *     byproduct path (which would mandate a Water Treatment Unit to
+ *     destroy the unwanted effluent).
  *
  *   `availableInstances` is intentionally **not** derived from
  *   `facilityCaps` — a future variant facility with AIC cap-raise nodes
@@ -66,13 +74,16 @@ export function computeVariantExclusions(
     }
     // structure-aware
     if (!opts.availableInstances.has(facilityId)) {
+      // No physical buildings — neither variant should reach the LP.
       excluded.add(variants.default);
       excluded.add(variants.toggled);
-    } else if (opts.toggledFacilities.has(facilityId)) {
-      excluded.add(variants.default);
-    } else {
+    } else if (!opts.toggledFacilities.has(facilityId)) {
+      // Toggle OFF — only the default (pure-sink) variant is active.
       excluded.add(variants.toggled);
     }
+    // else: toggle ON — exclude nothing. The toggle is ADDITIVE (issue
+    // #90); both variants share the facility cap and the LP picks between
+    // them (toggled up to real downstream demand, default for the rest).
   }
   return excluded;
 }

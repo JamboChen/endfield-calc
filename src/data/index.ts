@@ -233,21 +233,28 @@ const bootstrapFacilities: ReadonlySet<FacilityId> = new Set([
 /**
  * Per-facility recipe-variant pairs gated by a structure toggle.
  *
- * Each entry says: "facility F has two interchangeable recipes — the
- * `default` runs when no enabled structure toggles F, the `toggled`
- * runs when at least one enabled structure has `solver = { role:
- * "recipeToggle", facilityId: F }`". The App-layer bridge in
- * `src/App.tsx` walks this map together with `regionStructures` +
- * `structures.enabled` to build the `recipeConstraints` exclusion set.
+ * Each entry says: "facility F has a `default` recipe (active whenever F
+ * has ≥1 enabled instance) plus a `toggled` recipe that becomes
+ * **additionally** available when an enabled structure has `solver = {
+ * role: "recipeToggle", facilityId: F }`". The toggle is ADDITIVE, not a
+ * swap (issue #90): when on, BOTH recipes stay in the LP, share F's cap,
+ * and the LP routes between them. The App-layer bridge in `src/App.tsx`
+ * walks this map together with `regionStructures` + `structures.enabled`
+ * to build the `recipeConstraints` exclusion set.
  *
  * Today's sole entry is `LIQUID_CLEAN_GATE_1`:
- *   - `default` = `LIQUID_CLEAN_GATE_1_DISPOSAL` (pure sink; Byproduct Outlet OFF)
- *   - `toggled` = `LIQUID_CLEAN_GATE_1_BYPRODUCT` (emits xiranite_poly; ON)
+ *   - `default` = `LIQUID_CLEAN_GATE_1_DISPOSAL` (pure 0 W sink; available
+ *     once Sewage Inlets exist, whether or not the Byproduct Outlet is on)
+ *   - `toggled` = `LIQUID_CLEAN_GATE_1_BYPRODUCT` (ALSO emits xiranite_poly;
+ *     available only when the Byproduct Outlet is enabled, alongside the
+ *     pure sink — so the LP recycles sewage up to real downstream demand
+ *     and dumps the rest via DISPOSAL instead of forcing every unit
+ *     through xiranite_poly → Water Treatment Unit)
  *
  * The two recipes share the same facility AND the same per-building
  * sewage throughput (120/min) by construction, so the LP's facility-cap
  * constraint on `LIQUID_CLEAN_GATE_1` correctly bounds the number of
- * physical inlets regardless of which variant is active.
+ * physical inlets across whichever mix of variants is active.
  *
  * The map itself is auto-generated alongside the structures + recipes in
  * `src/data/region-subsystems.ts`; re-exported here so consumers keep

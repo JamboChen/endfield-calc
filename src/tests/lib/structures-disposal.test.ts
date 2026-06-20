@@ -10,11 +10,31 @@ import { describe, expect, test } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
 import { items, recipes, facilities, rawMaterialSources } from "@/data";
 import { calcRate } from "@/lib/utils";
+import { computeVariantExclusions } from "@/lib/variant-filter";
 import { aggregateBinTotals, computeOverCapWarnings } from "@/lib/plan-helpers";
 import { FacilityId, ItemId, RecipeId } from "@/types/constants";
 import type { ProductionGraphNode } from "@/types";
 
 const ALL_RAWS: ReadonlySet<ItemId> = new Set(rawMaterialSources.keys());
+
+// Models the App-side `structureVariantExcluded` filter (src/App.tsx)
+// with the full Wuling Purification Node enabled — 3 Sewage Inlets
+// (`availableInstances`) plus the Byproduct Outlet (`toggledFacilities`).
+// It resolves the real `computeVariantExclusions` rule and drops the
+// excluded recipes before the calculator runs, exactly as App.tsx does.
+//
+// Post issue #90 the toggle is ADDITIVE, so this keeps BOTH inlet
+// variants (DISPOSAL + BYPRODUCT). Routing through the real helper (not a
+// hand-written `r.id !== DISPOSAL` filter) makes these tests fail if the
+// additive rule ever regresses back to dropping DISPOSAL.
+const recipesWithByproductOutletOn = () => {
+  const excluded = computeVariantExclusions({
+    mode: "structure-aware",
+    availableInstances: new Set([FacilityId.LIQUID_CLEAN_GATE_1]),
+    toggledFacilities: new Set([FacilityId.LIQUID_CLEAN_GATE_1]),
+  });
+  return recipes.filter((r) => !excluded.has(r.id));
+};
 
 // Sewage Inlet per-building throughput (in sewage/min). Derived from the
 // recipe data so the test stays in sync if the rates ever change.
@@ -151,18 +171,32 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
     expect(cleaner!.facilityCount).toBeCloseTo(18, 5);
   });
 
-  test("cap=3 with Byproduct Outlet enabled: LP uses BYPRODUCT variant (not DISPOSAL)", async () => {
-    // The test caller models the App-side variant filter by passing only
-    // the BYPRODUCT recipe through `recipes` (App filters out the
-    // inactive variant before handing the list to the calculator).
-    const filteredRecipes = recipes.filter(
-      (r) => r.id !== RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
-    );
+  test("issue #90: Byproduct Outlet ON keeps BOTH inlet variants available", () => {
+    // Regression guard at the filter level: enabling the Byproduct Outlet
+    // (toggle ON) must NOT drop the pure-sink DISPOSAL variant. Pre-fix
+    // the App-side filter excluded DISPOSAL, leaving BYPRODUCT as the only
+    // sewage sink; post-fix the toggle is additive and both survive.
+    const ids = new Set(recipesWithByproductOutletOn().map((r) => r.id));
+    expect(ids.has(RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL)).toBe(true);
+    expect(ids.has(RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT)).toBe(true);
+  });
 
+  test("issue #90: Byproduct Outlet ON — excess sewage disposed at 0 W, no Water Treatment Unit", async () => {
+    // Repro from the issue: Wuling Purification Node fully enabled (3
+    // Sewage Inlets + Byproduct Outlet), target 6/min Hetonite Part
+    // (item_copper_enr_cmpt). The Hetonite chain emits 30 sewage/min
+    // (POOL_COPPER_ENR_1 byproduct) and has no productive xiranite_poly
+    // consumer.
+    //
+    // Pre-fix, the App dropped DISPOSAL, so sewage was forced through
+    // BYPRODUCT → xiranite_poly → Water Treatment Unit (50 W) purely to
+    // destroy effluent nothing wanted. Post-fix the toggle is additive:
+    // the LP disposes the excess sewage via the 0 W pure-sink DISPOSAL
+    // variant and never produces (or cleans) any effluent.
     const plan = await calculateProductionPlan(
-      [{ itemId: ItemId.ITEM_COPPER_CMPT, rate: 30 }],
+      [{ itemId: ItemId.ITEM_COPPER_ENR_CMPT, rate: 6 }],
       items,
-      filteredRecipes,
+      recipesWithByproductOutletOn(),
       facilities,
       {
         rawMaterials: ALL_RAWS,
@@ -170,16 +204,116 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
       },
     );
 
+    // Excess sewage routes through the pure-sink DISPOSAL variant (0 W).
+    const inlet = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL);
+    expect(inlet).toBeDefined();
+    expect(inlet!.facilityCount).toBeGreaterThan(0);
+
+    // DISPOSAL absorbs ALL the sewage the Hetonite chain emits, within the
+    // 3-inlet cap (no spillover to a cleaner). Coupled to the plan's own
+    // sewage production rather than a hard-coded count so the assertion
+    // survives upstream recipe-rate drift.
+    const sewage = plan.nodes.get(ItemId.ITEM_LIQUID_SEWAGE);
+    expect(sewage?.type).toBe("item");
+    if (sewage?.type === "item") {
+      expect(inlet!.facilityCount).toBeCloseTo(
+        sewage.productionRate / SEWAGE_PER_INLET_PER_MIN,
+        4,
+      );
+    }
+    expect(inlet!.facilityCount).toBeLessThanOrEqual(3 + 1e-9);
+
+    // BYPRODUCT is NOT engaged — no xiranite_poly is demanded, so emitting
+    // it would only create disposal work.
+    expect(
+      recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT),
+    ).toBeUndefined();
+
+    // The bug fix: no Water Treatment Unit is pulled in to destroy
+    // effluent (xiranite_poly) — nor to dispose sewage (the Inlet cap of
+    // 3×120 = 360/min covers the 30/min comfortably).
+    expect(
+      recipeNode(
+        plan,
+        RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_XIRANITE_POLY,
+      ),
+    ).toBeUndefined();
+    expect(
+      recipeNode(
+        plan,
+        RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("issue #90: Byproduct Outlet ON — BYPRODUCT serves real demand while DISPOSAL dumps the rest", async () => {
+    // The additive payoff: with the outlet ON and a genuine downstream
+    // xiranite_poly consumer, the LP taps the Byproduct Outlet to satisfy
+    // that demand "for free" from sewage it is already disposing, and
+    // routes the LEFTOVER sewage through the 0 W DISPOSAL sink — no Water
+    // Treatment Unit, no dedicated xiranite chain.
+    //
+    // Targets: 6/min Hetonite Part (≈270 sewage/min byproduct) + 2/min
+    // solid Xircon (item_xiranite_poly), which POOL_XIRANITE_POLY_1 makes
+    // by consuming liquid xiranite_poly (2 liquid per solid → 4
+    // liquid_poly/min demand). BYPRODUCT emits 4 xiranite_poly/min per
+    // building, so the demand is met by exactly 1 BYPRODUCT building (120
+    // sewage/min); the remaining sewage spills to DISPOSAL.
+    const plan = await calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_COPPER_ENR_CMPT, rate: 6 },
+        { itemId: ItemId.ITEM_XIRANITE_POLY, rate: 2 },
+      ],
+      items,
+      recipesWithByproductOutletOn(),
+      facilities,
+      {
+        rawMaterials: ALL_RAWS,
+        facilityCaps: new Map([[FacilityId.LIQUID_CLEAN_GATE_1, 3]]),
+      },
+    );
+
+    expect(plan.invalidCycles).toHaveLength(0);
+
+    // BYPRODUCT engaged to exactly meet the 4 liquid_poly/min demand
+    // (2 solid Xircon × 2 liquid each ÷ 4 per building = 1 building).
     const byproduct = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT);
     expect(byproduct).toBeDefined();
-    // 30/min sewage / 120/min/building = 0.25 buildings.
-    expect(byproduct!.facilityCount).toBeCloseTo(0.25, 5);
+    expect(byproduct!.facilityCount).toBeCloseTo(1, 4);
 
-    // Disposal variant must NOT appear (it was filtered out upstream).
-    expect(recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL)).toBeUndefined();
+    // DISPOSAL coexists, absorbing the sewage the outlet didn't recycle.
+    const disposal = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL);
+    expect(disposal).toBeDefined();
+    expect(disposal!.facilityCount).toBeGreaterThan(0);
+
+    // Both inlet variants share the single 3-building facility cap.
+    expect(
+      byproduct!.facilityCount + disposal!.facilityCount,
+    ).toBeLessThanOrEqual(3 + 1e-9);
+
+    // No Water Treatment Unit: the outlet's effluent is fully consumed by
+    // the Xircon demand, and the leftover sewage disposes at 0 W.
+    expect(
+      recipeNode(
+        plan,
+        RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_XIRANITE_POLY,
+      ),
+    ).toBeUndefined();
+    expect(
+      recipeNode(
+        plan,
+        RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
+      ),
+    ).toBeUndefined();
   });
 
   test("byproduct variant emits xiranite_poly at the 30:1 ratio (4/min/building)", async () => {
+    // Isolates the BYPRODUCT recipe mechanic by removing DISPOSAL from the
+    // recipe set. NOTE: this is NOT how the App configures an enabled
+    // Byproduct Outlet post issue #90 (which keeps BOTH variants — see the
+    // additive-routing tests above). Forcing BYPRODUCT-only here lets us
+    // pin the 30:1 emission ratio and its downstream cleaner cascade.
+    //
     // 30/min sewage byproduct × (4 xiranite_poly / 120 sewage) = 1/min
     // xiranite_poly produced as a side-effect of disposal. With no
     // downstream consumer of xiranite_poly, the LP routes it through
@@ -318,6 +452,9 @@ describe("Sewage Inlet — rendering hooks", () => {
   });
 
   test("BYPRODUCT variant is rendered as a producer (NOT a disposal sink)", async () => {
+    // BYPRODUCT-only isolation (DISPOSAL removed) so the variant is
+    // guaranteed to run and we can assert its render flags. Not the App's
+    // outlet-on config post issue #90 (which keeps both variants).
     const filteredRecipes = recipes.filter(
       (r) => r.id !== RecipeId.LIQUID_CLEAN_GATE_1_DISPOSAL,
     );
