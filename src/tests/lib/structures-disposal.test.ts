@@ -277,7 +277,14 @@ describe("Sewage Inlet — facility cap drives LP variant selection", () => {
     expect(plan.invalidCycles).toHaveLength(0);
 
     // BYPRODUCT engaged to exactly meet the 4 liquid_poly/min demand
-    // (2 solid Xircon × 2 liquid each ÷ 4 per building = 1 building).
+    // (2 solid Xircon × 2 liquid each ÷ 4 per building = 1 building). The
+    // LP routes the WHOLE liquid_xiranite_poly demand through BYPRODUCT
+    // because it is 0 W and consumes sewage that is otherwise disposed for
+    // free — strictly cheaper under the lex objective (rawCost → buildings
+    // → power) than any dedicated producer (pool/purifier, which burn
+    // liquid_xiranite raws and emit lowpoly needing its own disposal).
+    // The exact count therefore holds despite those alternatives existing;
+    // it would only shift if their relative costs were retuned below free.
     const byproduct = recipeNode(plan, RecipeId.LIQUID_CLEAN_GATE_1_BYPRODUCT);
     expect(byproduct).toBeDefined();
     expect(byproduct!.facilityCount).toBeCloseTo(1, 4);
