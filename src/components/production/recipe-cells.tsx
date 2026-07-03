@@ -20,6 +20,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { Facility, Item, ItemId, Recipe, RecipeId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getFacilityName, getItemName, getRecipeName } from "@/lib/i18n-helpers";
@@ -30,7 +31,7 @@ const sizeClasses = {
   md: { icon: "h-8 w-8 object-contain inline-block", fallback: "inline-block w-8 h-8 bg-muted rounded text-[7px] text-center leading-3" },
 } as const;
 
-export const ItemIcon = memo(({ item, size = "md" }: { item: Item; size?: "sm" | "md" }) => {
+export const ItemIcon = memo(({ item, size = "md", className }: { item: Item; size?: "sm" | "md"; className?: string }) => {
   const itemName = getItemName(item);
   const classes = sizeClasses[size];
 
@@ -39,13 +40,13 @@ export const ItemIcon = memo(({ item, size = "md" }: { item: Item; size?: "sm" |
       <img
         src={item.iconUrl}
         alt={itemName}
-        className={classes.icon}
+        className={cn(classes.icon, className)}
       />
     );
   }
 
   return (
-    <span className={classes.fallback}>
+    <span className={cn(classes.fallback, className)}>
       ?
     </span>
   );
@@ -79,8 +80,8 @@ export const RecipeIOCompact = memo(
                 key={ri.itemId}
                 className="inline-flex items-center gap-0.5"
               >
-                {item && <ItemIcon item={item} />}
-                <span className="text-[15px]">×{ri.amount}</span>
+                {item && <ItemIcon item={item} className="max-sm:h-6 max-sm:w-6" />}
+                <span className="text-[15px] max-sm:text-[13px]">×{ri.amount}</span>
                 {idx < displayed.length - 1 && (
                   <span className="text-muted-foreground mx-0.5">+</span>
                 )}
@@ -101,7 +102,7 @@ export const RecipeIOCompact = memo(
         {renderItems(recipe.inputs, maxDisplay)}
         <span className="text-muted-foreground mx-0.5">→</span>
         {renderItems(recipe.outputs, maxDisplay)}
-        <span className="text-[13px] text-muted-foreground ml-0.5">
+        <span className="text-[13px] max-sm:text-[11px] text-muted-foreground ml-0.5">
           ({recipe.craftingTime}s)
         </span>
       </div>
@@ -276,7 +277,12 @@ export const RecipeSelect = memo(
         value={selectedRecipeId}
         onValueChange={(value: RecipeId) => onRecipeChange(itemId, value)}
       >
-        <SelectTrigger className="h-auto min-h-8 text-xs py-1">
+        {/* data-[size=default]:h-auto — must match the base trigger's
+            data-[size=default]:h-9 variant exactly, or tailwind-merge keeps
+            both and the attribute selector out-specifies bare h-auto,
+            pinning the box to 36px while wrapped chips spill past the
+            border. */}
+        <SelectTrigger className="h-auto data-[size=default]:h-auto min-h-8 text-xs py-1 max-sm:px-2">
           <SelectValue>
             {selectedRecipe && (
               <RecipeIOCompact
