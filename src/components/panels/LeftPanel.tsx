@@ -53,7 +53,7 @@ const LeftPanel = memo(function LeftPanel({
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">{t("title")}</CardTitle>
             <div className="flex items-center gap-2">
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs text-muted-foreground font-mono">
                 {t("count", { current: targets.length, max: 12 })}
               </div>
               <Button

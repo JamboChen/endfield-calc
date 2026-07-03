@@ -1,5 +1,4 @@
 import { memo, useState } from "react";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { X, Plus } from "lucide-react";
@@ -24,6 +23,21 @@ type TargetItemsGridProps = {
   maxTargets?: number;
 };
 
+/**
+ * Production-target list in the bottom-dock row language: one
+ * tier-accented row per target (icon · name · rate input + /min ·
+ * remove), plus a dashed full-width add button.
+ *
+ * Names **wrap instead of truncating** — the longest localized item
+ * names (46 chars in ru) never fit a single line beside the input at
+ * any sane rail width, so rows grow to two lines for the long tail
+ * while the common short names stay one compact line.
+ *
+ * Touch ergonomics follow the settings-row convention: ≥44px rows on
+ * small screens (`min-h-11 sm:min-h-0`), remove buttons always visible
+ * on hover-less devices, hover-revealed (opacity, space reserved — no
+ * layout shift) plus focus-visible-revealed on pointer devices.
+ */
 const TargetItemsGrid = memo(function TargetItemsGrid({
   targets,
   items,
@@ -36,7 +50,7 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="flex flex-col gap-1.5">
       {/* Existing targets */}
       {targets.map((target, index) => {
         const item = items.find((i) => i.id === target.itemId);
@@ -46,104 +60,100 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
         const tc = tierClasses(item.tier);
 
         return (
-          <Card
+          <div
             key={target.itemId}
             className={cn(
-              "target-card-enter relative group border-l-2 transition-all duration-150 hover:shadow-md hover:-translate-y-0.5",
+              "target-card-enter group flex items-center gap-2 rounded border border-border/40 border-l-2 bg-card px-2 py-1.5 min-h-11 sm:min-h-0 transition-all duration-150",
               tc.border,
               isFocused && "ring-2 ring-primary/40",
             )}
             style={{ animationDelay: `${index * 30}ms` }}
           >
-            {/* Remove button */}
+            {/* Item icon */}
+            <div className="h-8 w-8 flex items-center justify-center shrink-0">
+              {item.iconUrl ? (
+                <img
+                  src={item.iconUrl}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-full w-full object-contain"
+                />
+              ) : (
+                <div className="h-full w-full bg-muted rounded" />
+              )}
+            </div>
+
+            {/* Name — wraps (never truncates); long localized names
+                take a second line. */}
+            <div className="flex-1 min-w-0 text-xs font-medium break-words leading-tight">
+              {getItemName(item)}
+            </div>
+
+            {/* Rate input + unit */}
+            <div className="flex items-center gap-1 shrink-0">
+              <Input
+                type="number"
+                value={target.rate}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "") {
+                    onTargetChange(index, 0);
+                  } else {
+                    const num = Number(val);
+                    if (!isNaN(num)) {
+                      onTargetChange(index, num);
+                    }
+                  }
+                }}
+                onFocus={(e) => {
+                  setFocusedIndex(index);
+                  e.target.select();
+                }}
+                onBlur={(e) => {
+                  if (e.target.value === "" || Number(e.target.value) < 0) {
+                    onTargetChange(index, 0);
+                  }
+                  setFocusedIndex(null);
+                }}
+                className="h-8 w-24 px-2 text-xs text-right font-mono"
+                min="0"
+                step="1"
+                aria-label={t("rateInput")}
+              />
+              <span
+                className="text-[11px] text-muted-foreground font-mono"
+                title={t("rateUnit")}
+              >
+                /min
+              </span>
+            </div>
+
+            {/* Remove — space reserved (opacity reveal, no layout
+                shift); always visible on touch, focus-revealed for
+                keyboard users. */}
             <Button
               variant="ghost"
               size="sm"
               onClick={() => onTargetRemove(index)}
-              className="absolute -top-1.5 -right-1.5 h-5 w-5 p-0 rounded-full bg-background border border-border shadow-sm [@media(hover:none)]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-all hover:bg-destructive hover:text-destructive-foreground hover:border-destructive z-10"
+              className="h-7 w-7 p-0 shrink-0 rounded-full [@media(hover:none)]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100 transition-all hover:bg-destructive hover:text-destructive-foreground"
               aria-label={t("removeTarget")}
             >
-              <X className="h-3 w-3" />
+              <X className="h-3.5 w-3.5" />
             </Button>
-
-            <div className="px-2 space-y-2">
-              {/* Item icon, tier dot, and name */}
-              <div className="flex flex-col items-center gap-1.5">
-                <div className="h-12 w-12 flex items-center justify-center">
-                  {item.iconUrl ? (
-                    <img
-                      src={item.iconUrl}
-                      alt={getItemName(item)}
-                      className="h-full w-full object-contain"
-                    />
-                  ) : (
-                    <div className="h-full w-full bg-muted rounded flex items-center justify-center">
-                      <span className="text-xs text-muted-foreground">
-                        {t("noIcon")}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <div className="text-xs font-medium text-center line-clamp-2 w-full px-1 min-h-8 leading-tight">
-                  {getItemName(item)}
-                </div>
-              </div>
-
-              {/* Rate input */}
-              <div className="space-y-1">
-                <Input
-                  type="number"
-                  value={target.rate}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "") {
-                      onTargetChange(index, 0);
-                    } else {
-                      const num = Number(val);
-                      if (!isNaN(num)) {
-                        onTargetChange(index, num);
-                      }
-                    }
-                  }}
-                  onFocus={(e) => {
-                    setFocusedIndex(index);
-                    e.target.select();
-                  }}
-                  onBlur={(e) => {
-                    if (e.target.value === "" || Number(e.target.value) < 0) {
-                      onTargetChange(index, 0);
-                    }
-                    setFocusedIndex(null);
-                  }}
-                  className="h-7 text-xs text-center font-mono"
-                  min="0"
-                  step="1"
-                  aria-label={t("rateInput")}
-                />
-                <div className="text-[10px] text-center text-muted-foreground">
-                  {t("rateUnit")}
-                </div>
-              </div>
-            </div>
-          </Card>
+          </div>
         );
       })}
 
       {/* Add button */}
       {targets.length < maxTargets && (
-        <Card
-          className="border-2 border-dashed border-border hover:border-primary/50 hover:bg-accent/40 cursor-pointer transition-all duration-200 group active:scale-[0.97]"
+        <button
+          type="button"
           onClick={onAddClick}
+          className="group flex w-full items-center justify-center gap-2 rounded border-2 border-dashed border-border px-2 py-2 min-h-11 sm:min-h-0 sm:py-1.5 text-xs font-medium text-muted-foreground cursor-pointer transition-all duration-200 hover:border-primary/50 hover:bg-accent/40 hover:text-foreground active:scale-[0.98]"
         >
-          <div className="h-full flex flex-col items-center justify-center p-2.5 min-h-[140px]">
-            <div className="h-10 w-10 border-2 border-dashed border-muted-foreground/30 group-hover:border-primary/50 rounded-lg flex items-center justify-center mb-2 transition-all duration-200 group-hover:scale-110">
-              <Plus className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-            </div>
-            <div className="text-xs text-muted-foreground group-hover:text-foreground transition-colors text-center font-medium">
-              {t("addTarget")}
-            </div>
-          </div>
-        </Card>
+          <Plus className="h-4 w-4 transition-transform duration-200 group-hover:scale-110" />
+          {t("addTarget")}
+        </button>
       )}
     </div>
   );
