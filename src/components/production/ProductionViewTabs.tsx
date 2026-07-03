@@ -2,7 +2,9 @@ import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { BarChart3, Network } from "lucide-react";
 import ProductionTable from "./ProductionTable";
+import ProductionCards from "./ProductionCards";
 import ProductionDependencyTree from "../flow/ProductionDependencyTree";
+import { usePortrait } from "@/hooks/usePortrait";
 import SolverLoadingOverlay from "./SolverLoadingOverlay";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -71,6 +73,7 @@ export default function ProductionViewTabs({
   loading,
 }: ProductionViewTabsProps) {
   const { t } = useTranslation("app");
+  const isPortrait = usePortrait();
   const [visualizationMode, setVisualizationMode] =
     useState<VisualizationMode>("merged");
   const [twoEndAlignment, setTwoEndAlignment] = useState(false);
@@ -173,18 +176,35 @@ export default function ProductionViewTabs({
                 height for the table/tree. */}
             <TabsContent value="table" className="h-full m-0 p-4 pt-0">
               <div className="h-full overflow-auto">
-                <ProductionTable
-                  data={tableData.rows}
-                  totals={tableData.totals}
-                  items={items}
-                  recipes={recipes}
-                  onRecipeChange={onRecipeChange}
-                  onRecipePinReset={onRecipePinReset}
-                  onToggleRawMaterial={onToggleRawMaterial}
-                  pinnedItemIds={pinnedItemIds}
-                  ineffectivePins={ineffectivePins}
-                  ceilMode={ceilMode}
-                />
+                {/* Portrait renders the card list — same rows/totals/
+                    handlers, reshaped for narrow touch screens. */}
+                {isPortrait ? (
+                  <ProductionCards
+                    data={tableData.rows}
+                    totals={tableData.totals}
+                    items={items}
+                    recipes={recipes}
+                    onRecipeChange={onRecipeChange}
+                    onRecipePinReset={onRecipePinReset}
+                    onToggleRawMaterial={onToggleRawMaterial}
+                    pinnedItemIds={pinnedItemIds}
+                    ineffectivePins={ineffectivePins}
+                    ceilMode={ceilMode}
+                  />
+                ) : (
+                  <ProductionTable
+                    data={tableData.rows}
+                    totals={tableData.totals}
+                    items={items}
+                    recipes={recipes}
+                    onRecipeChange={onRecipeChange}
+                    onRecipePinReset={onRecipePinReset}
+                    onToggleRawMaterial={onToggleRawMaterial}
+                    pinnedItemIds={pinnedItemIds}
+                    ineffectivePins={ineffectivePins}
+                    ceilMode={ceilMode}
+                  />
+                )}
               </div>
             </TabsContent>
             <TabsContent value="tree" className="h-full m-0">

@@ -8,7 +8,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
+import { RecipeIOFull, ItemIcon } from "../production/recipe-cells";
 import { getItemName, getFacilityName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type { TargetSinkNodeData } from "@/types";
