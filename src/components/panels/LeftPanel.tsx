@@ -4,28 +4,32 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import TargetItemsGrid, { type ProductionTarget } from "./TargetItemsGrid";
 import OptionsCard from "./OptionsCard";
-import type { Item } from "@/types";
+import type { Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
 
 type LeftPanelProps = {
   targets: ProductionTarget[];
   items: Item[];
+  maxEnabledByTarget: ReadonlyMap<ItemId, boolean>;
   ceilMode: boolean;
   onCeilModeChange: (value: boolean) => void;
   onOpenSettings: () => void;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
+  onTargetLockToggle: (index: number) => void;
   onAddClick: () => void;
 };
 
 const LeftPanel = memo(function LeftPanel({
   targets,
   items,
+  maxEnabledByTarget,
   ceilMode,
   onCeilModeChange,
   onOpenSettings,
   onTargetChange,
   onTargetRemove,
+  onTargetLockToggle,
   onAddClick,
 }: LeftPanelProps) {
   const { t } = useTranslation("targets");
@@ -72,8 +76,10 @@ const LeftPanel = memo(function LeftPanel({
           <TargetItemsGrid
             targets={targets}
             items={items}
+            maxEnabledByTarget={maxEnabledByTarget}
             onTargetChange={onTargetChange}
             onTargetRemove={onTargetRemove}
+            onTargetLockToggle={onTargetLockToggle}
             onAddClick={onAddClick}
           />
         </CardContent>

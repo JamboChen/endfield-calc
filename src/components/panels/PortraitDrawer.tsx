@@ -22,11 +22,13 @@ type PortraitDrawerProps = {
   error: string | null;
   warnings: string[];
   rawMaterialOverCapMap: ReadonlyMap<ItemId, { used: number; cap: number }>;
+  maxEnabledByTarget: ReadonlyMap<ItemId, boolean>;
   ceilMode?: boolean;
   onCeilModeChange: (value: boolean) => void;
   onOpenSettings: () => void;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
+  onTargetLockToggle: (index: number) => void;
   onAddClick: () => void;
 };
 
@@ -44,11 +46,13 @@ export default function PortraitDrawer({
   error,
   warnings,
   rawMaterialOverCapMap,
+  maxEnabledByTarget,
   ceilMode = false,
   onCeilModeChange,
   onOpenSettings,
   onTargetChange,
   onTargetRemove,
+  onTargetLockToggle,
   onAddClick,
 }: PortraitDrawerProps) {
   const { t: tTargets } = useTranslation("targets");
@@ -101,8 +105,10 @@ export default function PortraitDrawer({
           <TargetItemsGrid
             targets={targets}
             items={items}
+            maxEnabledByTarget={maxEnabledByTarget}
             onTargetChange={onTargetChange}
             onTargetRemove={onTargetRemove}
+            onTargetLockToggle={onTargetLockToggle}
             onAddClick={handleAddClick}
           />
 

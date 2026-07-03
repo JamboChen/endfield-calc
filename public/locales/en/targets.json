@@ -1,9 +1,14 @@
 {
   "addTarget": "Add Target",
   "count": "{{current}} / {{max}}",
-  "noIcon": "None",
+  "lockTarget": "Lock target — protect from auto-adjustments",
+  "maximize": "Maximize within limits",
+  "maximizeComingSoon": "Maximize within limits (coming soon)",
+  "maximizeNoLimits": "Set a limit on this item's raw materials to enable maximizing",
   "rateInput": "Rate Input",
   "rateUnit": "per minute",
   "removeTarget": "Remove Target",
-  "title": "Production Targets"
+  "scrubHint": "Drag horizontally to adjust — accelerates with distance. Arrows: ±1 · Shift: ±10 · Alt: ±0.1",
+  "title": "Production Targets",
+  "unlockTarget": "Unlock target"
 }

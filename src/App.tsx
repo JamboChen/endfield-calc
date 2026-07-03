@@ -371,7 +371,9 @@ function AppContent() {
     rawMaterialOverCapMap,
     handleTargetChange,
     handleTargetRemove,
+    handleTargetLockToggle,
     handleBatchAddTargets,
+    maxEnabledByTarget,
     handleToggleRawMaterial,
     handleRecipeChange,
     handleRecipePinReset,
@@ -426,11 +428,13 @@ function AppContent() {
               <LeftPanel
                 targets={targets}
                 items={items}
+                maxEnabledByTarget={maxEnabledByTarget}
                 ceilMode={ceilMode}
                 onCeilModeChange={setCeilMode}
                 onOpenSettings={handleOpenSettings}
                 onTargetChange={handleTargetChange}
                 onTargetRemove={handleTargetRemove}
+                onTargetLockToggle={handleTargetLockToggle}
                 onAddClick={handleAddClick}
               />
         </div>
@@ -477,11 +481,13 @@ function AppContent() {
           error={error}
           warnings={warnings}
           rawMaterialOverCapMap={rawMaterialOverCapMap}
+          maxEnabledByTarget={maxEnabledByTarget}
           ceilMode={ceilMode}
           onCeilModeChange={setCeilMode}
           onOpenSettings={handleOpenSettings}
           onTargetChange={handleTargetChange}
           onTargetRemove={handleTargetRemove}
+          onTargetLockToggle={handleTargetLockToggle}
           onAddClick={handleAddClick}
         />
       </div>

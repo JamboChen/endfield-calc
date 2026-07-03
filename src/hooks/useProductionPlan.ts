@@ -1,5 +1,6 @@
 import { calculateProductionPlan } from "@/lib/calculator";
 import { initHighs, isHighsReady } from "@/lib/highs-singleton";
+import { rawsInChainOf } from "@/lib/target-optimizer";
 import { items, recipes, facilities, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
@@ -35,7 +36,8 @@ import { formatCount, getItemById } from "@/lib/utils";
 
 interface SavedPlan {
   version: string;
-  targets: { itemId: string; rate: number }[];
+  /** `locked` is optional/additive: legacy saves omit it (= unlocked). */
+  targets: { itemId: string; rate: number; locked?: boolean }[];
   recipeOverrides: Record<string, string>;
   manualRawMaterials: string[];
   ceilMode: boolean;
@@ -95,6 +97,11 @@ function parseHash(): ParsedHashState {
     const knownRecipeIds = new Set(recipes.map((recipe) => recipe.id));
 
     // Parse targets: t=item_steel:6,item_glass:3
+    // A trailing `l` on the rate marks the target as locked
+    // (t=item_steel:6l). Backward AND forward compatible: old URLs have
+    // no suffix (= unlocked), and old app versions reading a new URL
+    // still get the rate via parseFloat("6l") === 6, merely dropping
+    // the flag.
     const targetsRaw = params.get("t");
     const parsedTargets: ProductionTarget[] = [];
     if (targetsRaw) {
@@ -102,9 +109,13 @@ function parseHash(): ParsedHashState {
         const colonIdx = part.lastIndexOf(":");
         if (colonIdx === -1) continue;
         const itemId = part.slice(0, colonIdx) as ItemId;
-        const rate = parseFloat(part.slice(colonIdx + 1));
+        const rateStr = part.slice(colonIdx + 1);
+        const locked = rateStr.endsWith("l");
+        const rate = parseFloat(rateStr);
         if (knownItemIds.has(itemId) && isFinite(rate) && rate >= 0) {
-          parsedTargets.push({ itemId, rate });
+          parsedTargets.push(
+            locked ? { itemId, rate, locked: true } : { itemId, rate },
+          );
         }
       }
     }
@@ -166,7 +177,12 @@ function serializeHash(
   const params = new URLSearchParams();
 
   if (targets.length > 0) {
-    params.set("t", targets.map((t) => `${t.itemId}:${t.rate}`).join(","));
+    params.set(
+      "t",
+      targets
+        .map((t) => `${t.itemId}:${t.rate}${t.locked ? "l" : ""}`)
+        .join(","),
+    );
   }
 
   if (recipeOverrides.size > 0) {
@@ -860,6 +876,20 @@ export function useProductionPlan(
     setTargets((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  // Toggle a target's lock flag. Locked targets are protected from the
+  // (upcoming) Fit-to-limits rebalance — see docs/plan-target-optimizer.md.
+  const handleTargetLockToggle = useCallback((index: number) => {
+    setTargets((prev) =>
+      prev.map((t, i) =>
+        i === index
+          ? t.locked
+            ? { itemId: t.itemId, rate: t.rate }
+            : { ...t, locked: true }
+          : t,
+      ),
+    );
+  }, []);
+
   const handleBatchAddTargets = useCallback(
     (newTargets: { itemId: ItemId; rate: number }[]) => {
       setTargets((prev) => {
@@ -911,12 +941,45 @@ export function useProductionPlan(
     });
   }, []);
 
+  // Max-button gating: a target's Max action only makes sense when at
+  // least one raw material reachable in its production chain has a
+  // configured limit — that is what makes "maximum" finite. (Facility
+  // caps and metastorage budgets BOUND the eventual search, but do not
+  // ENABLE it; see docs/plan-target-optimizer.md.) The closure walks
+  // every alternative producer, so this over-approximates toward
+  // enabling — the engine's bracketing ceiling defends at runtime.
+  const maxEnabledByTarget = useMemo(() => {
+    const out = new Map<ItemId, boolean>();
+    const cappedRaws = rawMaterialCaps ? [...rawMaterialCaps.keys()] : [];
+    for (const target of targets) {
+      if (out.has(target.itemId)) continue;
+      if (cappedRaws.length === 0) {
+        out.set(target.itemId, false);
+        continue;
+      }
+      const chainRaws = rawsInChainOf(
+        target.itemId,
+        availableRecipes,
+        regionRawMaterials,
+      );
+      out.set(
+        target.itemId,
+        cappedRaws.some((raw) => chainRaws.has(raw)),
+      );
+    }
+    return out;
+  }, [targets, availableRecipes, regionRawMaterials, rawMaterialCaps]);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSavePlan = useCallback(() => {
     const data: SavedPlan = {
       version: "1",
-      targets: targets.map((t) => ({ itemId: t.itemId, rate: t.rate })),
+      targets: targets.map((t) => ({
+        itemId: t.itemId,
+        rate: t.rate,
+        ...(t.locked ? { locked: true } : {}),
+      })),
       recipeOverrides: Object.fromEntries(recipeOverrides),
       manualRawMaterials: Array.from(manualRawMaterials),
       ceilMode,
@@ -948,7 +1011,11 @@ export function useProductionPlan(
             const data = JSON.parse(ev.target?.result as string) as SavedPlan;
             if (data.version !== "1") return;
             setTargets(
-              data.targets.map((t) => ({ itemId: t.itemId as ItemId, rate: t.rate })),
+              data.targets.map((t) =>
+                t.locked === true
+                  ? { itemId: t.itemId as ItemId, rate: t.rate, locked: true }
+                  : { itemId: t.itemId as ItemId, rate: t.rate },
+              ),
             );
             setRecipeOverrides(
               new Map(
@@ -996,7 +1063,9 @@ export function useProductionPlan(
     setBinFusion,
     handleTargetChange,
     handleTargetRemove,
+    handleTargetLockToggle,
     handleBatchAddTargets,
+    maxEnabledByTarget,
     handleToggleRawMaterial,
     handleRecipeChange,
     handleRecipePinReset,

@@ -1,9 +1,14 @@
 {
   "addTarget": "添加目標",
   "count": "{{current}} / {{max}}",
-  "noIcon": "無",
+  "lockTarget": "鎖定目標——不受自動調整影響",
+  "maximize": "在限制內最大化",
+  "maximizeComingSoon": "在限制內最大化(即將推出)",
+  "maximizeNoLimits": "為該物品的原材料設定上限後即可使用最大化",
   "rateInput": "產量輸入",
   "rateUnit": "個/分鐘",
   "removeTarget": "刪除目標",
-  "title": "生產目標"
+  "scrubHint": "水平拖曳以調整——距離越遠變化越快。方向鍵:±1 · Shift:±10 · Alt:±0.1",
+  "title": "生產目標",
+  "unlockTarget": "解除鎖定"
 }
