@@ -620,7 +620,14 @@ export default function ProductionDependencyTree({
           />
           {/* Colours come from --xy-minimap-* vars in index.css so they
               flip with the theme (props would freeze them). */}
-          <MiniMap pannable zoomable />
+          {/* Hidden in portrait: at phone widths the minimap covered
+              ~40% of the canvas while the graph itself is pinch-
+              navigable anyway. */}
+          <MiniMap
+            pannable
+            zoomable
+            className="[@media(orientation:portrait)]:hidden"
+          />
           {/* Stable `nodes` (not displayNodes): spotlight flags are
               irrelevant to search, and the display array changes
               identity on every hover — which would rebuild the

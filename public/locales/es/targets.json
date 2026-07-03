@@ -5,6 +5,7 @@
   "maximize": "Maximizar dentro de los límites",
   "maximizeComingSoon": "Maximizar dentro de los límites (próximamente)",
   "maximizeNoLimits": "Configura un límite en las materias primas de este objeto para poder maximizar",
+  "planOverview": "Resumen del plan",
   "rateInput": "Entrada de tasa",
   "rateUnit": "por minuto",
   "removeTarget": "Eliminar objetivo",

@@ -35,5 +35,6 @@
   },
   "title": "Endfield Calc",
   "metastorageRouteConflict": "무재고 전송은 출발 지역당 한 종류의 아이템만 운반합니다. 다음 목표를 동시에 수입할 수 없습니다: {{items}}",
-  "metastorageBudgetInsufficient": "{{item}}({{source}}): 배송당 {{needed}}의 전송 총가치가 필요하지만 한도는 {{cap}}입니다. 전송이 적용되지 않았습니다. 목표 속도를 낮추거나 현지 생산을 늘리세요."
+  "metastorageBudgetInsufficient": "{{item}}({{source}}): 배송당 {{needed}}의 전송 총가치가 필요하지만 한도는 {{cap}}입니다. 전송이 적용되지 않았습니다. 목표 속도를 낮추거나 현지 생산을 늘리세요.",
+  "viewOptions": "보기 옵션"
 }

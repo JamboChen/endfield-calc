@@ -1,10 +1,20 @@
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
-import { BarChart3, Network } from "lucide-react";
+import { BarChart3, Network, SlidersHorizontal } from "lucide-react";
 import ProductionTable from "./ProductionTable";
 import ProductionCards from "./ProductionCards";
 import ProductionDependencyTree from "../flow/ProductionDependencyTree";
 import { usePortrait } from "@/hooks/usePortrait";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import SolverLoadingOverlay from "./SolverLoadingOverlay";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -106,65 +116,113 @@ export default function ProductionViewTabs({
               </TabsList>
             </Tabs>
 
+            {/* Tree-view options — inline at lg+, consolidated into a
+                labelled dropdown below that (narrow desktop + phones):
+                bare unlabelled switches were indistinguishable once the
+                sm: labels hid. */}
             {activeTab === "tree" && (
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="two-end-alignment"
-                  checked={twoEndAlignment}
-                  onCheckedChange={setTwoEndAlignment}
-                />
-                <Label
-                  htmlFor="two-end-alignment"
-                  className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
-                >
-                  {t("twoEndAlignment")}
-                </Label>
-              </div>
-            )}
-
-            {/* Bin-fusion toggle: shows only in Recipe View (merged) AND
-                only when the current plan contains at least one grouped
-                bin. Facility View (separated) is always bin-fused. */}
-            {activeTab === "tree" &&
-              visualizationMode === "merged" &&
-              hasGroupableRecipes && (
-                <div className="flex items-center gap-2">
+              <>
+                <div className="hidden lg:flex items-center gap-2">
                   <Switch
-                    id="bin-fusion"
-                    checked={binFusion}
-                    onCheckedChange={onBinFusionChange}
+                    id="two-end-alignment"
+                    checked={twoEndAlignment}
+                    onCheckedChange={setTwoEndAlignment}
                   />
                   <Label
-                    htmlFor="bin-fusion"
-                    title={t("binFusionTooltip")}
-                    className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
+                    htmlFor="two-end-alignment"
+                    className="text-xs whitespace-nowrap cursor-pointer"
                   >
-                    {t("binFusion")}
+                    {t("twoEndAlignment")}
                   </Label>
                 </div>
-              )}
 
-            {activeTab === "tree" && (
-              <ToggleGroup
-                type="single"
-                value={visualizationMode}
-                onValueChange={(value) => {
-                  if (value) setVisualizationMode(value as VisualizationMode);
-                }}
-              >
-                <ToggleGroupItem value="merged" aria-label="Merged view">
-                  <span className="text-xs hidden sm:inline">
-                    {t("tabs.merged")}
-                  </span>
-                  <Network className="h-3.5 w-3.5 sm:hidden" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="separated" aria-label="Separated view">
-                  <span className="text-xs hidden sm:inline">
-                    {t("tabs.separated")}
-                  </span>
-                  <BarChart3 className="h-3.5 w-3.5 sm:hidden" />
-                </ToggleGroupItem>
-              </ToggleGroup>
+                {/* Bin-fusion toggle: shows only in Recipe View (merged)
+                    AND only when the current plan contains at least one
+                    grouped bin. Facility View (separated) is always
+                    bin-fused. */}
+                {visualizationMode === "merged" && hasGroupableRecipes && (
+                  <div className="hidden lg:flex items-center gap-2">
+                    <Switch
+                      id="bin-fusion"
+                      checked={binFusion}
+                      onCheckedChange={onBinFusionChange}
+                    />
+                    <Label
+                      htmlFor="bin-fusion"
+                      title={t("binFusionTooltip")}
+                      className="text-xs whitespace-nowrap cursor-pointer"
+                    >
+                      {t("binFusion")}
+                    </Label>
+                  </div>
+                )}
+
+                <div className="hidden lg:block">
+                  <ToggleGroup
+                    type="single"
+                    value={visualizationMode}
+                    onValueChange={(value) => {
+                      if (value)
+                        setVisualizationMode(value as VisualizationMode);
+                    }}
+                  >
+                    <ToggleGroupItem value="merged" aria-label="Merged view">
+                      <span className="text-xs">{t("tabs.merged")}</span>
+                    </ToggleGroupItem>
+                    <ToggleGroupItem
+                      value="separated"
+                      aria-label="Separated view"
+                    >
+                      <span className="text-xs">{t("tabs.separated")}</span>
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="lg:hidden h-8 w-8 p-0 shrink-0"
+                      aria-label={t("viewOptions", {
+                        defaultValue: "View options",
+                      })}
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <DropdownMenuCheckboxItem
+                      checked={twoEndAlignment}
+                      onCheckedChange={setTwoEndAlignment}
+                    >
+                      {t("twoEndAlignment")}
+                    </DropdownMenuCheckboxItem>
+                    {visualizationMode === "merged" && hasGroupableRecipes && (
+                      <DropdownMenuCheckboxItem
+                        checked={binFusion}
+                        onCheckedChange={onBinFusionChange}
+                      >
+                        {t("binFusion")}
+                      </DropdownMenuCheckboxItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuRadioGroup
+                      value={visualizationMode}
+                      onValueChange={(value) =>
+                        setVisualizationMode(value as VisualizationMode)
+                      }
+                    >
+                      <DropdownMenuRadioItem value="merged">
+                        {t("tabs.merged")}
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="separated">
+                        {t("tabs.separated")}
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
             )}
           </div>
         </CardHeader>

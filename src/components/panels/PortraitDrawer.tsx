@@ -98,10 +98,12 @@ export default function PortraitDrawer({
         className="h-[80svh] flex flex-col rounded-t-xl px-4 pb-0 data-[state=closed]:duration-150 data-[state=open]:duration-200"
       >
         <SheetHeader className="shrink-0 pb-2">
-          <SheetTitle>{tTargets("title")}</SheetTitle>
+          <SheetTitle>
+            {tTargets("planOverview", { defaultValue: "Plan Overview" })}
+          </SheetTitle>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto min-h-0 space-y-4 pb-4">
+        <div className="flex-1 overflow-y-auto min-h-0 space-y-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <TargetItemsGrid
             targets={targets}
             items={items}

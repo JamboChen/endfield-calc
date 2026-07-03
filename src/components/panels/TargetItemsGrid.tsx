@@ -385,7 +385,11 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
           <div
             key={target.itemId}
             className={cn(
-              "target-card-enter group flex items-center gap-1.5 rounded border border-border/40 border-l-2 bg-card px-2 py-1.5 min-h-11 sm:min-h-0 transition-all duration-150",
+              // `flex-wrap` + the controls group's `max-sm:basis-full`
+              // turn the row two-line on phones: icon + name on top,
+              // input + actions below — otherwise the always-visible
+              // touch buttons squeeze the name to ~55px at 390px.
+              "target-card-enter group flex flex-wrap items-center gap-1.5 rounded border border-border/40 border-l-2 bg-card px-2 py-1.5 min-h-11 sm:min-h-0 transition-all duration-150",
               tc.border,
               focusedIndex === index && "ring-2 ring-primary/40",
             )}
@@ -411,75 +415,77 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
               {getItemName(item)}
             </div>
 
-            <RateScrubInput
-              value={target.rate}
-              onCommit={(rate) => onTargetChange(index, rate)}
-              onFocusChange={(f) => setFocusedIndex(f ? index : null)}
-              ariaLabel={t("rateInput")}
-              scrubHint={t("scrubHint")}
-              unitTitle={t("rateUnit")}
-            />
+            {/* Controls group — its own full-width line on phones. */}
+            <div className="flex items-center gap-1.5 ml-auto max-sm:basis-full max-sm:justify-between">
+              <RateScrubInput
+                value={target.rate}
+                onCommit={(rate) => onTargetChange(index, rate)}
+                onFocusChange={(f) => setFocusedIndex(f ? index : null)}
+                ariaLabel={t("rateInput")}
+                scrubHint={t("scrubHint")}
+                unitTitle={t("rateUnit")}
+              />
 
-            <div className="flex items-center gap-0.5 shrink-0">
-              {/* Max — gated on raw limits in the item's chain; the
+              <div className="flex items-center gap-0.5 shrink-0">
+                {/* Max — gated on raw limits in the item's chain; the
                   engine lands with the optimizer phase, so it is
                   disabled either way for now. Tooltip lives on a
                   wrapper span (disabled buttons swallow pointer
                   events). */}
-              <span
-                title={
-                  maxEnabled ? t("maximizeComingSoon") : t("maximizeNoLimits")
-                }
-                className={cn("inline-flex", reveal)}
-              >
+                <span
+                  title={
+                    maxEnabled ? t("maximizeComingSoon") : t("maximizeNoLimits")
+                  }
+                  className={cn("inline-flex", reveal)}
+                >
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled
+                    className={cn("h-7 w-7 p-0", !maxEnabled && "opacity-40")}
+                    aria-label={t("maximize")}
+                  >
+                    <ArrowUpToLine className="h-3.5 w-3.5" />
+                  </Button>
+                </span>
+
+                {/* Lock — visible state when locked; hover-revealed
+                  affordance when not. */}
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled
+                  onClick={() => onTargetLockToggle(index)}
+                  aria-pressed={target.locked === true}
+                  aria-label={
+                    target.locked ? t("unlockTarget") : t("lockTarget")
+                  }
+                  title={target.locked ? t("unlockTarget") : t("lockTarget")}
                   className={cn(
                     "h-7 w-7 p-0",
-                    !maxEnabled && "opacity-40",
+                    target.locked ? "text-foreground" : reveal,
                   )}
-                  aria-label={t("maximize")}
                 >
-                  <ArrowUpToLine className="h-3.5 w-3.5" />
+                  {target.locked ? (
+                    <Lock className="h-3.5 w-3.5" />
+                  ) : (
+                    <LockOpen className="h-3.5 w-3.5" />
+                  )}
                 </Button>
-              </span>
 
-              {/* Lock — visible state when locked; hover-revealed
-                  affordance when not. */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onTargetLockToggle(index)}
-                aria-pressed={target.locked === true}
-                aria-label={target.locked ? t("unlockTarget") : t("lockTarget")}
-                title={target.locked ? t("unlockTarget") : t("lockTarget")}
-                className={cn(
-                  "h-7 w-7 p-0",
-                  target.locked ? "text-foreground" : reveal,
-                )}
-              >
-                {target.locked ? (
-                  <Lock className="h-3.5 w-3.5" />
-                ) : (
-                  <LockOpen className="h-3.5 w-3.5" />
-                )}
-              </Button>
-
-              {/* Remove */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onTargetRemove(index)}
-                className={cn(
-                  "h-7 w-7 p-0 rounded-full hover:bg-destructive hover:text-destructive-foreground",
-                  reveal,
-                )}
-                aria-label={t("removeTarget")}
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
+                {/* Remove */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onTargetRemove(index)}
+                  className={cn(
+                    "h-7 w-7 p-0 rounded-full hover:bg-destructive hover:text-destructive-foreground",
+                    reveal,
+                  )}
+                  aria-label={t("removeTarget")}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
         );
