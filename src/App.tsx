@@ -416,16 +416,12 @@ function AppContent() {
 
   const isPortrait = usePortrait();
 
-  // Portrait-only top-level view switch (bottom nav). First-time
-  // visitors (no targets in the URL hash) land on Plan so the Add
-  // Target flow is immediately visible instead of buried in the
-  // drawer; returning users with a shared/saved plan land on
-  // Production. `targets` is parsed synchronously from the hash in
-  // useProductionPlan, so this initializer sees the real plan on the
-  // first render. Deliberately NOT auto-switched after adding targets.
-  const [mobileView, setMobileView] = useState<MobileView>(() =>
-    targets.length > 0 ? "production" : "plan",
-  );
+  // Portrait-only top-level view switch (bottom nav). Always lands on
+  // Plan — the targets grid is what drives everything, so it's the
+  // entry point even for shared/saved plan links (the ticker at the
+  // bottom still surfaces live totals; results are one tap away).
+  // Deliberately NOT auto-switched after adding targets.
+  const [mobileView, setMobileView] = useState<MobileView>("plan");
 
   // Settings-sheet visibility lives here (not in AppHeader) so both the
   // header gear and the left-rail Options card can open it. Stable
