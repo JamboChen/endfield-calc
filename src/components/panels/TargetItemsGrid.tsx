@@ -433,28 +433,30 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
               <div className="flex items-center gap-0.5 shrink-0">
               {/* Max — gated on raw limits in the item's chain; the
                   engine lands with the optimizer phase, so it is
-                  disabled either way for now. Hidden on phones until
-                  functional (a disabled stub isn't worth the row
-                  pixels there — restore with the optimizer, see
-                  docs/plan-target-optimizer.md). Tooltip lives on a
+                  disabled either way for now. Rendered on every
+                  breakpoint (responsive sizing only) so mobile and
+                  desktop never diverge in features. Tooltip lives on a
                   wrapper span (disabled buttons swallow pointer
                   events). */}
               <span
                 title={
                   maxEnabled ? t("maximizeComingSoon") : t("maximizeNoLimits")
                 }
-                className={cn("inline-flex max-sm:hidden", reveal)}
+                className={cn("inline-flex", reveal)}
               >
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled
-                    className={cn("h-7 w-7 p-0", !maxEnabled && "opacity-40")}
-                    aria-label={t("maximize")}
-                  >
-                    <ArrowUpToLine className="h-3.5 w-3.5" />
-                  </Button>
-                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled
+                  className={cn(
+                    "h-7 w-7 max-sm:h-6 max-sm:w-6 p-0",
+                    !maxEnabled && "opacity-40",
+                  )}
+                  aria-label={t("maximize")}
+                >
+                  <ArrowUpToLine className="h-3.5 w-3.5" />
+                </Button>
+              </span>
 
                 {/* Lock — visible state when locked; hover-revealed
                   affordance when not. */}

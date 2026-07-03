@@ -134,7 +134,7 @@ supports action buttons — see the auto-prune toast for the pattern).
 |---|---|
 | `rawsInChainOf` gating closure | `src/lib/target-optimizer.ts` |
 | `maxEnabledByTarget` memo | `useProductionPlan.ts` |
-| Disabled Max button + tooltips | `TargetItemsGrid.tsx` — **hidden at `max-sm` while it's a stub** (remove the `max-sm:hidden` on its wrapper span when wiring the engine so phones get the button back) |
+| Disabled Max button + tooltips | `TargetItemsGrid.tsx` (rendered on every breakpoint; wiring the engine only removes the `disabled` prop + the `maximizeComingSoon` tooltip) |
 | Lock flag + hash `:6l` suffix + save-file field | `TargetItemsGrid.tsx` type, `useProductionPlan.ts` parse/serialize/save/open |
 | `handleTargetLockToggle` | `useProductionPlan.ts` |
 
