@@ -20,9 +20,12 @@
   "header": {
     "community": "커뮤니티",
     "discord": "Discord 서버",
+    "language": "언어",
+    "menu": "메뉴",
+    "open": "플랜 열기",
     "qqGroup": "QQ 그룹",
     "save": "플랜 저장",
-    "open": "플랜 열기"
+    "toggleTheme": "테마 전환"
   },
   "tabs": {
     "merged": "공식 보기",

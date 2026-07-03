@@ -22,9 +22,12 @@
   "header": {
     "community": "Сообщество",
     "discord": "Сервер Discord",
+    "language": "Язык",
+    "menu": "Меню",
+    "open": "Открыть план",
     "qqGroup": "Группа QQ",
     "save": "Сохранить план",
-    "open": "Открыть план"
+    "toggleTheme": "Сменить тему"
   },
   "tabs": {
     "merged": "Вид формулы",

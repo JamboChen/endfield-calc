@@ -20,9 +20,12 @@
   "header": {
     "community": "Community",
     "discord": "Discord Server",
+    "language": "Language",
+    "menu": "Menu",
+    "open": "Open Plan",
     "qqGroup": "QQ Group",
     "save": "Save Plan",
-    "open": "Open Plan"
+    "toggleTheme": "Toggle theme"
   },
   "tabs": {
     "merged": "Formula View",

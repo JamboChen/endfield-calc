@@ -20,9 +20,12 @@
   "header": {
     "community": "社群",
     "discord": "Discord 伺服器",
+    "language": "語言",
+    "menu": "選單",
+    "open": "開啟方案",
     "qqGroup": "QQ 群",
     "save": "儲存方案",
-    "open": "開啟方案"
+    "toggleTheme": "切換主題"
   },
   "tabs": {
     "merged": "配方視圖",
