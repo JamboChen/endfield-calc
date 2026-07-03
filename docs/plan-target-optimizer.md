@@ -167,9 +167,17 @@ Reserved i18n keys to add (7 locales): `maximizedTo`, `maximizeNoLimit`
 
 - Bisection precision vs run time: 0.001 ⇒ ~20 iterations post-bracket.
   If too slow on big plans, drop to 0.01 (display shows ≤3 decimals).
-- Solves run on the HiGHS WASM singleton — strictly sequential; never
-  interleave with the main calc effect (pause/queue: simplest is to let
-  the main effect win and re-run the search step, since results are
-  cancel-guarded anyway).
+- **Solver transport**: since the worker migration
+  (`src/lib/calc-client.ts` + `src/workers/calc.worker.ts`), solves run
+  off the main thread. The optimizer should run its bisection through
+  `calc-client.calculate()` — but note the client's latest-wins queue
+  is tuned for the UI edit stream: a 20-iteration search issuing
+  sequential awaited requests works fine (each completes before the
+  next is sent), but a concurrent UI edit will supersede a parked
+  search step. Either (a) treat `CalcSupersededError` as "abort the
+  search" (simplest, correct — the user changed the problem), or
+  (b) move the whole search loop into the worker later. Feasibility
+  post-processing (`aggregateBinTotals` + over-cap checks) is cheap and
+  runs main-thread on the structured-clone result.
 - Whether Fit should also surface in the dock's Issues strip as an
   action — defer until the pill proves itself.

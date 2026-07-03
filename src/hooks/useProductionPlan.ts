@@ -1,5 +1,9 @@
-import { calculateProductionPlan } from "@/lib/calculator";
-import { initHighs, isHighsReady } from "@/lib/highs-singleton";
+import {
+  calculate,
+  initCalcEngine,
+  isCalcEngineReady,
+  isCalcSuperseded,
+} from "@/lib/calc-client";
 import { rawsInChainOf } from "@/lib/target-optimizer";
 import { items, recipes, facilities, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -361,26 +365,30 @@ export function useProductionPlan(
     history.replaceState(null, "", newUrl);
   }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion]);
 
-  // HiGHS WASM solver is async. Kick off WASM init at mount time so
-  // the first calculation has it ready; track readiness so we can
-  // surface a "loading solver…" state instead of running calculations
-  // against an uninitialised solver.
-  const [solverReady, setSolverReady] = useState<boolean>(isHighsReady);
+  // The calculation engine (HiGHS WASM inside the calc worker, with a
+  // main-thread fallback — see `calc-client.ts`) initialises async.
+  // Kick it off at mount time so the first calculation finds a warm
+  // solver; track readiness so we can surface a "loading solver…"
+  // state instead of running calculations against a cold engine.
+  const [solverReady, setSolverReady] = useState<boolean>(isCalcEngineReady);
   useEffect(() => {
-    if (isHighsReady()) return;
+    if (isCalcEngineReady()) {
+      setSolverReady(true);
+      return;
+    }
     let cancelled = false;
-    initHighs()
+    initCalcEngine()
       .then(() => {
         if (!cancelled) setSolverReady(true);
       })
       .catch((e) => {
         if (cancelled) return;
         // Log only. The solver-loading overlay over the production
-        // area remains visible. Reaching here means the WASM
-        // compile failed (near-zero probability in modern browsers);
-        // a richer error UI is not worth the surface area until
-        // real reports surface.
-        console.error("[HIGHS] init failed:", e);
+        // area remains visible. Reaching here means BOTH the worker
+        // and the main-thread WASM fallback failed (near-zero
+        // probability in modern browsers); a richer error UI is not
+        // worth the surface area until real reports surface.
+        console.error("[CALC] engine init failed:", e);
       });
     return () => {
       cancelled = true;
@@ -408,12 +416,12 @@ export function useProductionPlan(
     let cancelled = false;
     setError(null);
     setIsCalculating(true);
-    calculateProductionPlan(
+    calculate({
       targets,
       items,
-      availableRecipes,
+      recipes: availableRecipes,
       facilities,
-      {
+      options: {
         rawMaterials: regionRawMaterials,
         rawCaps: rawMaterialCaps,
         recipeOverrides,
@@ -421,7 +429,7 @@ export function useProductionPlan(
         facilityCaps,
         metastorageRoutes,
       },
-    )
+    })
       .then((result) => {
         // Cancelled means a newer calc has started (or unmount). Leave
         // `isCalculating` true so the debounced overlay state doesn't
@@ -432,6 +440,12 @@ export function useProductionPlan(
       })
       .catch((e) => {
         if (cancelled) return;
+        // Superseded = the calc-client's latest-wins queue displaced
+        // this request in favour of a newer one; that newer request is
+        // already carrying the fresh answer. Same treatment as
+        // `cancelled`: keep `isCalculating` true so the overlay
+        // debounce doesn't restart between back-to-back recalcs.
+        if (isCalcSuperseded(e)) return;
         setError(e instanceof Error ? e.message : t("calculationError"));
         setPlan(null);
         setIsCalculating(false);
