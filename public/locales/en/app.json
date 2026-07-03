@@ -27,6 +27,10 @@
     "save": "Save Plan",
     "toggleTheme": "Toggle theme"
   },
+  "mobileNav": {
+    "plan": "Plan",
+    "production": "Production"
+  },
   "tabs": {
     "merged": "Formula View",
     "separated": "Facility View",

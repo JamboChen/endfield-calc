@@ -27,6 +27,10 @@
     "save": "儲存方案",
     "toggleTheme": "切換主題"
   },
+  "mobileNav": {
+    "plan": "方案",
+    "production": "生產"
+  },
   "tabs": {
     "merged": "配方視圖",
     "separated": "設施視圖",

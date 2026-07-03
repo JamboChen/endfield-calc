@@ -27,6 +27,10 @@
     "save": "플랜 저장",
     "toggleTheme": "테마 전환"
   },
+  "mobileNav": {
+    "plan": "플랜",
+    "production": "생산"
+  },
   "tabs": {
     "merged": "공식 보기",
     "separated": "시설 보기",

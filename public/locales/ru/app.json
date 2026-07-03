@@ -29,6 +29,10 @@
     "save": "Сохранить план",
     "toggleTheme": "Сменить тему"
   },
+  "mobileNav": {
+    "plan": "План",
+    "production": "Производство"
+  },
   "tabs": {
     "merged": "Вид формулы",
     "separated": "Вид объектов",

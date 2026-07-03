@@ -27,6 +27,10 @@
     "save": "保存方案",
     "toggleTheme": "切换主题"
   },
+  "mobileNav": {
+    "plan": "方案",
+    "production": "生产"
+  },
   "tabs": {
     "merged": "配方视图",
     "separated": "设施视图",

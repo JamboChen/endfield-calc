@@ -7,70 +7,40 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import TargetsCard from "./TargetsCard";
-import type { ProductionTarget } from "./TargetItemsGrid";
-import OptionsCard from "./OptionsCard";
 import StatsTicker from "./StatsTicker";
 import ProductionStats from "../production/ProductionStats";
 import type { Facility, Item, ItemId } from "@/types";
 import type { ProductionStats as ProductionStatsData } from "@/hooks/useProductionStats";
 
 type PortraitDrawerProps = {
-  targets: ProductionTarget[];
   items: Item[];
   facilities: Facility[];
   stats: ProductionStatsData;
   error: string | null;
   warnings: string[];
   rawMaterialOverCapMap: ReadonlyMap<ItemId, { used: number; cap: number }>;
-  maxEnabledByTarget: ReadonlyMap<ItemId, boolean>;
   ceilMode?: boolean;
-  onCeilModeChange: (value: boolean) => void;
-  onOpenSettings: () => void;
-  onTargetChange: (index: number, rate: number) => void;
-  onTargetRemove: (index: number) => void;
-  onTargetLockToggle: (index: number) => void;
-  onAddClick: () => void;
 };
 
 /**
- * Portrait-mode bottom drawer. The trigger is the same `StatsTicker`
- * strip the landscape dock uses (one visual language for the plan
- * summary); tapping it opens an 80svh sheet with the targets grid, the
- * Options card and the full stats card.
+ * Portrait-mode bottom drawer, stats-only. The trigger is the same
+ * `StatsTicker` strip the landscape dock uses (one visual language for
+ * the plan summary); tapping it opens an 80svh sheet with the full
+ * stats card. The targets grid and Options card live on the bottom
+ * nav's Plan tab (App-level), not in here — the drawer stays available
+ * on both nav tabs as pure plan feedback.
  */
 export default function PortraitDrawer({
-  targets,
   items,
   facilities,
   stats,
   error,
   warnings,
   rawMaterialOverCapMap,
-  maxEnabledByTarget,
   ceilMode = false,
-  onCeilModeChange,
-  onOpenSettings,
-  onTargetChange,
-  onTargetRemove,
-  onTargetLockToggle,
-  onAddClick,
 }: PortraitDrawerProps) {
   const { t: tTargets } = useTranslation("targets");
   const [open, setOpen] = useState(false);
-
-  const handleAddClick = () => {
-    setOpen(false);
-    onAddClick();
-  };
-
-  // Close the drawer before opening the Settings sheet — stacking two
-  // Radix sheets (bottom drawer + right settings) traps focus and looks
-  // broken on small screens.
-  const handleOpenSettings = () => {
-    setOpen(false);
-    onOpenSettings();
-  };
 
   const issueCount = warnings.length + (error ? 1 : 0);
 
@@ -105,22 +75,6 @@ export default function PortraitDrawer({
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto min-h-0 space-y-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <TargetsCard
-            targets={targets}
-            items={items}
-            maxEnabledByTarget={maxEnabledByTarget}
-            onTargetChange={onTargetChange}
-            onTargetRemove={onTargetRemove}
-            onTargetLockToggle={onTargetLockToggle}
-            onAddClick={handleAddClick}
-          />
-
-          <OptionsCard
-            ceilMode={ceilMode}
-            onCeilModeChange={onCeilModeChange}
-            onOpenSettings={handleOpenSettings}
-          />
-
           <ProductionStats
             stats={stats}
             facilities={facilities}

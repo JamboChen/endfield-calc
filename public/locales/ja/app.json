@@ -27,6 +27,10 @@
     "save": "プランを保存",
     "toggleTheme": "テーマ切替"
   },
+  "mobileNav": {
+    "plan": "プラン",
+    "production": "生産"
+  },
   "tabs": {
     "merged": "レシピ表示",
     "separated": "施設表示",

@@ -27,6 +27,10 @@
     "save": "Guardar plan",
     "toggleTheme": "Cambiar tema"
   },
+  "mobileNav": {
+    "plan": "Plan",
+    "production": "Producción"
+  },
   "tabs": {
     "merged": "Vista de Fórmula",
     "separated": "Vista de Instalación",

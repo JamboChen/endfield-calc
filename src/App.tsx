@@ -7,7 +7,10 @@ import { items, recipes, facilities } from "./data";
 import { useProductionPlan } from "./hooks/useProductionPlan";
 import { usePortrait } from "./hooks/usePortrait";
 import AppHeader from "./components/layout/AppHeader";
+import MobileNav, { type MobileView } from "./components/layout/MobileNav";
 import LeftPanel from "./components/panels/LeftPanel";
+import TargetsCard from "./components/panels/TargetsCard";
+import OptionsCard from "./components/panels/OptionsCard";
 import BottomDock from "./components/panels/BottomDock";
 import PortraitDrawer from "./components/panels/PortraitDrawer";
 import ProductionViewTabs from "./components/production/ProductionViewTabs";
@@ -413,6 +416,17 @@ function AppContent() {
 
   const isPortrait = usePortrait();
 
+  // Portrait-only top-level view switch (bottom nav). First-time
+  // visitors (no targets in the URL hash) land on Plan so the Add
+  // Target flow is immediately visible instead of buried in the
+  // drawer; returning users with a shared/saved plan land on
+  // Production. `targets` is parsed synchronously from the hash in
+  // useProductionPlan, so this initializer sees the real plan on the
+  // first render. Deliberately NOT auto-switched after adding targets.
+  const [mobileView, setMobileView] = useState<MobileView>(() =>
+    targets.length > 0 ? "production" : "plan",
+  );
+
   // Settings-sheet visibility lives here (not in AppHeader) so both the
   // header gear and the left-rail Options card can open it. Stable
   // callback: LeftPanel / PortraitDrawer are memoised.
@@ -448,25 +462,60 @@ function AppContent() {
               />
         </div>
 
-        <ProductionViewTabs
-          plan={plan}
-          tableData={tableData}
-          items={items}
-          recipes={availableRecipes}
-          facilities={facilities}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          onRecipeChange={handleRecipeChange}
-          onRecipePinReset={handleRecipePinReset}
-          onToggleRawMaterial={handleToggleRawMaterial}
-          pinnedItemIds={pinnedItemIds}
-          ineffectivePins={ineffectivePins}
-          targetRates={targetRates}
-          ceilMode={ceilMode}
-          binFusion={binFusion}
-          onBinFusionChange={setBinFusion}
-          loading={isLoading}
-        />
+        {/* Portrait "Plan" tab panel — the discoverable home for the
+            targets + options cards (they used to hide inside the
+            drawer). Second simultaneous mount of both cards next to
+            LeftPanel's (the orientation/tab swap is CSS-only), same
+            dual-host pattern PortraitDrawer used before. */}
+        <div
+          className={
+            isPortrait && mobileView === "plan"
+              ? "flex-1 min-w-0 flex flex-col gap-2.5 overflow-y-auto"
+              : "hidden"
+          }
+        >
+          <TargetsCard
+            targets={targets}
+            items={items}
+            maxEnabledByTarget={maxEnabledByTarget}
+            onTargetChange={handleTargetChange}
+            onTargetRemove={handleTargetRemove}
+            onTargetLockToggle={handleTargetLockToggle}
+            onAddClick={handleAddClick}
+          />
+
+          <OptionsCard
+            ceilMode={ceilMode}
+            onCeilModeChange={setCeilMode}
+            onOpenSettings={handleOpenSettings}
+          />
+        </div>
+
+        <div
+          className={
+            isPortrait && mobileView === "plan" ? "hidden" : "contents"
+          }
+        >
+          <ProductionViewTabs
+            plan={plan}
+            tableData={tableData}
+            items={items}
+            recipes={availableRecipes}
+            facilities={facilities}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            onRecipeChange={handleRecipeChange}
+            onRecipePinReset={handleRecipePinReset}
+            onToggleRawMaterial={handleToggleRawMaterial}
+            pinnedItemIds={pinnedItemIds}
+            ineffectivePins={ineffectivePins}
+            targetRates={targetRates}
+            ceilMode={ceilMode}
+            binFusion={binFusion}
+            onBinFusionChange={setBinFusion}
+            loading={isLoading}
+          />
+        </div>
       </div>
 
       <div className={isPortrait ? "hidden" : "contents"}>
@@ -481,24 +530,19 @@ function AppContent() {
         />
       </div>
 
+      {/* Portrait: stats ticker/drawer on BOTH nav tabs (live feedback
+          while adding targets), then the bottom nav itself. */}
       <div className={isPortrait ? "contents" : "hidden"}>
         <PortraitDrawer
-          targets={targets}
           items={items}
           facilities={facilities}
           stats={stats}
           error={error}
           warnings={warnings}
           rawMaterialOverCapMap={rawMaterialOverCapMap}
-          maxEnabledByTarget={maxEnabledByTarget}
           ceilMode={ceilMode}
-          onCeilModeChange={setCeilMode}
-          onOpenSettings={handleOpenSettings}
-          onTargetChange={handleTargetChange}
-          onTargetRemove={handleTargetRemove}
-          onTargetLockToggle={handleTargetLockToggle}
-          onAddClick={handleAddClick}
         />
+        <MobileNav view={mobileView} onViewChange={setMobileView} />
       </div>
 
       <AddTargetDialogGrid
