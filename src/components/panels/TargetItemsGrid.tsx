@@ -307,13 +307,15 @@ function RateScrubInput({
           onFocusChange(false);
         }}
         onKeyDown={handleKeyDown}
-        className="h-8 w-24 px-2 text-xs text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        className="h-8 w-24 max-sm:w-20 px-2 text-xs text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         min="0"
         step="any"
         aria-label={ariaLabel}
       />
+      {/* Hidden on phones — every pixel feeds the name column; the
+          unit stays discoverable via the input tooltip. */}
       <span
-        className="text-[11px] text-muted-foreground font-mono"
+        className="text-[11px] text-muted-foreground font-mono max-sm:hidden"
         title={unitTitle}
       >
         /min
@@ -385,18 +387,19 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
           <div
             key={target.itemId}
             className={cn(
-              // `flex-wrap` + the controls group's `max-sm:basis-full`
-              // turn the row two-line on phones: icon + name on top,
-              // input + actions below — otherwise the always-visible
-              // touch buttons squeeze the name to ~55px at 390px.
-              "target-card-enter group flex flex-wrap items-center gap-1.5 rounded border border-border/40 border-l-2 bg-card px-2 py-1.5 min-h-11 sm:min-h-0 transition-all duration-150",
+              // One structural line everywhere (like desktop): only the
+              // NAME text wraps within its own column. Phone widths fit
+              // by slimming the fixed elements at max-sm (smaller
+              // icon/input/buttons, /min and the Max stub hidden)
+              // rather than pushing controls to a second line.
+              "target-card-enter group flex items-center gap-1.5 rounded border border-border/40 border-l-2 bg-card px-2 py-1.5 min-h-11 sm:min-h-0 transition-all duration-150",
               tc.border,
               focusedIndex === index && "ring-2 ring-primary/40",
             )}
             style={{ animationDelay: `${index * 30}ms` }}
           >
             {/* Item icon */}
-            <div className="h-8 w-8 flex items-center justify-center shrink-0">
+            <div className="h-8 w-8 max-sm:h-6 max-sm:w-6 flex items-center justify-center shrink-0">
               {item.iconUrl ? (
                 <img
                   src={item.iconUrl}
@@ -415,8 +418,9 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
               {getItemName(item)}
             </div>
 
-            {/* Controls group — its own full-width line on phones. */}
-            <div className="flex items-center gap-1.5 ml-auto max-sm:basis-full max-sm:justify-between">
+            {/* Controls group — stays inline; the name column absorbs
+                any wrapping. */}
+            <div className="flex items-center gap-1.5 ml-auto shrink-0">
               <RateScrubInput
                 value={target.rate}
                 onCommit={(rate) => onTargetChange(index, rate)}
@@ -427,17 +431,20 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
               />
 
               <div className="flex items-center gap-0.5 shrink-0">
-                {/* Max — gated on raw limits in the item's chain; the
+              {/* Max — gated on raw limits in the item's chain; the
                   engine lands with the optimizer phase, so it is
-                  disabled either way for now. Tooltip lives on a
+                  disabled either way for now. Hidden on phones until
+                  functional (a disabled stub isn't worth the row
+                  pixels there — restore with the optimizer, see
+                  docs/plan-target-optimizer.md). Tooltip lives on a
                   wrapper span (disabled buttons swallow pointer
                   events). */}
-                <span
-                  title={
-                    maxEnabled ? t("maximizeComingSoon") : t("maximizeNoLimits")
-                  }
-                  className={cn("inline-flex", reveal)}
-                >
+              <span
+                title={
+                  maxEnabled ? t("maximizeComingSoon") : t("maximizeNoLimits")
+                }
+                className={cn("inline-flex max-sm:hidden", reveal)}
+              >
                   <Button
                     variant="ghost"
                     size="sm"
@@ -460,10 +467,10 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
                     target.locked ? t("unlockTarget") : t("lockTarget")
                   }
                   title={target.locked ? t("unlockTarget") : t("lockTarget")}
-                  className={cn(
-                    "h-7 w-7 p-0",
-                    target.locked ? "text-foreground" : reveal,
-                  )}
+                className={cn(
+                  "h-7 w-7 max-sm:h-6 max-sm:w-6 p-0",
+                  target.locked ? "text-foreground" : reveal,
+                )}
                 >
                   {target.locked ? (
                     <Lock className="h-3.5 w-3.5" />
@@ -477,10 +484,10 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
                   variant="ghost"
                   size="sm"
                   onClick={() => onTargetRemove(index)}
-                  className={cn(
-                    "h-7 w-7 p-0 rounded-full hover:bg-destructive hover:text-destructive-foreground",
-                    reveal,
-                  )}
+                className={cn(
+                  "h-7 w-7 max-sm:h-6 max-sm:w-6 p-0 rounded-full hover:bg-destructive hover:text-destructive-foreground",
+                  reveal,
+                )}
                   aria-label={t("removeTarget")}
                 >
                   <X className="h-3.5 w-3.5" />

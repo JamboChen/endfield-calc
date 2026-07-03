@@ -7,7 +7,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import TargetItemsGrid, { type ProductionTarget } from "./TargetItemsGrid";
+import TargetsCard from "./TargetsCard";
+import type { ProductionTarget } from "./TargetItemsGrid";
 import OptionsCard from "./OptionsCard";
 import StatsTicker from "./StatsTicker";
 import ProductionStats from "../production/ProductionStats";
@@ -104,7 +105,7 @@ export default function PortraitDrawer({
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto min-h-0 space-y-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <TargetItemsGrid
+          <TargetsCard
             targets={targets}
             items={items}
             maxEnabledByTarget={maxEnabledByTarget}
