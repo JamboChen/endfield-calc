@@ -395,6 +395,23 @@ export function useProductionPlan(
     };
   }, []);
 
+  // Solver-facing view of `targets`. Strips presentation-only fields
+  // (`locked`) and keys identity on the CONTENT signature, so target
+  // edits that don't change what the LP sees — lock toggles create a
+  // new array/object identity to re-render and persist the hash's `l`
+  // suffix — never re-run the calc effect below (a full HiGHS solve).
+  // Content-keying mirrors App.tsx's `metastorageRouteSig` precedent.
+  const targetsCalcSig = targets
+    .map((t) => `${t.itemId}:${t.rate}`)
+    .join(",");
+  const calcTargets = useMemo(
+    () => targets.map(({ itemId, rate }) => ({ itemId, rate })),
+    // `targetsCalcSig` fully captures the solver-relevant content of
+    // `targets` (see above); the body reads nothing else.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [targetsCalcSig],
+  );
+
   // Core calculation: async because `calculateProductionPlan` awaits
   // HiGHS via the solver wrappers. `plan` / `error` are `useState`s
   // updated via effect rather than `useMemo` returns, because async
@@ -407,7 +424,7 @@ export function useProductionPlan(
   const [isCalculating, setIsCalculating] = useState(false);
   useEffect(() => {
     if (!solverReady) return;
-    if (targets.length === 0) {
+    if (calcTargets.length === 0) {
       setPlan(null);
       setError(null);
       setIsCalculating(false);
@@ -417,7 +434,7 @@ export function useProductionPlan(
     setError(null);
     setIsCalculating(true);
     calculate({
-      targets,
+      targets: calcTargets,
       items,
       recipes: availableRecipes,
       facilities,
@@ -455,7 +472,7 @@ export function useProductionPlan(
     };
   }, [
     solverReady,
-    targets,
+    calcTargets,
     recipeOverrides,
     manualRawMaterials,
     availableRecipes,

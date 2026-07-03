@@ -397,9 +397,18 @@ function AppContent() {
     metastorageRoutes,
   );
 
+  // Content-keyed (same pattern as `metastorageRouteSig` above): lock
+  // toggles produce a new `targets` identity without changing any
+  // itemId:rate pair — a fresh Map here would ripple through the tree
+  // mappers (and ELK layout) for no visual difference.
+  const targetRatesSig = targets
+    .map((t) => `${t.itemId}:${t.rate}`)
+    .join(",");
   const targetRates = useMemo(
     () => new Map(targets.map((t) => [t.itemId as ItemId, t.rate])),
-    [targets],
+    // `targetRatesSig` fully captures the map's content (see above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [targetRatesSig],
   );
 
   const isPortrait = usePortrait();
