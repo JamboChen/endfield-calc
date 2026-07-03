@@ -3,24 +3,16 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import TargetItemsGrid, { type ProductionTarget } from "./TargetItemsGrid";
-import ProductionStats from "../production/ProductionStats";
-import type { Facility, FacilityId, Item, ItemId } from "@/types";
+import OptionsCard from "./OptionsCard";
+import type { Item } from "@/types";
 import { useTranslation } from "react-i18next";
 
 type LeftPanelProps = {
   targets: ProductionTarget[];
   items: Item[];
-  facilities: Facility[];
-  totalPowerConsumption: number;
-  productionSteps: number;
-  rawMaterialRequirements: Map<ItemId, number>;
-  facilityRequirements: Map<string, number>;
-  totalPickupPoints: number;
-  rawMaterialPickupPoints: Map<ItemId, number>;
-  facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>;
-  rawMaterialOverCapMap: ReadonlyMap<ItemId, { used: number; cap: number }>;
-  error: string | null;
-  ceilMode?: boolean;
+  ceilMode: boolean;
+  onCeilModeChange: (value: boolean) => void;
+  onOpenSettings: () => void;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
   onAddClick: () => void;
@@ -29,17 +21,9 @@ type LeftPanelProps = {
 const LeftPanel = memo(function LeftPanel({
   targets,
   items,
-  facilities,
-  totalPowerConsumption,
-  productionSteps,
-  rawMaterialRequirements,
-  facilityRequirements,
-  totalPickupPoints,
-  rawMaterialPickupPoints,
-  facilityOverCapMap,
-  rawMaterialOverCapMap,
-  error,
-  ceilMode = false,
+  ceilMode,
+  onCeilModeChange,
+  onOpenSettings,
   onTargetChange,
   onTargetRemove,
   onAddClick,
@@ -95,19 +79,10 @@ const LeftPanel = memo(function LeftPanel({
         </CardContent>
       </Card>
 
-      <ProductionStats
-        totalPowerConsumption={totalPowerConsumption}
-        productionSteps={productionSteps}
-        rawMaterialRequirements={rawMaterialRequirements}
-        facilityRequirements={facilityRequirements}
-        totalPickupPoints={totalPickupPoints}
-        rawMaterialPickupPoints={rawMaterialPickupPoints}
-        facilityOverCapMap={facilityOverCapMap}
-        rawMaterialOverCapMap={rawMaterialOverCapMap}
-        facilities={facilities}
-        items={items}
-        error={error}
+      <OptionsCard
         ceilMode={ceilMode}
+        onCeilModeChange={onCeilModeChange}
+        onOpenSettings={onOpenSettings}
       />
     </div>
   );

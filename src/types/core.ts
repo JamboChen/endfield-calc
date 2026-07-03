@@ -77,6 +77,13 @@ type Facility = {
   category: number;
   /** Power draw per active building (0 = passive). */
   powerConsumption: number;
+  /**
+   * Build-grid footprint (`FactoryBuildingTable.range` width × depth,
+   * in grid tiles). Drives the plan-level grid-area stat
+   * (`aggregateBinTotals.totalTiles`). Optional so synthetic test
+   * fixtures need not carry it; both extractors always emit it.
+   */
+  footprint?: { width: number; depth: number };
   buffersIn: Buffers;
   buffersOut: Buffers;
   /**

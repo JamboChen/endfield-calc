@@ -1,6 +1,10 @@
 {
   "title": "Configuración",
   "open": "Abrir configuración",
+  "options": {
+    "title": "Opciones",
+    "allSettings": "Toda la configuración"
+  },
   "intro": "Configura el plan de investigación de la CAI, los límites de instalaciones y las tasas de materia prima de cada región. Elige abajo la región a configurar; los interruptores añaden o quitan regiones de tu lista.",
   "regions": {
     "configuringLabel": "Configurando",

@@ -6,29 +6,31 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { AlertCircle, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { Facility, FacilityId, Item, ItemId } from "@/types";
-import { getFacilityName, getItemName } from "@/lib/i18n-helpers";
-import { cn, getItemById, formatCount } from "@/lib/utils";
-import { rawMaterialSources } from "@/data";
-import { FacilityIcon } from "@/components/FacilityIcon";
+import type { Facility, Item, ItemId } from "@/types";
+import {
+  compareFacilityRows,
+  type ProductionStats as ProductionStatsData,
+} from "@/hooks/useProductionStats";
+import { getItemName } from "@/lib/i18n-helpers";
+import { getItemById, formatCount } from "@/lib/utils";
+import {
+  ByproductsList,
+  FacilityStatCard,
+  ImportsList,
+  IssuesList,
+  RawMaterialStatCard,
+} from "./stat-cards";
 
 type ProductionStatsProps = {
-  totalPowerConsumption: number;
-  productionSteps: number;
-  rawMaterialRequirements: Map<ItemId, number>;
-  facilityRequirements: Map<string, number>;
-  totalPickupPoints: number;
-  rawMaterialPickupPoints: Map<ItemId, number>;
+  /** Cohesive stats bundle from `useProductionStats`. */
+  stats: ProductionStatsData;
   facilities: Facility[];
   items: Item[];
   error: string | null;
+  /** Formatted solver warnings — rendered in the Issues section. */
+  warnings: string[];
   /**
    * Whether the panel renders the physical (ceiled) view or the
    * theoretical (fractional) view. Drives `formatCount` for pickup-point
@@ -36,35 +38,28 @@ type ProductionStatsProps = {
    */
   ceilMode?: boolean;
   /**
-   * Per-facility cap-overflow info from `useProductionStats`. Cards
-   * whose facility id is in this map render with destructive border +
-   * bg tint + red count value, and a tooltip showing the short
-   * `(used / cap)` numeric form. Empty map → all cards render with
-   * default styling.
-   */
-  facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>;
-  /**
-   * Per-raw-item cap-overflow info from `useProductionPlan`. Mirrors
-   * `facilityOverCapMap` shape. Cards whose item id is in this map
-   * render with destructive border + bg tint + red rate value, and a
-   * tooltip showing the short `({used}/min / {cap}/min)` form. Empty
-   * map → all raw-material rows render with default styling.
+   * Per-raw-item cap-overflow info from `useProductionPlan`. Cards
+   * whose item id is in this map render with destructive chrome and a
+   * tooltip showing the short `({used}/min / {cap}/min)` form.
    */
   rawMaterialOverCapMap: ReadonlyMap<ItemId, { used: number; cap: number }>;
 };
 
+/**
+ * Vertical Production Statistics card — the portrait drawer's stats
+ * surface (the landscape dock renders the same data horizontally via
+ * `BottomDock`). Sections: summary grid (power / buildings / grid area /
+ * depot ports / steps / raws), facility cards, collapsible raw-material
+ * usage, metastorage imports, byproduct disposal, and the full issues
+ * list.
+ */
 const ProductionStats = memo(function ProductionStats({
-  totalPowerConsumption,
-  productionSteps,
-  rawMaterialRequirements,
-  facilityRequirements,
-  totalPickupPoints,
-  rawMaterialPickupPoints,
+  stats,
   facilities,
   items,
   error,
+  warnings,
   ceilMode = false,
-  facilityOverCapMap,
   rawMaterialOverCapMap,
 }: ProductionStatsProps) {
   const { t } = useTranslation("stats");
@@ -74,17 +69,27 @@ const ProductionStats = memo(function ProductionStats({
     setRawMaterialsOpen(open);
   }, []);
 
-  const facilityList = Array.from(facilityRequirements.entries())
+  const facilityById = new Map(facilities.map((f) => [f.id, f] as const));
+
+  // Same ordering as the dock: over-cap rows pinned first, then
+  // heaviest builds by mode-independent raw LP counts, so toggling
+  // "Round up facilities" never reshuffles the list.
+  const facilityList = Array.from(stats.facilityRequirements.entries())
     .map(([facilityId, count]) => {
-      const facility = facilities.find((f) => f.id === facilityId);
+      const facility = facilityById.get(facilityId);
       return facility ? { facility, count } : null;
     })
     .filter(
       (item): item is { facility: Facility; count: number } => item !== null,
     )
-    .sort((a, b) => a.facility.id.localeCompare(b.facility.id));
+    .sort(
+      compareFacilityRows(
+        stats.facilityOverCapMap,
+        stats.rawFacilityRequirements,
+      ),
+    );
 
-  const rawMaterialList = Array.from(rawMaterialRequirements.entries())
+  const rawMaterialList = Array.from(stats.rawMaterialRequirements.entries())
     .map(([itemId, rate]) => {
       const item = getItemById(items, itemId);
       return item ? { item, rate } : null;
@@ -92,117 +97,68 @@ const ProductionStats = memo(function ProductionStats({
     .filter((entry): entry is { item: Item; rate: number } => entry !== null)
     .sort((a, b) => getItemName(a.item).localeCompare(getItemName(b.item)));
 
+  const summary: { label: string; value: string; title?: string }[] = [
+    { label: t("totalPower"), value: stats.totalPowerConsumption.toFixed(1) },
+    {
+      label: t("buildings"),
+      value: formatCount(stats.totalBuildings, ceilMode),
+    },
+    {
+      label: t("gridArea"),
+      value: stats.totalTiles > 0 ? `≥${stats.totalTiles}` : "0",
+      title: t("gridAreaHint"),
+    },
+    {
+      label: t("depotPorts"),
+      value: formatCount(stats.depotPickupPoints, ceilMode),
+    },
+    { label: t("productionSteps"), value: String(stats.uniqueProductionSteps) },
+    {
+      label: t("rawMaterials"),
+      value: String(stats.rawMaterialRequirements.size),
+    },
+  ];
+
   return (
     <Card className="flex flex-col border-border/50 shrink-0">
       <CardHeader className="shrink-0">
         <CardTitle className="text-base">{t("title")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2.5">
-        {error ? (
-          <div className="flex items-center gap-2 text-destructive text-sm p-3 bg-destructive/10 rounded">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        ) : (
+        <IssuesList error={error} warnings={warnings} />
+
+        {!error && (
           <>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">
-                  {t("totalPower")}
+              {summary.map(({ label, value, title }) => (
+                <div key={label} className="space-y-1" title={title}>
+                  <div className="text-xs text-muted-foreground">{label}</div>
+                  <div className="text-lg font-bold font-mono">{value}</div>
                 </div>
-                <div className="text-lg font-bold font-mono">
-                  {totalPowerConsumption.toFixed(1)}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">
-                  {t("productionSteps")}
-                </div>
-                <div className="text-lg font-bold font-mono">
-                  {productionSteps}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">
-                  {t("rawMaterials")}
-                </div>
-                <div className="text-lg font-bold font-mono">
-                  {rawMaterialRequirements.size}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">
-                  {t("pickupPoints")}
-                </div>
-                <div className="text-lg font-bold font-mono">
-                  {formatCount(totalPickupPoints, ceilMode)}
-                </div>
-              </div>
+              ))}
             </div>
 
             {facilityList.length > 0 && (
               <>
                 <Separator />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-1.5">
                   {facilityList.map(({ facility, count }) => {
-                    const overCap = facilityOverCapMap.get(
-                      facility.id as FacilityId,
-                    );
-                    const overCapAriaLabel = overCap
-                      ? t("facilityCapExceeded", {
-                          used: formatCount(overCap.used, ceilMode),
-                          cap: overCap.cap,
-                        })
-                      : undefined;
-                    const card = (
-                      <div
-                        // Over-cap cards are made focusable + carry an
-                        // explicit aria-label so screen-reader and
-                        // keyboard users get the same info as the hover
-                        // tooltip. Non-over-cap cards stay un-focusable
-                        // (no useful interaction).
-                        tabIndex={overCap ? 0 : undefined}
-                        role={overCap ? "status" : undefined}
-                        aria-label={overCapAriaLabel}
-                        className={cn(
-                          "space-y-0.5 p-2 border bg-card",
-                          overCap
-                            ? "border-destructive/70 bg-destructive/5"
-                            : "border-border/50",
-                        )}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <FacilityIcon
-                            facility={facility}
-                            alt={getFacilityName(facility)}
-                            className="w-4 h-4 object-contain"
-                          />
-                          <div className="text-xs text-muted-foreground truncate flex-1">
-                            {getFacilityName(facility)}
-                          </div>
-                        </div>
-                        <div
-                          className={cn(
-                            "text-sm font-semibold font-mono",
-                            overCap && "text-destructive",
-                          )}
-                        >
-                          {formatCount(count, ceilMode)}
-                        </div>
-                      </div>
-                    );
-                    if (!overCap) {
-                      return (
-                        <div key={facility.id}>
-                          {card}
-                        </div>
-                      );
-                    }
+                    const rawCount =
+                      stats.rawFacilityRequirements.get(facility.id) ?? 0;
                     return (
-                      <Tooltip key={facility.id}>
-                        <TooltipTrigger asChild>{card}</TooltipTrigger>
-                        <TooltipContent>{overCapAriaLabel}</TooltipContent>
-                      </Tooltip>
+                      <FacilityStatCard
+                        key={facility.id}
+                        facility={facility}
+                        count={count}
+                        ceilMode={ceilMode}
+                        overCap={stats.facilityOverCapMap.get(facility.id)}
+                        powerSubtotal={facility.powerConsumption * count}
+                        utilization={
+                          ceilMode && count > 0
+                            ? Math.min(1, rawCount / count)
+                            : undefined
+                        }
+                      />
                     );
                   })}
                 </div>
@@ -221,84 +177,47 @@ const ProductionStats = memo(function ProductionStats({
                       className={`h-4 w-4 shrink-0 transition-transform duration-200 ${rawMaterialsOpen ? "rotate-90" : ""}`}
                     />
                     {t("rawMaterialUsage")}
+                    {stats.pumpPickupPoints > 0 && (
+                      <span className="ml-auto text-xs text-muted-foreground font-normal font-mono">
+                        {formatCount(stats.pumpPickupPoints, ceilMode)}{" "}
+                        <span className="font-sans">{t("pumps")}</span>
+                      </span>
+                    )}
                   </CollapsibleTrigger>
                   <CollapsibleContent>
-                    <div className="grid grid-cols-2 gap-2 pt-2">
-                      {rawMaterialList.map(({ item, rate }) => {
-                        const cfg = rawMaterialSources.get(item.id);
-                        const sourceFacility = cfg
-                          ? facilities.find(
-                              (f) => f.id === cfg.sourceFacility,
-                            )
-                          : undefined;
-                        const sourceLabel = sourceFacility
-                          ? getFacilityName(sourceFacility)
-                          : t("pickupPoints");
-                        const overCap = rawMaterialOverCapMap.get(item.id);
-                        const overCapAriaLabel = overCap
-                          ? t("rawCapExceeded", {
-                              used: overCap.used.toFixed(1),
-                              cap: overCap.cap,
-                            })
-                          : undefined;
-                        const card = (
-                          <div
-                            // Same a11y pattern as facility-over-cap
-                            // cards: focusable + aria-labelled so
-                            // screen readers + keyboard nav surface
-                            // the over-cap detail.
-                            tabIndex={overCap ? 0 : undefined}
-                            role={overCap ? "status" : undefined}
-                            aria-label={overCapAriaLabel}
-                            className={cn(
-                              "space-y-0.5 p-2 border bg-card",
-                              overCap
-                                ? "border-destructive/70 bg-destructive/5"
-                                : "border-border/50",
-                            )}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              {item.iconUrl && (
-                                <img
-                                  src={item.iconUrl}
-                                  alt={getItemName(item)}
-                                  className="w-4 h-4 object-contain"
-                                />
-                              )}
-                              <div className="text-xs text-muted-foreground truncate flex-1">
-                                {getItemName(item)}
-                              </div>
-                            </div>
-                            <div
-                              className={cn(
-                                "text-sm font-semibold font-mono",
-                                overCap && "text-destructive",
-                              )}
-                            >
-                              {rate.toFixed(1)}
-                              <span className="text-xs font-normal text-muted-foreground ml-1">
-                                /min
-                              </span>
-                            </div>
-                            <div className="text-xs text-muted-foreground font-mono">
-                              ×{formatCount(rawMaterialPickupPoints.get(item.id) ?? 0, ceilMode)}
-                              <span className="ml-1">{sourceLabel}</span>
-                            </div>
-                          </div>
-                        );
-                        if (!overCap) {
-                          return <div key={item.id}>{card}</div>;
-                        }
-                        return (
-                          <Tooltip key={item.id}>
-                            <TooltipTrigger asChild>{card}</TooltipTrigger>
-                            <TooltipContent>{overCapAriaLabel}</TooltipContent>
-                          </Tooltip>
-                        );
-                      })}
+                    <div className="grid grid-cols-1 gap-1.5 pt-2">
+                      {rawMaterialList.map(({ item, rate }) => (
+                        <RawMaterialStatCard
+                          key={item.id}
+                          item={item}
+                          rate={rate}
+                          pickupCount={
+                            stats.rawMaterialPickupPoints.get(item.id) ?? 0
+                          }
+                          facilities={facilities}
+                          ceilMode={ceilMode}
+                          overCap={rawMaterialOverCapMap.get(item.id)}
+                        />
+                      ))}
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
+              </>
+            )}
+
+            {stats.metastorageImports.length > 0 && (
+              <>
+                <Separator />
+                <div className="text-sm font-medium">{t("imports")}</div>
+                <ImportsList imports={stats.metastorageImports} items={items} />
+              </>
+            )}
+
+            {stats.disposal.length > 0 && (
+              <>
+                <Separator />
+                <div className="text-sm font-medium">{t("byproducts")}</div>
+                <ByproductsList disposal={stats.disposal} />
               </>
             )}
           </>

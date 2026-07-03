@@ -1,10 +1,25 @@
 {
+  "buildings": "Buildings",
+  "byproducts": "Byproducts",
+  "collapse": "Collapse",
+  "depotPorts": "Depot Ports",
+  "empty": "No production data yet — add a target to get started.",
+  "facilities": "Facilities",
   "facilityCapExceeded": "Limit exceeded ({{used}} / {{cap}})",
+  "gridArea": "Grid Area",
+  "gridAreaHint": "Build-grid tiles for production buildings and depot unloaders (belts excluded). Pumps and map structures sit outside the grid.",
+  "groupedSavings": "(−{{n}} grouped)",
+  "imports": "Imports",
+  "importTtvHint": "TTV per delivery: {{used}} / {{cap}}",
+  "issues": "Issues",
   "rawCapExceeded": "Limit exceeded ({{used}}/min / {{cap}}/min)",
   "pickupPoints": "Pickup Ports",
   "productionSteps": "Production Steps",
+  "pumps": "Pumps",
   "rawMaterialUsage": "Raw Material Usage",
   "rawMaterials": "Raw Materials",
+  "showDetails": "Details",
   "title": "Production Statistics",
-  "totalPower": "Total Power"
+  "totalPower": "Total Power",
+  "utilizationHint": "Share of built capacity in use"
 }

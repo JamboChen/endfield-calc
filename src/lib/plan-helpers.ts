@@ -14,7 +14,16 @@ import type {
 } from "@/types";
 import { calcRate, getRawSourceRate } from "@/lib/utils";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
-import { rawMaterialSources } from "@/data";
+import { mapPlacedFacilities, rawMaterialSources } from "@/data";
+
+/**
+ * `GEnums.FacBuildingType` values for the fluid pump classes
+ * (FluidPumpIn / FluidPumpOut). Pumps deploy onto fluid bodies in the
+ * open world — outside the Core-AIC build grid — so they contribute no
+ * grid tiles (see `BinAggregates.totalTiles`) and no depot-port count
+ * (see `useProductionStats.depotPickupPoints`).
+ */
+export const PUMP_CATEGORIES: ReadonlySet<number> = new Set([25, 26]);
 
 /**
  * Bin-level plan aggregates derived from `plan.bins`. Single
@@ -92,6 +101,19 @@ export type BinAggregates = {
    * from this gives groupedSavings.
    */
   multiFormulaBaselineBuildings: number;
+  /**
+   * Σ Core-AIC build-grid tiles (`facility.footprint` width × depth ×
+   * ceiled building count). **Always ceiled regardless of `ceilMode`** —
+   * fractional buildings don't occupy fractional grid space. A lower
+   * bound: belts/pipes/pylons aren't modelable. Two exclusions, both
+   * for facilities that live outside the build grid:
+   *   - fluid pumps (`PUMP_CATEGORIES`) deploy onto open-world fluid
+   *     bodies;
+   *   - `mapPlacedFacilities` (Sewage Inlet) are fixed map structures
+   *     the player merely enables.
+   * Facilities without a `footprint` contribute 0 (unknown ≠ guessed).
+   */
+  totalTiles: number;
 };
 
 /**
@@ -164,9 +186,17 @@ export function aggregateBinTotals(
 
   let totalBuildings = 0;
   let totalPower = 0;
+  let totalTiles = 0;
   let multiFormulaActualBuildings = 0;
   const perFacility = new Map<FacilityId, number>();
   const rawPerFacility = new Map<FacilityId, number>();
+
+  const tilesPerBuilding = (facility: Facility): number => {
+    if (!facility.footprint) return 0;
+    if (mapPlacedFacilities.has(facility.id)) return 0;
+    if (PUMP_CATEGORIES.has(facility.category)) return 0;
+    return facility.footprint.width * facility.footprint.depth;
+  };
 
   for (const bin of plan.bins) {
     const facility = facilityById.get(bin.facilityId);
@@ -190,6 +220,8 @@ export function aggregateBinTotals(
       // Always-ceiled — groupedSavings is a physical-buildings comparison.
       multiFormulaActualBuildings += ceiledBuildings;
     }
+    // Always-ceiled — buildings occupy whole tiles in either view mode.
+    totalTiles += tilesPerBuilding(facility) * ceiledBuildings;
   }
 
   // Fold pickup-point source facilities (unloader_1, pump_1, pump_2)
@@ -227,6 +259,10 @@ export function aggregateBinTotals(
       facility.id,
       (rawPerFacility.get(facility.id) ?? 0) + fractionalPickups,
     );
+    // Pickup tiles: unloaders sit on the depot bus inside the build
+    // grid; pumps are filtered out by `tilesPerBuilding` (open-world
+    // fluid bodies). Always-ceiled, mirroring the bin loop.
+    totalTiles += tilesPerBuilding(facility) * Math.ceil(fractionalPickups);
   }
 
   let multiFormulaBaselineBuildings = 0;
@@ -244,6 +280,7 @@ export function aggregateBinTotals(
     rawPerFacility,
     multiFormulaActualBuildings,
     multiFormulaBaselineBuildings,
+    totalTiles,
   };
 }
 

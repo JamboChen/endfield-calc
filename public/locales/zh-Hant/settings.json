@@ -1,6 +1,10 @@
 {
   "title": "設定",
   "open": "開啟設定",
+  "options": {
+    "title": "選項",
+    "allSettings": "全部設定"
+  },
   "intro": "為每個區域設定 AIC 研究方案、設施上限與原料速率。在下方選擇要設定的區域；開關用於將區域加入或移出你的清單。",
   "regions": {
     "configuringLabel": "正在設定",

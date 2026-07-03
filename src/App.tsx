@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -8,10 +8,12 @@ import { useProductionPlan } from "./hooks/useProductionPlan";
 import { usePortrait } from "./hooks/usePortrait";
 import AppHeader from "./components/layout/AppHeader";
 import LeftPanel from "./components/panels/LeftPanel";
+import BottomDock from "./components/panels/BottomDock";
 import PortraitDrawer from "./components/panels/PortraitDrawer";
 import ProductionViewTabs from "./components/production/ProductionViewTabs";
 import AddTargetDialogGrid from "./components/panels/AddTargetDialogGrid";
 import AppFooter from "./components/layout/AppFooter";
+import { SettingsSheet } from "./components/settings/SettingsSheet";
 import { ThemeProvider, useTheme } from "./components/ui/theme-provider";
 import { DomainSettingsProvider } from "./contexts/DomainSettingsProvider";
 import { useDomainSettingsContext } from "./contexts/domain-settings-context";
@@ -400,30 +402,33 @@ function AppContent() {
 
   const isPortrait = usePortrait();
 
+  // Settings-sheet visibility lives here (not in AppHeader) so both the
+  // header gear and the left-rail Options card can open it. Stable
+  // callback: LeftPanel / PortraitDrawer are memoised.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
+
   const handleLanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);
   };
 
   return (
     <div className="h-screen flex flex-col p-4 pb-0 gap-4 overflow-x-hidden [@media(orientation:portrait)]:pb-4">
-      <AppHeader onLanguageChange={handleLanguageChange} onSavePlan={handleSavePlan} onOpenPlan={handleOpenPlan} />
+      <AppHeader
+        onLanguageChange={handleLanguageChange}
+        onSavePlan={handleSavePlan}
+        onOpenPlan={handleOpenPlan}
+        onOpenSettings={handleOpenSettings}
+      />
 
       <div className="flex-1 flex gap-4 min-h-0">
         <div className={isPortrait ? "hidden" : "contents"}>
               <LeftPanel
                 targets={targets}
                 items={items}
-                facilities={facilities}
-                totalPowerConsumption={stats.totalPowerConsumption}
-                productionSteps={stats.uniqueProductionSteps}
-                rawMaterialRequirements={stats.rawMaterialRequirements}
-                facilityRequirements={stats.facilityRequirements}
-                totalPickupPoints={stats.totalPickupPoints}
-                rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
-                facilityOverCapMap={stats.facilityOverCapMap}
-                rawMaterialOverCapMap={rawMaterialOverCapMap}
-                error={error}
                 ceilMode={ceilMode}
+                onCeilModeChange={setCeilMode}
+                onOpenSettings={handleOpenSettings}
                 onTargetChange={handleTargetChange}
                 onTargetRemove={handleTargetRemove}
                 onAddClick={handleAddClick}
@@ -445,11 +450,21 @@ function AppContent() {
           ineffectivePins={ineffectivePins}
           targetRates={targetRates}
           ceilMode={ceilMode}
-          onCeilModeChange={setCeilMode}
           binFusion={binFusion}
           onBinFusionChange={setBinFusion}
-          warnings={warnings}
           loading={isLoading}
+        />
+      </div>
+
+      <div className={isPortrait ? "hidden" : "contents"}>
+        <BottomDock
+          stats={stats}
+          facilities={facilities}
+          items={items}
+          error={error}
+          warnings={warnings}
+          ceilMode={ceilMode}
+          rawMaterialOverCapMap={rawMaterialOverCapMap}
         />
       </div>
 
@@ -458,16 +473,13 @@ function AppContent() {
           targets={targets}
           items={items}
           facilities={facilities}
-          totalPowerConsumption={stats.totalPowerConsumption}
-          productionSteps={stats.uniqueProductionSteps}
-          rawMaterialRequirements={stats.rawMaterialRequirements}
-          facilityRequirements={stats.facilityRequirements}
-          totalPickupPoints={stats.totalPickupPoints}
-          rawMaterialPickupPoints={stats.rawMaterialPickupPoints}
-          facilityOverCapMap={stats.facilityOverCapMap}
-          rawMaterialOverCapMap={rawMaterialOverCapMap}
+          stats={stats}
           error={error}
+          warnings={warnings}
+          rawMaterialOverCapMap={rawMaterialOverCapMap}
           ceilMode={ceilMode}
+          onCeilModeChange={setCeilMode}
+          onOpenSettings={handleOpenSettings}
           onTargetChange={handleTargetChange}
           onTargetRemove={handleTargetRemove}
           onAddClick={handleAddClick}
@@ -482,6 +494,8 @@ function AppContent() {
         regionRawMaterials={regionRawMaterials}
         onBatchAddTargets={handleBatchAddTargets}
       />
+
+      <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
 
       <AppFooter />
     </div>

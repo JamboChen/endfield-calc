@@ -1,6 +1,10 @@
 {
   "title": "Settings",
   "open": "Open settings",
+  "options": {
+    "title": "Options",
+    "allSettings": "All Settings"
+  },
   "intro": "Configure each region's AIC research plan, facility limits, and raw-material rates. Pick a region to configure below; the switches add or remove regions from your roster.",
   "regions": {
     "configuringLabel": "Configuring",

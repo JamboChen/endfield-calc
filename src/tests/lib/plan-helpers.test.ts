@@ -9,7 +9,13 @@ import {
   computeRawOverCapWarnings,
   filterPlanForDisplay,
 } from "@/lib/plan-helpers";
-import { items, recipes, facilities, rawMaterialSources } from "@/data";
+import {
+  items,
+  recipes,
+  facilities,
+  mapPlacedFacilities,
+  rawMaterialSources,
+} from "@/data";
 import { getRawSourceRate } from "@/lib/utils";
 import {
   DomainId as DomainIdEnum,
@@ -1687,5 +1693,174 @@ describe("filterPlanForDisplay", () => {
     const filtered = filterPlanForDisplay(plan);
     expect(filtered.nodes.has("mid")).toBe(false);
     expect(filtered.edges).toHaveLength(0);
+  });
+});
+
+describe("aggregateBinTotals.totalTiles", () => {
+  /**
+   * Independent tile sum mirroring the documented contract: ceiled
+   * building counts × footprint area, with pumps (category 25/26) and
+   * map-placed facilities excluded. `includePumps` / `includeMapPlaced`
+   * let individual tests prove each exclusion actually fires (the
+   * inclusive sum must be strictly larger).
+   */
+  function independentTileSum(
+    plan: ProductionDependencyGraph,
+    opts: { includePumps?: boolean; includeMapPlaced?: boolean } = {},
+  ): number {
+    const facilityById = new Map(facilities.map((f) => [f.id, f]));
+    const itemById = new Map(items.map((i) => [i.id, i]));
+    const tilesFor = (facilityId: FacilityIdEnum): number => {
+      const fac = facilityById.get(facilityId);
+      if (!fac?.footprint) return 0;
+      if (!opts.includeMapPlaced && mapPlacedFacilities.has(fac.id)) return 0;
+      if (!opts.includePumps && (fac.category === 25 || fac.category === 26)) {
+        return 0;
+      }
+      return fac.footprint.width * fac.footprint.depth;
+    };
+    let tiles = 0;
+    for (const bin of plan.bins) {
+      tiles += tilesFor(bin.facilityId) * Math.max(1, Math.ceil(bin.buildingCount));
+    }
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "item" || !node.isRawMaterial) continue;
+      if (node.productionRate <= 0) continue;
+      const cfg = rawMaterialSources.get(node.itemId);
+      if (!cfg) continue;
+      const item = itemById.get(node.itemId);
+      const rate = getRawSourceRate(node.itemId, item);
+      if (rate <= 0) continue;
+      tiles +=
+        tilesFor(cfg.sourceFacility) * Math.ceil(node.productionRate / rate);
+    }
+    return tiles;
+  }
+
+  test("real data: matches the documented contract and is ceilMode-independent", async () => {
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
+    const fractional = aggregateBinTotals(plan, facilities, items);
+    expect(ceiled.totalTiles).toBe(independentTileSum(plan));
+    // Buildings occupy whole tiles in either view mode.
+    expect(fractional.totalTiles).toBe(ceiled.totalTiles);
+    expect(ceiled.totalTiles).toBeGreaterThan(0);
+  });
+
+  test("pumps contribute buildings/power but zero tiles", async () => {
+    // Xircon consumes water via pump_1 (Wuling), so the plan carries a
+    // pump pickup. The inclusive sum must be strictly larger — proving
+    // the exclusion is actually exercised, not vacuously true.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
+    expect(totals.perFacility.get(FacilityIdEnum.PUMP_1) ?? 0).toBeGreaterThan(0);
+    expect(independentTileSum(plan, { includePumps: true })).toBeGreaterThan(
+      totals.totalTiles,
+    );
+    expect(totals.totalTiles).toBe(independentTileSum(plan));
+  });
+
+  test("map-placed Sewage Inlet contributes zero tiles", async () => {
+    // cap=3 makes the LP route sewage through LIQUID_CLEAN_GATE_1 (see
+    // structures-disposal.test.ts). Its 10×3 footprint must NOT count —
+    // it is a fixed map structure, not a build-grid placement.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_COPPER_CMPT, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      {
+        rawMaterials: ALL_RAWS,
+        facilityCaps: new Map([[FacilityIdEnum.LIQUID_CLEAN_GATE_1, 3]]),
+      },
+    );
+    const inletBin = plan.bins.find(
+      (b) => b.facilityId === FacilityIdEnum.LIQUID_CLEAN_GATE_1,
+    );
+    expect(inletBin).toBeDefined();
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
+    expect(
+      independentTileSum(plan, { includeMapPlaced: true }),
+    ).toBeGreaterThan(totals.totalTiles);
+    expect(totals.totalTiles).toBe(independentTileSum(plan));
+  });
+
+  test("synthetic: footprint area × ceiled bin count; missing footprint counts 0", async () => {
+    // Inline fixtures isolate the tile math from upstream-data drift.
+    const synthItems: Item[] = [
+      { id: "tile_raw" as ItemId, tier: 1 },
+      { id: "tile_widget" as ItemId, tier: 1 },
+    ];
+    const synthFacilities: Facility[] = [
+      {
+        id: "tile_maker" as FacilityId,
+        tier: 1,
+        category: 6,
+        powerConsumption: 5,
+        footprint: { width: 2, depth: 3 },
+        buffersIn: { belt: [{ ports: 1 }], pipe: [] },
+        buffersOut: { belt: [{ ports: 1 }], pipe: [] },
+        domains: [],
+      },
+      {
+        id: "tile_maker_unsized" as FacilityId,
+        tier: 1,
+        category: 6,
+        powerConsumption: 5,
+        // no footprint — must contribute 0 tiles, not throw.
+        buffersIn: { belt: [{ ports: 1 }], pipe: [] },
+        buffersOut: { belt: [{ ports: 1 }], pipe: [] },
+        domains: [],
+      },
+    ];
+    const synthRecipes: Recipe[] = [
+      {
+        id: "make_tile_widget" as RecipeId,
+        inputs: [{ itemId: "tile_raw" as ItemId, amount: 1 }],
+        outputs: [{ itemId: "tile_widget" as ItemId, amount: 1 }],
+        facilityId: "tile_maker" as FacilityId,
+        craftingTime: 2,
+      },
+    ];
+    // 42/min ÷ (30/min per building) = 1.4 buildings → ceil 2 → 12 tiles.
+    const plan = await calculateProductionPlan(
+      [{ itemId: "tile_widget" as ItemId, rate: 42 }],
+      synthItems,
+      synthRecipes,
+      synthFacilities,
+      { rawMaterials: new Set(["tile_raw" as ItemId]) },
+    );
+    const totals = aggregateBinTotals(plan, synthFacilities, synthItems);
+    expect(totals.totalTiles).toBe(12);
+
+    // Same plan on the footprint-less twin: zero tiles.
+    const unsizedRecipes: Recipe[] = [
+      { ...synthRecipes[0], facilityId: "tile_maker_unsized" as FacilityId },
+    ];
+    const unsizedPlan = await calculateProductionPlan(
+      [{ itemId: "tile_widget" as ItemId, rate: 42 }],
+      synthItems,
+      unsizedRecipes,
+      synthFacilities,
+      { rawMaterials: new Set(["tile_raw" as ItemId]) },
+    );
+    const unsizedTotals = aggregateBinTotals(
+      unsizedPlan,
+      synthFacilities,
+      synthItems,
+    );
+    expect(unsizedTotals.totalTiles).toBe(0);
   });
 });
