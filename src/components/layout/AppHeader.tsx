@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { useTheme } from "../ui/theme-provider";
+import { useTheme } from "../ui/theme-context";
 import {
   Sun,
   Moon,

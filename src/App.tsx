@@ -17,7 +17,8 @@ import ProductionViewTabs from "./components/production/ProductionViewTabs";
 import AddTargetDialogGrid from "./components/panels/AddTargetDialogGrid";
 import AppFooter from "./components/layout/AppFooter";
 import { SettingsSheet } from "./components/settings/SettingsSheet";
-import { ThemeProvider, useTheme } from "./components/ui/theme-provider";
+import { ThemeProvider } from "./components/ui/theme-provider";
+import { useTheme } from "./components/ui/theme-context";
 import { DomainSettingsProvider } from "./contexts/DomainSettingsProvider";
 import { useDomainSettingsContext } from "./contexts/domain-settings-context";
 import {
