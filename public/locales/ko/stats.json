@@ -1,4 +1,5 @@
 {
+  "available": "여유",
   "buildings": "건물 수",
   "byproducts": "부산물",
   "collapse": "접기",
@@ -12,14 +13,15 @@
   "imports": "반입",
   "importTtvHint": "배송당 TTV: {{used}} / {{cap}}",
   "issues": "문제",
-  "rawCapExceeded": "상한 초과 ({{used}}/분 / {{cap}}/분)",
+  "limit": "상한",
   "pickupPoints": "픽업 포트",
+  "powerDraw": "전력 소비",
   "productionSteps": "생산 단계",
   "pumps": "펌프",
+  "rawCapExceeded": "상한 초과 ({{used}}/분 / {{cap}}/분)",
   "rawMaterialUsage": "원자재 사용량",
-  "rawMaterials": "원자재",
   "showDetails": "상세",
   "title": "생산 통계",
   "totalPower": "총 전력",
-  "utilizationHint": "건설된 용량 중 사용 비율"
+  "utilization": "가동률"
 }

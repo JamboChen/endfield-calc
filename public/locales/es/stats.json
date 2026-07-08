@@ -1,4 +1,5 @@
 {
+  "available": "Disponible",
   "buildings": "Edificios",
   "byproducts": "Subproductos",
   "collapse": "Contraer",
@@ -12,14 +13,15 @@
   "imports": "Importaciones",
   "importTtvHint": "TTV por entrega: {{used}} / {{cap}}",
   "issues": "Problemas",
-  "rawCapExceeded": "Límite excedido ({{used}}/min / {{cap}}/min)",
+  "limit": "Límite",
   "pickupPoints": "Puertos de Recogida",
+  "powerDraw": "Consumo de energía",
   "productionSteps": "Pasos de Producción",
   "pumps": "Bombas",
+  "rawCapExceeded": "Límite excedido ({{used}}/min / {{cap}}/min)",
   "rawMaterialUsage": "Uso de Materias Primas",
-  "rawMaterials": "Materias Primas",
   "showDetails": "Detalles",
   "title": "Estadísticas de Producción",
   "totalPower": "Energía Total",
-  "utilizationHint": "Porcentaje de la capacidad construida en uso"
+  "utilization": "Utilización"
 }

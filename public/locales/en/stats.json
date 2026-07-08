@@ -1,4 +1,5 @@
 {
+  "available": "Available",
   "buildings": "Buildings",
   "byproducts": "Byproducts",
   "collapse": "Collapse",
@@ -12,14 +13,15 @@
   "imports": "Imports",
   "importTtvHint": "TTV per delivery: {{used}} / {{cap}}",
   "issues": "Issues",
-  "rawCapExceeded": "Limit exceeded ({{used}}/min / {{cap}}/min)",
+  "limit": "Limit",
   "pickupPoints": "Pickup Ports",
+  "powerDraw": "Power draw",
   "productionSteps": "Production Steps",
   "pumps": "Pumps",
+  "rawCapExceeded": "Limit exceeded ({{used}}/min / {{cap}}/min)",
   "rawMaterialUsage": "Raw Material Usage",
-  "rawMaterials": "Raw Materials",
   "showDetails": "Details",
   "title": "Production Statistics",
   "totalPower": "Total Power",
-  "utilizationHint": "Share of built capacity in use"
+  "utilization": "Utilization"
 }

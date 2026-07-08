@@ -1,4 +1,5 @@
 {
+  "available": "Доступно",
   "buildings": "Здания",
   "byproducts": "Побочные продукты",
   "collapse": "Свернуть",
@@ -12,14 +13,15 @@
   "imports": "Импорт",
   "importTtvHint": "TTV за доставку: {{used}} / {{cap}}",
   "issues": "Проблемы",
-  "rawCapExceeded": "Лимит превышен ({{used}}/мин / {{cap}}/мин)",
+  "limit": "Лимит",
   "pickupPoints": "Порты выдачи",
+  "powerDraw": "Потребление энергии",
   "productionSteps": "Этапы производства",
   "pumps": "Насосы",
+  "rawCapExceeded": "Лимит превышен ({{used}}/мин / {{cap}}/мин)",
   "rawMaterialUsage": "Расход сырья",
-  "rawMaterials": "Сырьё",
   "showDetails": "Подробнее",
   "title": "Статистика производства",
   "totalPower": "Общая энергия",
-  "utilizationHint": "Доля используемой построенной мощности"
+  "utilization": "Загрузка"
 }

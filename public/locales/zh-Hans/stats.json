@@ -1,4 +1,5 @@
 {
+  "available": "剩余",
   "buildings": "建筑数",
   "byproducts": "副产物",
   "collapse": "收起",
@@ -12,14 +13,15 @@
   "imports": "转入",
   "importTtvHint": "每次配送 TTV:{{used}} / {{cap}}",
   "issues": "问题",
-  "rawCapExceeded": "超出上限 ({{used}}/分 / {{cap}}/分)",
+  "limit": "上限",
   "pickupPoints": "取货口",
+  "powerDraw": "功耗",
   "productionSteps": "生产步骤",
   "pumps": "泵",
+  "rawCapExceeded": "超出上限 ({{used}}/分 / {{cap}}/分)",
   "rawMaterialUsage": "原材料用量",
-  "rawMaterials": "原材料",
   "showDetails": "详情",
   "title": "生产统计",
   "totalPower": "总功耗",
-  "utilizationHint": "已建产能的使用比例"
+  "utilization": "利用率"
 }

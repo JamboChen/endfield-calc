@@ -51,6 +51,7 @@
   --color-tier-3-muted: var(--tier-3-muted);
   --color-tier-4-muted: var(--tier-4-muted);
   --color-tier-5-muted: var(--tier-5-muted);
+  --color-stats-accent: var(--stats-accent);
 }
 
 :root {
@@ -114,6 +115,11 @@
   /* Direct-consumer ring while pinned: amber ("the targets of this
      item") — same family as target-sink borders. Tailwind amber-600. */
   --flow-pin-consumer: oklch(0.666 0.179 58.318);
+  /* Production-stats telemetry accent: Endfield signal gold. Section
+     ticks in the stats surfaces (BottomDock / ProductionStats). Same
+     family as --tier-4 but a hair deeper so it reads as chrome, not as
+     an item-tier badge. */
+  --stats-accent: oklch(0.78 0.16 81);
 }
 
 .dark {
@@ -169,6 +175,9 @@
   --flow-minimap-mask: oklch(0.9 0 0 / 12%);
   /* Direct-consumer ring (dark): brighter amber. Tailwind amber-500. */
   --flow-pin-consumer: oklch(0.769 0.188 70.08);
+  /* Production-stats telemetry accent (dark): brighter so the gold
+     ticks don't sink into the near-black card. */
+  --stats-accent: oklch(0.85 0.16 84);
 }
 
 @layer base {
@@ -253,6 +262,20 @@
    resets play-state — inside @layer this rule silently loses. */
 .flow-theme.flow-lowzoom .react-flow__edge.animated path {
   animation-play-state: paused;
+}
+
+@layer components {
+  /* Diagonal hazard stripes in currentColor — the accent bar on plan
+     issue rows (IssuesList). Color comes from the host's text color
+     (amber for warnings, destructive for the calc error), so one class
+     serves both severities. */
+  .hazard-stripe {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      currentColor 0 3px,
+      transparent 3px 7px
+    );
+  }
 }
 
 /* ── Item picker animations ── */

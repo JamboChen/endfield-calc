@@ -368,7 +368,8 @@ function AppContent() {
     stats,
     error,
     warnings,
-    rawMaterialOverCapMap,
+    capIssueCount,
+    rawMaterialCapMap,
     handleTargetChange,
     handleTargetRemove,
     handleTargetLockToggle,
@@ -518,8 +519,9 @@ function AppContent() {
           items={items}
           error={error}
           warnings={warnings}
+          capIssueCount={capIssueCount}
           ceilMode={ceilMode}
-          rawMaterialOverCapMap={rawMaterialOverCapMap}
+          rawMaterialCapMap={rawMaterialCapMap}
         />
       </div>
 
@@ -532,7 +534,8 @@ function AppContent() {
           stats={stats}
           error={error}
           warnings={warnings}
-          rawMaterialOverCapMap={rawMaterialOverCapMap}
+          capIssueCount={capIssueCount}
+          rawMaterialCapMap={rawMaterialCapMap}
           ceilMode={ceilMode}
         />
         <MobileNav view={mobileView} onViewChange={setMobileView} />

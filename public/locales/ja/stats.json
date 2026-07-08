@@ -1,4 +1,5 @@
 {
+  "available": "残り",
   "buildings": "建物数",
   "byproducts": "副産物",
   "collapse": "折りたたむ",
@@ -12,14 +13,15 @@
   "imports": "搬入",
   "importTtvHint": "配送あたりの TTV: {{used}} / {{cap}}",
   "issues": "問題",
-  "rawCapExceeded": "上限超過 ({{used}}/分 / {{cap}}/分)",
+  "limit": "上限",
   "pickupPoints": "取出口",
+  "powerDraw": "消費電力",
   "productionSteps": "生産ステップ",
   "pumps": "ポンプ",
+  "rawCapExceeded": "上限超過 ({{used}}/分 / {{cap}}/分)",
   "rawMaterialUsage": "原材料使用量",
-  "rawMaterials": "原材料",
   "showDetails": "詳細",
   "title": "生産統計",
   "totalPower": "総消費電力",
-  "utilizationHint": "建設済み能力に対する稼働率"
+  "utilization": "稼働率"
 }

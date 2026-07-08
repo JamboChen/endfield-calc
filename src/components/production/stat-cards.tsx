@@ -25,24 +25,24 @@ type FacilityStatCardProps = {
   overCap: OverCapInfo;
   /**
    * Power subtotal for this facility type (`count × powerConsumption`).
-   * Rendered as a muted inline figure when > 0.
+   * Shown in the hover tooltip when > 0.
    */
   powerSubtotal?: number;
   /**
    * Fraction of built capacity the plan actually uses
    * (`rawLPCount ÷ ceiledCount`, 0..1). Only meaningful — and only
-   * passed — in ceil mode; the community's "don't underfeed machines"
-   * metric. Amber below 50%.
+   * passed — in ceil mode. Curiosity-grade info: tooltip only.
    */
   utilization?: number;
 };
 
 /**
- * Single-line facility-requirement row: icon · name · power ·
- * utilization · ×count. Row-shaped (~30px) for the horizontal dock;
- * also used full-width in the portrait stats card. Over-cap rows render
- * destructive chrome, become focusable with an explicit aria-label, and
- * gain a hover tooltip with the `(used / cap)` numbers.
+ * Single-line facility-requirement row: icon · name · ×count. The
+ * secondary telemetry (power draw, utilization, over-cap numbers)
+ * lives in a rich hover tooltip so the row itself stays scannable.
+ * Over-cap rows render destructive chrome and stay focusable with an
+ * explicit aria-label so keyboard/screen-reader users get the same
+ * info without hover.
  */
 export const FacilityStatCard = memo(function FacilityStatCard({
   facility,
@@ -53,23 +53,26 @@ export const FacilityStatCard = memo(function FacilityStatCard({
   utilization,
 }: FacilityStatCardProps) {
   const { t } = useTranslation("stats");
-  const overCapAriaLabel = overCap
+  const overCapLabel = overCap
     ? t("facilityCapExceeded", {
         used: formatCount(overCap.used, ceilMode),
         cap: overCap.cap,
       })
     : undefined;
+  const hasPower = powerSubtotal !== undefined && powerSubtotal > 0;
+  const hasTooltip =
+    hasPower || utilization !== undefined || overCap !== undefined;
   const row = (
     <div
       // Over-cap rows are made focusable + carry an explicit
       // aria-label so screen-reader and keyboard users get the same
       // info as the hover tooltip. Non-over-cap rows stay
-      // un-focusable (no useful interaction).
+      // un-focusable (the tooltip detail is hover-only convenience).
       tabIndex={overCap ? 0 : undefined}
       role={overCap ? "status" : undefined}
-      aria-label={overCapAriaLabel}
+      aria-label={overCapLabel}
       className={cn(
-        "flex items-center gap-1.5 rounded border px-2 py-1 min-w-0",
+        "flex items-center gap-1.5 rounded border px-2 py-1.5 min-w-0",
         overCap
           ? "border-destructive/70 bg-destructive/5"
           : "border-border/40 bg-card hover:bg-accent/40 transition-colors",
@@ -89,27 +92,6 @@ export const FacilityStatCard = memo(function FacilityStatCard({
           aria-hidden="true"
         />
       )}
-      {powerSubtotal !== undefined && powerSubtotal > 0 && (
-        <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground font-mono shrink-0">
-          <Zap className="h-3 w-3" aria-hidden="true" />
-          {formatCount(powerSubtotal, ceilMode)}
-        </span>
-      )}
-      {utilization !== undefined && (
-        <span
-          className={cn(
-            "text-[11px] font-mono shrink-0",
-            // Sub-50% built capacity → the classic underfed-machine
-            // smell the community guides warn about.
-            utilization < 0.5
-              ? "text-amber-600 dark:text-amber-400"
-              : "text-muted-foreground",
-          )}
-          title={t("utilizationHint")}
-        >
-          {Math.round(utilization * 100)}%
-        </span>
-      )}
       <span
         className={cn(
           "text-xs font-semibold font-mono shrink-0 min-w-8 text-right",
@@ -118,13 +100,51 @@ export const FacilityStatCard = memo(function FacilityStatCard({
       >
         ×{formatCount(count, ceilMode)}
       </span>
+      {/* The tooltip detail is hover-only; mirror it as visually-hidden
+          text so screen readers get the same numbers when reading the
+          row. */}
+      {(hasPower || utilization !== undefined) && (
+        <span className="sr-only">
+          {hasPower &&
+            `${t("powerDraw")}: ${formatCount(powerSubtotal, ceilMode)}. `}
+          {utilization !== undefined &&
+            `${t("utilization")}: ${Math.round(utilization * 100)}%.`}
+        </span>
+      )}
     </div>
   );
-  if (!overCap) return row;
+  if (!hasTooltip) return row;
   return (
     <Tooltip>
       <TooltipTrigger asChild>{row}</TooltipTrigger>
-      <TooltipContent>{overCapAriaLabel}</TooltipContent>
+      <TooltipContent variant="rich" sideOffset={4} className="p-2.5">
+        <div className="space-y-1 text-xs">
+          <div className="font-medium">
+            {getFacilityName(facility)}
+            <span className="font-mono text-muted-foreground ml-1.5">
+              ×{formatCount(count, ceilMode)}
+            </span>
+          </div>
+          {hasPower && (
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <Zap className="h-3 w-3" aria-hidden="true" />
+              <span>{t("powerDraw")}</span>
+              <span className="font-mono text-foreground ml-auto pl-3">
+                {formatCount(powerSubtotal, ceilMode)}
+              </span>
+            </div>
+          )}
+          {utilization !== undefined && (
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <span>{t("utilization")}</span>
+              <span className="font-mono text-foreground ml-auto pl-3">
+                {Math.round(utilization * 100)}%
+              </span>
+            </div>
+          )}
+          {overCap && <div className="text-destructive">{overCapLabel}</div>}
+        </div>
+      </TooltipContent>
     </Tooltip>
   );
 });
@@ -135,15 +155,33 @@ type RawMaterialStatCardProps = {
   pickupCount: number;
   facilities: Facility[];
   ceilMode: boolean;
-  overCap: OverCapInfo;
+  /**
+   * `{used, cap}` when this raw has a limit (region default or user
+   * override); `undefined` = unlimited. Over-cap is derived here
+   * (`used > cap + ε`) — the map from `useProductionPlan` covers every
+   * capped raw, not just overflowing ones.
+   */
+  capInfo: OverCapInfo;
 };
+
+/** Same epsilon as `computeRawOverCapWarnings` (plan-helpers). */
+const CAP_EPSILON = 1e-9;
 
 /**
  * Two-line raw-material row with a tier-colored left accent (matches
  * the target-card tier language): icon · name over `×count source` ·
  * right-aligned rate/min. Resolves the source-facility label from
  * `rawMaterialSources` internally so every host renders the same
- * wording. Over-cap swaps the tier accent for destructive chrome.
+ * wording.
+ *
+ * Capped raws add a capacity micro-bar along the bottom edge — the
+ * unfilled remainder is the headroom the plan leaves on the table —
+ * with exact used/limit/available numbers in a rich tooltip and an
+ * sr-only mirror. Over-cap renders the same chrome as over-cap
+ * facility rows (full destructive outline + AlertTriangle + red
+ * number; here plus the full destructive bar) and keeps the focusable
+ * `role="status"` pattern — the rows ARE the warning surface since
+ * the cap banner strings were retired.
  */
 export const RawMaterialStatCard = memo(function RawMaterialStatCard({
   item,
@@ -151,7 +189,7 @@ export const RawMaterialStatCard = memo(function RawMaterialStatCard({
   pickupCount,
   facilities,
   ceilMode,
-  overCap,
+  capInfo,
 }: RawMaterialStatCardProps) {
   const { t } = useTranslation("stats");
   const cfg = rawMaterialSources.get(item.id);
@@ -161,10 +199,15 @@ export const RawMaterialStatCard = memo(function RawMaterialStatCard({
   const sourceLabel = sourceFacility
     ? getFacilityName(sourceFacility)
     : t("pickupPoints");
+  const overCap =
+    capInfo !== undefined && capInfo.used > capInfo.cap + CAP_EPSILON;
+  const headroom = capInfo ? Math.max(0, capInfo.cap - capInfo.used) : 0;
+  const capFraction =
+    capInfo && capInfo.cap > 0 ? Math.min(1, capInfo.used / capInfo.cap) : 1;
   const overCapAriaLabel = overCap
     ? t("rawCapExceeded", {
-        used: overCap.used.toFixed(1),
-        cap: overCap.cap,
+        used: capInfo.used.toFixed(1),
+        cap: capInfo.cap,
       })
     : undefined;
   const row = (
@@ -176,9 +219,14 @@ export const RawMaterialStatCard = memo(function RawMaterialStatCard({
       role={overCap ? "status" : undefined}
       aria-label={overCapAriaLabel}
       className={cn(
-        "flex items-center gap-2 border-l-2 rounded-r px-2 py-1 min-w-0",
+        // Transparent 1px base border keeps layout stable when the
+        // over-cap state swaps in the full destructive outline
+        // (matching FacilityStatCard's over-cap chrome).
+        "relative overflow-hidden flex items-center gap-2 border border-transparent border-l-2 rounded-r px-2 min-w-0",
+        // Capped rows trade a whisker of bottom padding for the bar.
+        capInfo ? "pt-1 pb-1.5" : "py-1",
         overCap
-          ? "border-l-destructive bg-destructive/5"
+          ? "border-destructive/70 border-l-destructive bg-destructive/5"
           : cn("bg-muted/40", tierClasses(item.tier).border),
       )}
     >
@@ -196,6 +244,12 @@ export const RawMaterialStatCard = memo(function RawMaterialStatCard({
           <span className="ml-1">{sourceLabel}</span>
         </div>
       </div>
+      {overCap && (
+        <AlertTriangle
+          className="h-3 w-3 text-destructive shrink-0"
+          aria-hidden="true"
+        />
+      )}
       <span
         className={cn(
           "text-sm font-semibold font-mono shrink-0",
@@ -207,13 +261,66 @@ export const RawMaterialStatCard = memo(function RawMaterialStatCard({
           /min
         </span>
       </span>
+      {capInfo && (
+        <>
+          {/* Capacity bar: fill = used/cap; the empty track remainder
+              is the available headroom. Purely decorative — numbers
+              live in the tooltip + sr-only text. */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-x-0 bottom-0 h-0.5 bg-border/40"
+          >
+            <div
+              className={cn(
+                "h-full",
+                overCap
+                  ? "bg-destructive"
+                  : capFraction >= 0.9
+                    ? "bg-amber-500 dark:bg-amber-400"
+                    : "bg-muted-foreground/50",
+              )}
+              style={{ width: `${capFraction * 100}%` }}
+            />
+          </div>
+          {!overCap && (
+            <span className="sr-only">
+              {`${t("limit")}: ${capInfo.cap}/min. ${t("available")}: ${headroom.toFixed(1)}/min.`}
+            </span>
+          )}
+        </>
+      )}
     </div>
   );
-  if (!overCap) return row;
+  if (!capInfo) return row;
   return (
     <Tooltip>
       <TooltipTrigger asChild>{row}</TooltipTrigger>
-      <TooltipContent>{overCapAriaLabel}</TooltipContent>
+      <TooltipContent variant="rich" sideOffset={4} className="p-2.5">
+        <div className="space-y-1 text-xs">
+          <div className="font-medium">
+            {getItemName(item)}
+            <span className="font-mono text-muted-foreground ml-1.5">
+              {capInfo.used.toFixed(1)}/min
+            </span>
+          </div>
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <span>{t("limit")}</span>
+            <span className="font-mono text-foreground ml-auto pl-3">
+              {capInfo.cap}/min
+            </span>
+          </div>
+          {overCap ? (
+            <div className="text-destructive">{overCapAriaLabel}</div>
+          ) : (
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <span>{t("available")}</span>
+              <span className="font-mono text-foreground ml-auto pl-3">
+                {headroom.toFixed(1)}/min
+              </span>
+            </div>
+          )}
+        </div>
+      </TooltipContent>
     </Tooltip>
   );
 });
@@ -342,9 +449,11 @@ type IssuesListProps = {
 
 /**
  * Full plan-issue list: the fatal `error` (destructive chrome) followed
- * by every solver warning (amber chrome). Sole rendering site for the
- * warnings strings — the table/tree banners were retired in favour of
- * this list living in the stats surfaces (dock + portrait card).
+ * by every solver warning (amber chrome). Each row carries a diagonal
+ * hazard-stripe accent bar (currentColor, so it inherits the row's
+ * severity color). Sole rendering site for the warnings strings — the
+ * table/tree banners were retired in favour of this list living in the
+ * stats surfaces (dock + portrait sheet).
  */
 export const IssuesList = memo(function IssuesList({
   error,
@@ -355,7 +464,11 @@ export const IssuesList = memo(function IssuesList({
   return (
     <div className={cn("grid grid-cols-1 gap-1", className)}>
       {error && (
-        <div className="flex items-start gap-2 text-destructive text-xs p-2 bg-destructive/10 rounded">
+        <div className="relative flex items-start gap-2 text-destructive text-xs p-2 pl-3.5 bg-destructive/10 rounded overflow-hidden">
+          <span
+            className="hazard-stripe absolute inset-y-0 left-0 w-1.5 opacity-80"
+            aria-hidden="true"
+          />
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
@@ -363,8 +476,12 @@ export const IssuesList = memo(function IssuesList({
       {warnings.map((msg, i) => (
         <div
           key={i}
-          className="flex items-start gap-2 text-amber-600 dark:text-amber-400 text-xs p-2 bg-amber-500/10 rounded"
+          className="relative flex items-start gap-2 text-amber-600 dark:text-amber-400 text-xs p-2 pl-3.5 bg-amber-500/10 rounded overflow-hidden"
         >
+          <span
+            className="hazard-stripe absolute inset-y-0 left-0 w-1.5 opacity-80"
+            aria-hidden="true"
+          />
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
           <span>{msg}</span>
         </div>
