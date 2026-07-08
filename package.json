@@ -18,6 +18,7 @@
     "extract:metastorage": "bun run scripts/extract-metastorage.ts",
     "extract:structures": "bun run scripts/extract-structures.ts",
     "extract:aic": "bun run scripts/extract-aic.ts",
+    "extract:raw-caps": "bun run scripts/extract-raw-caps.ts",
     "extract:all": "bun run scripts/extract-all.ts",
     "extract:item-colors": "bun run scripts/extract-item-colors.ts"
   },

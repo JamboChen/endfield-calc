@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { items } from "@/data";
+import { defaultRawCapsByDomain, items } from "@/data";
 import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import { filterRegionRawItems } from "@/lib/settings-helpers";
 import { cn } from "@/lib/utils";
@@ -47,9 +47,15 @@ interface RawLimitsContentProps {
  * tab panel is the container. Returns `null` when the region has no
  * non-liquid raws.
  *
+ * Default model: rows with a `defaultRawCapsByDomain` entry (mined ores)
+ * show the region's max mining output as the input placeholder — a blank
+ * field means "use that default". Rows without one (Burdo-Muck) keep the
+ * `∞` placeholder — blank means unlimited.
+ *
  * Reset model (per the settings redesign): per-row reset buttons are
- * removed — clearing a row is just emptying its field (→ uncapped). A
- * single tab-level **"Clear all"** wipes every override in the region.
+ * removed — clearing a row is just emptying its field (→ default cap, or
+ * uncapped when the row has no default). A single tab-level **"Clear
+ * all"** wipes every override in the region.
  */
 export function RawLimitsContent({
   domainId,
@@ -88,6 +94,8 @@ export function RawLimitsContent({
     }
   };
 
+  const defaultCaps = defaultRawCapsByDomain.get(domainId);
+
   if (rows.length === 0) return null;
 
   return (
@@ -96,7 +104,7 @@ export function RawLimitsContent({
         {t("rawLimits.help", {
           ns: "settings",
           defaultValue:
-            "A blank row means unlimited supply. Enter a rate to limit a resource.",
+            "A blank row uses the region's max mining output (the hinted value); resources without one are unlimited. Enter a rate to override.",
         })}
       </p>
       <SettingsCard
@@ -128,6 +136,7 @@ export function RawLimitsContent({
               item={item}
               domainId={domainId}
               value={overrides.get(rawLimitKey(item.id, domainId))}
+              defaultCap={defaultCaps?.get(item.id)}
               onSetLimit={onSetLimit}
             />
           ))}
@@ -141,6 +150,13 @@ interface RawLimitRowProps {
   item: Item;
   domainId: DomainId;
   value: number | undefined;
+  /**
+   * Region default cap (items/min) from `defaultRawCapsByDomain`, shown
+   * as the input placeholder when no override is set. `undefined` for
+   * raws without a preset maximum (Burdo-Muck) — those fall back to the
+   * `∞` placeholder.
+   */
+  defaultCap: number | undefined;
   onSetLimit: (
     itemId: ItemId,
     domainId: DomainId,
@@ -148,7 +164,13 @@ interface RawLimitRowProps {
   ) => void;
 }
 
-function RawLimitRow({ item, domainId, value, onSetLimit }: RawLimitRowProps) {
+function RawLimitRow({
+  item,
+  domainId,
+  value,
+  defaultCap,
+  onSetLimit,
+}: RawLimitRowProps) {
   const { t } = useTranslation(["item", "settings"]);
   const itemName = t(item.id, { ns: "item", defaultValue: item.id });
   const hasOverride = value !== undefined;
@@ -225,10 +247,14 @@ function RawLimitRow({ item, domainId, value, onSetLimit }: RawLimitRowProps) {
           min={0}
           step="any"
           value={draft}
-          placeholder={t("rawLimits.placeholder", {
-            ns: "settings",
-            defaultValue: "∞",
-          })}
+          placeholder={
+            defaultCap !== undefined
+              ? String(defaultCap)
+              : t("rawLimits.placeholder", {
+                  ns: "settings",
+                  defaultValue: "∞",
+                })
+          }
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commitDraft}
           className={cn(

@@ -43,7 +43,7 @@
   },
   "rawLimits": {
     "cardTitle": "Natural Resources",
-    "help": "A blank row means unlimited supply. Enter a rate to limit a resource.",
+    "help": "A blank row uses the region's max mining output (the hinted value); resources without one are unlimited. Enter a rate to override.",
     "clearAll": "Clear all",
     "placeholder": "∞",
     "unitSuffix": "/min",

@@ -43,7 +43,7 @@
   },
   "rawLimits": {
     "cardTitle": "Recursos naturales",
-    "help": "Una fila en blanco significa suministro ilimitado. Introduce una tasa para limitar un recurso.",
+    "help": "Una fila en blanco usa la producción minera máxima de la región (el valor indicado); los recursos sin ese valor son ilimitados. Introduce una tasa para sobrescribirla.",
     "clearAll": "Borrar todo",
     "placeholder": "∞",
     "unitSuffix": "/min",

@@ -383,5 +383,6 @@ export {
   MAX_TARGETS,
 };
 export type { RawSourceConfig };
+export { defaultRawCapsByDomain } from "./raw-caps";
 export { regionStructures } from "./region-subsystems";
 export { metastorageExports, metastorageSources } from "./metastorage";
