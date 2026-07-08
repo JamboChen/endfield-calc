@@ -29,7 +29,7 @@ paths:
 - **`MIN_VISIBLE_RATE_PER_MIN` contract** (`flow-thresholds.ts:39`, value `0.001`): emission filter drops variants whose max recipe rate falls below this. Cumulative plan-wide drift ≤ ~0.005/min in practice, accepted as deliberate. Production code must use the imported constant — bare `0.001` literals are forbidden.
 - **`makeBinId` is the only legal site for `as BinId` casts** (line 733-737, format `bin-<facilityId>-<recipeId...>-<index>`). Mapper synthetic IDs (`disposal-<recipeId>`, `<binId>-bldg<idx>`, target-sink IDs) are NOT BinIds — they stay plain `string`.
 - **Pinned recipes use per-pin restricted + class-wide total constraints** (lines 892-965). `cls_${idx}_pin_${pinId}: equal: pinDemand` for each pin; `cls_${idx}_total: equal: cls.slotDemand` for the class.
-- **`facilityCaps` retry path** (lines 1662-1694): cap-induced infeasibility triggers a retry without caps; the post-packing cap check still fires on the retry's bins. `facility-over-cap` warnings are NOT emitted here — they live at the hook layer via `computeOverCapWarnings` against `aggregateBinTotals.rawPerFacility`.
+- **`facilityCaps` retry path** (lines 1662-1694): cap-induced infeasibility triggers a retry without caps; the post-packing cap check still fires on the retry's bins. `facility-over-cap` warnings are NOT emitted here — they live at the hook layer via `computeOverCapWarnings` against `aggregateBinTotals.physicalPerFacility` (always-ceiled physical placements; catches single-formula fragmentation the MIP never sees).
 
 ## DO NOT
 

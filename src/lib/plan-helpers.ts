@@ -74,18 +74,35 @@ export type BinAggregates = {
    * Per-facility-id sum of RAW LP-derived counts (mode-independent).
    * Sum of `bin.buildingCount` across bins + fractional pickup-point
    * counts for source facilities. NOT ceilMode-adjusted — this is the
-   * canonical "theoretical capacity required" value, used by
-   * `computeOverCapWarnings` to detect facility-cap overflow.
+   * canonical "theoretical capacity required" value, used for the
+   * stats panel's mode-independent row ordering and the utilization
+   * figure.
    *
    * Distinct from `perFacility` (which applies ceilMode for display):
    * - `perFacility` answers "what should the UI show?".
    * - `rawPerFacility` answers "what does the LP say is needed?".
-   *
-   * The two values agree only when every bin has integer buildingCount
-   * AND ceilMode is on. The cap-warning helper uses `rawPerFacility`
-   * because cap detection should be invariant to display preferences.
+   * - `physicalPerFacility` answers "how many placements must the
+   *   player actually build?" — the facility-cap detection input.
    */
   rawPerFacility: Map<FacilityId, number>;
+  /**
+   * Per-facility-id sum of PHYSICAL placement counts. **Always ceiled
+   * regardless of `ceilMode`** (like `totalTiles`): per bin
+   * `max(1, ceil(bin.buildingCount))`, plus `ceil(fractionalPickups)`
+   * for pickup-point source facilities.
+   *
+   * This is the facility-cap detection input
+   * (`computeOverCapWarnings`): in-game placement limits (e.g. Forge
+   * of the Sky, capped by AIC research) are HARD — you cannot place
+   * building N+1 — and they bind on whole buildings. A plan whose
+   * fractional usage fits the cap can still be unbuildable when
+   * single-formula recipes fragment it across more physical buildings
+   * (Σ fractional 12.0 over five forge recipes ⇒ 13 placements).
+   * Since `physical ≥ fractional` per facility, detecting on this map
+   * subsumes the old fractional check. Mode-independence keeps the
+   * warning stable across the "Round up facilities" toggle.
+   */
+  physicalPerFacility: Map<FacilityId, number>;
   /**
    * Σ `Math.max(1, Math.ceil(bin.buildingCount))` for bins on
    * multi-formula-eligible facilities (those with `cacheSlots` defined).
@@ -190,6 +207,7 @@ export function aggregateBinTotals(
   let multiFormulaActualBuildings = 0;
   const perFacility = new Map<FacilityId, number>();
   const rawPerFacility = new Map<FacilityId, number>();
+  const physicalPerFacility = new Map<FacilityId, number>();
 
   const tilesPerBuilding = (facility: Facility): number => {
     if (!facility.footprint) return 0;
@@ -215,6 +233,11 @@ export function aggregateBinTotals(
     rawPerFacility.set(
       facility.id,
       (rawPerFacility.get(facility.id) ?? 0) + bin.buildingCount,
+    );
+    // Always-ceiled physical placements — cap detection input.
+    physicalPerFacility.set(
+      facility.id,
+      (physicalPerFacility.get(facility.id) ?? 0) + ceiledBuildings,
     );
     if (facility.cacheSlots != null) {
       // Always-ceiled — groupedSavings is a physical-buildings comparison.
@@ -259,6 +282,13 @@ export function aggregateBinTotals(
       facility.id,
       (rawPerFacility.get(facility.id) ?? 0) + fractionalPickups,
     );
+    // Always-ceiled physical pickups — mirrors the bin loop so cap
+    // detection uniformly covers source facilities too.
+    physicalPerFacility.set(
+      facility.id,
+      (physicalPerFacility.get(facility.id) ?? 0) +
+        Math.ceil(fractionalPickups),
+    );
     // Pickup tiles: unloaders sit on the depot bus inside the build
     // grid; pumps are filtered out by `tilesPerBuilding` (open-world
     // fluid bodies). Always-ceiled, mirroring the bin loop.
@@ -278,6 +308,7 @@ export function aggregateBinTotals(
     totalPower,
     perFacility,
     rawPerFacility,
+    physicalPerFacility,
     multiFormulaActualBuildings,
     multiFormulaBaselineBuildings,
     totalTiles,
@@ -287,23 +318,31 @@ export function aggregateBinTotals(
 /**
  * Detect facility-cap overflows.
  *
- * Pure function. Iterates `facilityCaps` (not `rawPerFacility`) so caps
- * on facilities absent from the plan are skipped naturally. Uses raw
- * LP-derived counts to keep detection invariant to the user's `ceilMode`
- * preference — the warning displays differently in different modes, but
- * the detection threshold is the same.
+ * Pure function. Iterates `facilityCaps` (not `perFacilityUsage`) so
+ * caps on facilities absent from the plan are skipped naturally.
+ *
+ * The app feeds it `aggregates.physicalPerFacility` (always-ceiled
+ * placement counts): in-game placement limits are HARD — the game
+ * refuses building N+1 — and bind on whole buildings. Fractional LP
+ * usage that fits the cap can still be unbuildable when
+ * single-formula recipes fragment it across more physical buildings
+ * (Forge of the Sky: Σ fractional 12.0 over five recipes ⇒ 13
+ * placements > cap 12). Physical ≥ fractional per facility, so this
+ * input subsumes the old fractional check; being mode-independent it
+ * also keeps detection stable across the "Round up facilities"
+ * toggle.
  *
  * Comparison: `used > cap + EPSILON`. Caps are integer by construction
- * (`parseInt`-guarded at the UI input); the EPSILON absorbs LP solver
- * float drift. NO ceil on the comparison — that would spuriously fire
- * for fractional caps if they ever become supported.
+ * (`parseInt`-guarded at the UI input); the EPSILON absorbs float
+ * drift. NO ceil on the comparison — that would spuriously fire for
+ * fractional caps if they ever become supported.
  *
  * Coverage:
  *   - Multi-formula MIP-packed bins (e.g. mix_pool_2 / Expanded Crucible).
  *   - Single-formula singleton bins (e.g. xiranite_oven_1 / Forge of the Sky).
  *   - Pickup-point source facilities (pump_1, pump_2, unloader_1) —
  *     these were the architectural gap of the packer-side check; now
- *     covered uniformly through `rawPerFacility`.
+ *     covered uniformly through `physicalPerFacility`.
  *
  * The MIP cap constraint inside `multi-formula-packing.ts:solvePacking`
  * is the FIRST line of defence — it tries to find a packing that
@@ -312,7 +351,7 @@ export function aggregateBinTotals(
  * pickups push a facility over its cap, this surfaces the violation.
  */
 export function computeOverCapWarnings(
-  rawPerFacility: ReadonlyMap<FacilityId, number>,
+  perFacilityUsage: ReadonlyMap<FacilityId, number>,
   facilityCaps: ReadonlyMap<FacilityId, number> | undefined,
 ): PlanWarning[] {
   if (!facilityCaps || facilityCaps.size === 0) return [];
@@ -320,7 +359,7 @@ export function computeOverCapWarnings(
   const EPSILON = 1e-9;
   for (const [facilityId, cap] of facilityCaps) {
     if (!Number.isFinite(cap) || cap < 0) continue;
-    const used = rawPerFacility.get(facilityId) ?? 0;
+    const used = perFacilityUsage.get(facilityId) ?? 0;
     if (used <= cap + EPSILON) continue;
     warnings.push({ kind: "facility-over-cap", facilityId, used, cap });
   }

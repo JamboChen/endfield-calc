@@ -36,7 +36,7 @@ import {
   computeRawOverCapWarnings,
   filterPlanForDisplay,
 } from "@/lib/plan-helpers";
-import { formatCount, getItemById } from "@/lib/utils";
+import { getItemById } from "@/lib/utils";
 
 interface SavedPlan {
   version: string;
@@ -219,19 +219,14 @@ function serializeHash(
 /**
  * Format one structured `PlanWarning` into a display string.
  *
- * The single point where `ceilMode` (UI preference) and i18n strings
- * are applied to packer/calc-emitted warnings. Keeps the data layer
- * (`multi-formula-packing.ts`, `calculator.ts`) free of display state.
- *
- * Plural rules: i18next uses the `count` param for `_one` / `_other`
- * (and `_few` / `_many` in Russian). We pass `Math.ceil(used)` as
- * `count` so plurals classify on the integer physical count regardless
- * of `ceilMode`; the human-readable `displayCount` (which respects
- * `ceilMode`) drives the visible number.
+ * The single point where i18n strings are applied to packer/calc-
+ * emitted warnings. Keeps the data layer (`multi-formula-packing.ts`,
+ * `calculator.ts`) free of display state. Deliberately `ceilMode`-free:
+ * facility-cap numbers are physical integers and raw-cap numbers are
+ * rates, so no branch depends on the display-rounding preference.
  */
 function formatPlanWarning(
   w: PlanWarning,
-  ceilMode: boolean,
   t: TFunction,
   facilitiesArr: readonly Facility[],
   itemsArr: readonly Item[],
@@ -249,12 +244,12 @@ function formatPlanWarning(
   switch (w.kind) {
     case "facility-over-cap":
       // Short numeric form: `{facility}: cap exceeded ({displayCount} / {cap})`.
-      // `displayCount` respects user's `ceilMode` toggle for parity with
-      // the side-panel card count + tooltip. No plural classification
-      // needed — the format string has no pluralizable noun.
+      // `used` is a physical placement count (always-ceiled integer,
+      // mode-independent — see `BinAggregates.physicalPerFacility`),
+      // so it renders as a plain integer in both display modes.
       return t("facilityOverCap", {
         facility: lookupFacilityName(w.facilityId),
-        displayCount: formatCount(w.used, ceilMode),
+        displayCount: String(w.used),
         cap: w.cap,
       });
     case "packer-override-infeasible":
@@ -702,15 +697,18 @@ export function useProductionPlan(
   // Structured facility-cap-overflow signals. Two downstream consumers
   // share this memo: `facilityOverCapMap` (the over-cap stat-row
   // chrome) and `capIssueCount` (the ticker's destructive badge).
-  // Detection uses `aggregates.rawPerFacility` (mode-independent raw
-  // LP counts), so it uniformly covers recipe bins AND pickup-point
-  // source facilities (pump_1, pump_2, unloader_1) — the latter being
-  // absent from `plan.bins` and therefore invisible to the packer's
-  // earlier cap check.
+  // Detection uses `aggregates.physicalPerFacility` (always-ceiled,
+  // mode-independent placement counts): in-game caps are hard limits
+  // on WHOLE buildings, and single-formula fragmentation can need more
+  // placements than the fractional LP usage suggests (see the JSDoc on
+  // `BinAggregates.physicalPerFacility`). Uniformly covers recipe bins
+  // AND pickup-point source facilities (pump_1, pump_2, unloader_1) —
+  // the latter being absent from `plan.bins` and therefore invisible
+  // to the packer's earlier cap check.
   const overCapWarnings = useMemo<readonly PlanWarning[]>(
     () =>
       aggregates
-        ? computeOverCapWarnings(aggregates.rawPerFacility, facilityCaps)
+        ? computeOverCapWarnings(aggregates.physicalPerFacility, facilityCaps)
         : [],
     [aggregates, facilityCaps],
   );
@@ -818,7 +816,7 @@ export function useProductionPlan(
   // Cycle warnings only fire for cycles caused by user recipe overrides
   // — pre-existing unsolvable cycles in the game data are not actionable
   // and are skipped. Structured warnings (packer + metastorage) are
-  // formatted here with `ceilMode` + i18n via `formatPlanWarning`.
+  // formatted here with i18n via `formatPlanWarning`.
   //
   // Cap overflows (facility + raw) deliberately do NOT emit banner
   // strings: the over-cap stat rows carry the destructive chrome +
@@ -873,11 +871,11 @@ export function useProductionPlan(
       });
 
     const planWarnings = (plan.warnings ?? []).map((w) =>
-      formatPlanWarning(w, ceilMode, t, facilities, items),
+      formatPlanWarning(w, t, facilities, items),
     );
 
     return [...cycleWarnings, ...planWarnings];
-  }, [plan, recipeOverrides, ceilMode, t]);
+  }, [plan, recipeOverrides, t]);
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
     setTargets((prev) =>

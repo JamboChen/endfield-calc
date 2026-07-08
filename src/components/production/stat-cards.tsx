@@ -55,7 +55,10 @@ export const FacilityStatCard = memo(function FacilityStatCard({
   const { t } = useTranslation("stats");
   const overCapLabel = overCap
     ? t("facilityCapExceeded", {
-        used: formatCount(overCap.used, ceilMode),
+        // Physical placement count — always an integer (see
+        // `BinAggregates.physicalPerFacility`), so no ceilMode
+        // formatting: the number is the same in both display modes.
+        used: String(overCap.used),
         cap: overCap.cap,
       })
     : undefined;
