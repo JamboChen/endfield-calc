@@ -1,7 +1,7 @@
 import { memo, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SectionHeader } from "@/components/SectionHeader";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -17,7 +17,7 @@ import {
 } from "@/lib/settings-helpers";
 import { cn } from "@/lib/utils";
 
-type OptionsCardProps = {
+type OptionsSectionProps = {
   /** Whether facility counts round up (physical view). */
   ceilMode: boolean;
   onCeilModeChange: (value: boolean) => void;
@@ -26,21 +26,23 @@ type OptionsCardProps = {
 };
 
 /**
- * Left-rail "Options" card: the plan-level context in one place —
- * current factory region, the region's quick structure toggles, and
- * output-affecting plan settings (round-up). Deep configuration stays in
- * the Settings sheet, one click away via the header action.
+ * The "Options" section of the plan rail: the plan-level context in
+ * one place — current factory region, the region's quick structure
+ * toggles, and output-affecting plan settings (round-up). Deep
+ * configuration stays in the Settings sheet, one click away via the
+ * header action. Renders as a plain section — `PlanPanel` owns the
+ * surface chrome.
  *
  * Region-locked structure rows mirror Settings → Structures, lenient
  * model included: rows whose prereq is off render faded (`opacity-55`)
  * but stay clickable — `structures.toggle` cascades the chain in the
- * hook, so this card carries no cascade logic of its own.
+ * hook, so this section carries no cascade logic of its own.
  */
-const OptionsCard = memo(function OptionsCard({
+const OptionsSection = memo(function OptionsSection({
   ceilMode,
   onCeilModeChange,
   onOpenSettings,
-}: OptionsCardProps) {
+}: OptionsSectionProps) {
   const { t } = useTranslation(["settings", "app", "structure"]);
   const {
     domains,
@@ -49,9 +51,9 @@ const OptionsCard = memo(function OptionsCard({
     setCurrentDomain,
     structures,
   } = useDomainSettingsContext();
-  // Instance-unique control id: LeftPanel and the portrait drawer both
-  // stay mounted (orientation swap is CSS-only), so a static id would
-  // duplicate in the DOM.
+  // Instance-unique control id: LeftPanel and the portrait Plan tab
+  // both stay mounted (orientation swap is CSS-only), so a static id
+  // would duplicate in the DOM.
   const ceilSwitchId = useId();
 
   const regionStructureList = regionStructures.get(currentDomain) ?? [];
@@ -62,12 +64,10 @@ const OptionsCard = memo(function OptionsCard({
   );
 
   return (
-    <Card className="flex flex-col shrink-0">
-      <CardHeader className="shrink-0">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base">
-            {t("options.title", { ns: "settings" })}
-          </CardTitle>
+    <section className="p-4 max-sm:p-3">
+      <SectionHeader
+        label={t("options.title", { ns: "settings" })}
+        action={
           <Button
             variant="ghost"
             size="sm"
@@ -77,9 +77,9 @@ const OptionsCard = memo(function OptionsCard({
             <Settings className="h-3.5 w-3.5" />
             {t("options.allSettings", { ns: "settings" })}
           </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
+        }
+      />
+      <div className="space-y-4">
         <RegionPicker
           domains={domains}
           activeDomains={activeDomains}
@@ -88,12 +88,12 @@ const OptionsCard = memo(function OptionsCard({
         />
 
         {regionStructureList.length > 0 && (
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                 {t("tabs.structures", { ns: "settings" })}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-[11px] text-muted-foreground">
                 {t("status.enabled", {
                   ns: "settings",
                   done: structureCount.done,
@@ -101,7 +101,7 @@ const OptionsCard = memo(function OptionsCard({
                 })}
               </div>
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-1.5">
               {regionStructureList.map((s) => {
                 const isEnabled = structures.enabled.has(
                   structureKey(currentDomain, s.id),
@@ -125,10 +125,14 @@ const OptionsCard = memo(function OptionsCard({
                       })
                     : baseName;
                 return (
+                  // Chip chrome matches the dock's facility rows
+                  // (border + card bg + hover accent) — structures are
+                  // facility-ish entities, so they rhyme with the
+                  // build list in the stats dock.
                   <label
                     key={s.id}
                     className={cn(
-                      "flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-accent/40 cursor-pointer",
+                      "flex items-center gap-2 rounded border border-border/40 bg-card px-2 py-1.5 text-xs hover:bg-accent/40 transition-colors cursor-pointer",
                       isLocked && "opacity-55",
                     )}
                   >
@@ -175,9 +179,9 @@ const OptionsCard = memo(function OptionsCard({
             onCheckedChange={onCeilModeChange}
           />
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 });
 
-export default OptionsCard;
+export default OptionsSection;

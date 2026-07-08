@@ -1,9 +1,8 @@
 import { memo, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import TargetsCard from "./TargetsCard";
+import PlanPanel from "./PlanPanel";
 import type { ProductionTarget } from "./TargetItemsGrid";
-import OptionsCard from "./OptionsCard";
 import type { Item, ItemId } from "@/types";
 
 type LeftPanelProps = {
@@ -49,11 +48,14 @@ const LeftPanel = memo(function LeftPanel({
   }
 
   return (
-    <div className="w-[420px] flex flex-col gap-2.5 overflow-y-auto shrink-0 pb-2">
-      <TargetsCard
+    <div className="w-[420px] flex flex-col overflow-y-auto shrink-0 pb-2">
+      <PlanPanel
         targets={targets}
         items={items}
         maxEnabledByTarget={maxEnabledByTarget}
+        ceilMode={ceilMode}
+        onCeilModeChange={onCeilModeChange}
+        onOpenSettings={onOpenSettings}
         onTargetChange={onTargetChange}
         onTargetRemove={onTargetRemove}
         onTargetLockToggle={onTargetLockToggle}
@@ -69,12 +71,6 @@ const LeftPanel = memo(function LeftPanel({
             <PanelLeftClose className="h-4 w-4" />
           </Button>
         }
-      />
-
-      <OptionsCard
-        ceilMode={ceilMode}
-        onCeilModeChange={onCeilModeChange}
-        onOpenSettings={onOpenSettings}
       />
     </div>
   );

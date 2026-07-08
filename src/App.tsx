@@ -9,8 +9,7 @@ import { usePortrait } from "./hooks/usePortrait";
 import AppHeader from "./components/layout/AppHeader";
 import MobileNav, { type MobileView } from "./components/layout/MobileNav";
 import LeftPanel from "./components/panels/LeftPanel";
-import TargetsCard from "./components/panels/TargetsCard";
-import OptionsCard from "./components/panels/OptionsCard";
+import PlanPanel from "./components/panels/PlanPanel";
 import BottomDock from "./components/panels/BottomDock";
 import PortraitDrawer from "./components/panels/PortraitDrawer";
 import ProductionViewTabs from "./components/production/ProductionViewTabs";
@@ -457,31 +456,28 @@ function AppContent() {
         </div>
 
         {/* Portrait "Plan" tab panel — the discoverable home for the
-            targets + options cards (they used to hide inside the
-            drawer). Second simultaneous mount of both cards next to
-            LeftPanel's (the orientation/tab swap is CSS-only), same
-            dual-host pattern PortraitDrawer used before. */}
+            plan console (it used to hide inside the drawer). Second
+            simultaneous mount of the PlanPanel next to LeftPanel's
+            (the orientation/tab swap is CSS-only), same dual-host
+            pattern PortraitDrawer used before. */}
         <div
           className={
             isPortrait && mobileView === "plan"
-              ? "flex-1 min-w-0 flex flex-col gap-2.5 overflow-y-auto"
+              ? "flex-1 min-w-0 flex flex-col overflow-y-auto"
               : "hidden"
           }
         >
-          <TargetsCard
+          <PlanPanel
             targets={targets}
             items={items}
             maxEnabledByTarget={maxEnabledByTarget}
+            ceilMode={ceilMode}
+            onCeilModeChange={setCeilMode}
+            onOpenSettings={handleOpenSettings}
             onTargetChange={handleTargetChange}
             onTargetRemove={handleTargetRemove}
             onTargetLockToggle={handleTargetLockToggle}
             onAddClick={handleAddClick}
-          />
-
-          <OptionsCard
-            ceilMode={ceilMode}
-            onCeilModeChange={setCeilMode}
-            onOpenSettings={handleOpenSettings}
           />
         </div>
 

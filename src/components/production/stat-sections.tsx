@@ -8,6 +8,7 @@ import {
 } from "@/hooks/useProductionStats";
 import { getItemName } from "@/lib/i18n-helpers";
 import { cn, formatCount, getItemById } from "@/lib/utils";
+import { SectionHeader } from "@/components/SectionHeader";
 import {
   ByproductsList,
   FacilityStatCard,
@@ -78,39 +79,6 @@ export function KpiBlock({
       <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
         {label}
       </div>
-    </div>
-  );
-}
-
-type SectionHeaderProps = {
-  label: string;
-  /** Row count badge next to the label. */
-  count?: number;
-  /** Right-aligned muted caption (e.g. "19 pumps"). */
-  caption?: React.ReactNode;
-};
-
-/** Section micro-label with the telemetry gold tick. */
-function SectionHeader({ label, count, caption }: SectionHeaderProps) {
-  return (
-    <div className="mb-2 flex items-baseline gap-2 min-w-0">
-      <span
-        className="h-2.5 w-0.5 shrink-0 self-center rounded-full bg-stats-accent"
-        aria-hidden="true"
-      />
-      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        {label}
-      </span>
-      {count !== undefined && (
-        <span className="font-mono text-xs text-muted-foreground">
-          {count}
-        </span>
-      )}
-      {caption !== undefined && (
-        <span className="ml-auto min-w-0 truncate text-right text-[11px] font-normal text-muted-foreground">
-          {caption}
-        </span>
-      )}
     </div>
   );
 }
