@@ -1131,6 +1131,13 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       // optimizer probes judging "infeasible", the frozen-app bug).
       // An absent status is the wrapper's pre-solver structural-
       // infeasibility sentinel — that IS proven infeasible.
+      // `unboundedorinfeasible` (HiGHS couldn't tell which) is safe to
+      // treat as proven here: pass 1 minimizes a non-negative
+      // objective over non-negative variables, so unboundedness is
+      // impossible for these models and the conflated status can only
+      // mean infeasible. Mapping it to solver_error instead would
+      // abort optimizer searches on what is a legitimate bisection
+      // verdict.
       const status = result.status;
       const provenInfeasible =
         status === undefined ||

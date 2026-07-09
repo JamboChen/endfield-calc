@@ -444,6 +444,19 @@ export function useProductionPlan(
   // debounces this to avoid flashing the overlay on routine fast
   // recalcs.
   const [isCalculating, setIsCalculating] = useState(false);
+  // Superseded-by-a-probe recovery. The latest-wins calc queue is
+  // shared with optimizer probes: when a display calc fired by a
+  // NON-target dep change (caps, routes, …) parks behind an in-flight
+  // probe, the next probe displaces it with CalcSupersededError. The
+  // "a newer request carries the fresh answer" assumption in the catch
+  // then fails — probe results never reach setPlan — and, if the
+  // search ends without a commit (noop/unbounded/infeasible/abort),
+  // nothing re-triggers the calc: `isCalculating` would strand true,
+  // blocking the overlay debounce and the auto-fit gate. Track the
+  // displacement and let the search's finally bump `calcNonce` (a calc
+  // effect dep) to re-run the display calc once the queue is free.
+  const displayCalcSupersededRef = useRef(false);
+  const [calcNonce, setCalcNonce] = useState(0);
   useEffect(() => {
     if (!solverReady) return;
     if (calcTargets.length === 0) {
@@ -474,17 +487,24 @@ export function useProductionPlan(
         // `isCalculating` true so the debounced overlay state doesn't
         // restart its timer between back-to-back recalcs.
         if (cancelled) return;
+        displayCalcSupersededRef.current = false;
         setPlan(result);
         setIsCalculating(false);
       })
       .catch((e) => {
         if (cancelled) return;
         // Superseded = the calc-client's latest-wins queue displaced
-        // this request in favour of a newer one; that newer request is
-        // already carrying the fresh answer. Same treatment as
-        // `cancelled`: keep `isCalculating` true so the overlay
-        // debounce doesn't restart between back-to-back recalcs.
-        if (isCalcSuperseded(e)) return;
+        // this request in favour of a newer one. In the edit stream
+        // that newer request carries the fresh answer; when the
+        // displacer was an optimizer PROBE it does not — flag it so
+        // the search's finally re-triggers the display calc (see
+        // `displayCalcSupersededRef`). Keep `isCalculating` true
+        // either way so the overlay debounce doesn't restart between
+        // back-to-back recalcs.
+        if (isCalcSuperseded(e)) {
+          displayCalcSupersededRef.current = true;
+          return;
+        }
         setError(e instanceof Error ? e.message : t("calculationError"));
         setPlan(null);
         setIsCalculating(false);
@@ -494,6 +514,7 @@ export function useProductionPlan(
     };
   }, [
     solverReady,
+    calcNonce,
     calcTargets,
     recipeOverrides,
     manualRawMaterials,
@@ -1111,6 +1132,23 @@ export function useProductionPlan(
   // (`lastEditedIndexRef` / `autoFitSpentRef` are declared above the
   // auto-prune effect, which clears them on structural changes.)
 
+  /**
+   * End-of-search bookkeeping shared by both engines' finally blocks
+   * (token-gated so a superseding search owns the cleanup): clear the
+   * busy state and, if one of our probes displaced a display calc
+   * mid-search (see `displayCalcSupersededRef`), re-run that calc now
+   * that the queue is free — otherwise `isCalculating` strands true
+   * when the search ends without a target commit.
+   */
+  const finishOptimizeSearch = useCallback((token: number) => {
+    if (optimizeTokenRef.current !== token) return;
+    setOptimizeState(null);
+    if (displayCalcSupersededRef.current) {
+      displayCalcSupersededRef.current = false;
+      setCalcNonce((n) => n + 1);
+    }
+  }, []);
+
   const [autoFit, setAutoFitState] = useState<boolean>(() => {
     try {
       return localStorage.getItem(AUTO_FIT_STORAGE_KEY) === "1";
@@ -1249,10 +1287,16 @@ export function useProductionPlan(
         console.error("[OPTIMIZER] max search failed:", e);
         toast.error(t("optimizeFailed"));
       } finally {
-        if (optimizeTokenRef.current === token) setOptimizeState(null);
+        finishOptimizeSearch(token);
       }
     },
-    [optimizerSolve, optimizerFeasibility, resetAutoFitEditContext, t],
+    [
+      optimizerSolve,
+      optimizerFeasibility,
+      resetAutoFitEditContext,
+      finishOptimizeSearch,
+      t,
+    ],
   );
 
   const handleFitToLimits = useCallback(
@@ -1303,10 +1347,16 @@ export function useProductionPlan(
         console.error("[OPTIMIZER] fit search failed:", e);
         toast.error(t("optimizeFailed"));
       } finally {
-        if (optimizeTokenRef.current === token) setOptimizeState(null);
+        finishOptimizeSearch(token);
       }
     },
-    [optimizerSolve, optimizerFeasibility, resetAutoFitEditContext, t],
+    [
+      optimizerSolve,
+      optimizerFeasibility,
+      resetAutoFitEditContext,
+      finishOptimizeSearch,
+      t,
+    ],
   );
 
   // Plan-over-limit signal shared by the Fit pill and auto-fit. Same
