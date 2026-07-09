@@ -161,9 +161,8 @@ export function isPlanFeasible(
   // recipe nodes, zero rates) that would pass every cap check below
   // vacuously — that false "feasible" once let Max bracket to its
   // ceiling on a wedged solver and report "unbounded". Non-"ok" plans
-  // are never feasible. (The tolerant `plan.lpStatus &&` guard keeps
-  // hand-rolled test fixtures without the field working.)
-  if (plan.lpStatus && plan.lpStatus !== "ok") return false;
+  // are never feasible.
+  if (plan.lpStatus !== "ok") return false;
 
   const aggregates = aggregateBinTotals(plan, ctx.facilities, ctx.items);
   if (

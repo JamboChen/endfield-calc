@@ -566,8 +566,10 @@ export function useProductionPlan(
    * auto-fit's shrink-exclusion at the wrong target. `disarm`
    * additionally sets the one-shot guard: structural changes that are
    * not user edits (loading a plan) must not trigger an auto-fit pass
-   * by themselves. Ref writes live in this callback (not in effect
-   * bodies) to satisfy react-hooks/immutability.
+   * by themselves. Ref writes live in this callback because
+   * react-hooks/immutability forbids them directly in effect BODIES
+   * (deferred contexts like the auto-fit effect's timer callback are
+   * exempt — that one spends the guard at fire time).
    */
   const resetAutoFitEditContext = useCallback(
     (options: { disarm: boolean }) => {
