@@ -17,6 +17,7 @@ type TargetsSectionProps = {
   onMaximizeTarget: (index: number) => void;
   maximizingIndex: number | null;
   optimizerBusy: boolean;
+  maxedIndices: ReadonlySet<number>;
   /** Amber "Fit to limits" pill in the header — visible when the plan
    *  is over its limits and unlocked targets exist (hidden while
    *  auto-fit owns the job; see `useProductionPlan.showFitPill`). */
@@ -44,6 +45,7 @@ const TargetsSection = memo(function TargetsSection({
   onMaximizeTarget,
   maximizingIndex,
   optimizerBusy,
+  maxedIndices,
   showFitPill,
   fitRunning,
   onFitToLimits,
@@ -98,6 +100,7 @@ const TargetsSection = memo(function TargetsSection({
         onMaximizeTarget={onMaximizeTarget}
         maximizingIndex={maximizingIndex}
         optimizerBusy={optimizerBusy}
+        maxedIndices={maxedIndices}
         onAddClick={onAddClick}
       />
     </section>

@@ -20,6 +20,7 @@ type PlanPanelProps = {
   onMaximizeTarget: (index: number) => void;
   maximizingIndex: number | null;
   optimizerBusy: boolean;
+  maxedIndices: ReadonlySet<number>;
   showFitPill: boolean;
   fitRunning: boolean;
   onFitToLimits: () => void;
@@ -52,6 +53,7 @@ const PlanPanel = memo(function PlanPanel({
   onMaximizeTarget,
   maximizingIndex,
   optimizerBusy,
+  maxedIndices,
   showFitPill,
   fitRunning,
   onFitToLimits,
@@ -76,6 +78,7 @@ const PlanPanel = memo(function PlanPanel({
         onMaximizeTarget={onMaximizeTarget}
         maximizingIndex={maximizingIndex}
         optimizerBusy={optimizerBusy}
+        maxedIndices={maxedIndices}
         showFitPill={showFitPill}
         fitRunning={fitRunning}
         onFitToLimits={onFitToLimits}

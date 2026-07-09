@@ -5,6 +5,7 @@
   "lockTarget": "目標をロック — 自動調整から保護",
   "maximize": "上限内で最大化",
   "maximizeNoLimits": "このアイテムの原材料に上限を設定すると最大化が使えます",
+  "maximizeUpToDate": "現在のプランでは最大化済みです — 何かを変更すると再度有効になります",
   "rateInput": "レート入力",
   "rateUnit": "毎分",
   "removeTarget": "目標を削除",

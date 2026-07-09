@@ -5,6 +5,7 @@
   "lockTarget": "鎖定目標——不受自動調整影響",
   "maximize": "在限制內最大化",
   "maximizeNoLimits": "為該物品的原材料設定上限後即可使用最大化",
+  "maximizeUpToDate": "當前方案下已完成最大化——更改任意內容後可再次使用",
   "rateInput": "產量輸入",
   "rateUnit": "個/分鐘",
   "removeTarget": "刪除目標",

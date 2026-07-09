@@ -20,6 +20,7 @@ type LeftPanelProps = {
   onMaximizeTarget: (index: number) => void;
   maximizingIndex: number | null;
   optimizerBusy: boolean;
+  maxedIndices: ReadonlySet<number>;
   showFitPill: boolean;
   fitRunning: boolean;
   onFitToLimits: () => void;
@@ -41,6 +42,7 @@ const LeftPanel = memo(function LeftPanel({
   onMaximizeTarget,
   maximizingIndex,
   optimizerBusy,
+  maxedIndices,
   showFitPill,
   fitRunning,
   onFitToLimits,
@@ -80,6 +82,7 @@ const LeftPanel = memo(function LeftPanel({
         onMaximizeTarget={onMaximizeTarget}
         maximizingIndex={maximizingIndex}
         optimizerBusy={optimizerBusy}
+        maxedIndices={maxedIndices}
         showFitPill={showFitPill}
         fitRunning={fitRunning}
         onFitToLimits={onFitToLimits}

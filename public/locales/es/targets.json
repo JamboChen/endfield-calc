@@ -5,6 +5,7 @@
   "lockTarget": "Bloquear objetivo — protegido de ajustes automáticos",
   "maximize": "Maximizar dentro de los límites",
   "maximizeNoLimits": "Configura un límite en las materias primas de este objeto para poder maximizar",
+  "maximizeUpToDate": "Ya maximizado para el plan actual — cambia cualquier cosa para reactivarlo",
   "rateInput": "Entrada de tasa",
   "rateUnit": "por minuto",
   "removeTarget": "Eliminar objetivo",

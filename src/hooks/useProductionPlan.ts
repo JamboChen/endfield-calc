@@ -65,6 +65,31 @@ export type OptimizeState =
   | { kind: "fit" }
   | null;
 
+/**
+ * "Max done" marker: target indices whose Max search already reached a
+ * deterministic terminal outcome (ok / already-at-max / infeasible /
+ * unbounded) against the EXACT problem identified by `forTargets`.
+ * Re-running Max for a marked index without changing anything would
+ * reproduce the same answer, so the button disables.
+ *
+ * Validity is DERIVED, not cleared: a mark only applies while the live
+ * `targets` array IS `forTargets` (identity). Any other array — rate
+ * edit, add/remove, lock toggle, Fit commit, Restore, prune, plan load
+ * — silently invalidates every mark; a Max commit marks against the
+ * array it just committed, so it survives its own write. Config-bundle
+ * changes (caps, routes, recipes, region, …) invalidate via
+ * `cancelActiveSearch` (the F-series staleness set). `cancelled` and
+ * solver-error outcomes never mark — retrying is their remedy.
+ */
+type MaxedMarks = {
+  forTargets: readonly ProductionTarget[];
+  indices: ReadonlySet<number>;
+} | null;
+
+/** Stable empty set so the derived `maxedIndices` memo keeps identity
+ *  while no marks apply. */
+const EMPTY_INDEX_SET: ReadonlySet<number> = new Set();
+
 interface SavedPlan {
   version: string;
   /** `locked` is optional/additive: legacy saves omit it (= unlocked). */
@@ -1080,6 +1105,12 @@ export function useProductionPlan(
   // ENABLE it; see docs/plan-target-optimizer.md.) The closure walks
   // every alternative producer, so this over-approximates toward
   // enabling — the engine's bracketing ceiling defends at runtime.
+  //
+  // Content-keyed on the target ITEM-ID set (the `targetsCalcSig`
+  // pattern): gating is rate- and lock-independent, so scrub-commit
+  // streams and lock toggles must not re-run the per-target chain
+  // closures (each rebuilds a full producer index over `recipes`).
+  const targetItemIdsSig = targets.map((t) => t.itemId).join(",");
   const maxEnabledByTarget = useMemo(() => {
     const out = new Map<ItemId, boolean>();
     const cappedRaws = rawMaterialCaps ? [...rawMaterialCaps.keys()] : [];
@@ -1100,7 +1131,10 @@ export function useProductionPlan(
       );
     }
     return out;
-  }, [targets, availableRecipes, regionRawMaterials, rawMaterialCaps]);
+    // `targetItemIdsSig` fully captures the item-id content the memo
+    // body reads off the targets array (see above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetItemIdsSig, availableRecipes, regionRawMaterials, rawMaterialCaps]);
 
   /* ── Target optimizer (Max / Fit) ─────────────────────────────────
    *
@@ -1132,22 +1166,72 @@ export function useProductionPlan(
   // (`lastEditedIndexRef` / `autoFitSpentRef` are declared above the
   // auto-prune effect, which clears them on structural changes.)
 
+  // "Max done" markers — see the `MaxedMarks` type doc. State (not a
+  // ref) because it drives the Max buttons' disabled rendering.
+  const [maxedMarks, setMaxedMarks] = useState<MaxedMarks>(null);
+  /** Mark `index` as maxed against `forTargets`. Same-identity marks
+   *  accumulate (Max A then Max B, both noop → both disabled); a new
+   *  identity replaces the set. */
+  const markMaxed = useCallback(
+    (forTargets: readonly ProductionTarget[], index: number) => {
+      setMaxedMarks((prev) =>
+        prev && prev.forTargets === forTargets
+          ? { forTargets, indices: new Set(prev.indices).add(index) }
+          : { forTargets, indices: new Set([index]) },
+      );
+    },
+    [],
+  );
+  const maxedIndices = useMemo<ReadonlySet<number>>(
+    () =>
+      maxedMarks && maxedMarks.forTargets === targets
+        ? maxedMarks.indices
+        : EMPTY_INDEX_SET,
+    [maxedMarks, targets],
+  );
+
   /**
-   * End-of-search bookkeeping shared by both engines' finally blocks
-   * (token-gated so a superseding search owns the cleanup): clear the
-   * busy state and, if one of our probes displaced a display calc
-   * mid-search (see `displayCalcSupersededRef`), re-run that calc now
-   * that the queue is free — otherwise `isCalculating` strands true
-   * when the search ends without a target commit.
+   * End-of-search bookkeeping: clear the busy state and, if one of our
+   * probes displaced a display calc mid-search (see
+   * `displayCalcSupersededRef`), re-run that calc now that the queue is
+   * free — otherwise `isCalculating` strands true when the search ends
+   * without a target commit.
    */
-  const finishOptimizeSearch = useCallback((token: number) => {
-    if (optimizeTokenRef.current !== token) return;
+  const concludeSearch = useCallback(() => {
     setOptimizeState(null);
     if (displayCalcSupersededRef.current) {
       displayCalcSupersededRef.current = false;
       setCalcNonce((n) => n + 1);
     }
   }, []);
+
+  /** Token-gated variant for the engines' finally blocks: when a
+   *  superseding search took over, IT owns the cleanup. */
+  const finishOptimizeSearch = useCallback(
+    (token: number) => {
+      if (optimizeTokenRef.current !== token) return;
+      concludeSearch();
+    },
+    [concludeSearch],
+  );
+
+  /**
+   * Abort any in-flight search AND drop the "Max done" markers. The
+   * targets-identity staleness guard covers target edits, but NOT
+   * changes to the rest of the problem definition — caps, raw limits,
+   * routes, available recipes, pins, manual raws, region. A search
+   * probing a stale options bundle could commit values the fresh
+   * problem judges over-cap (the same probe≠UI mismatch class as the
+   * zero-rate-target bug), so the effect below cancels it the moment
+   * `optimizerSolve` / `optimizerFeasibility` change identity. Must
+   * self-clean (unlike a superseding search, a config-cancel has no
+   * successor whose finally would clear `optimizeState`).
+   */
+  const cancelActiveSearch = useCallback(() => {
+    optimizeTokenRef.current++;
+    setMaxedMarks(null);
+    concludeSearch();
+  }, [concludeSearch]);
 
   const [autoFit, setAutoFitState] = useState<boolean>(() => {
     try {
@@ -1207,6 +1291,15 @@ export function useProductionPlan(
     [facilityCaps, rawMaterialCaps, manualRawMaterials],
   );
 
+  // Problem-definition staleness: cancel any in-flight search (and drop
+  // the "Max done" markers) whenever the options bundle changes
+  // identity — see `cancelActiveSearch`. `optimizerSolve` is a superset
+  // of `optimizerFeasibility`'s inputs; both listed for clarity. The
+  // mount-time invocation is a no-op (no search, no marks).
+  useEffect(() => {
+    cancelActiveSearch();
+  }, [optimizerSolve, optimizerFeasibility, cancelActiveSearch]);
+
   const handleMaximizeTarget = useCallback(
     async (index: number) => {
       const captured = targetsRef.current;
@@ -1225,11 +1318,17 @@ export function useProductionPlan(
             targetsRef.current !== captured,
         });
         if (result.kind === "cancelled") return;
+        // Deterministic terminal outcomes mark the index as "maxed":
+        // re-pressing without changing anything would reproduce the
+        // exact same answer (and burn the same solves). Cancelled and
+        // solver-error outcomes never mark — retrying is their remedy.
         if (result.kind === "unbounded") {
+          markMaxed(captured, index);
           toast.info(t("maximizeNoLimit"));
           return;
         }
         if (result.kind === "infeasible") {
+          markMaxed(captured, index);
           toast.warning(t("maximizeInfeasible"));
           return;
         }
@@ -1248,20 +1347,25 @@ export function useProductionPlan(
             ([i, r]) => captured[i]?.rate === r,
           );
         if (unchanged) {
+          markMaxed(captured, index);
           toast.info(
             t("maximizeAlreadyMax", { item: itemLabel, rate: result.rate }),
           );
           return;
         }
-        setTargets((prev) =>
-          prev.map((tgt, i) => {
-            if (i === index) return { ...tgt, rate: result.rate };
-            const recovered = result.otherRates.get(i);
-            return recovered !== undefined
-              ? { ...tgt, rate: recovered }
-              : tgt;
-          }),
-        );
+        // Eager array (not a functional updater): the mark must be
+        // keyed to the exact post-commit identity so it survives its
+        // own write while any OTHER array invalidates it. Safe for the
+        // same reason the Restore path writes a plain array — the
+        // staleness guard aborts the search whenever `targets` moved
+        // off `captured`.
+        const committed = captured.map((tgt, i) => {
+          if (i === index) return { ...tgt, rate: result.rate };
+          const recovered = result.otherRates.get(i);
+          return recovered !== undefined ? { ...tgt, rate: recovered } : tgt;
+        });
+        setTargets(committed);
+        markMaxed(committed, index);
         toast.success(
           t(
             result.otherRates.size > 0 ? "maximizedToWithFit" : "maximizedTo",
@@ -1295,6 +1399,7 @@ export function useProductionPlan(
       optimizerFeasibility,
       resetAutoFitEditContext,
       finishOptimizeSearch,
+      markMaxed,
       t,
     ],
   );
@@ -1514,6 +1619,7 @@ export function useProductionPlan(
     handleTargetLockToggle,
     handleBatchAddTargets,
     maxEnabledByTarget,
+    maxedIndices,
     optimizeState,
     handleMaximizeTarget,
     handleFitToLimits,

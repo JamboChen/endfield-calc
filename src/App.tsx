@@ -374,6 +374,7 @@ function AppContent() {
     handleTargetLockToggle,
     handleBatchAddTargets,
     maxEnabledByTarget,
+    maxedIndices,
     optimizeState,
     handleMaximizeTarget,
     handleFitToLimits,
@@ -475,6 +476,7 @@ function AppContent() {
                 onMaximizeTarget={handleMaximizeTarget}
                 maximizingIndex={maximizingIndex}
                 optimizerBusy={optimizerBusy}
+                maxedIndices={maxedIndices}
                 showFitPill={showFitPill}
                 fitRunning={fitRunning}
                 onFitToLimits={handleFitPillClick}
@@ -509,6 +511,7 @@ function AppContent() {
             onMaximizeTarget={handleMaximizeTarget}
             maximizingIndex={maximizingIndex}
             optimizerBusy={optimizerBusy}
+            maxedIndices={maxedIndices}
             showFitPill={showFitPill}
             fitRunning={fitRunning}
             onFitToLimits={handleFitPillClick}

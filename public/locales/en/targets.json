@@ -5,6 +5,7 @@
   "lockTarget": "Lock target — protect from auto-adjustments",
   "maximize": "Maximize within limits",
   "maximizeNoLimits": "Set a limit on this item's raw materials to enable maximizing",
+  "maximizeUpToDate": "Already maximized for the current plan — change anything to re-enable",
   "rateInput": "Rate Input",
   "rateUnit": "per minute",
   "removeTarget": "Remove Target",

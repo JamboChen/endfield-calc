@@ -144,6 +144,13 @@ Notes:
   `isCancelled = () => token changed || targetsRef.current !== captured`.
   Identity comparison also covers add/remove (index shift) and lock
   toggles (flexible-set change) that don't reject anything.
+  **Config staleness**: targets identity alone doesn't cover the rest
+  of the problem definition — caps, raw limits, routes, available
+  recipes, pins, manual raws, region. An effect on the
+  `optimizerSolve` / `optimizerFeasibility` identities calls
+  `cancelActiveSearch()` (token bump + self-cleanup + "Max done"
+  marker drop) the moment the options bundle changes, so probes never
+  judge a stale problem and then commit against a fresh one.
 - **Verified-feasible invariant**: bisection runs on the integer
   milli-rate grid (1 unit = 0.001/min) and only ever returns a value
   that an actual solve verified feasible (`lo` is always verified; the
@@ -256,6 +263,16 @@ is multi-value, so Restore is load-bearing, not cosmetic.
   (rendered once, visible in both PlanPanel hosts), shown when
   over-limit ∧ unlocked targets exist. Hidden while auto-fit is enabled
   (it would race).
+- **"Max done" button lock** (`MaxedMarks`): after a Max reaches a
+  deterministic terminal outcome (ok / already-at-max / infeasible /
+  unbounded — never cancelled or solver-error), the index is marked
+  against the targets-array identity it was computed for and the
+  button disables with the `maximizeUpToDate` tooltip. Validity is
+  derived (`maxedMarks.forTargets === targets`), so any other array —
+  edit, add/remove, lock toggle, Fit commit, Restore, prune, plan load
+  — re-enables it automatically; a Max commit marks against the array
+  it just wrote, surviving its own write. Config-bundle changes clear
+  marks via `cancelActiveSearch` (the same staleness set).
 - The scrub input's trailing-throttle commit (Phase F,
   `SCRUB_COMMIT_THROTTLE_MS` in `TargetItemsGrid.tsx`) already rate-
   limits edit streams; the auto-fit debounce sits on top of it.
@@ -277,8 +294,9 @@ Reserved i18n keys to add (7 locales): `maximizedTo`,
 `maximizedToWithFit` (variant when pass 2 shrank other targets),
 `maximizeAlreadyMax` (pure-noop repeat press — nothing moved, no
 write, no Restore), `maximizeNoLimit` ("no limit reached"),
-`maximizeInfeasible`, `fitToLimits`, `fitApplied`, `fitNoop`,
-`fitImpossible`, `restore`, `autoFit`, `autoFitHint`,
+`maximizeInfeasible`, `maximizeUpToDate` (disabled-button tooltip
+while a "Max done" marker applies), `fitToLimits`, `fitApplied`,
+`fitNoop`, `fitImpossible`, `restore`, `autoFit`, `autoFitHint`,
 `optimizeFailed`.
 
 ## Test matrix (`src/tests/lib/target-optimizer.test.ts` — extend)
@@ -318,7 +336,10 @@ write, no Restore), `maximizeNoLimit` ("no limit reached"),
   (worker off-main-thread; latest-wins queue). Sequential awaited
   probes coexist with the UI edit stream via the error/staleness policy
   above. Moving the whole search loop into the worker is a clean later
-  optimization if 30–50-probe searches feel slow on big plans.
+  optimization if 30–50-probe searches feel slow on big plans — it
+  would also eliminate the per-probe structured-clone of the full
+  `items`/`recipes`/`facilities` tables (measured <5% of solve time
+  today, but ×30–50 per search it's the transport's main overhead).
   Feasibility post-processing (`aggregateBinTotals` + over-cap checks)
   is cheap and runs main-thread on the structured-clone result.
 - Whether Fit should also surface in the dock's Issues strip as an

@@ -341,6 +341,11 @@ type TargetItemsGridProps = {
   /** True while ANY optimizer search runs — all Max buttons disable
    *  (mutual exclusion; one search at a time). */
   optimizerBusy: boolean;
+  /** Indices whose Max already ran to a deterministic outcome against
+   *  the CURRENT problem — the button disables until something (any
+   *  target or config change) invalidates the marks. See
+   *  `useProductionPlan`'s `MaxedMarks`. */
+  maxedIndices: ReadonlySet<number>;
   onAddClick: () => void;
   maxTargets?: number;
 };
@@ -375,6 +380,7 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
   onMaximizeTarget,
   maximizingIndex,
   optimizerBusy,
+  maxedIndices,
   onAddClick,
   maxTargets = MAX_TARGETS,
 }: TargetItemsGridProps) {
@@ -394,6 +400,7 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
 
         const tc = tierClasses(item.tier);
         const maxEnabled = maxEnabledByTarget.get(target.itemId) ?? false;
+        const alreadyMaxed = maxedIndices.has(index);
 
         return (
           <div
@@ -449,9 +456,16 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
                   desktop never diverge in features. Tooltip lives on a
                   wrapper span (disabled buttons swallow pointer
                   events). Spinner while THIS target's search runs;
-                  disabled while any search runs (one at a time). */}
+                  disabled while any search runs (one at a time) and
+                  after a completed Max until the problem changes. */}
               <span
-                title={maxEnabled ? t("maximize") : t("maximizeNoLimits")}
+                title={
+                  alreadyMaxed
+                    ? t("maximizeUpToDate")
+                    : maxEnabled
+                      ? t("maximize")
+                      : t("maximizeNoLimits")
+                }
                 className={cn(
                   "inline-flex",
                   maximizingIndex === index ? "opacity-100" : reveal,
@@ -460,11 +474,11 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={!maxEnabled || optimizerBusy}
+                  disabled={!maxEnabled || optimizerBusy || alreadyMaxed}
                   onClick={() => onMaximizeTarget(index)}
                   className={cn(
                     "h-7 w-7 max-sm:h-6 max-sm:w-6 p-0",
-                    !maxEnabled && "opacity-40",
+                    (!maxEnabled || alreadyMaxed) && "opacity-40",
                   )}
                   aria-label={t("maximize")}
                 >
