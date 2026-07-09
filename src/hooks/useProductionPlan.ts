@@ -4,7 +4,14 @@ import {
   isCalcEngineReady,
   isCalcSuperseded,
 } from "@/lib/calc-client";
-import { rawsInChainOf } from "@/lib/target-optimizer";
+import {
+  fitTargetsToLimits,
+  maximizeTargetRate,
+  rawsInChainOf,
+  type FeasibilityContext,
+  type TargetVectorEntry,
+} from "@/lib/target-optimizer";
+import { namespaceStorageKey } from "@/lib/storage-namespace";
 import { items, recipes, facilities, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
@@ -37,6 +44,26 @@ import {
   filterPlanForDisplay,
 } from "@/lib/plan-helpers";
 import { getItemById } from "@/lib/utils";
+
+/** Auto-fit preference (Options card toggle). Channel-namespaced like
+ *  every persisted key — see `storage-namespace.ts`. */
+const AUTO_FIT_STORAGE_KEY = namespaceStorageKey("endfield-calc:auto-fit-v1");
+
+/**
+ * Debounce between "a settled calc result is over its limits" and the
+ * auto-fit pass firing. Sits ON TOP of the scrub input's
+ * trailing-throttle commit (`SCRUB_COMMIT_THROTTLE_MS`) — a scrub drag
+ * keeps resetting this timer, so the fit runs once the user pauses,
+ * not once per commit.
+ */
+const AUTO_FIT_DEBOUNCE_MS = 600;
+
+/** Optimizer search in flight — drives per-button spinners and mutual
+ *  exclusion (one search at a time). */
+export type OptimizeState =
+  | { kind: "max"; index: number }
+  | { kind: "fit" }
+  | null;
 
 interface SavedPlan {
   version: string;
@@ -874,10 +901,39 @@ export function useProductionPlan(
       formatPlanWarning(w, t, facilities, items),
     );
 
-    return [...cycleWarnings, ...planWarnings];
+    // Failed-solve banner. A non-"ok" `lpStatus` plan is an empty
+    // best-effort shell (zero rates, no bins) that otherwise renders
+    // as a silently-blank table — surface it UNLESS another warning
+    // already explains the failure (pin-caused cycles or metastorage
+    // budget/route problems carry more specific text).
+    const lpStatusWarnings: string[] = [];
+    if (
+      plan.lpStatus !== "ok" &&
+      cycleWarnings.length === 0 &&
+      !(plan.warnings ?? []).some(
+        (w) =>
+          w.kind === "metastorage-budget-insufficient" ||
+          w.kind === "metastorage-route-conflict",
+      )
+    ) {
+      lpStatusWarnings.push(
+        t(
+          plan.lpStatus === "solver_error"
+            ? "planSolverError"
+            : "planLpInfeasible",
+        ),
+      );
+    }
+
+    return [...cycleWarnings, ...planWarnings, ...lpStatusWarnings];
   }, [plan, recipeOverrides, t]);
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
+    // Auto-fit bookkeeping: the just-edited target is the demand — it
+    // is excluded from auto-shrinking — and every manual edit re-arms
+    // the one-shot loop guard.
+    lastEditedIndexRef.current = index;
+    autoFitSpentRef.current = false;
     setTargets((prev) =>
       // Clone the target object as well as the array so memoized consumers
       // that compare against `prev[index]` by reference see a new instance.
@@ -889,8 +945,9 @@ export function useProductionPlan(
     setTargets((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // Toggle a target's lock flag. Locked targets are protected from the
-  // (upcoming) Fit-to-limits rebalance — see docs/plan-target-optimizer.md.
+  // Toggle a target's lock flag. Locked targets are frozen under every
+  // automatic adjustment (Fit scaling and priority-Max shrinking) —
+  // see docs/plan-target-optimizer.md.
   const handleTargetLockToggle = useCallback((index: number) => {
     setTargets((prev) =>
       prev.map((t, i) =>
@@ -982,6 +1039,273 @@ export function useProductionPlan(
     }
     return out;
   }, [targets, availableRecipes, regionRawMaterials, rawMaterialCaps]);
+
+  /* ── Target optimizer (Max / Fit) ─────────────────────────────────
+   *
+   * The bisection engines live in `@/lib/target-optimizer`; this block
+   * wires them to the calc worker + toasts. Design & invariants:
+   * docs/plan-target-optimizer.md. Key hazards handled here:
+   *
+   *   - **Staleness**: `CalcSupersededError` only fires when a probe is
+   *     DISPLACED from the calc-client's pending slot; a UI edit whose
+   *     solve merely alternates with the probes displaces nothing. The
+   *     `isCancelled` closure therefore also compares the `targets`
+   *     array identity captured at search start (covers rate edits,
+   *     add/remove index shifts, AND lock toggles — the calc effect
+   *     ignores lock-only changes via `targetsCalcSig`, but the
+   *     optimizer's flexible set does not).
+   *   - **Errors**: superseded → silent abort (the user changed the
+   *     problem); anything else → error toast. Never "infeasible".
+   *   - **Undo**: both operations snapshot the pre-search targets array
+   *     and offer Restore in the completion toast — priority-Max is a
+   *     multi-value write.
+   */
+  const [optimizeState, setOptimizeState] = useState<OptimizeState>(null);
+  const targetsRef = useRef(targets);
+  useEffect(() => {
+    targetsRef.current = targets;
+  }, [targets]);
+  /** Monotone search token: bumping it cancels any in-flight search. */
+  const optimizeTokenRef = useRef(0);
+  /** Auto-fit: index of the last user-edited target (the demand). */
+  const lastEditedIndexRef = useRef<number | null>(null);
+  /** Auto-fit one-shot loop guard — re-armed by `handleTargetChange`. */
+  const autoFitSpentRef = useRef(false);
+
+  const [autoFit, setAutoFitState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTO_FIT_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setAutoFit = useCallback((value: boolean) => {
+    setAutoFitState(value);
+    try {
+      localStorage.setItem(AUTO_FIT_STORAGE_KEY, value ? "1" : "0");
+    } catch {
+      // Persistence is best-effort (private mode etc.).
+    }
+  }, []);
+
+  // Probe transport: same latest-wins worker client and the exact
+  // options bundle the calc effect uses — feasibility must judge the
+  // very problem the UI would solve. Probe results never touch `plan`;
+  // the final setTargets commit re-triggers the calc effect naturally.
+  const optimizerSolve = useCallback(
+    (vector: TargetVectorEntry[]) =>
+      calculate({
+        targets: vector,
+        items,
+        recipes: availableRecipes,
+        facilities,
+        options: {
+          rawMaterials: regionRawMaterials,
+          rawCaps: rawMaterialCaps,
+          recipeOverrides,
+          manualRawMaterials,
+          facilityCaps,
+          metastorageRoutes,
+        },
+      }),
+    [
+      availableRecipes,
+      regionRawMaterials,
+      rawMaterialCaps,
+      recipeOverrides,
+      manualRawMaterials,
+      facilityCaps,
+      metastorageRoutes,
+    ],
+  );
+
+  const optimizerFeasibility = useMemo<FeasibilityContext>(
+    () => ({
+      facilities,
+      items,
+      facilityCaps,
+      rawCaps: rawMaterialCaps,
+      manualRawMaterials,
+    }),
+    [facilityCaps, rawMaterialCaps, manualRawMaterials],
+  );
+
+  const handleMaximizeTarget = useCallback(
+    async (index: number) => {
+      const captured = targetsRef.current;
+      const targetItem = captured[index];
+      if (!targetItem) return;
+      const token = ++optimizeTokenRef.current;
+      setOptimizeState({ kind: "max", index });
+      try {
+        const result = await maximizeTargetRate({
+          targets: captured,
+          index,
+          solve: optimizerSolve,
+          feasibility: optimizerFeasibility,
+          isCancelled: () =>
+            optimizeTokenRef.current !== token ||
+            targetsRef.current !== captured,
+        });
+        if (result.kind === "cancelled") return;
+        if (result.kind === "unbounded") {
+          toast.info(t("maximizeNoLimit"));
+          return;
+        }
+        if (result.kind === "infeasible") {
+          toast.warning(t("maximizeInfeasible"));
+          return;
+        }
+        const item = getItemById(items, targetItem.itemId);
+        const itemLabel = item ? getItemName(item) : targetItem.itemId;
+        // Pure noop: X is already at its maximum AND pass 2 didn't
+        // move any other target (a repeat press on an already-Maxed
+        // target returns the identical milli-grid value; exact
+        // equality is deliberate — a hand-typed sub-milli rate
+        // genuinely changes on the first press and noops thereafter).
+        // Confirm instead of claiming a maximization happened; skip
+        // the write entirely — no hash churn, nothing to Restore.
+        const unchanged =
+          result.rate === targetItem.rate &&
+          [...result.otherRates].every(
+            ([i, r]) => captured[i]?.rate === r,
+          );
+        if (unchanged) {
+          toast.info(
+            t("maximizeAlreadyMax", { item: itemLabel, rate: result.rate }),
+          );
+          return;
+        }
+        setTargets((prev) =>
+          prev.map((tgt, i) => {
+            if (i === index) return { ...tgt, rate: result.rate };
+            const recovered = result.otherRates.get(i);
+            return recovered !== undefined
+              ? { ...tgt, rate: recovered }
+              : tgt;
+          }),
+        );
+        toast.success(
+          t(
+            result.otherRates.size > 0 ? "maximizedToWithFit" : "maximizedTo",
+            { item: itemLabel, rate: result.rate },
+          ),
+          {
+            action: {
+              label: t("restore"),
+              onClick: () => setTargets(captured),
+            },
+          },
+        );
+      } catch (e) {
+        if (isCalcSuperseded(e)) return;
+        console.error("[OPTIMIZER] max search failed:", e);
+        toast.error(t("optimizeFailed"));
+      } finally {
+        if (optimizeTokenRef.current === token) setOptimizeState(null);
+      }
+    },
+    [optimizerSolve, optimizerFeasibility, t],
+  );
+
+  const handleFitToLimits = useCallback(
+    async (excludeIndex?: number) => {
+      const captured = targetsRef.current;
+      const token = ++optimizeTokenRef.current;
+      setOptimizeState({ kind: "fit" });
+      try {
+        const result = await fitTargetsToLimits({
+          targets: captured,
+          excludeIndex,
+          solve: optimizerSolve,
+          feasibility: optimizerFeasibility,
+          isCancelled: () =>
+            optimizeTokenRef.current !== token ||
+            targetsRef.current !== captured,
+        });
+        if (result.kind === "cancelled") return;
+        if (result.kind === "noop") {
+          toast.info(t("fitNoop"));
+          return;
+        }
+        if (result.kind === "impossible") {
+          toast.warning(t("fitImpossible"));
+          return;
+        }
+        setTargets((prev) =>
+          prev.map((tgt, i) => {
+            const fitted = result.rates.get(i);
+            return fitted !== undefined ? { ...tgt, rate: fitted } : tgt;
+          }),
+        );
+        toast.success(t("fitApplied"), {
+          action: {
+            label: t("restore"),
+            onClick: () => setTargets(captured),
+          },
+        });
+      } catch (e) {
+        if (isCalcSuperseded(e)) return;
+        console.error("[OPTIMIZER] fit search failed:", e);
+        toast.error(t("optimizeFailed"));
+      } finally {
+        if (optimizeTokenRef.current === token) setOptimizeState(null);
+      }
+    },
+    [optimizerSolve, optimizerFeasibility, t],
+  );
+
+  // Plan-over-limit signal shared by the Fit pill and auto-fit. Same
+  // clauses as the engine's `isPlanFeasible`: cap overflows (facility
+  // physical placements + raw rates, both inside `capIssueCount`) plus
+  // the metastorage budget warning.
+  const planOverLimit = useMemo<boolean>(
+    () =>
+      capIssueCount > 0 ||
+      (plan?.warnings ?? []).some(
+        (w) => w.kind === "metastorage-budget-insufficient",
+      ),
+    [capIssueCount, plan],
+  );
+
+  // Fit pill visibility: over-limit with something to shrink, hidden
+  // while auto-fit owns the job (the two would race).
+  const showFitPill = useMemo<boolean>(
+    () =>
+      !autoFit &&
+      planOverLimit &&
+      targets.some((tgt) => !tgt.locked && tgt.rate > 0),
+    [autoFit, planOverLimit, targets],
+  );
+
+  // Auto-fit: when a SETTLED calc result is over its limits, debounce
+  // and run one fit pass excluding the just-edited target. One-shot per
+  // edit (`autoFitSpentRef`): if the plan is still infeasible after the
+  // pass (e.g. everything else is locked → "impossible"), stop until
+  // the next edit re-arms the guard.
+  useEffect(() => {
+    if (!autoFit || !planOverLimit) return;
+    if (optimizeState !== null) return; // a search is already running
+    if (isCalculating) return; // judge settled results only
+    if (autoFitSpentRef.current) return;
+    const excludeIndex = lastEditedIndexRef.current ?? undefined;
+    const hasFlexible = targets.some(
+      (tgt, i) => i !== excludeIndex && !tgt.locked && tgt.rate > 0,
+    );
+    if (!hasFlexible) return;
+    const timer = setTimeout(() => {
+      autoFitSpentRef.current = true;
+      void handleFitToLimits(excludeIndex);
+    }, AUTO_FIT_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [
+    autoFit,
+    planOverLimit,
+    optimizeState,
+    isCalculating,
+    targets,
+    handleFitToLimits,
+  ]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1080,6 +1404,12 @@ export function useProductionPlan(
     handleTargetLockToggle,
     handleBatchAddTargets,
     maxEnabledByTarget,
+    optimizeState,
+    handleMaximizeTarget,
+    handleFitToLimits,
+    showFitPill,
+    autoFit,
+    setAutoFit,
     handleToggleRawMaterial,
     handleRecipeChange,
     handleRecipePinReset,

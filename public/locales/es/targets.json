@@ -1,9 +1,9 @@
 {
   "addTarget": "Agregar objetivo",
   "count": "{{current}} / {{max}}",
+  "fitToLimits": "Ajustar a los límites",
   "lockTarget": "Bloquear objetivo — protegido de ajustes automáticos",
   "maximize": "Maximizar dentro de los límites",
-  "maximizeComingSoon": "Maximizar dentro de los límites (próximamente)",
   "maximizeNoLimits": "Configura un límite en las materias primas de este objeto para poder maximizar",
   "rateInput": "Entrada de tasa",
   "rateUnit": "por minuto",

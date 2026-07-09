@@ -973,7 +973,7 @@ const solvePacking = async (
     ints: lpInts,
     options: { timeLimitSeconds: SOLVER_TIME_LIMIT_SECONDS },
   };
-  let r1: Record<string, number | boolean | undefined>;
+  let r1: Record<string, number | boolean | string | undefined>;
   try {
     r1 = await highsSolve(passOne as LPModel);
   } catch (e) {
@@ -1044,7 +1044,7 @@ const solvePacking = async (
       passTwo.variables[varName].buildings_cap = 1;
     }
   }
-  let r2: Record<string, number | boolean | undefined>;
+  let r2: Record<string, number | boolean | string | undefined>;
   let pass2Succeeded = true;
   try {
     r2 = await highsSolve(passTwo as LPModel);
@@ -1093,7 +1093,7 @@ const solvePacking = async (
         passThree.variables[varName].power_cap = coefs.power;
       }
     }
-    let r3: Record<string, number | boolean | undefined>;
+    let r3: Record<string, number | boolean | string | undefined>;
     try {
       r3 = await highsSolve(passThree as LPModel);
     } catch (e) {

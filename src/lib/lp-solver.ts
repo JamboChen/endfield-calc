@@ -16,7 +16,10 @@
  */
 
 import { calcRate } from "@/lib/utils";
-import { solve as highsSolve } from "@/lib/highs-wrapper";
+import {
+  solve as highsSolve,
+  type LPResult as HighsWrapperResult,
+} from "@/lib/highs-wrapper";
 import type {
   DomainId,
   ItemId,
@@ -816,7 +819,7 @@ type ExtractedSolution = {
 };
 
 const extractSolution = (
-  rawResult: Record<string, number | boolean | undefined>,
+  rawResult: Record<string, number | boolean | string | undefined>,
   recipeIndexMap: Map<string, RecipeId>,
   disposalDeficitSlackVarMap: Map<string, ItemId>,
   disposalSurplusSlackVarMap: Map<string, ItemId>,
@@ -1088,7 +1091,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       isTtvPass ? TTV_PASS_CAP_TOLERANCE : undefined,
     );
 
-    let result: Record<string, number | boolean | undefined>;
+    let result: HighsWrapperResult;
     try {
       result = await highsSolve(model);
     } catch (e) {
@@ -1111,7 +1114,28 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
         }
         return finaliseSolution(lastSolution);
       }
-      return { feasible: false, reason: "infeasible" };
+      // "Couldn't solve" ≠ "provably no solution". Only HiGHS's
+      // genuine infeasibility statuses earn `reason: "infeasible"`;
+      // everything else (`timelimit`, `error`, `unknown`,
+      // `iterationlimit`, …) is a solver failure — reporting it as
+      // infeasible poisoned every downstream consumer (empty plans,
+      // optimizer probes judging "infeasible", the frozen-app bug).
+      // An absent status is the wrapper's pre-solver structural-
+      // infeasibility sentinel — that IS proven infeasible.
+      const status = result.status;
+      const provenInfeasible =
+        status === undefined ||
+        status === "infeasible" ||
+        status === "unboundedorinfeasible";
+      if (!provenInfeasible && import.meta.env?.DEV) {
+        console.warn(
+          `[LP_SOLVER] pass-1 (${objective}) failed with solver status "${String(status)}" — reporting solver_error, not infeasible`,
+        );
+      }
+      return {
+        feasible: false,
+        reason: provenInfeasible ? "infeasible" : "solver_error",
+      };
     }
     if (result.bounded === false) {
       if (lastSolution) {

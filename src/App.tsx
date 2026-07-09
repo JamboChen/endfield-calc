@@ -374,6 +374,12 @@ function AppContent() {
     handleTargetLockToggle,
     handleBatchAddTargets,
     maxEnabledByTarget,
+    optimizeState,
+    handleMaximizeTarget,
+    handleFitToLimits,
+    showFitPill,
+    autoFit,
+    setAutoFit,
     handleToggleRawMaterial,
     handleRecipeChange,
     handleRecipePinReset,
@@ -411,6 +417,19 @@ function AppContent() {
     [targetRatesSig],
   );
 
+  // Optimizer UI signals derived from the single search-state object:
+  // per-button spinner (max index / fit), plus mutual exclusion (all
+  // optimizer affordances disable while any search runs).
+  const maximizingIndex =
+    optimizeState?.kind === "max" ? optimizeState.index : null;
+  const optimizerBusy = optimizeState !== null;
+  const fitRunning = optimizeState?.kind === "fit";
+  // Zero-arg wrapper: the manual pill scales ALL unlocked targets (no
+  // excluded index — that parameter is for auto-fit / priority-Max).
+  const handleFitPillClick = useCallback(() => {
+    void handleFitToLimits();
+  }, [handleFitToLimits]);
+
   const isPortrait = usePortrait();
 
   // Portrait-only top-level view switch (bottom nav). Always lands on
@@ -447,10 +466,18 @@ function AppContent() {
                 maxEnabledByTarget={maxEnabledByTarget}
                 ceilMode={ceilMode}
                 onCeilModeChange={setCeilMode}
+                autoFit={autoFit}
+                onAutoFitChange={setAutoFit}
                 onOpenSettings={handleOpenSettings}
                 onTargetChange={handleTargetChange}
                 onTargetRemove={handleTargetRemove}
                 onTargetLockToggle={handleTargetLockToggle}
+                onMaximizeTarget={handleMaximizeTarget}
+                maximizingIndex={maximizingIndex}
+                optimizerBusy={optimizerBusy}
+                showFitPill={showFitPill}
+                fitRunning={fitRunning}
+                onFitToLimits={handleFitPillClick}
                 onAddClick={handleAddClick}
               />
         </div>
@@ -473,10 +500,18 @@ function AppContent() {
             maxEnabledByTarget={maxEnabledByTarget}
             ceilMode={ceilMode}
             onCeilModeChange={setCeilMode}
+            autoFit={autoFit}
+            onAutoFitChange={setAutoFit}
             onOpenSettings={handleOpenSettings}
             onTargetChange={handleTargetChange}
             onTargetRemove={handleTargetRemove}
             onTargetLockToggle={handleTargetLockToggle}
+            onMaximizeTarget={handleMaximizeTarget}
+            maximizingIndex={maximizingIndex}
+            optimizerBusy={optimizerBusy}
+            showFitPill={showFitPill}
+            fitRunning={fitRunning}
+            onFitToLimits={handleFitPillClick}
             onAddClick={handleAddClick}
           />
         </div>

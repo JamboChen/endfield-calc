@@ -21,6 +21,11 @@ type OptionsSectionProps = {
   /** Whether facility counts round up (physical view). */
   ceilMode: boolean;
   onCeilModeChange: (value: boolean) => void;
+  /** Auto-fit: shrink other unlocked targets when an edit pushes the
+   *  plan over its limits (persisted preference — see
+   *  `useProductionPlan`'s AUTO_FIT_STORAGE_KEY). */
+  autoFit: boolean;
+  onAutoFitChange: (value: boolean) => void;
   /** Opens the full Settings sheet (AIC plan / limits / resources / …). */
   onOpenSettings: () => void;
 };
@@ -41,6 +46,8 @@ type OptionsSectionProps = {
 const OptionsSection = memo(function OptionsSection({
   ceilMode,
   onCeilModeChange,
+  autoFit,
+  onAutoFitChange,
   onOpenSettings,
 }: OptionsSectionProps) {
   const { t } = useTranslation(["settings", "app", "structure"]);
@@ -51,10 +58,11 @@ const OptionsSection = memo(function OptionsSection({
     setCurrentDomain,
     structures,
   } = useDomainSettingsContext();
-  // Instance-unique control id: LeftPanel and the portrait Plan tab
-  // both stay mounted (orientation swap is CSS-only), so a static id
+  // Instance-unique control ids: LeftPanel and the portrait Plan tab
+  // both stay mounted (orientation swap is CSS-only), so static ids
   // would duplicate in the DOM.
   const ceilSwitchId = useId();
+  const autoFitSwitchId = useId();
 
   const regionStructureList = regionStructures.get(currentDomain) ?? [];
   const structureCount = countRegionStructuresEnabled(
@@ -178,6 +186,25 @@ const OptionsSection = memo(function OptionsSection({
             checked={ceilMode}
             onCheckedChange={onCeilModeChange}
           />
+        </div>
+
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <Label
+              htmlFor={autoFitSwitchId}
+              className="text-sm cursor-pointer"
+            >
+              {t("autoFit", { ns: "app" })}
+            </Label>
+            <Switch
+              id={autoFitSwitchId}
+              checked={autoFit}
+              onCheckedChange={onAutoFitChange}
+            />
+          </div>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            {t("autoFitHint", { ns: "app" })}
+          </p>
         </div>
       </div>
     </section>

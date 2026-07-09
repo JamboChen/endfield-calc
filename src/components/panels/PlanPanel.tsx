@@ -11,10 +11,18 @@ type PlanPanelProps = {
   maxEnabledByTarget: ReadonlyMap<ItemId, boolean>;
   ceilMode: boolean;
   onCeilModeChange: (value: boolean) => void;
+  autoFit: boolean;
+  onAutoFitChange: (value: boolean) => void;
   onOpenSettings: () => void;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
   onTargetLockToggle: (index: number) => void;
+  onMaximizeTarget: (index: number) => void;
+  maximizingIndex: number | null;
+  optimizerBusy: boolean;
+  showFitPill: boolean;
+  fitRunning: boolean;
+  onFitToLimits: () => void;
   onAddClick: () => void;
   /** Header-right node for the Targets section (LeftPanel's collapse
    *  button on desktop; absent on the portrait Plan tab). */
@@ -35,10 +43,18 @@ const PlanPanel = memo(function PlanPanel({
   maxEnabledByTarget,
   ceilMode,
   onCeilModeChange,
+  autoFit,
+  onAutoFitChange,
   onOpenSettings,
   onTargetChange,
   onTargetRemove,
   onTargetLockToggle,
+  onMaximizeTarget,
+  maximizingIndex,
+  optimizerBusy,
+  showFitPill,
+  fitRunning,
+  onFitToLimits,
   onAddClick,
   headerAction,
   className,
@@ -57,12 +73,20 @@ const PlanPanel = memo(function PlanPanel({
         onTargetChange={onTargetChange}
         onTargetRemove={onTargetRemove}
         onTargetLockToggle={onTargetLockToggle}
+        onMaximizeTarget={onMaximizeTarget}
+        maximizingIndex={maximizingIndex}
+        optimizerBusy={optimizerBusy}
+        showFitPill={showFitPill}
+        fitRunning={fitRunning}
+        onFitToLimits={onFitToLimits}
         onAddClick={onAddClick}
         headerAction={headerAction}
       />
       <OptionsSection
         ceilMode={ceilMode}
         onCeilModeChange={onCeilModeChange}
+        autoFit={autoFit}
+        onAutoFitChange={onAutoFitChange}
         onOpenSettings={onOpenSettings}
       />
     </div>

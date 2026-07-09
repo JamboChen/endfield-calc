@@ -972,6 +972,7 @@ describe("aggregateBinTotals (real data)", () => {
       targets: new Set<ItemId>(),
       detectedCycles: [],
       invalidCycles: [],
+      lpStatus: "ok" as const,
       bins: [],
       recipeBinAllocations: new Map(),
       warnings: [],
@@ -995,6 +996,7 @@ describe("aggregateBinTotals (real data)", () => {
       targets: new Set<ItemId>(),
       detectedCycles: [],
       invalidCycles: [],
+      lpStatus: "ok" as const,
       bins: [
         {
           id: "bin-orphan" as BinId,
@@ -1756,6 +1758,7 @@ describe("filterPlanForDisplay", () => {
     targets: new Set(targets as ItemId[]),
     detectedCycles: [],
     invalidCycles: [],
+    lpStatus: "ok" as const,
     bins: [],
     recipeBinAllocations: new Map(),
     warnings: [],

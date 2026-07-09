@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { X, Plus, Lock, LockOpen, ArrowUpToLine } from "lucide-react";
+import { X, Plus, Lock, LockOpen, ArrowUpToLine, Loader2 } from "lucide-react";
 import type { Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getItemName } from "@/lib/i18n-helpers";
@@ -13,9 +13,10 @@ export type ProductionTarget = {
   itemId: ItemId;
   rate: number;
   /**
-   * Locked targets are protected from the (upcoming) Fit-to-limits
-   * rebalance — see docs/plan-target-optimizer.md. Absent = unlocked
-   * (the default; flexible).
+   * Locked targets are frozen under every automatic adjustment —
+   * Fit-to-limits scaling AND priority-Max shrinking — see
+   * docs/plan-target-optimizer.md. Absent = unlocked (the default;
+   * flexible).
    */
   locked?: boolean;
 };
@@ -333,6 +334,13 @@ type TargetItemsGridProps = {
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
   onTargetLockToggle: (index: number) => void;
+  /** Kick off a priority-Max search for this target. */
+  onMaximizeTarget: (index: number) => void;
+  /** Index whose Max search is running (spinner) — null when idle. */
+  maximizingIndex: number | null;
+  /** True while ANY optimizer search runs — all Max buttons disable
+   *  (mutual exclusion; one search at a time). */
+  optimizerBusy: boolean;
   onAddClick: () => void;
   maxTargets?: number;
 };
@@ -351,10 +359,11 @@ type TargetItemsGridProps = {
  * pointer devices (opacity — space reserved, no layout shift), always
  * visible on touch, and focus-visible-revealed for keyboard users.
  *
- * The Max button is rendered disabled in BOTH gating states this
- * phase — the optimizer engine lands separately (see
- * docs/plan-target-optimizer.md); the tooltip distinguishes "needs raw
- * limits" from "coming soon".
+ * The Max button runs the priority-Max search (`handleMaximizeTarget`
+ * in `useProductionPlan` → `maximizeTargetRate` engine — see
+ * docs/plan-target-optimizer.md). Gated on raw limits in the item's
+ * chain (`maxEnabledByTarget`); shows a spinner while its own search
+ * runs and disables during any optimizer search (mutual exclusion).
  */
 const TargetItemsGrid = memo(function TargetItemsGrid({
   targets,
@@ -363,6 +372,9 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
   onTargetChange,
   onTargetRemove,
   onTargetLockToggle,
+  onMaximizeTarget,
+  maximizingIndex,
+  optimizerBusy,
   onAddClick,
   maxTargets = MAX_TARGETS,
 }: TargetItemsGridProps) {
@@ -431,30 +443,36 @@ const TargetItemsGrid = memo(function TargetItemsGrid({
               />
 
               <div className="flex items-center gap-0.5 shrink-0">
-              {/* Max — gated on raw limits in the item's chain; the
-                  engine lands with the optimizer phase, so it is
-                  disabled either way for now. Rendered on every
+              {/* Max — gated on raw limits in the item's chain (that's
+                  what makes a maximum finite). Rendered on every
                   breakpoint (responsive sizing only) so mobile and
                   desktop never diverge in features. Tooltip lives on a
                   wrapper span (disabled buttons swallow pointer
-                  events). */}
+                  events). Spinner while THIS target's search runs;
+                  disabled while any search runs (one at a time). */}
               <span
-                title={
-                  maxEnabled ? t("maximizeComingSoon") : t("maximizeNoLimits")
-                }
-                className={cn("inline-flex", reveal)}
+                title={maxEnabled ? t("maximize") : t("maximizeNoLimits")}
+                className={cn(
+                  "inline-flex",
+                  maximizingIndex === index ? "opacity-100" : reveal,
+                )}
               >
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled
+                  disabled={!maxEnabled || optimizerBusy}
+                  onClick={() => onMaximizeTarget(index)}
                   className={cn(
                     "h-7 w-7 max-sm:h-6 max-sm:w-6 p-0",
                     !maxEnabled && "opacity-40",
                   )}
                   aria-label={t("maximize")}
                 >
-                  <ArrowUpToLine className="h-3.5 w-3.5" />
+                  {maximizingIndex === index ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ArrowUpToLine className="h-3.5 w-3.5" />
+                  )}
                 </Button>
               </span>
 

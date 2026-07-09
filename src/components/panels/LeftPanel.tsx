@@ -11,10 +11,18 @@ type LeftPanelProps = {
   maxEnabledByTarget: ReadonlyMap<ItemId, boolean>;
   ceilMode: boolean;
   onCeilModeChange: (value: boolean) => void;
+  autoFit: boolean;
+  onAutoFitChange: (value: boolean) => void;
   onOpenSettings: () => void;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
   onTargetLockToggle: (index: number) => void;
+  onMaximizeTarget: (index: number) => void;
+  maximizingIndex: number | null;
+  optimizerBusy: boolean;
+  showFitPill: boolean;
+  fitRunning: boolean;
+  onFitToLimits: () => void;
   onAddClick: () => void;
 };
 
@@ -24,10 +32,18 @@ const LeftPanel = memo(function LeftPanel({
   maxEnabledByTarget,
   ceilMode,
   onCeilModeChange,
+  autoFit,
+  onAutoFitChange,
   onOpenSettings,
   onTargetChange,
   onTargetRemove,
   onTargetLockToggle,
+  onMaximizeTarget,
+  maximizingIndex,
+  optimizerBusy,
+  showFitPill,
+  fitRunning,
+  onFitToLimits,
   onAddClick,
 }: LeftPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
@@ -55,10 +71,18 @@ const LeftPanel = memo(function LeftPanel({
         maxEnabledByTarget={maxEnabledByTarget}
         ceilMode={ceilMode}
         onCeilModeChange={onCeilModeChange}
+        autoFit={autoFit}
+        onAutoFitChange={onAutoFitChange}
         onOpenSettings={onOpenSettings}
         onTargetChange={onTargetChange}
         onTargetRemove={onTargetRemove}
         onTargetLockToggle={onTargetLockToggle}
+        onMaximizeTarget={onMaximizeTarget}
+        maximizingIndex={maximizingIndex}
+        optimizerBusy={optimizerBusy}
+        showFitPill={showFitPill}
+        fitRunning={fitRunning}
+        onFitToLimits={onFitToLimits}
         onAddClick={onAddClick}
         headerAction={
           <Button

@@ -81,6 +81,13 @@ export type FlowData = {
 export type FlowSolveMetrics = {
   feasible: boolean;
   /**
+   * Pass-1 failure reason when `feasible` is false (threaded from
+   * `solveLP` so the plan can carry an honest `lpStatus` instead of a
+   * silent empty shell — see `PlanLpStatus` in `types/production.ts`).
+   * Absent on feasible solves.
+   */
+  failureReason?: "infeasible" | "unbounded" | "solver_error";
+  /**
    * Σ of all soft-constraint violations (disposal deficits + surpluses
    * + raw-cap overuse + TTV-budget overuse). A candidate with less
    * slack is strictly better regardless of cost totals — the LP itself

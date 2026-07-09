@@ -68,3 +68,30 @@ export function getHighs(): HiGHS {
 export function isHighsReady(): boolean {
   return highsInstance !== null;
 }
+
+/**
+ * Discard the current HiGHS instance so the next `initHighs()` (which
+ * `highs-wrapper.solve` awaits per call) creates a fresh one.
+ *
+ * Self-heal seam for wedged WASM: a pathological MIP (e.g. the
+ * packer's cap-infeasible retry chain on a heavily over-cap plan) can
+ * leave the instance in a state where every subsequent `solve()`
+ * throws. Those throws are caught upstream (`lp-solver` maps them to
+ * `solver_error`, the packer to its fallback path), so without this
+ * reset the app silently returns empty plans until a full page reload
+ * — the "frozen until refresh" failure mode. `highs-wrapper.solve`
+ * calls this on any parse/solve throw before rethrowing.
+ *
+ * The stale instance's `free()` is best-effort: it is already
+ * presumed broken, so a throwing free is expected noise.
+ */
+export function resetHighs(): void {
+  const stale = highsInstance;
+  highsInstance = null;
+  highsPromise = null;
+  try {
+    stale?.free();
+  } catch {
+    // Ignore — see JSDoc.
+  }
+}

@@ -34,7 +34,41 @@
  * to be async themselves; see `lp-solver.ts` and
  * `multi-formula-packing.ts` for the cascade.
  */
-import { getHighs } from "./highs-singleton";
+import type { HiGHS } from "@bubblyworld/highs-ts";
+import { initHighs, resetHighs } from "./highs-singleton";
+
+/**
+ * Effectively-unlimited per-solve time budget (seconds) applied when a
+ * model carries no explicit limit. `time_limit` is now set on EVERY
+ * solve (see below) — never letting one model's limit leak onto the
+ * next via the shared instance.
+ */
+const NO_TIME_LIMIT_SECONDS = 1e9;
+
+/**
+ * Accumulated in-solve wall time per HiGHS instance, in seconds.
+ *
+ * **Why this exists — the cumulative-clock wedge.** HiGHS checks
+ * `time_limit` against a run clock that accumulates across every
+ * `Highs_run` on the instance and is never reset (verified empirically:
+ * with `time_limit=2`, seven individually-fast optimal solves totalling
+ * ~3s of run time left the instance returning `timelimit` for a
+ * trivial 1-variable LP — permanently). In production the packer's 30s
+ * limit therefore became a SESSION-WIDE budget: once a session's solves
+ * totalled 30s, every solve "failed", every plan came back as the
+ * empty infeasible shell, and only a page refresh (fresh instance)
+ * recovered — the "frozen app" bug.
+ *
+ * The WASM build exports no clock accessor/reset, so we compensate:
+ * track our own per-instance accumulated solve time (an upper bound on
+ * the internal run clock — we measure around `solve()`, which contains
+ * `Highs_run`) and set `time_limit = accumulated + perSolveBudget`.
+ * Remaining internal budget is then ≥ perSolveBudget for every solve.
+ *
+ * WeakMap keyed on the instance: a `resetHighs()` re-create starts a
+ * fresh entry automatically.
+ */
+const accumulatedSolveSeconds = new WeakMap<HiGHS, number>();
 
 /** Solver-input model — shape matches jsLPSolver's `Model`. */
 export type LPModel = {
@@ -55,7 +89,10 @@ export type LPModel = {
  * `result` is the objective value at the optimum; per-variable values
  * appear as top-level keys (`{ feasible: true, x: 3, y: 5, ... }`).
  */
-export type LPResult = Record<string, number | boolean | undefined> & {
+export type LPResult = Record<
+  string,
+  number | boolean | string | undefined
+> & {
   feasible: boolean;
   /**
    * `true` if the problem has a bounded optimum, `false` if unbounded.
@@ -65,12 +102,22 @@ export type LPResult = Record<string, number | boolean | undefined> & {
    */
   bounded?: boolean;
   result?: number;
+  /**
+   * Raw HiGHS terminal status (`optimal`, `infeasible`, `timelimit`,
+   * `error`, `unknown`, …). Lets callers distinguish "HiGHS PROVED
+   * infeasible" from "HiGHS COULDN'T solve" — `feasible: false` alone
+   * conflates the two (see `solveLP`'s pass-1 reason mapping). Absent
+   * only on the pre-solver structural-infeasibility sentinel path,
+   * which IS a proven infeasibility.
+   */
+  status?: string;
 };
 
 /**
  * Solve an LP model via HiGHS. Async — `@bubblyworld/highs-ts`'s
- * `parse()` and `solve()` return Promises. Throws if `initHighs()`
- * hasn't been awaited yet (defensive guard from the singleton).
+ * `parse()` and `solve()` return Promises, and the instance itself is
+ * awaited via `initHighs()` (idempotent; also re-creates the instance
+ * after a `resetHighs()` self-heal — see the catch below).
  *
  * Returns a jsLPSolver-compatible result object — see `LPResult`.
  *
@@ -96,20 +143,57 @@ export async function solve(model: LPModel): Promise<LPResult> {
   if (lpFile.includes("__STRUCTURALLY_INFEASIBLE__")) {
     return { feasible: false };
   }
-  const highs = getHighs();
-  // Tighter feasibility tolerances than HiGHS's defaults (1e-7) so
-  // returned variable values clear our LP_EPSILON = 1e-9 check
-  // downstream. `1e-10` is the HiGHS option schema's lower bound.
-  highs.setParam("primal_feasibility_tolerance", 1e-10);
-  highs.setParam("dual_feasibility_tolerance", 1e-10);
-  // Optional per-call runtime cap.
-  if (model.options?.timeLimitSeconds !== undefined) {
-    highs.setParam("time_limit", model.options.timeLimitSeconds);
+  // Await (not `getHighs()`): after a `resetHighs()` self-heal the
+  // instance is gone and must be recreated here — a synchronous
+  // accessor would throw "not initialised" on every solve forever.
+  // Idempotent and instant when the instance is already warm.
+  const highs = await initHighs();
+  try {
+    // Tighter feasibility tolerances than HiGHS's defaults (1e-7) so
+    // returned variable values clear our LP_EPSILON = 1e-9 check
+    // downstream. `1e-10` is the HiGHS option schema's lower bound.
+    highs.setParam("primal_feasibility_tolerance", 1e-10);
+    highs.setParam("dual_feasibility_tolerance", 1e-10);
+    // Per-solve runtime cap, ALWAYS set, offset by the instance's
+    // accumulated run time — HiGHS's clock is cumulative and
+    // unresettable (see `accumulatedSolveSeconds`). Setting the param
+    // unconditionally also stops one model's limit from leaking onto
+    // later solves via the shared instance.
+    const accumulated = accumulatedSolveSeconds.get(highs) ?? 0;
+    const perSolveBudget =
+      model.options?.timeLimitSeconds ?? NO_TIME_LIMIT_SECONDS;
+    highs.setParam("time_limit", accumulated + perSolveBudget);
+    // Each parse() replaces the previously-loaded model on the shared instance.
+    await highs.parse(lpFile, "lp");
+    const solveStart = performance.now();
+    const solution = await highs.solve();
+    // Measured wall time around solve() upper-bounds the internal
+    // run-clock increment (which only ticks inside Highs_run).
+    accumulatedSolveSeconds.set(
+      highs,
+      accumulated + (performance.now() - solveStart) / 1000,
+    );
+    if (solution.status === "error" || solution.status === "unknown") {
+      // Returned (non-thrown) solver-failure family: kLoadError /
+      // kSolveError / kMemoryLimit / kInterrupt / … — the instance is
+      // presumed wedged. Discard it so the next solve starts fresh;
+      // the caller still receives this result and decides how the
+      // failure surfaces (`solveLP` maps it to `solver_error`).
+      resetHighs();
+    }
+    return parseHighsSolution(solution);
+  } catch (e) {
+    // A throw here usually means the WASM instance is wedged (e.g.
+    // after a pathological packing MIP): every later solve on it would
+    // throw too, and since callers map throws to fallbacks
+    // (`lp-solver` → `solver_error` empty plans, the packer → its
+    // singleton path), the app would silently compute nothing until a
+    // page reload. Discard the instance so the next solve starts
+    // fresh, then rethrow — the CALLER decides how this failure
+    // surfaces.
+    resetHighs();
+    throw e;
   }
-  // Each parse() replaces the previously-loaded model on the shared instance.
-  await highs.parse(lpFile, "lp");
-  const solution = await highs.solve();
-  return parseHighsSolution(solution);
 }
 
 /**
@@ -288,7 +372,7 @@ type BubblySolution = {
 };
 
 function parseHighsSolution(solution: BubblySolution): LPResult {
-  const result: LPResult = { feasible: false };
+  const result: LPResult = { feasible: false, status: solution.status };
 
   switch (solution.status) {
     case "optimal":
