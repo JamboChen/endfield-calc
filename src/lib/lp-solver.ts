@@ -1101,6 +1101,15 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
           e,
         );
       }
+      // NOTE: a later-pass failure — including a wedged-solver
+      // solver_error (here and in the non-throw branch below) — falls
+      // back to the previous pass's solution and the plan reports
+      // `lpStatus: "ok"`. That is deliberate: `lastSolution` is a REAL
+      // verified LP optimum (merely less lex-refined), not an empty
+      // shell, so downstream consumers (optimizer probes, badges) are
+      // judging genuine numbers. A wedged instance surfaces on the
+      // NEXT solve's pass 1 instead — and the wrapper has already
+      // self-healed it by then.
       if (lastSolution) return finaliseSolution(lastSolution);
       return { feasible: false, reason: "solver_error" };
     }

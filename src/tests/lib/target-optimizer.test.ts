@@ -9,6 +9,10 @@ import {
   type FeasibilityContext,
 } from "@/lib/target-optimizer";
 import { calculateProductionPlan } from "@/lib/calculator";
+import {
+  aggregateBinTotals,
+  filterPlanForDisplay,
+} from "@/lib/plan-helpers";
 import { items, recipes, facilities } from "@/data";
 import { ItemId as ItemIdEnum } from "@/types/constants";
 import type {
@@ -520,6 +524,55 @@ describe("isPlanFeasible", () => {
     ] as unknown as ProductionDependencyGraph["warnings"];
     expect(isPlanFeasible(plan, emptyCtx)).toBe(false);
     expect(isPlanFeasible({ ...plan, warnings: [] }, emptyCtx)).toBe(true);
+  });
+
+  test("probe/badge parity: unfiltered-plan aggregates equal display-plan aggregates", async () => {
+    // isPlanFeasible runs aggregateBinTotals on the UNfiltered plan
+    // while the hook's over-cap badges aggregate the display plan
+    // (post `filterPlanForDisplay`). The two must agree — bins are
+    // shared by reference and dropped zero-rate nodes contribute
+    // nothing — or the engine and the Fit pill silently diverge.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_COPPER_CMPT, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const full = aggregateBinTotals(plan, facilities, items);
+    const display = aggregateBinTotals(
+      filterPlanForDisplay(plan),
+      facilities,
+      items,
+    );
+    expect(Object.fromEntries(full.physicalPerFacility)).toEqual(
+      Object.fromEntries(display.physicalPerFacility),
+    );
+    expect(Object.fromEntries(full.rawPerFacility)).toEqual(
+      Object.fromEntries(display.rawPerFacility),
+    );
+    expect(full.totalBuildings).toBeCloseTo(display.totalBuildings, 9);
+    // Raw-requirements fold parity (the raw-cap clause's input): sum
+    // of raw-node production rates, full vs filtered. Zero-rate nodes
+    // are skipped — the display filter drops them, and a 0 entry can
+    // never trip computeRawOverCapWarnings (missing key ≡ 0).
+    const rawFold = (p: typeof plan) => {
+      const out = new Map<string, number>();
+      for (const node of p.nodes.values()) {
+        if (
+          node.type === "item" &&
+          node.isRawMaterial &&
+          node.productionRate > 0
+        ) {
+          out.set(
+            node.itemId,
+            (out.get(node.itemId) ?? 0) + node.productionRate,
+          );
+        }
+      }
+      return Object.fromEntries(out);
+    };
+    expect(rawFold(plan)).toEqual(rawFold(filterPlanForDisplay(plan)));
   });
 
   test("lpStatus matrix: only 'ok' plans can be feasible", () => {

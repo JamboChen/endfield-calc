@@ -1232,7 +1232,15 @@ export function useProductionPlan(
           {
             action: {
               label: t("restore"),
-              onClick: () => setTargets(captured),
+              onClick: () => {
+                // Whole-array replacement — same structural-change
+                // hygiene as plan load: a remembered edit index would
+                // point into the wrong array, and auto-fit must not
+                // immediately re-shrink the values the user just
+                // restored (that would make Restore a no-op).
+                resetAutoFitEditContext({ disarm: true });
+                setTargets(captured);
+              },
             },
           },
         );
@@ -1244,7 +1252,7 @@ export function useProductionPlan(
         if (optimizeTokenRef.current === token) setOptimizeState(null);
       }
     },
-    [optimizerSolve, optimizerFeasibility, t],
+    [optimizerSolve, optimizerFeasibility, resetAutoFitEditContext, t],
   );
 
   const handleFitToLimits = useCallback(
@@ -1280,7 +1288,14 @@ export function useProductionPlan(
         toast.success(t("fitApplied"), {
           action: {
             label: t("restore"),
-            onClick: () => setTargets(captured),
+            onClick: () => {
+              // See the Max Restore handler: structural replacement
+              // clears the edit context and disarms auto-fit so the
+              // restored (over-limit) snapshot isn't instantly
+              // re-shrunk.
+              resetAutoFitEditContext({ disarm: true });
+              setTargets(captured);
+            },
           },
         });
       } catch (e) {
@@ -1291,7 +1306,7 @@ export function useProductionPlan(
         if (optimizeTokenRef.current === token) setOptimizeState(null);
       }
     },
-    [optimizerSolve, optimizerFeasibility, t],
+    [optimizerSolve, optimizerFeasibility, resetAutoFitEditContext, t],
   );
 
   // Plan-over-limit signal shared by the Fit pill and auto-fit. Same
