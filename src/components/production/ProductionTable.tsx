@@ -96,7 +96,6 @@ export type ProductionLineData = {
 export type ProductionTableTotals = {
   totalBuildings: number;
   totalPower: number;
-  groupedSavings: number;
 };
 
 type ProductionTableProps = {
@@ -825,27 +824,6 @@ const ProductionTable = memo(function ProductionTable({
             <span className="font-mono font-semibold tabular-nums">
               {totals.totalBuildings}
             </span>
-            {totals.groupedSavings > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="text-purple-700 dark:text-purple-400 cursor-help text-[10px]">
-                    (−{totals.groupedSavings}{" "}
-                    {t("table.totals.viaGrouping", {
-                      defaultValue: "via grouping",
-                    })}
-                    )
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[280px]">
-                  <p className="text-xs">
-                    {t("table.totals.savingsExplain", {
-                      defaultValue:
-                        "Buildings saved by packing recipes into shared multi-formula buildings.",
-                    })}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">

@@ -70,13 +70,6 @@ const ProductionStats = memo(function ProductionStats({
               icon={Factory}
               label={t("buildings")}
               value={formatCount(stats.totalBuildings, ceilMode)}
-              // Grouping savings ride the title only — the narrow
-              // 3-column grid truncates an inline suffix into noise.
-              title={
-                stats.groupedSavings > 0
-                  ? t("groupedSavings", { n: stats.groupedSavings })
-                  : undefined
-              }
             />
             <KpiBlock
               icon={LayoutGrid}

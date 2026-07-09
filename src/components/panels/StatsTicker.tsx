@@ -48,8 +48,6 @@ type StatsTickerOwnProps = {
   depotPickupPoints: number;
   /** Non-raw item nodes with visible rate — hero-variant KPI only. */
   uniqueProductionSteps: number;
-  /** Multi-formula grouping savings — hero Buildings suffix when > 0. */
-  groupedSavings: number;
   /** All plan issues: warnings + calc error, surfaced as a destructive
    *  badge. */
   issueCount: number;
@@ -101,7 +99,6 @@ const StatsTicker = memo(function StatsTicker({
   totalTiles,
   depotPickupPoints,
   uniqueProductionSteps,
-  groupedSavings,
   issueCount,
   ceilMode,
   error,
@@ -175,11 +172,6 @@ const StatsTicker = memo(function StatsTicker({
             icon={Factory}
             label={t("buildings")}
             value={formatCount(totalBuildings, ceilMode)}
-            suffix={
-              groupedSavings > 0
-                ? t("groupedSavings", { n: groupedSavings })
-                : undefined
-            }
             className="px-6 first:pl-0 border-l border-border/60 first:border-l-0"
           />
           <KpiBlock

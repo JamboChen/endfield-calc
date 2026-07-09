@@ -298,12 +298,6 @@ export type PlanTotals = {
   totalBuildings: number;
   /** Sum of facility power × buildingCount across every active bin. */
   totalPower: number;
-  /**
-   * Buildings saved relative to a Reactor-singleton baseline (no
-   * grouping). Computed as Σ ceil(slot demand) − Σ bin building count
-   * for multi-formula-capable bins. Zero when no grouping happens.
-   */
-  groupedSavings: number;
 };
 
 export type ProductionTableData = {
@@ -329,7 +323,7 @@ export function useProductionTable(
     if (!plan || plan.nodes.size === 0 || !aggregates) {
       return {
         rows: [],
-        totals: { totalBuildings: 0, totalPower: 0, groupedSavings: 0 },
+        totals: { totalBuildings: 0, totalPower: 0 },
       };
     }
 
@@ -492,18 +486,11 @@ export function useProductionTable(
     // Plan-level totals come from the shared `aggregates` lifted into
     // `useProductionPlan` — same numbers `useProductionStats` consumes,
     // so the table footer and stats panel cannot drift.
-    const groupedSavings = Math.max(
-      0,
-      aggregates.multiFormulaBaselineBuildings -
-        aggregates.multiFormulaActualBuildings,
-    );
-
     return {
       rows: [...itemRows, ...disposalRows],
       totals: {
         totalBuildings: aggregates.totalBuildings,
         totalPower: aggregates.totalPower,
-        groupedSavings,
       },
     };
   }, [plan, aggregates, recipes, manualRawMaterials, invalidCycleItemIds]);

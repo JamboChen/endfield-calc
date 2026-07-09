@@ -441,15 +441,6 @@ const ProductionCards = memo(function ProductionCards({
             <span className="font-mono font-semibold text-foreground">
               {formatCount(totals.totalBuildings, ceilMode)}
             </span>
-            {totals.groupedSavings > 0 && (
-              <span className="text-purple-700 dark:text-purple-400 ml-1">
-                (−{totals.groupedSavings}{" "}
-                {t("table.totals.viaGrouping", {
-                  defaultValue: "via grouping",
-                })}
-                )
-              </span>
-            )}
           </span>
           <span className="text-muted-foreground">
             {t("table.totals.power", { defaultValue: "Total power" })}:{" "}

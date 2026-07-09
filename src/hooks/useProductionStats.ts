@@ -37,12 +37,6 @@ export type ProductionStats = {
    */
   totalTiles: number;
   /**
-   * Physical multi-formula buildings saved by grouping vs the
-   * one-recipe-one-building baseline. Same derivation as the table
-   * footer (`max(0, baseline − actual)`).
-   */
-  groupedSavings: number;
-  /**
    * Mode-independent raw LP per-facility counts
    * (`aggregates.rawPerFacility`). Drives the utilization subline on
    * facility cards: `raw ÷ ceil(raw)` is the fraction of built capacity
@@ -195,8 +189,6 @@ function collectStats(
     rawPerFacility,
     totalBuildings,
     totalTiles,
-    multiFormulaActualBuildings,
-    multiFormulaBaselineBuildings,
   } = aggregates;
 
   const rawMaterialPickupPoints = new Map<ItemId, number>();
@@ -226,10 +218,6 @@ function collectStats(
     facilityRequirements: perFacility,
     totalBuildings,
     totalTiles,
-    groupedSavings: Math.max(
-      0,
-      multiFormulaBaselineBuildings - multiFormulaActualBuildings,
-    ),
     rawFacilityRequirements: rawPerFacility,
     totalPickupPoints,
     depotPickupPoints: totalPickupPoints - pumpPickupPoints,
@@ -271,7 +259,6 @@ export function useProductionStats(
         facilityRequirements: new Map(),
         totalBuildings: 0,
         totalTiles: 0,
-        groupedSavings: 0,
         rawFacilityRequirements: new Map(),
         totalPickupPoints: 0,
         depotPickupPoints: 0,

@@ -46,8 +46,6 @@
     "totals": {
       "buildings": "총 건물 수",
       "power": "총 전력",
-      "viaGrouping": "묶음으로 절약",
-      "savingsExplain": "여러 공식을 다중 공식 건물에 패킹하여 절약된 건물 수입니다.",
       "ttv": "전송 총가치({{source}})"
     },
     "metastorage": {

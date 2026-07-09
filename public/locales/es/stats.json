@@ -9,7 +9,6 @@
   "facilityCapExceeded": "Límite excedido ({{used}} / {{cap}})",
   "gridArea": "Área de Cuadrícula",
   "gridAreaHint": "Casillas de la cuadrícula ocupadas por edificios de producción y descargadores del depósito (sin cintas). Las bombas y estructuras del mapa quedan fuera de la cuadrícula.",
-  "groupedSavings": "(−{{n}} agrupados)",
   "imports": "Importaciones",
   "importTtvHint": "TTV por entrega: {{used}} / {{cap}}",
   "issues": "Problemas",

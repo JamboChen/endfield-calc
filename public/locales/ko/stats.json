@@ -9,7 +9,6 @@
   "facilityCapExceeded": "상한 초과 ({{used}} / {{cap}})",
   "gridArea": "설치 칸",
   "gridAreaHint": "생산 시설과 창고 출력 포트가 차지하는 그리드 칸 수(벨트 제외). 펌프와 맵 구조물은 그리드 밖에 있습니다.",
-  "groupedSavings": "(그룹화로 −{{n}})",
   "imports": "반입",
   "importTtvHint": "배송당 TTV: {{used}} / {{cap}}",
   "issues": "문제",

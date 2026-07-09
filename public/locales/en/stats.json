@@ -9,7 +9,6 @@
   "facilityCapExceeded": "Limit exceeded ({{used}} / {{cap}})",
   "gridArea": "Grid Area",
   "gridAreaHint": "Build-grid tiles for production buildings and depot unloaders (belts excluded). Pumps and map structures sit outside the grid.",
-  "groupedSavings": "(−{{n}} grouped)",
   "imports": "Imports",
   "importTtvHint": "TTV per delivery: {{used}} / {{cap}}",
   "issues": "Issues",

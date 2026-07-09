@@ -70,7 +70,6 @@ export default function PortraitDrawer({
           totalTiles={stats.totalTiles}
           depotPickupPoints={stats.depotPickupPoints}
           uniqueProductionSteps={stats.uniqueProductionSteps}
-          groupedSavings={stats.groupedSavings}
           issueCount={issueCount}
           ceilMode={ceilMode}
           error={error}

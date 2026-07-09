@@ -30,8 +30,6 @@ type KpiBlockProps = {
   label: string;
   /** Pre-formatted display value (hosts own formatCount/toFixed). */
   value: string;
-  /** Muted inline suffix after the value — e.g. "(−11 grouped)". */
-  suffix?: string;
   /** Native title tooltip (e.g. the grid-area lower-bound hint). */
   title?: string;
   /** Hero = dock header (large numerals); default = sheet grid. */
@@ -48,7 +46,6 @@ export function KpiBlock({
   icon: Icon,
   label,
   value,
-  suffix,
   title,
   hero = false,
   className,
@@ -70,11 +67,6 @@ export function KpiBlock({
         >
           {value}
         </span>
-        {suffix && (
-          <span className="text-[11px] text-muted-foreground truncate">
-            {suffix}
-          </span>
-        )}
       </div>
       <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
         {label}

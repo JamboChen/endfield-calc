@@ -9,7 +9,6 @@
   "facilityCapExceeded": "超出上限 ({{used}} / {{cap}})",
   "gridArea": "佔地格數",
   "gridAreaHint": "生產建築與倉庫取貨口佔用的網格格數(不含輸送帶)。泵與地圖結構物不佔用網格。",
-  "groupedSavings": "(合併節省 −{{n}})",
   "imports": "轉入",
   "importTtvHint": "每次配送 TTV:{{used}} / {{cap}}",
   "issues": "問題",
