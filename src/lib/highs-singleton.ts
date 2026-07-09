@@ -13,11 +13,11 @@
  * module-level promise.
  *   1. Call `initHighs()` at app startup so the WASM file fetches /
  *      compiles in the background.
- *   2. `getHighs()` is async — `@bubblyworld/highs-ts`'s `parse()` and
- *      `solve()` are async, so glue code in `highs-wrapper.ts` is also
- *      async. The init step is what blocks the UI from running
- *      calculations before HiGHS is ready (see `useProductionPlan`'s
- *      `isLoading` state).
+ *   2. `highs-wrapper.solve` awaits `initHighs()` per call — instant
+ *      when warm, and the seam that transparently recreates the
+ *      instance after a `resetHighs()` self-heal. The init step is
+ *      what blocks the UI from running calculations before HiGHS is
+ *      ready (see `useProductionPlan`'s `isLoading` state).
  *
  * In the test environment, `await initHighs()` is invoked once via
  * vitest's `test.setupFiles` (per worker) so every test file sees a
@@ -44,22 +44,6 @@ export function initHighs(): Promise<HiGHS> {
     return instance;
   });
   return highsPromise;
-}
-
-/**
- * Synchronous accessor for the HiGHS instance. Throws if `initHighs()`
- * hasn't resolved yet — this is intentional: solver call sites assume
- * a ready solver, and any "not ready" condition should be caught at
- * the UI layer (the calculate button is disabled until ready), not
- * inside the solver itself.
- */
-export function getHighs(): HiGHS {
-  if (!highsInstance) {
-    throw new Error(
-      "[HIGHS] Solver not initialised. Call `initHighs()` and await it before using `getHighs()`.",
-    );
-  }
-  return highsInstance;
 }
 
 /**

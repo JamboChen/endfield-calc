@@ -1,8 +1,8 @@
 /**
  * Vitest setup file — runs once per test worker before any test file.
  *
- * Awaits HiGHS WASM init so test files can call solver code synchronously
- * via `getHighs()` without each one re-initialising the WASM module.
+ * Awaits HiGHS WASM init so solver code in test files finds a warm
+ * instance without each one re-initialising the WASM module.
  *
  * Wired via `test.setupFiles` in `vite.config.ts`.
  */

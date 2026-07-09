@@ -143,10 +143,10 @@ export async function solve(model: LPModel): Promise<LPResult> {
   if (lpFile.includes("__STRUCTURALLY_INFEASIBLE__")) {
     return { feasible: false };
   }
-  // Await (not `getHighs()`): after a `resetHighs()` self-heal the
-  // instance is gone and must be recreated here — a synchronous
-  // accessor would throw "not initialised" on every solve forever.
-  // Idempotent and instant when the instance is already warm.
+  // Await per call: after a `resetHighs()` self-heal the instance is
+  // gone and must be recreated here — a synchronous accessor would
+  // throw "not initialised" on every solve forever. Idempotent and
+  // instant when the instance is already warm.
   const highs = await initHighs();
   try {
     // Tighter feasibility tolerances than HiGHS's defaults (1e-7) so

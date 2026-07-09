@@ -209,11 +209,23 @@ const MAX_RATE_CEILING = 2 ** 20;
 /** Milli-rate grid: 1 unit = 0.001 items/min (= the doc's PRECISION). */
 const MILLI = 1000;
 
-/** λ-bisection iteration budget for Fit (probes are memoized by the
- *  rounded-rate vector, so late iterations that collapse to the same
- *  vector cost no solve). 2^-20 λ-resolution ≈ milli-rate resolution
- *  for desired rates up to ~1000/min. */
-const FIT_MAX_ITERATIONS = 20;
+/** Base λ-bisection iteration budget for Fit: 2^-20 λ-resolution ≈
+ *  milli-rate resolution for desired rates up to ~1000/min. Above
+ *  that, `fitIterationsFor` adds bits so the λ grid stays at least as
+ *  fine as the milli-rate grid (real plans do exceed 1000/min — e.g.
+ *  Ferrium maxes at 1080/min under Valley IV default caps). Probes
+ *  are memoized by the rounded-rate vector, so late iterations that
+ *  collapse to the same vector cost no extra solve. */
+const FIT_BASE_ITERATIONS = 20;
+
+/** Iterations so that (max desired) × 2^-iterations ≤ 0.001/min, i.e.
+ *  one λ-step never skips a milli-rate step for any scaled target.
+ *  Capped defensively — memoization makes extra iterations cheap, but
+ *  a pathological rate must not spin the loop unbounded. */
+function fitIterationsFor(maxDesiredRate: number): number {
+  const needed = Math.ceil(Math.log2(Math.max(1, maxDesiredRate * MILLI)));
+  return Math.min(40, Math.max(FIT_BASE_ITERATIONS, needed + 1));
+}
 
 /** Floor a rate onto the milli grid. The epsilon absorbs binary-float
  *  representation drift (0.3 × 1000 = 299.9999…94 must floor to 300,
@@ -496,7 +508,10 @@ export async function fitTargetsToLimits(params: {
     let lo = 0;
     let hi = 1;
     let bestRates = zero.rates; // verified feasible
-    for (let iter = 0; iter < FIT_MAX_ITERATIONS; iter++) {
+    const iterations = fitIterationsFor(
+      flexible.reduce((max, i) => Math.max(max, targets[i].rate), 0),
+    );
+    for (let iter = 0; iter < iterations; iter++) {
       const mid = (lo + hi) / 2;
       const result = await probe(mid);
       if (result.feasible) {

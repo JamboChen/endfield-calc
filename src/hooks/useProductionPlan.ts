@@ -552,6 +552,31 @@ export function useProductionPlan(
     return out;
   }, [metastorageRoutes]);
 
+  // Auto-fit per-edit context (consumed by the auto-fit effect in the
+  // optimizer block below). Declared up here because the auto-prune
+  // effect must clear it on structural target changes.
+  /** Index of the last user-edited target (the auto-fit demand). */
+  const lastEditedIndexRef = useRef<number | null>(null);
+  /** Auto-fit one-shot loop guard — re-armed by `handleTargetChange`. */
+  const autoFitSpentRef = useRef(false);
+  /**
+   * Drop auto-fit's per-edit context after a STRUCTURAL targets change
+   * (auto-prune, plan load): indices shifted or the whole array was
+   * replaced, so the remembered "last edited" index would point
+   * auto-fit's shrink-exclusion at the wrong target. `disarm`
+   * additionally sets the one-shot guard: structural changes that are
+   * not user edits (loading a plan) must not trigger an auto-fit pass
+   * by themselves. Ref writes live in this callback (not in effect
+   * bodies) to satisfy react-hooks/immutability.
+   */
+  const resetAutoFitEditContext = useCallback(
+    (options: { disarm: boolean }) => {
+      lastEditedIndexRef.current = null;
+      if (options.disarm) autoFitSpentRef.current = true;
+    },
+    [],
+  );
+
   useEffect(() => {
     let removedOverrides = 0;
     let removedRaws = 0;
@@ -603,7 +628,13 @@ export function useProductionPlan(
     const total = removedTargets + removedOverrides + removedRaws;
     if (total === 0) return;
 
-    if (removedTargets > 0) setTargets(nextTargets);
+    if (removedTargets > 0) {
+      // Pruning shifts indices — a stale `lastEditedIndexRef` would
+      // point auto-fit's exclusion at the wrong target. Not a user
+      // edit, so leave the one-shot guard alone.
+      resetAutoFitEditContext({ disarm: false });
+      setTargets(nextTargets);
+    }
     if (removedOverrides > 0) setRecipeOverrides(nextOverrides);
     if (removedRaws > 0) setManualRawMaterials(nextRaws);
 
@@ -630,6 +661,7 @@ export function useProductionPlan(
     recipeOverrides,
     manualRawMaterials,
     regionRawMaterials,
+    resetAutoFitEditContext,
     t,
   ]);
 
@@ -942,6 +974,13 @@ export function useProductionPlan(
   }, []);
 
   const handleTargetRemove = useCallback((index: number) => {
+    // Removal shifts every higher index down — a stale
+    // `lastEditedIndexRef` would make auto-fit exclude (and thereby
+    // shrink-protect) the WRONG target. Clear it, and re-arm the
+    // one-shot guard: removing a target is a user edit of the demand
+    // set just like a rate change.
+    lastEditedIndexRef.current = null;
+    autoFitSpentRef.current = false;
     setTargets((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
@@ -1067,10 +1106,8 @@ export function useProductionPlan(
   }, [targets]);
   /** Monotone search token: bumping it cancels any in-flight search. */
   const optimizeTokenRef = useRef(0);
-  /** Auto-fit: index of the last user-edited target (the demand). */
-  const lastEditedIndexRef = useRef<number | null>(null);
-  /** Auto-fit one-shot loop guard — re-armed by `handleTargetChange`. */
-  const autoFitSpentRef = useRef(false);
+  // (`lastEditedIndexRef` / `autoFitSpentRef` are declared above the
+  // auto-prune effect, which clears them on structural changes.)
 
   const [autoFit, setAutoFitState] = useState<boolean>(() => {
     try {
@@ -1347,6 +1384,12 @@ export function useProductionPlan(
           try {
             const data = JSON.parse(ev.target?.result as string) as SavedPlan;
             if (data.version !== "1") return;
+            // Whole-array replacement: any remembered "last edited"
+            // index now points into a different plan. Clear it and
+            // disarm auto-fit until the user edits — loading an
+            // over-limit plan is not an edit and must not trigger an
+            // immediate rebalance.
+            resetAutoFitEditContext({ disarm: true });
             setTargets(
               data.targets.map((t) =>
                 t.locked === true
@@ -1377,7 +1420,7 @@ export function useProductionPlan(
     }
     fileInputRef.current.value = "";
     fileInputRef.current.click();
-  }, []);
+  }, [resetAutoFitEditContext]);
 
   return {
     targets,
