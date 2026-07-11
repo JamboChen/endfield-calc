@@ -4,7 +4,7 @@
   "byproducts": "Byproducts",
   "collapse": "Collapse",
   "depotPorts": "Depot Ports",
-  "empty": "No production data yet — add a target to get started.",
+  "empty": "No production data yet. Add a target to get started.",
   "facilities": "Facilities",
   "facilityCapExceeded": "Limit exceeded ({{used}} / {{cap}})",
   "gridArea": "Grid Area",

@@ -5,7 +5,7 @@
     "title": "Opciones",
     "allSettings": "Toda la configuración"
   },
-  "intro": "Configura el plan de investigación de la CAI, los límites de instalaciones y las tasas de materia prima de cada región. Elige abajo la región a configurar; los interruptores añaden o quitan regiones de tu lista.",
+  "intro": "Configura el plan de investigación del CAI, los límites de instalaciones y las tasas de materia prima de cada región. Elige abajo la región a configurar; los interruptores agregan o quitan regiones de tu lista.",
   "regions": {
     "configuringLabel": "Configurando",
     "yourRegions": "Tus regiones",
@@ -27,11 +27,11 @@
     "limits": "Límites",
     "raws": "Recursos",
     "structures": "Estructuras",
-    "metastorage": "Metaalmacén"
+    "metastorage": "Metaalmacenamiento"
   },
   "status": {
-    "researched": "{{done}} / {{total}} investigado",
-    "customized": "{{n}} personalizado",
+    "researched": "{{done}} / {{total}} investigados",
+    "customized": "{{n}} personalizados",
     "sourced": "{{done}} / {{total}} con fuente",
     "enabled": "{{done}} / {{total}} activadas"
   },

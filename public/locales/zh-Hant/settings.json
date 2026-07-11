@@ -5,29 +5,29 @@
     "title": "選項",
     "allSettings": "全部設定"
   },
-  "intro": "為每個區域設定 AIC 研究方案、設施上限與原料速率。在下方選擇要設定的區域；開關用於將區域加入或移出你的清單。",
+  "intro": "為每個地區設定 AIC 工業計劃、設備上限與原料速率。在下方選擇要設定的地區；開關用於將地區加入或移出你的清單。",
   "regions": {
     "configuringLabel": "正在設定",
-    "yourRegions": "你的區域",
+    "yourRegions": "你的地區",
     "notInRoster": "未加入清單",
     "factoryMarker": "工廠"
   },
   "region": {
-    "label": "目前的工廠區域",
+    "label": "目前的工廠地區",
     "picker": {
-      "placeholder": "選擇區域",
-      "ariaLabel": "選擇目前的工廠區域"
+      "placeholder": "選擇地區",
+      "ariaLabel": "選擇目前的工廠地區"
     },
     "toast": {
-      "switchedToFallback": "已切換至 {{name}} 工廠"
+      "switchedToFallback": "已切換至 {{name}} 工廠。"
     }
   },
   "tabs": {
-    "plan": "方案",
+    "plan": "工業計劃",
     "limits": "上限",
     "raws": "資源",
     "structures": "結構物",
-    "metastorage": "超庫存"
+    "metastorage": "超庫存傳輸"
   },
   "status": {
     "researched": "已研究 {{done}} / {{total}}",
@@ -37,13 +37,13 @@
   },
   "structures": {
     "indexed": "{{name}} {{n}}",
-    "help": "啟動可接入工廠的結構物。",
+    "help": "啟用可接入工廠的結構物。",
     "treats": "處理{{item}}",
     "produces": "產出{{item}}"
   },
   "rawLimits": {
     "cardTitle": "自然資源",
-    "help": "留空表示使用該區域的最大採礦產量（輸入框中的提示值）；沒有提示值的資源供應無限。填入數值可覆蓋預設值。",
+    "help": "留空表示使用該地區的最大採礦產量（輸入框中的提示值）；沒有提示值的資源供應無限。填入數值可覆蓋預設值。",
     "clearAll": "全部清除",
     "placeholder": "∞",
     "unitSuffix": "/分鐘",
@@ -51,8 +51,8 @@
     "invalidValue": "上限必須為非負數。未儲存。"
   },
   "aic": {
-    "activateAll": "全部啟動",
-    "activateLayer": "啟動該層",
+    "activateAll": "全部啟用",
+    "activateLayer": "啟用該層",
     "expandAll": "全部展開",
     "collapseAll": "全部摺疊",
     "resetDefaults": "恢復預設",
@@ -74,23 +74,23 @@
       "resetToBase": "重置為基礎上限"
     },
     "domain": {
-      "toggleActivate": "啟動 {{name}}",
+      "toggleActivate": "啟用 {{name}}",
       "toggleDeactivate": "停用 {{name}}"
     },
     "toast": {
-      "activatedGroup_zero": "未啟動任何設施",
-      "activatedGroup_one": "已啟動 {{primary}} 項設施",
-      "activatedGroup_other": "已啟動 {{primary}} 項設施",
-      "activatedGroupWithPrereqs": "已啟動 {{primary}} 項設施（含 {{prereqs}} 項前置）",
-      "activatedLayer": "已啟動 {{primary}} 項設施",
-      "activatedLayerWithPrereqs": "已啟動 {{primary}} 項設施（含 {{prereqs}} 項前置）",
-      "resetDefaults": "已恢復遊戲預設",
-      "resetGroup": "已恢復方案預設",
+      "activatedGroup_zero": "未啟用任何設備",
+      "activatedGroup_one": "已啟用 {{primary}} 項設備",
+      "activatedGroup_other": "已啟用 {{primary}} 項設備",
+      "activatedGroupWithPrereqs": "已啟用 {{primary}} 項設備（含 {{prereqs}} 項前置）",
+      "activatedLayer": "已啟用 {{primary}} 項設備",
+      "activatedLayerWithPrereqs": "已啟用 {{primary}} 項設備（含 {{prereqs}} 項前置）",
+      "resetDefaults": "已恢復遊戲預設。",
+      "resetGroup": "已將該工業計劃恢復為預設。",
       "prereqsRequired": "請先研究前置科技。"
     }
   },
   "metastorage": {
-    "help": "計算器會從本區域的 {{count}} 種可選物品中自動選擇要傳輸的物品，優先選擇對方案提升最大的一種。",
+    "help": "計算器會從本地區的 {{count}} 種可選物品中自動選擇要傳輸的物品，優先選擇對方案提升最大的一種。",
     "cardTitle": "出站傳輸",
     "routeLabel": "傳輸至",
     "modeAuto": "自動",

@@ -2,13 +2,13 @@
   "title": "設定你的工業計劃",
   "description": "勾選你已在遊戲中研究的工業計劃。",
   "warningLabel": "注意",
-  "warning": "取消勾選工業計劃會鎖定其配方。當前方案中需要這些配方的物品將被移除。",
+  "warning": "取消勾選工業計劃會鎖定其配方。目前方案中需要這些配方的物品將被移除。",
   "hint": "你可以隨時在設定中變更。",
   "confirmButton": "繼續",
   "statusActive": "啟用",
-  "statusInactive": "關閉",
+  "statusInactive": "停用",
   "region": {
-    "label": "目前建設區域",
-    "placeholder": "選擇區域"
+    "label": "目前建設地區",
+    "placeholder": "選擇地區"
   }
 }

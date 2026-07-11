@@ -1,11 +1,11 @@
 {
   "belt": {
     "belts": "条传送带",
-    "tooltip": "所需输出传送带（每分钟{{belt_rate}}个物品容量）"
+    "tooltip": "所需输出传送带（每分钟 {{belt_rate}} 个物品容量）"
   },
   "pipe": {
     "pipes": "条管道",
-    "tooltip": "所需输出管道（每分钟{{pipe_rate}}个物品容量）"
+    "tooltip": "所需输出管道（每分钟 {{pipe_rate}} 个物品容量）"
   },
   "transport": {
     "internal": "内部流转"
@@ -19,10 +19,10 @@
     "headers": {
       "belts": "传送带",
       "count": "数量",
-      "facility": "设施",
+      "facility": "设备",
       "icon": "图标",
       "item": "物品",
-      "outputRate": "产能/分",
+      "outputRate": "产量/分",
       "power": "功耗",
       "rawMaterial": "原材料",
       "recipe": "配方"
@@ -59,24 +59,24 @@
     "alsoTarget": "同时也是目标",
     "circularRawMaterial": "循环依赖原料",
     "circularWarning": "生产循环警告",
-    "facility": "设施",
-    "facilityCount": "设施数量",
-    "facilityIndex": "设施序号",
+    "facility": "设备",
+    "facilityCount": "设备数量",
+    "facilityIndex": "设备序号",
     "item": "物品",
-    "noTarget": "尚未设置目标产出。请设置目标以查看依赖树。",
+    "noTarget": "尚未设置生产目标。请设置目标以查看依赖关系图。",
     "partialLoad": "部分负载",
-    "power": "电力",
+    "power": "功耗",
     "produced": "产出",
     "productionTarget": "生产目标",
     "required": "需求",
     "target": "目标",
-    "targetDescription": "每分钟生产 {{item}} {{rate}}。",
+    "targetDescription": "每分钟生产 {{rate}} {{item}}。",
     "targetRate": "目标速率",
     "disposal": "废弃处理",
-    "disposalTooltipTitle": "废水处理",
+    "disposalTooltipTitle": "废料处理",
     "disposalDescription": "每分钟处理 {{rate}} {{item}}。",
     "pickupPoint": "取货口",
-    "trueRawMaterial": "纯净原料",
+    "trueRawMaterial": "天然原材料",
     "exportImage": "导出图片",
     "exportFormat": "格式",
     "exportScale": "缩放比例",
@@ -86,18 +86,19 @@
     "groupedBuilding": "共享建筑",
     "formulas": "个配方",
     "formulasInBin": "该建筑内的配方",
+    "internal": "内部",
     "internalItems": "内部物品（循环）",
     "innerSlotsUsed": "内部槽位：{{used}}",
     "portUtilization": "端口：{{liqIn}}/{{liqInCap}} 液入 · {{liqOut}}/{{liqOutCap}} 液出 · {{beltOut}}/{{beltOutCap}} 带出",
-    "prefillZoneLabel": "Prefill",
-    "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
-    "prefillCardTooltip": "This building's recipes form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
-    "prefillCandidates": "Prefill candidates",
+    "prefillZoneLabel": "预填充",
+    "prefillItemTooltip": "启动时需预先放入，以启动此循环",
+    "prefillCardTooltip": "该建筑内的配方构成循环。启动时请在内部库存中放入所列物品之一，循环才能开始生产。",
+    "prefillCandidates": "预填充候选物品",
     "searchNoResults": "无匹配项",
     "searchPlaceholder": "搜索建筑…",
     "metastorage": "超库存传输",
-    "metastorageTooltip": "通过超库存传输送达。无需本地生产，也不消耗源区域仓库库存。",
-    "metastorageSource": "源区域",
+    "metastorageTooltip": "通过超库存传输送达。无需本地生产，也不消耗源地区仓库库存。",
+    "metastorageSource": "源地区",
     "metastorageTtvPerItem": "单件传输总值",
     "metastorageTtvUsage": "每次配送传输总值"
   }

@@ -5,10 +5,10 @@
   "warning": "工業計画のチェックを外すと、そのレシピがロックされます。現在のプランでそれらのレシピを必要とするアイテムは削除されます。",
   "hint": "設定からいつでも変更できます。",
   "confirmButton": "続ける",
-  "statusActive": "稼働",
-  "statusInactive": "停止",
+  "statusActive": "有効",
+  "statusInactive": "無効",
   "region": {
-    "label": "現在の建設リージョン",
-    "placeholder": "リージョンを選択"
+    "label": "現在の建設地域",
+    "placeholder": "地域を選択"
   }
 }

@@ -26,8 +26,8 @@
     "plan": "План",
     "limits": "Лимиты",
     "raws": "Ресурсы",
-    "structures": "Сооружения",
-    "metastorage": "Трансфер"
+    "structures": "Структуры",
+    "metastorage": "Межхран. трансфер"
   },
   "status": {
     "researched": "{{done}} / {{total}} исследовано",
@@ -37,7 +37,7 @@
   },
   "structures": {
     "indexed": "{{name}} {{n}}",
-    "help": "Активируйте сооружения, которые можно подключить к фабрике.",
+    "help": "Активируйте структуры, которые можно подключить к фабрике.",
     "treats": "Обрабатывает: {{item}}",
     "produces": "Производит: {{item}}"
   },
@@ -58,7 +58,7 @@
     "resetDefaults": "Сбросить к значениям по умолчанию",
     "capDeltaLabel": "макс",
     "row": {
-      "alwaysAvailable": "Всегда доступно (стандарт игры)",
+      "alwaysAvailable": "Всегда доступно (по умолчанию в игре)",
       "showDescription": "Показать описание",
       "showRecipes": "Показать разблокированные формулы",
       "unlocksLabel": "Разблокирует",
@@ -83,10 +83,10 @@
       "activatedGroup_few": "Активировано {{primary}} сооружения",
       "activatedGroup_many": "Активировано {{primary}} сооружений",
       "activatedGroup_other": "Активировано {{primary}} сооружений",
-      "activatedGroupWithPrereqs": "Активировано {{primary}} сооружений (+{{prereqs}} требований)",
-      "activatedLayer": "Активировано {{primary}} сооружений",
-      "activatedLayerWithPrereqs": "Активировано {{primary}} сооружений (+{{prereqs}} требований)",
-      "resetDefaults": "Сброшено к стандартам игры",
+      "activatedGroupWithPrereqs": "Активировано сооружений: {{primary}} (по зависимостям: +{{prereqs}})",
+      "activatedLayer": "Активировано сооружений: {{primary}}",
+      "activatedLayerWithPrereqs": "Активировано сооружений: {{primary}} (по зависимостям: +{{prereqs}})",
+      "resetDefaults": "Сброшено к игровым значениям по умолчанию",
       "resetGroup": "План сброшен к значениям по умолчанию",
       "prereqsRequired": "Сначала исследуйте необходимую технологию."
     }
