@@ -1034,7 +1034,7 @@ export function useProductionPlan(
 
   // Toggle a target's lock flag. Locked targets are frozen under every
   // automatic adjustment (Fit scaling and priority-Max shrinking) —
-  // see docs/plan-target-optimizer.md.
+  // see the `target-optimizer.ts` module doc.
   const handleTargetLockToggle = useCallback((index: number) => {
     setTargets((prev) =>
       prev.map((t, i) =>
@@ -1102,7 +1102,7 @@ export function useProductionPlan(
   // least one raw material reachable in its production chain has a
   // configured limit — that is what makes "maximum" finite. (Facility
   // caps and metastorage budgets BOUND the eventual search, but do not
-  // ENABLE it; see docs/plan-target-optimizer.md.) The closure walks
+  // ENABLE it — see the `target-optimizer.ts` module doc.) The closure walks
   // every alternative producer, so this over-approximates toward
   // enabling — the engine's bracketing ceiling defends at runtime.
   //
@@ -1140,7 +1140,7 @@ export function useProductionPlan(
    *
    * The bisection engines live in `@/lib/target-optimizer`; this block
    * wires them to the calc worker + toasts. Design & invariants:
-   * docs/plan-target-optimizer.md. Key hazards handled here:
+   * the `target-optimizer.ts` module doc. Key hazards handled here:
    *
    *   - **Staleness**: `CalcSupersededError` only fires when a probe is
    *     DISPLACED from the calc-client's pending slot; a UI edit whose

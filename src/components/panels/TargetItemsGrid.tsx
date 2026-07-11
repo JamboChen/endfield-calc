@@ -14,8 +14,8 @@ export type ProductionTarget = {
   rate: number;
   /**
    * Locked targets are frozen under every automatic adjustment —
-   * Fit-to-limits scaling AND priority-Max shrinking — see
-   * docs/plan-target-optimizer.md. Absent = unlocked (the default;
+   * Fit-to-limits scaling AND priority-Max shrinking — see the
+   * `target-optimizer.ts` module doc. Absent = unlocked (the default;
    * flexible).
    */
   locked?: boolean;
@@ -402,8 +402,8 @@ type TargetItemsGridProps = {
  * visible on touch, and focus-visible-revealed for keyboard users.
  *
  * The Max button runs the priority-Max search (`handleMaximizeTarget`
- * in `useProductionPlan` → `maximizeTargetRate` engine — see
- * docs/plan-target-optimizer.md). Gated on raw limits in the item's
+ * in `useProductionPlan` → the `maximizeTargetRate` engine in
+ * `target-optimizer.ts`). Gated on raw limits in the item's
  * chain (`maxEnabledByTarget`); shows a spinner while its own search
  * runs and disables during any optimizer search (mutual exclusion).
  */

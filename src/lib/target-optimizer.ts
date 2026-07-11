@@ -15,8 +15,8 @@
  *     others at 0 (locked frozen), pass 2 hands the leftovers back to
  *     the unlocked others via the Fit bisection.
  *
- * Invariants (full design + rationale in
- * `docs/plan-target-optimizer.md` — read it before editing):
+ * Invariants (this module doc is the canonical semantics reference —
+ * read it fully before editing):
  *
  *   - **Verified-feasible**: every returned rate was verified by an
  *     actual solve. Max bisects on the integer milli-rate grid
@@ -146,8 +146,7 @@ export type OptimizerOptions = {
 };
 
 /**
- * The shared feasibility predicate — see the module doc and
- * `docs/plan-target-optimizer.md` ("Feasibility definition").
+ * The shared feasibility predicate — see the module doc.
  *
  * Deliberately runs on the UNfiltered plan: `filterPlanForDisplay`
  * only drops zero-rate nodes, which contribute nothing to any of the
@@ -299,7 +298,7 @@ export type MaximizeResult =
  * (desired = their pre-Max rates) so they recover whatever X's chain
  * doesn't consume, ratios preserved.
  *
- * Semantics + algorithm: `docs/plan-target-optimizer.md`.
+ * Semantics + invariants: module doc at the top of this file.
  */
 export async function maximizeTargetRate(params: {
   targets: readonly OptimizableTarget[];
@@ -434,7 +433,7 @@ export type FitResult =
  * signature; the returned vector is always one an actual solve
  * verified.
  *
- * Semantics + algorithm: `docs/plan-target-optimizer.md`.
+ * Semantics + invariants: module doc at the top of this file.
  */
 export async function fitTargetsToLimits(params: {
   targets: readonly OptimizableTarget[];
