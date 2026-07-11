@@ -5,29 +5,29 @@
     "title": "选项",
     "allSettings": "全部设置"
   },
-  "intro": "为每个区域配置 AIC 研究方案、设施上限与原料速率。在下方选择要配置的区域；开关用于将区域加入或移出你的清单。",
+  "intro": "为每个地区配置 AIC 工业计划、设备上限与原料速率。在下方选择要配置的地区；开关用于将地区加入或移出你的清单。",
   "regions": {
     "configuringLabel": "正在配置",
-    "yourRegions": "你的区域",
+    "yourRegions": "你的地区",
     "notInRoster": "未加入清单",
     "factoryMarker": "工厂"
   },
   "region": {
-    "label": "当前工厂区域",
+    "label": "当前工厂地区",
     "picker": {
-      "placeholder": "选择区域",
-      "ariaLabel": "选择当前工厂区域"
+      "placeholder": "选择地区",
+      "ariaLabel": "选择当前工厂地区"
     },
     "toast": {
-      "switchedToFallback": "已切换至 {{name}} 工厂"
+      "switchedToFallback": "已切换至 {{name}} 工厂。"
     }
   },
   "tabs": {
-    "plan": "方案",
+    "plan": "工业计划",
     "limits": "上限",
     "raws": "资源",
     "structures": "结构物",
-    "metastorage": "超库存"
+    "metastorage": "超库存传输"
   },
   "status": {
     "researched": "已研究 {{done}} / {{total}}",
@@ -37,13 +37,13 @@
   },
   "structures": {
     "indexed": "{{name}} {{n}}",
-    "help": "激活可接入工厂的结构物。",
+    "help": "启用可接入工厂的结构物。",
     "treats": "处理{{item}}",
     "produces": "产出{{item}}"
   },
   "rawLimits": {
     "cardTitle": "自然资源",
-    "help": "留空表示使用该区域的最大采矿产量（输入框中的提示值）；没有提示值的资源供应无限。填入数值可覆盖默认值。",
+    "help": "留空表示使用该地区的最大采矿产量（输入框中的提示值）；没有提示值的资源供应无限。填入数值可覆盖默认值。",
     "clearAll": "全部清除",
     "placeholder": "∞",
     "unitSuffix": "/分钟",
@@ -78,19 +78,19 @@
       "toggleDeactivate": "停用 {{name}}"
     },
     "toast": {
-      "activatedGroup_zero": "未激活任何设施",
-      "activatedGroup_one": "已激活 {{primary}} 项设施",
-      "activatedGroup_other": "已激活 {{primary}} 项设施",
-      "activatedGroupWithPrereqs": "已激活 {{primary}} 项设施（含 {{prereqs}} 项前置）",
-      "activatedLayer": "已激活 {{primary}} 项设施",
-      "activatedLayerWithPrereqs": "已激活 {{primary}} 项设施（含 {{prereqs}} 项前置）",
-      "resetDefaults": "已恢复游戏默认",
-      "resetGroup": "已恢复方案默认",
+      "activatedGroup_zero": "未激活任何设备",
+      "activatedGroup_one": "已激活 {{primary}} 项设备",
+      "activatedGroup_other": "已激活 {{primary}} 项设备",
+      "activatedGroupWithPrereqs": "已激活 {{primary}} 项设备（含 {{prereqs}} 项前置）",
+      "activatedLayer": "已激活 {{primary}} 项设备",
+      "activatedLayerWithPrereqs": "已激活 {{primary}} 项设备（含 {{prereqs}} 项前置）",
+      "resetDefaults": "已恢复游戏默认。",
+      "resetGroup": "已将该工业计划恢复为默认。",
       "prereqsRequired": "请先研究前置科技。"
     }
   },
   "metastorage": {
-    "help": "计算器会从本区域的 {{count}} 种可选物品中自动选择要传输的物品，优先选择对方案提升最大的一种。",
+    "help": "计算器会从本地区的 {{count}} 种可选物品中自动选择要传输的物品，优先选择对方案提升最大的一种。",
     "cardTitle": "出站传输",
     "routeLabel": "传输至",
     "modeAuto": "自动",

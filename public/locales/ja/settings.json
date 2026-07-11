@@ -5,25 +5,25 @@
     "title": "オプション",
     "allSettings": "すべての設定"
   },
-  "intro": "各リージョンの AIC 研究プラン、施設上限、素材速度を設定します。下で設定するリージョンを選択してください。スイッチでリージョンをロスターに追加・削除できます。",
+  "intro": "各地域の工業計画、設備上限、原材料レートを設定します。下で設定する地域を選択してください。スイッチで地域をロスターに追加・削除できます。",
   "regions": {
     "configuringLabel": "設定中",
-    "yourRegions": "所持リージョン",
+    "yourRegions": "所持地域",
     "notInRoster": "ロスター外",
     "factoryMarker": "工場"
   },
   "region": {
-    "label": "現在の工場のリージョン",
+    "label": "現在の工場の地域",
     "picker": {
-      "placeholder": "リージョンを選択",
-      "ariaLabel": "現在の工場のリージョンを選択"
+      "placeholder": "地域を選択",
+      "ariaLabel": "現在の工場の地域を選択"
     },
     "toast": {
       "switchedToFallback": "{{name}} の工場に切り替えました"
     }
   },
   "tabs": {
-    "plan": "プラン",
+    "plan": "工業計画",
     "limits": "上限",
     "raws": "資源",
     "structures": "構造物",
@@ -32,7 +32,7 @@
   "status": {
     "researched": "{{done}} / {{total}} 研究済み",
     "customized": "{{n}} 件カスタム",
-    "sourced": "{{done}} / {{total}} 入手済み",
+    "sourced": "{{done}} / {{total}} 設定済み",
     "enabled": "{{done}} / {{total}} 有効"
   },
   "structures": {
@@ -43,11 +43,11 @@
   },
   "rawLimits": {
     "cardTitle": "天然資源",
-    "help": "空欄は地域の最大採掘量（欄内の参考値）が適用されます。参考値のない資源は無制限です。数値を入力すると上書きできます。",
+    "help": "空欄の場合は地域の最大採掘量（欄内の参考値）が適用されます。参考値のない資源は無制限です。数値を入力すると上書きできます。",
     "clearAll": "すべてクリア",
     "placeholder": "∞",
     "unitSuffix": "/分",
-    "inputAria": "{{name}} の上限 (個/分)",
+    "inputAria": "{{name}} の上限（個/分）",
     "invalidValue": "上限は0以上の数値を指定してください。保存されませんでした。"
   },
   "aic": {
@@ -78,19 +78,19 @@
       "toggleDeactivate": "{{name}} を無効化"
     },
     "toast": {
-      "activatedGroup_zero": "新たに有効化された施設はありません",
-      "activatedGroup_one": "{{primary}} 個の施設を有効化しました",
-      "activatedGroup_other": "{{primary}} 個の施設を有効化しました",
-      "activatedGroupWithPrereqs": "{{primary}} 個の施設を有効化しました（前提 {{prereqs}} 個含む）",
-      "activatedLayer": "{{primary}} 個の施設を有効化しました",
-      "activatedLayerWithPrereqs": "{{primary}} 個の施設を有効化しました（前提 {{prereqs}} 個含む）",
+      "activatedGroup_zero": "新たに有効化された設備はありません",
+      "activatedGroup_one": "{{primary}} 個の設備を有効化しました",
+      "activatedGroup_other": "{{primary}} 個の設備を有効化しました",
+      "activatedGroupWithPrereqs": "{{primary}} 個の設備を有効化しました（前提 {{prereqs}} 個含む）",
+      "activatedLayer": "{{primary}} 個の設備を有効化しました",
+      "activatedLayerWithPrereqs": "{{primary}} 個の設備を有効化しました（前提 {{prereqs}} 個含む）",
       "resetDefaults": "ゲーム既定に戻しました",
-      "resetGroup": "プランをデフォルトに戻しました",
+      "resetGroup": "工業計画をデフォルトに戻しました",
       "prereqsRequired": "先に前提のテクノロジーを研究してください。"
     }
   },
   "metastorage": {
-    "help": "計算機がこの地域の {{count}} 種類の対象アイテムから転送するアイテムを自動で選択し、プランを最も改善するものを選びます。",
+    "help": "計算機がこの地域の対象アイテム {{count}} 種類の中から、プランを最も改善するものを輸出アイテムとして自動選択します。",
     "cardTitle": "送出転送",
     "routeLabel": "転送先",
     "modeAuto": "自動",

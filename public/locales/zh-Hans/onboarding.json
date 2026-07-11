@@ -6,9 +6,9 @@
   "hint": "你可以随时在设置中更改。",
   "confirmButton": "继续",
   "statusActive": "启用",
-  "statusInactive": "关闭",
+  "statusInactive": "停用",
   "region": {
-    "label": "当前建设区域",
-    "placeholder": "选择区域"
+    "label": "当前建设地区",
+    "placeholder": "选择地区"
   }
 }

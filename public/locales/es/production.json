@@ -1,11 +1,11 @@
 {
   "belt": {
     "belts": "cintas",
-    "tooltip": "Cintas transportadoras de salida requeridas (capacidad de {{belt_rate}} artículos/min)"
+    "tooltip": "Cintas transportadoras de salida requeridas (capacidad de {{belt_rate}} objetos/min)"
   },
   "pipe": {
     "pipes": "tuberías",
-    "tooltip": "Tuberías de salida requeridas (capacidad de {{pipe_rate}} artículos/min)"
+    "tooltip": "Tuberías de salida requeridas (capacidad de {{pipe_rate}} objetos/min)"
   },
   "transport": {
     "internal": "interno"
@@ -21,7 +21,7 @@
       "count": "Cantidad",
       "facility": "Instalación",
       "icon": "Icono",
-      "item": "Artículo",
+      "item": "Objeto",
       "outputRate": "Producción/min",
       "power": "Energía",
       "rawMaterial": "Materia Prima",
@@ -38,9 +38,9 @@
       "slots": "{{slots}} ranuras",
       "slotsRaw": "ranuras",
       "buildings": "edificios",
-      "buildingsExplain": "{{n}} edificios comparten {{m}} fórmulas",
+      "buildingsExplain": "{{n}} edificios compartidos entre {{m}} fórmulas",
       "grouped": "agrupado",
-      "powerSharedExplain": "La energía se cuenta sólo en la fila principal del grupo.",
+      "powerSharedExplain": "La energía se cuenta solo en la fila principal del grupo.",
       "spanning": "Fórmula dividida en {{count}} formas de grupo:"
     },
     "totals": {
@@ -49,7 +49,7 @@
       "ttv": "VTT ({{source}})"
     },
     "metastorage": {
-      "label": "Metaalmacén ({{source}})",
+      "label": "Metaalmacenamiento ({{source}})",
       "tooltip": "Transferencia de metaalmacenamiento",
       "ttv": "VTT",
       "ttvExplain": "Valor total de transferencia por entrega: {{used}} de {{cap}} ({{cost}} por objeto)."
@@ -62,8 +62,8 @@
     "facility": "Instalación",
     "facilityCount": "Cantidad de instalaciones",
     "facilityIndex": "Índice de instalación",
-    "item": "Artículo",
-    "noTarget": "No se ha establecido ningún objetivo de producción. Establezca un objetivo para ver el árbol de dependencias.",
+    "item": "Objeto",
+    "noTarget": "No se ha establecido ningún objetivo de producción. Establece un objetivo para ver el árbol de dependencias.",
     "partialLoad": "Carga parcial",
     "power": "Energía",
     "produced": "Producido",
@@ -86,16 +86,17 @@
     "groupedBuilding": "Edificio compartido",
     "formulas": "fórmulas",
     "formulasInBin": "Fórmulas en este edificio",
-    "internalItems": "Elementos internos (en circulación)",
+    "internal": "Interno",
+    "internalItems": "Objetos internos (en circulación)",
     "innerSlotsUsed": "Ranuras internas: {{used}}",
     "portUtilization": "Puertos: {{liqIn}}/{{liqInCap}} líq ent · {{liqOut}}/{{liqOutCap}} líq sal · {{beltOut}}/{{beltOutCap}} cinta sal",
-    "prefillZoneLabel": "Prefill",
-    "prefillItemTooltip": "Requires prefill at startup to bootstrap this cycle",
-    "prefillCardTooltip": "This building's formulas form a cycle. Seed one of the listed items in the inner inventory at startup so the loop can begin producing.",
-    "prefillCandidates": "Prefill candidates",
+    "prefillZoneLabel": "Precarga",
+    "prefillItemTooltip": "Requiere precarga al inicio para arrancar este ciclo",
+    "prefillCardTooltip": "Las fórmulas de este edificio forman un ciclo. Coloca al inicio uno de los objetos listados en el inventario interno para que el ciclo empiece a producir.",
+    "prefillCandidates": "Candidatos de precarga",
     "searchNoResults": "Sin coincidencias",
     "searchPlaceholder": "Buscar edificios...",
-    "metastorage": "Metaalmacén",
+    "metastorage": "Metaalmacenamiento",
     "metastorageTooltip": "Entregado mediante transferencia de metaalmacenamiento: sin producción local y sin restar del depósito de origen.",
     "metastorageSource": "Región de origen",
     "metastorageTtvPerItem": "VTT por objeto",

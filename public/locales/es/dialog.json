@@ -6,7 +6,7 @@
   "clearQueue": "Limpiar",
   "defaultRate": "Tasa predeterminada",
   "dialogDescription": "Busca y selecciona objetos para agregar como objetivos de producción",
-  "hint": "Seleccionado: {{selected}}",
+  "hint": "Seleccionados: {{selected}}",
   "maxReached": "Máximo de objetivos alcanzado ({{max}})",
   "noIcon": "Ninguno",
   "noMatchingItems": "No se encontraron objetos coincidentes",

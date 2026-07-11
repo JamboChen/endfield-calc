@@ -5,9 +5,9 @@
     "title": "옵션",
     "allSettings": "전체 설정"
   },
-  "intro": "각 지역의 AIC 연구 플랜, 시설 한도, 원자재 속도를 설정합니다. 아래에서 설정할 지역을 선택하세요. 스위치로 지역을 로스터에 추가하거나 제거할 수 있습니다.",
+  "intro": "각 지역의 공업 계획, 설비 한도, 원자재 속도를 설정합니다. 아래에서 설정할 지역을 선택하세요. 스위치로 지역을 로스터에 추가하거나 제거할 수 있습니다.",
   "regions": {
-    "configuringLabel": "구성 중",
+    "configuringLabel": "설정 중",
     "yourRegions": "보유 지역",
     "notInRoster": "로스터에 없음",
     "factoryMarker": "공장"
@@ -23,7 +23,7 @@
     }
   },
   "tabs": {
-    "plan": "플랜",
+    "plan": "공업 계획",
     "limits": "한도",
     "raws": "자원",
     "structures": "구조물",
@@ -78,14 +78,14 @@
       "toggleDeactivate": "{{name}} 비활성화"
     },
     "toast": {
-      "activatedGroup_zero": "새로 활성화된 시설 없음",
-      "activatedGroup_one": "시설 {{primary}}개 활성화됨",
-      "activatedGroup_other": "시설 {{primary}}개 활성화됨",
-      "activatedGroupWithPrereqs": "시설 {{primary}}개 활성화됨 (선행 {{prereqs}}개 포함)",
-      "activatedLayer": "시설 {{primary}}개 활성화됨",
-      "activatedLayerWithPrereqs": "시설 {{primary}}개 활성화됨 (선행 {{prereqs}}개 포함)",
-      "resetDefaults": "게임 기본값으로 재설정함",
-      "resetGroup": "플랜을 기본값으로 재설정함",
+      "activatedGroup_zero": "새로 활성화된 설비 없음",
+      "activatedGroup_one": "설비 {{primary}}개 활성화됨",
+      "activatedGroup_other": "설비 {{primary}}개 활성화됨",
+      "activatedGroupWithPrereqs": "설비 {{primary}}개 활성화됨 (선행 {{prereqs}}개 포함)",
+      "activatedLayer": "설비 {{primary}}개 활성화됨",
+      "activatedLayerWithPrereqs": "설비 {{primary}}개 활성화됨 (선행 {{prereqs}}개 포함)",
+      "resetDefaults": "게임 기본값으로 재설정됨",
+      "resetGroup": "공업 계획이 기본값으로 재설정됨",
       "prereqsRequired": "먼저 선행 기술을 연구하세요."
     }
   },
