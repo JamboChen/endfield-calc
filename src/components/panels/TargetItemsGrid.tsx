@@ -39,6 +39,20 @@ const SCRUB_COMMIT_THROTTLE_MS = 200;
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
+/** Digits with at most one decimal point — the only shape the rate
+ *  field accepts while typing. Intermediate states ("", ".", "1.")
+ *  are valid DRAFTS but don't parse to a committable number yet. */
+const RATE_DRAFT_PATTERN = /^\d*\.?\d*$/;
+
+/** Parse a typing draft to a committable rate, or null while it is
+ *  still an intermediate state ("" / "."). Trailing-dot drafts like
+ *  "1." parse to 1 — the user sees their text untouched either way. */
+function parseRateDraft(draft: string): number | null {
+  if (draft === "") return null;
+  const num = Number(draft);
+  return Number.isFinite(num) ? num : null;
+}
+
 /** Integrated scrub curve: signed value delta for a pixel offset. */
 function scrubDelta(dx: number): number {
   const d = Math.abs(dx);
@@ -78,12 +92,23 @@ type RateScrubInputProps = {
  *     with distance-based acceleration (see the constants above);
  *     reversing direction re-anchors into the fine zone.
  *   - A tap / click without drag focuses the input for typing
- *     (select-all, numeric keypad on mobile) — the previous behavior.
+ *     (select-all, decimal keypad on mobile) — the previous behavior.
  *   - `touch-action: pan-y` keeps vertical swipes scrolling the page;
  *     the browser fires pointercancel when it claims the gesture.
  *   - Esc mid-drag cancels and restores the pre-drag value.
  *   - Keyboard path (focused): ↑/↓ ±1 · Shift ±10 · Alt ±0.1 ·
  *     Alt+Shift ±0.01.
+ *
+ * The field is deliberately `type="text"` + `inputMode="decimal"`,
+ * with typing buffered in a local string draft: a controlled
+ * `type="number"` destroys in-progress entries, because browsers
+ * sanitize intermediate editing states to `""` (a lone "." everywhere;
+ * trailing-dot "1." on spec-strict WebKit), and any commit/re-render
+ * against that transient empty string rewrites the visible text to
+ * "0" mid-keystroke. Drafts keep the exact typed string on screen;
+ * commits fire live for every parseable draft and are finalized on
+ * blur ("" / "." → 0). Non-numeric keystrokes are rejected wholesale
+ * (controlled no-op → React restores the previous text).
  *
  * Commits are trailing-throttled while dragging so the plan solves
  * live (the calc effect cancels stale runs), with a final commit on
@@ -101,6 +126,17 @@ function RateScrubInput({
   const [focused, setFocused] = useState(false);
   /** Non-null while a scrub gesture owns the displayed value. */
   const [scrubValue, setScrubValue] = useState<number | null>(null);
+  /** Non-null while the user is typing: the raw string as typed,
+   *  including not-yet-parseable intermediates ("", ".", "1."). */
+  const [draft, setDraft] = useState<string | null>(null);
+
+  // Latest-commit ref: the trailing-throttle timer (and every gesture
+  // handler) must never commit through a stale closure — if the row's
+  // `index` shifts mid-gesture (an async auto-fit / Max result
+  // landing while a throttled commit is parked), an old `onCommit`
+  // would write the rate to the wrong target.
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
 
   // All gesture state lives in refs — pointermove must not re-render.
   const gesture = useRef({
@@ -119,38 +155,32 @@ function RateScrubInput({
     pending: null,
   });
 
-  const flushCommit = useCallback(
-    (v: number) => {
-      const th = throttle.current;
-      if (th.timer !== null) {
-        window.clearTimeout(th.timer);
-        th.timer = null;
-      }
-      th.pending = null;
-      onCommit(v);
-    },
-    [onCommit],
-  );
+  const flushCommit = useCallback((v: number) => {
+    const th = throttle.current;
+    if (th.timer !== null) {
+      window.clearTimeout(th.timer);
+      th.timer = null;
+    }
+    th.pending = null;
+    onCommitRef.current(v);
+  }, []);
 
-  const throttledCommit = useCallback(
-    (v: number) => {
-      const th = throttle.current;
-      if (th.timer !== null) {
-        th.pending = v;
-        return;
+  const throttledCommit = useCallback((v: number) => {
+    const th = throttle.current;
+    if (th.timer !== null) {
+      th.pending = v;
+      return;
+    }
+    onCommitRef.current(v);
+    th.timer = window.setTimeout(() => {
+      th.timer = null;
+      if (th.pending !== null) {
+        const p = th.pending;
+        th.pending = null;
+        onCommitRef.current(p);
       }
-      onCommit(v);
-      th.timer = window.setTimeout(() => {
-        th.timer = null;
-        if (th.pending !== null) {
-          const p = th.pending;
-          th.pending = null;
-          onCommit(p);
-        }
-      }, SCRUB_COMMIT_THROTTLE_MS);
-    },
-    [onCommit],
-  );
+    }, SCRUB_COMMIT_THROTTLE_MS);
+  }, []);
 
   // Clear any pending throttle timer on unmount.
   useEffect(() => {
@@ -266,7 +296,12 @@ function RateScrubInput({
     const step =
       e.altKey && e.shiftKey ? 0.01 : e.altKey ? 0.1 : e.shiftKey ? 10 : 1;
     const sign = e.key === "ArrowUp" ? 1 : -1;
-    onCommit(Math.max(0, round3(value + sign * step)));
+    // Step from the draft when one is being typed ("" / "." count as
+    // 0); clearing the draft hands the display back to the committed
+    // value so the stepped result is what the user sees.
+    const base = draft === null ? value : (parseRateDraft(draft) ?? 0);
+    setDraft(null);
+    onCommitRef.current(Math.max(0, round3(base + sign * step)));
   };
 
   return (
@@ -283,34 +318,36 @@ function RateScrubInput({
     >
       <Input
         ref={inputRef}
-        type="number"
-        value={scrubValue ?? value}
+        type="text"
+        inputMode="decimal"
+        value={scrubValue ?? draft ?? String(value)}
         onChange={(e) => {
-          const val = e.target.value;
-          if (val === "") {
-            onCommit(0);
-          } else {
-            const num = Number(val);
-            if (!isNaN(num)) {
-              onCommit(num);
-            }
-          }
+          const raw = e.target.value;
+          // Gate to digits + one optional dot. Rejected keystrokes
+          // are a controlled no-op — React restores the prior text.
+          if (!RATE_DRAFT_PATTERN.test(raw)) return;
+          setDraft(raw);
+          // Live-commit every parseable draft; intermediates ("",
+          // ".") keep the last committed rate until blur. NEVER
+          // commit 0 for a transiently-empty field — that is what
+          // used to clobber decimal entry mid-keystroke.
+          const num = parseRateDraft(raw);
+          if (num !== null) onCommitRef.current(num);
         }}
         onFocus={() => {
           setFocused(true);
           onFocusChange(true);
         }}
-        onBlur={(e) => {
-          if (e.target.value === "" || Number(e.target.value) < 0) {
-            onCommit(0);
-          }
+        onBlur={() => {
+          // Finalize the draft: unparseable leftovers ("" / ".")
+          // settle to 0, matching the old empty-field behavior.
+          if (draft !== null) onCommitRef.current(parseRateDraft(draft) ?? 0);
+          setDraft(null);
           setFocused(false);
           onFocusChange(false);
         }}
         onKeyDown={handleKeyDown}
-        className="h-8 w-24 max-sm:w-20 px-2 text-xs text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        min="0"
-        step="any"
+        className="h-8 w-24 max-sm:w-20 px-2 text-xs text-right font-mono"
         aria-label={ariaLabel}
       />
       {/* Hidden on phones — every pixel feeds the name column; the

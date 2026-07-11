@@ -9,7 +9,7 @@
   "rateInput": "Rate Input",
   "rateUnit": "per minute",
   "removeTarget": "Remove Target",
-  "scrubHint": "Drag horizontally to adjust — accelerates with distance. Arrows: ±1 · Shift: ±10 · Alt: ±0.1",
+  "scrubHint": "Drag horizontally to adjust — accelerates with distance. Arrows: ±1 · Shift: ±10 · Alt: ±0.1 · Alt+Shift: ±0.01",
   "title": "Production Targets",
   "unlockTarget": "Unlock target"
 }

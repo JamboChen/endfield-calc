@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import PlanPanel from "./PlanPanel";
@@ -48,6 +49,7 @@ const LeftPanel = memo(function LeftPanel({
   onFitToLimits,
   onAddClick,
 }: LeftPanelProps) {
+  const { t } = useTranslation("app");
   const [collapsed, setCollapsed] = useState(false);
 
   if (collapsed) {
@@ -57,7 +59,7 @@ const LeftPanel = memo(function LeftPanel({
           variant="outline"
           className="h-full w-8 rounded-r-none border-r-0 flex flex-col gap-1 py-4 px-0"
           onClick={() => setCollapsed(false)}
-          aria-label="Expand panel"
+          aria-label={t("expandPanel")}
         >
           <PanelLeftOpen className="h-4 w-4 shrink-0" />
         </Button>
@@ -93,7 +95,7 @@ const LeftPanel = memo(function LeftPanel({
             size="icon"
             className="h-6 w-6 shrink-0"
             onClick={() => setCollapsed(true)}
-            aria-label="Collapse panel"
+            aria-label={t("collapsePanel")}
           >
             <PanelLeftClose className="h-4 w-4" />
           </Button>

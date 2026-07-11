@@ -900,39 +900,6 @@ describe("aggregateBinTotals (real data)", () => {
     }
   });
 
-  test("multiFormulaBaseline >= multiFormulaActual (savings non-negative)", async () => {
-    const plan = await calculateProductionPlan(
-      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
-      items,
-      recipes,
-      facilities,
-      { rawMaterials: ALL_RAWS },
-    );
-    const totals = aggregateBinTotals(plan, facilities, items);
-    expect(totals.multiFormulaBaselineBuildings)
-      .toBeGreaterThanOrEqual(totals.multiFormulaActualBuildings);
-  });
-
-  test("multiFormulaActual sums only bins on multi-formula-eligible facilities", async () => {
-    const plan = await calculateProductionPlan(
-      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
-      items,
-      recipes,
-      facilities,
-      { rawMaterials: ALL_RAWS },
-    );
-    const totals = aggregateBinTotals(plan, facilities, items);
-    const facilityById = new Map(facilities.map((f) => [f.id, f]));
-    let expected = 0;
-    for (const bin of plan.bins) {
-      const fac = facilityById.get(bin.facilityId);
-      if (fac?.cacheSlots != null) {
-        expected += Math.max(1, Math.ceil(bin.buildingCount));
-      }
-    }
-    expect(totals.multiFormulaActualBuildings).toBe(expected);
-  });
-
   test("perFacility entries sum to totalBuildings (ceilMode=true)", async () => {
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
@@ -982,8 +949,6 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalBuildings).toBe(0);
     expect(totals.totalPower).toBe(0);
     expect(totals.perFacility.size).toBe(0);
-    expect(totals.multiFormulaActualBuildings).toBe(0);
-    expect(totals.multiFormulaBaselineBuildings).toBe(0);
   });
 
   test("bin on unknown facility id is ignored (defensive)", async () => {
@@ -1127,29 +1092,6 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalPower).toBeCloseTo(binPower + pickup.power, 6);
   });
 
-  test("multiFormulaActual/Baseline are always-ceiled regardless of ceilMode", async () => {
-    // These are physical counterfactuals for the groupedSavings metric;
-    // they must stay integer regardless of ceilMode.
-    const plan = await calculateProductionPlan(
-      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
-      items,
-      recipes,
-      facilities,
-      { rawMaterials: ALL_RAWS },
-    );
-    const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
-    const fractional = aggregateBinTotals(plan, facilities, items, {
-      ceilMode: false,
-    });
-    expect(ceiled.multiFormulaActualBuildings).toBe(
-      fractional.multiFormulaActualBuildings,
-    );
-    expect(ceiled.multiFormulaBaselineBuildings).toBe(
-      fractional.multiFormulaBaselineBuildings,
-    );
-    expect(Number.isInteger(ceiled.multiFormulaActualBuildings)).toBe(true);
-    expect(Number.isInteger(ceiled.multiFormulaBaselineBuildings)).toBe(true);
-  });
 });
 
 // ════════════════════════════════════════════════════════════════════

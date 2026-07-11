@@ -41,10 +41,6 @@ export const PUMP_CATEGORIES: ReadonlySet<number> = new Set([25, 26]);
  * "physical" (whole buildings, full power per built building) and
  * "theoretical" (fractional buildings, proportional power) views.
  * Mode-dependent fields: `totalBuildings`, `totalPower`, `perFacility`.
- * Mode-independent fields: `multiFormulaActualBuildings` and
- * `multiFormulaBaselineBuildings` always count whole buildings — the
- * "buildings saved" metric they feed is only physically meaningful at
- * the integer level.
  */
 export type BinAggregates = {
   /**
@@ -103,21 +99,6 @@ export type BinAggregates = {
    * warning stable across the "Round up facilities" toggle.
    */
   physicalPerFacility: Map<FacilityId, number>;
-  /**
-   * Σ `Math.max(1, Math.ceil(bin.buildingCount))` for bins on
-   * multi-formula-eligible facilities (those with `cacheSlots` defined).
-   * Always ceiled — this is the "physically built multi-formula
-   * buildings" counterfactual half of the groupedSavings calculation.
-   */
-  multiFormulaActualBuildings: number;
-  /**
-   * Σ `Math.ceil(node.facilityCount)` over recipe nodes hosted on
-   * multi-formula-eligible facilities — i.e. "what would total be if
-   * every recipe ran in its own building, no grouping". Always ceiled
-   * (physical counterfactual). Subtracting `multiFormulaActualBuildings`
-   * from this gives groupedSavings.
-   */
-  multiFormulaBaselineBuildings: number;
   /**
    * Σ Core-AIC build-grid tiles (`facility.footprint` width × depth ×
    * ceiled building count). **Always ceiled regardless of `ceilMode`** —
@@ -179,16 +160,6 @@ export function buildBinActivitySums(
  *     `5.9 / 3 ≈ 1.967` instead of `2`. By construction
  *     `mean ≤ bin.buildingCount`, so ceilMode=OFF values never exceed
  *     ceilMode=ON values.
- *
- * `multiFormulaActualBuildings` and `multiFormulaBaselineBuildings`
- * are always ceiled regardless of `ceilMode` — they represent
- * physical building counts in the "savings vs no-grouping baseline"
- * comparison, which only makes sense as integers.
- *
- * `multiFormulaBaselineBuildings` iterates production-graph recipe
- * nodes (not item nodes) so each recipe contributes once even when
- * multiple recipes co-produce an item or feeders are added by the SCC
- * solver.
  */
 export function aggregateBinTotals(
   plan: ProductionDependencyGraph,
@@ -204,7 +175,6 @@ export function aggregateBinTotals(
   let totalBuildings = 0;
   let totalPower = 0;
   let totalTiles = 0;
-  let multiFormulaActualBuildings = 0;
   const perFacility = new Map<FacilityId, number>();
   const rawPerFacility = new Map<FacilityId, number>();
   const physicalPerFacility = new Map<FacilityId, number>();
@@ -239,10 +209,6 @@ export function aggregateBinTotals(
       facility.id,
       (physicalPerFacility.get(facility.id) ?? 0) + ceiledBuildings,
     );
-    if (facility.cacheSlots != null) {
-      // Always-ceiled — groupedSavings is a physical-buildings comparison.
-      multiFormulaActualBuildings += ceiledBuildings;
-    }
     // Always-ceiled — buildings occupy whole tiles in either view mode.
     totalTiles += tilesPerBuilding(facility) * ceiledBuildings;
   }
@@ -295,22 +261,12 @@ export function aggregateBinTotals(
     totalTiles += tilesPerBuilding(facility) * Math.ceil(fractionalPickups);
   }
 
-  let multiFormulaBaselineBuildings = 0;
-  plan.nodes.forEach((node) => {
-    if (node.type !== "recipe") return;
-    if (node.facility?.cacheSlots != null) {
-      multiFormulaBaselineBuildings += Math.ceil(node.facilityCount);
-    }
-  });
-
   return {
     totalBuildings,
     totalPower,
     perFacility,
     rawPerFacility,
     physicalPerFacility,
-    multiFormulaActualBuildings,
-    multiFormulaBaselineBuildings,
     totalTiles,
   };
 }

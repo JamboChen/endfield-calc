@@ -212,7 +212,7 @@ const StatsTicker = memo(function StatsTicker({
           <TickerStat
             icon={LayoutGrid}
             label={t("gridArea")}
-            value={totalTiles > 0 ? `≥${totalTiles}` : 0}
+            value={totalTiles > 0 ? `≥${totalTiles}` : "0"}
             title={t("gridAreaHint")}
           />
           <TickerStat

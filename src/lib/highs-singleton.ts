@@ -47,13 +47,6 @@ export function initHighs(): Promise<HiGHS> {
 }
 
 /**
- * True when HiGHS is ready. Used by UI layer to gate the calculate flow.
- */
-export function isHighsReady(): boolean {
-  return highsInstance !== null;
-}
-
-/**
  * Discard the current HiGHS instance so the next `initHighs()` (which
  * `highs-wrapper.solve` awaits per call) creates a fresh one.
  *

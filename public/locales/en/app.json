@@ -54,5 +54,7 @@
   "title": "Endfield Calc",
   "metastorageRouteConflict": "Metastorage carries one item type per source region. These targets can't all be imported: {{items}}",
   "metastorageBudgetInsufficient": "{{item}} from {{source}}: needs {{needed}} TTV per delivery but the budget is {{cap}}. Import not applied. Reduce the target rate or expand local production.",
-  "viewOptions": "View options"
+  "viewOptions": "View options",
+  "expandPanel": "Expand panel",
+  "collapsePanel": "Collapse panel"
 }

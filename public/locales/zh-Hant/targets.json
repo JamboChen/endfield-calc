@@ -9,7 +9,7 @@
   "rateInput": "產量輸入",
   "rateUnit": "個/分鐘",
   "removeTarget": "刪除目標",
-  "scrubHint": "水平拖曳以調整——距離越遠變化越快。方向鍵:±1 · Shift:±10 · Alt:±0.1",
+  "scrubHint": "水平拖曳以調整——距離越遠變化越快。方向鍵:±1 · Shift:±10 · Alt:±0.1 · Alt+Shift:±0.01",
   "title": "生產目標",
   "unlockTarget": "解除鎖定"
 }

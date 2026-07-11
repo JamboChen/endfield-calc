@@ -9,7 +9,7 @@
   "rateInput": "Entrada de tasa",
   "rateUnit": "por minuto",
   "removeTarget": "Eliminar objetivo",
-  "scrubHint": "Arrastra horizontalmente para ajustar — acelera con la distancia. Flechas: ±1 · Shift: ±10 · Alt: ±0.1",
+  "scrubHint": "Arrastra horizontalmente para ajustar — acelera con la distancia. Flechas: ±1 · Shift: ±10 · Alt: ±0.1 · Alt+Shift: ±0.01",
   "title": "Objetivos de Producción",
   "unlockTarget": "Desbloquear objetivo"
 }

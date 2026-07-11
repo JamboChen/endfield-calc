@@ -33,6 +33,13 @@ const facilities: Facility[] = [
  * exist at pre-set positions on the region map — the player only
  * *enables* them — so they occupy no Core-AIC build-grid space and are
  * excluded from `aggregateBinTotals.totalTiles`.
+ *
+ * Aliased to ALL region-subsystem facility ids on purpose: every
+ * `regionFacilities` entry is extracted from a `Factory*PlantStoreTable`
+ * map structure, so "region facility" ⟹ "map-placed" *by construction
+ * of the extractor*. If upstream data ever introduces a region-modelled
+ * facility the player builds on the grid, split this into an explicit
+ * subset — otherwise its tiles would silently vanish from `totalTiles`.
  */
 const mapPlacedFacilities: ReadonlySet<FacilityId> = regionFacilityIds;
 

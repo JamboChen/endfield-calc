@@ -498,6 +498,10 @@ export async function fitTargetsToLimits(params: {
   };
 
   try {
+    // λ=1 runs BEFORE the empty-flexible-set check on purpose: with
+    // nothing to scale, this single probe is still what decides
+    // between "already fits" (noop) and "over-limit with no lever to
+    // pull" (impossible) — it is the verdict, not a wasted solve.
     if ((await probe(1)).feasible) return { kind: "noop" };
     if (flexible.length === 0) return { kind: "impossible" };
 

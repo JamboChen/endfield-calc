@@ -9,7 +9,7 @@
   "rateInput": "비율 입력",
   "rateUnit": "분당",
   "removeTarget": "목표 제거",
-  "scrubHint": "좌우로 드래그하여 조정 — 거리에 따라 가속됩니다. 방향키: ±1 · Shift: ±10 · Alt: ±0.1",
+  "scrubHint": "좌우로 드래그하여 조정 — 거리에 따라 가속됩니다. 방향키: ±1 · Shift: ±10 · Alt: ±0.1 · Alt+Shift: ±0.01",
   "title": "생산 목표",
   "unlockTarget": "잠금 해제"
 }

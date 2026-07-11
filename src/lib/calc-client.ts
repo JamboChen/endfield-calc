@@ -5,8 +5,10 @@
  *   1. **Transport** — module-worker preferred; graceful main-thread
  *     fallback (dynamic import of `@/lib/calculator` + HiGHS) when
  *     Workers are unavailable (vitest/node), construction fails, or
- *     the worker crashes twice. Mirrors the ELK dual-path precedent
- *     (`src/lib/layout.ts`).
+ *     the failure budget is exhausted (globally or per job). A worker
+ *     crash mid-solve is invisible to callers: the inflight job is
+ *     re-dispatched onto a fresh worker, then onto the fallback.
+ *     Mirrors the ELK dual-path precedent (`src/lib/layout.ts`).
  *   2. **Latest-wins coalescing** — at most one job in flight and one
  *     pending; a newer request replaces the pending slot, rejecting the
  *     replaced promise with `CalcSupersededError`. This is what keeps
@@ -55,6 +57,13 @@ type Job = {
   req: CalcRequest;
   resolve: (plan: ProductionDependencyGraph) => void;
   reject: (e: unknown) => void;
+  /** Worker deaths this job has survived. Once it reaches
+   *  `FALLBACK_AFTER_FAILURES` the job routes to the main-thread
+   *  fallback regardless of the global failure budget — the global
+   *  counter resets on every successful worker init, so a request
+   *  that deterministically crashes a fresh worker would otherwise
+   *  retry forever (crash → recreate → ready resets budget → crash). */
+  retries: number;
 };
 
 let worker: Worker | null = null;
@@ -75,9 +84,14 @@ function shouldFallback(): boolean {
 }
 
 /**
- * Tear down a dead worker and fail active jobs. The NEXT request will
- * recreate the worker (or switch to the fallback once the failure
- * budget is exhausted).
+ * Tear down a dead worker and transparently re-dispatch the inflight
+ * job. The retried job re-enters `dispatch`, which recreates the
+ * worker — or routes to the main-thread fallback once either budget
+ * (global `workerFailures` or the job's own `retries`) is exhausted.
+ * The pending slot is left parked; it dispatches as usual when the
+ * retried job settles. Callers never observe a worker crash directly:
+ * they get a plan from a fresh worker / the fallback, or the
+ * fallback's own error.
  */
 function onWorkerDeath(error: unknown) {
   workerFailures++;
@@ -85,12 +99,24 @@ function onWorkerDeath(error: unknown) {
   readyPromise = null;
   worker?.terminate();
   worker = null;
-  const failure =
-    error instanceof Error ? error : new Error(String(error ?? "worker died"));
-  inflight?.reject(failure);
+  console.warn(
+    "[calc-client] calc worker died; retrying on a fresh solver:",
+    error,
+  );
+  const retry = inflight;
   inflight = null;
-  pending?.reject(failure);
-  pending = null;
+  if (retry) {
+    dispatch({
+      req: retry.req,
+      resolve: retry.resolve,
+      reject: retry.reject,
+      retries: retry.retries + 1,
+    });
+  } else {
+    // Defensive: `pending` is only ever set while a job is inflight,
+    // but if that invariant ever breaks, don't strand the parked job.
+    dispatchPending();
+  }
 }
 
 function ensureWorker(): Promise<void> {
@@ -163,7 +189,7 @@ function dispatchPending() {
 function dispatch(job: Job) {
   const seq = ++seqCounter;
   inflight = { ...job, seq };
-  if (shouldFallback()) {
+  if (shouldFallback() || job.retries >= FALLBACK_AFTER_FAILURES) {
     solveOnMainThread(job.req)
       .then((plan) => {
         if (inflight?.seq === seq) {
@@ -230,12 +256,24 @@ export function calculate(
   req: CalcRequest,
 ): Promise<ProductionDependencyGraph> {
   return new Promise<ProductionDependencyGraph>((resolve, reject) => {
-    const job: Job = { req, resolve, reject };
+    const job: Job = { req, resolve, reject, retries: 0 };
     if (inflight) {
       pending?.reject(new CalcSupersededError());
       pending = job;
       return;
     }
     dispatch(job);
+  });
+}
+
+// Dev-only hygiene: every Vite HMR update re-instantiates this module,
+// so dispose the outgoing instance's worker — otherwise each hot
+// reload orphans a thread holding a full HiGHS WASM instance.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    worker?.terminate();
+    worker = null;
+    workerReady = false;
+    readyPromise = null;
   });
 }

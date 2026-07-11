@@ -166,12 +166,15 @@ export default function ProductionViewTabs({
                         setVisualizationMode(value as VisualizationMode);
                     }}
                   >
-                    <ToggleGroupItem value="merged" aria-label="Merged view">
+                    <ToggleGroupItem
+                      value="merged"
+                      aria-label={t("tabs.merged")}
+                    >
                       <span className="text-xs">{t("tabs.merged")}</span>
                     </ToggleGroupItem>
                     <ToggleGroupItem
                       value="separated"
-                      aria-label="Separated view"
+                      aria-label={t("tabs.separated")}
                     >
                       <span className="text-xs">{t("tabs.separated")}</span>
                     </ToggleGroupItem>
