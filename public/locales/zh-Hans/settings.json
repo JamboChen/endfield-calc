@@ -1,6 +1,10 @@
 {
   "title": "设置",
   "open": "打开设置",
+  "options": {
+    "title": "选项",
+    "allSettings": "全部设置"
+  },
   "intro": "为每个区域配置 AIC 研究方案、设施上限与原料速率。在下方选择要配置的区域；开关用于将区域加入或移出你的清单。",
   "regions": {
     "configuringLabel": "正在配置",
@@ -39,7 +43,7 @@
   },
   "rawLimits": {
     "cardTitle": "自然资源",
-    "help": "留空表示该资源供应无限。填入数值可设置限额。",
+    "help": "留空表示使用该区域的最大采矿产量（输入框中的提示值）；没有提示值的资源供应无限。填入数值可覆盖默认值。",
     "clearAll": "全部清除",
     "placeholder": "∞",
     "unitSuffix": "/分钟",

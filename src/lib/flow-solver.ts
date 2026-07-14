@@ -253,6 +253,7 @@ export async function calculateFlows(
       invalidSCCs,
       metrics: {
         feasible: false,
+        failureReason: result.reason,
         slackMagnitude: 0,
         ttvOverusePerMinute: 0,
         totalRawCost: 0,

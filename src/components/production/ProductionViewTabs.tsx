@@ -1,8 +1,20 @@
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
-import { AlertTriangle, BarChart3, Network } from "lucide-react";
+import { BarChart3, Network, SlidersHorizontal } from "lucide-react";
 import ProductionTable from "./ProductionTable";
+import ProductionCards from "./ProductionCards";
 import ProductionDependencyTree from "../flow/ProductionDependencyTree";
+import { usePortrait } from "@/hooks/usePortrait";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import SolverLoadingOverlay from "./SolverLoadingOverlay";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -39,12 +51,12 @@ interface ProductionViewTabsProps {
    *  the end of the Production Table's row list. */
   ineffectivePins: IneffectivePin[];
   targetRates?: Map<ItemId, number>;
+  /** Physical (ceiled) vs theoretical (fractional) display. The toggle
+   *  itself lives in the left-rail Options card. */
   ceilMode: boolean;
-  onCeilModeChange: (value: boolean) => void;
   /** Bin-fusion toggle for Recipe View. Persisted in URL hash via the parent. */
   binFusion: boolean;
   onBinFusionChange: (value: boolean) => void;
-  warnings: string[];
   /** True while the solver is busy: either the HiGHS WASM module is
    *  still loading, or a calculation has been in flight long enough
    *  (>300ms) for the debounced loading overlay to engage. */
@@ -66,13 +78,12 @@ export default function ProductionViewTabs({
   ineffectivePins,
   targetRates,
   ceilMode,
-  onCeilModeChange,
   binFusion,
   onBinFusionChange,
-  warnings,
   loading,
 }: ProductionViewTabsProps) {
   const { t } = useTranslation("app");
+  const isPortrait = usePortrait();
   const [visualizationMode, setVisualizationMode] =
     useState<VisualizationMode>("merged");
   const [twoEndAlignment, setTwoEndAlignment] = useState(false);
@@ -105,129 +116,160 @@ export default function ProductionViewTabs({
               </TabsList>
             </Tabs>
 
-            <div className="flex items-center gap-2">
-              <Switch
-                id="ceil-mode"
-                checked={ceilMode}
-                onCheckedChange={onCeilModeChange}
-              />
-              <Label
-                htmlFor="ceil-mode"
-                className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
-              >
-                {t("ceilMode")}
-              </Label>
-            </div>
-
+            {/* Tree-view options — inline at lg+, consolidated into a
+                labelled dropdown below that (narrow desktop + phones):
+                bare unlabelled switches were indistinguishable once the
+                sm: labels hid. */}
             {activeTab === "tree" && (
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="two-end-alignment"
-                  checked={twoEndAlignment}
-                  onCheckedChange={setTwoEndAlignment}
-                />
-                <Label
-                  htmlFor="two-end-alignment"
-                  className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
-                >
-                  {t("twoEndAlignment")}
-                </Label>
-              </div>
-            )}
-
-            {/* Bin-fusion toggle: shows only in Recipe View (merged) AND
-                only when the current plan contains at least one grouped
-                bin. Facility View (separated) is always bin-fused. */}
-            {activeTab === "tree" &&
-              visualizationMode === "merged" &&
-              hasGroupableRecipes && (
-                <div className="flex items-center gap-2">
+              <>
+                <div className="hidden lg:flex items-center gap-2">
                   <Switch
-                    id="bin-fusion"
-                    checked={binFusion}
-                    onCheckedChange={onBinFusionChange}
+                    id="two-end-alignment"
+                    checked={twoEndAlignment}
+                    onCheckedChange={setTwoEndAlignment}
                   />
                   <Label
-                    htmlFor="bin-fusion"
-                    title={t("binFusionTooltip")}
-                    className="text-xs whitespace-nowrap cursor-pointer hidden sm:block"
+                    htmlFor="two-end-alignment"
+                    className="text-xs whitespace-nowrap cursor-pointer"
                   >
-                    {t("binFusion")}
+                    {t("twoEndAlignment")}
                   </Label>
                 </div>
-              )}
 
-            {activeTab === "tree" && (
-              <ToggleGroup
-                type="single"
-                value={visualizationMode}
-                onValueChange={(value) => {
-                  if (value) setVisualizationMode(value as VisualizationMode);
-                }}
-              >
-                <ToggleGroupItem value="merged" aria-label="Merged view">
-                  <span className="text-xs hidden sm:inline">
-                    {t("tabs.merged")}
-                  </span>
-                  <Network className="h-3.5 w-3.5 sm:hidden" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="separated" aria-label="Separated view">
-                  <span className="text-xs hidden sm:inline">
-                    {t("tabs.separated")}
-                  </span>
-                  <BarChart3 className="h-3.5 w-3.5 sm:hidden" />
-                </ToggleGroupItem>
-              </ToggleGroup>
+                {/* Bin-fusion toggle: shows only in Recipe View (merged)
+                    AND only when the current plan contains at least one
+                    grouped bin. Facility View (separated) is always
+                    bin-fused. */}
+                {visualizationMode === "merged" && hasGroupableRecipes && (
+                  <div className="hidden lg:flex items-center gap-2">
+                    <Switch
+                      id="bin-fusion"
+                      checked={binFusion}
+                      onCheckedChange={onBinFusionChange}
+                    />
+                    <Label
+                      htmlFor="bin-fusion"
+                      title={t("binFusionTooltip")}
+                      className="text-xs whitespace-nowrap cursor-pointer"
+                    >
+                      {t("binFusion")}
+                    </Label>
+                  </div>
+                )}
+
+                <div className="hidden lg:block">
+                  <ToggleGroup
+                    type="single"
+                    value={visualizationMode}
+                    onValueChange={(value) => {
+                      if (value)
+                        setVisualizationMode(value as VisualizationMode);
+                    }}
+                  >
+                    <ToggleGroupItem
+                      value="merged"
+                      aria-label={t("tabs.merged")}
+                    >
+                      <span className="text-xs">{t("tabs.merged")}</span>
+                    </ToggleGroupItem>
+                    <ToggleGroupItem
+                      value="separated"
+                      aria-label={t("tabs.separated")}
+                    >
+                      <span className="text-xs">{t("tabs.separated")}</span>
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="lg:hidden h-8 w-8 p-0 shrink-0"
+                      aria-label={t("viewOptions", {
+                        defaultValue: "View options",
+                      })}
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <DropdownMenuCheckboxItem
+                      checked={twoEndAlignment}
+                      onCheckedChange={setTwoEndAlignment}
+                    >
+                      {t("twoEndAlignment")}
+                    </DropdownMenuCheckboxItem>
+                    {visualizationMode === "merged" && hasGroupableRecipes && (
+                      <DropdownMenuCheckboxItem
+                        checked={binFusion}
+                        onCheckedChange={onBinFusionChange}
+                      >
+                        {t("binFusion")}
+                      </DropdownMenuCheckboxItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuRadioGroup
+                      value={visualizationMode}
+                      onValueChange={(value) =>
+                        setVisualizationMode(value as VisualizationMode)
+                      }
+                    >
+                      <DropdownMenuRadioItem value="merged">
+                        {t("tabs.merged")}
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="separated">
+                        {t("tabs.separated")}
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
             )}
           </div>
         </CardHeader>
         <CardContent className="relative flex-1 min-h-0 overflow-hidden p-0">
           {loading && <SolverLoadingOverlay />}
           <Tabs value={activeTab} className="h-full">
+            {/* Solver warnings render in the stats surfaces (bottom
+                dock / portrait card), not here — keeps the full view
+                height for the table/tree. */}
             <TabsContent value="table" className="h-full m-0 p-4 pt-0">
-              {warnings.length > 0 && (
-                <div className="space-y-1.5 pb-3">
-                  {warnings.map((msg, i) => (
-                    <div
-                      key={i}
-                      className="flex items-start gap-2 text-amber-600 dark:text-amber-400 text-xs p-2.5 bg-amber-500/10 rounded"
-                    >
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                      <span>{msg}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
               <div className="h-full overflow-auto">
-                <ProductionTable
-                  data={tableData.rows}
-                  totals={tableData.totals}
-                  items={items}
-                  recipes={recipes}
-                  onRecipeChange={onRecipeChange}
-                  onRecipePinReset={onRecipePinReset}
-                  onToggleRawMaterial={onToggleRawMaterial}
-                  pinnedItemIds={pinnedItemIds}
-                  ineffectivePins={ineffectivePins}
-                  ceilMode={ceilMode}
-                />
+                {/* Portrait renders the card list — same rows/totals/
+                    handlers, reshaped for narrow touch screens. */}
+                {isPortrait ? (
+                  <ProductionCards
+                    data={tableData.rows}
+                    totals={tableData.totals}
+                    items={items}
+                    recipes={recipes}
+                    onRecipeChange={onRecipeChange}
+                    onRecipePinReset={onRecipePinReset}
+                    onToggleRawMaterial={onToggleRawMaterial}
+                    pinnedItemIds={pinnedItemIds}
+                    ineffectivePins={ineffectivePins}
+                    ceilMode={ceilMode}
+                  />
+                ) : (
+                  <ProductionTable
+                    data={tableData.rows}
+                    totals={tableData.totals}
+                    items={items}
+                    recipes={recipes}
+                    onRecipeChange={onRecipeChange}
+                    onRecipePinReset={onRecipePinReset}
+                    onToggleRawMaterial={onToggleRawMaterial}
+                    pinnedItemIds={pinnedItemIds}
+                    ineffectivePins={ineffectivePins}
+                    ceilMode={ceilMode}
+                  />
+                )}
               </div>
             </TabsContent>
             <TabsContent value="tree" className="h-full m-0">
               <div className="h-full flex flex-col">
-                {warnings.length > 0 && (
-                  <div className="space-y-1.5 px-4 pb-3">
-                    {warnings.map((msg, i) => (
-                      <div
-                        key={i}
-                        className="flex items-start gap-2 text-amber-600 dark:text-amber-400 text-xs p-2.5 bg-amber-500/10 rounded"
-                      >
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                        <span>{msg}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
                 <div className="flex-1 min-h-0">
                   <ProductionDependencyTree
                     plan={plan}

@@ -22,6 +22,7 @@ export const regionFacilities: Facility[] = [
     tier: 1,
     category: 37,
     powerConsumption: 0,
+    footprint: { width: 10, depth: 3 },
     buffersIn: { belt: [], pipe: [{ ports: 1 }] },
     buffersOut: { belt: [], pipe: [{ ports: 1 }] },
     domains: [DomainId.DOMAIN_2],

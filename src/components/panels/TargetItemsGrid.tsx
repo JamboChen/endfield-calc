@@ -1,8 +1,7 @@
-import { memo, useState } from "react";
-import { Card } from "@/components/ui/card";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { X, Plus } from "lucide-react";
+import { X, Plus, Lock, LockOpen, ArrowUpToLine, Loader2 } from "lucide-react";
 import type { Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getItemName } from "@/lib/i18n-helpers";
@@ -13,137 +12,573 @@ import { MAX_TARGETS } from "@/data";
 export type ProductionTarget = {
   itemId: ItemId;
   rate: number;
+  /**
+   * Locked targets are frozen under every automatic adjustment —
+   * Fit-to-limits scaling AND priority-Max shrinking — see the
+   * `target-optimizer.ts` module doc. Absent = unlocked (the default;
+   * flexible).
+   */
+  locked?: boolean;
 };
+
+/* ── Scrub tuning constants ─────────────────────────────────────────
+ * The scrub maps horizontal pointer distance to a value delta with
+ * distance-based acceleration: gain(d) = G0 · (1 + (d/D)²) per pixel,
+ * integrated to value(d) = G0 · (d + d³/(3D²)). Reversing the drag
+ * direction re-anchors at the turn point, so backing off after an
+ * overshoot is instantly fine-grained again (the "squeeze" gesture).
+ * Tuned live during the browser pass — adjust here, nowhere else. */
+/** Fine-zone gain: value change per pixel right at the anchor. */
+const SCRUB_FINE_GAIN = 0.02;
+/** Distance (px) at which the per-pixel gain has doubled. */
+const SCRUB_ACCEL_DISTANCE = 60;
+/** Pixels of movement before a press becomes a drag (below = tap). */
+const SCRUB_DRAG_THRESHOLD = 4;
+/** Trailing-throttle interval for live commits while scrubbing. */
+const SCRUB_COMMIT_THROTTLE_MS = 200;
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
+
+/** Digits with at most one decimal point — the only shape the rate
+ *  field accepts while typing. Intermediate states ("", ".", "1.")
+ *  are valid DRAFTS but don't parse to a committable number yet. */
+const RATE_DRAFT_PATTERN = /^\d*\.?\d*$/;
+
+/** Parse a typing draft to a committable rate, or null while it is
+ *  still an intermediate state ("" / "."). Trailing-dot drafts like
+ *  "1." parse to 1 — the user sees their text untouched either way. */
+function parseRateDraft(draft: string): number | null {
+  if (draft === "") return null;
+  const num = Number(draft);
+  return Number.isFinite(num) ? num : null;
+}
+
+/** Integrated scrub curve: signed value delta for a pixel offset. */
+function scrubDelta(dx: number): number {
+  const d = Math.abs(dx);
+  const D = SCRUB_ACCEL_DISTANCE;
+  return Math.sign(dx) * SCRUB_FINE_GAIN * (d + (d * d * d) / (3 * D * D));
+}
+
+/** Per-pixel gain at a distance — drives the value-snapping tier. */
+function scrubGainAt(dx: number): number {
+  const d = Math.abs(dx);
+  const ratio = d / SCRUB_ACCEL_DISTANCE;
+  return SCRUB_FINE_GAIN * (1 + ratio * ratio);
+}
+
+/** Snap a scrubbed value to a human-friendly grid that coarsens with
+ *  the local gain (0.001 in the fine zone so typed values like 12.968
+ *  survive small nudges; up to whole units on coarse sweeps). */
+function snapScrubValue(v: number, gain: number): number {
+  const grid = gain < 0.03 ? 0.001 : gain < 0.3 ? 0.01 : gain < 3 ? 0.1 : 1;
+  return round3(Math.round(v / grid) * grid);
+}
+
+type RateScrubInputProps = {
+  value: number;
+  onCommit: (rate: number) => void;
+  onFocusChange: (focused: boolean) => void;
+  ariaLabel: string;
+  scrubHint: string;
+  unitTitle: string;
+};
+
+/**
+ * Photoshop/Blender-style scrubbable rate input, unified for mouse /
+ * touch / pen via Pointer Events:
+ *
+ *   - Press + horizontal drag on the UNFOCUSED input scrubs the value
+ *     with distance-based acceleration (see the constants above);
+ *     reversing direction re-anchors into the fine zone.
+ *   - A tap / click without drag focuses the input for typing
+ *     (select-all, decimal keypad on mobile) — the previous behavior.
+ *   - `touch-action: pan-y` keeps vertical swipes scrolling the page;
+ *     the browser fires pointercancel when it claims the gesture.
+ *   - Esc mid-drag cancels and restores the pre-drag value.
+ *   - Keyboard path (focused): ↑/↓ ±1 · Shift ±10 · Alt ±0.1 ·
+ *     Alt+Shift ±0.01.
+ *
+ * The field is deliberately `type="text"` + `inputMode="decimal"`,
+ * with typing buffered in a local string draft: a controlled
+ * `type="number"` destroys in-progress entries, because browsers
+ * sanitize intermediate editing states to `""` (a lone "." everywhere;
+ * trailing-dot "1." on spec-strict WebKit), and any commit/re-render
+ * against that transient empty string rewrites the visible text to
+ * "0" mid-keystroke. Drafts keep the exact typed string on screen;
+ * commits fire live for every parseable draft and are finalized on
+ * blur ("" / "." → 0). Non-numeric keystrokes are rejected wholesale
+ * (controlled no-op → React restores the previous text).
+ *
+ * Commits are trailing-throttled while dragging so the plan solves
+ * live (the calc effect cancels stale runs), with a final commit on
+ * release.
+ */
+function RateScrubInput({
+  value,
+  onCommit,
+  onFocusChange,
+  ariaLabel,
+  scrubHint,
+  unitTitle,
+}: RateScrubInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
+  /** Non-null while a scrub gesture owns the displayed value. */
+  const [scrubValue, setScrubValue] = useState<number | null>(null);
+  /** Non-null while the user is typing: the raw string as typed,
+   *  including not-yet-parseable intermediates ("", ".", "1."). */
+  const [draft, setDraft] = useState<string | null>(null);
+
+  // Latest-commit ref: the trailing-throttle timer (and every gesture
+  // handler) must never commit through a stale closure — if the row's
+  // `index` shifts mid-gesture (an async auto-fit / Max result
+  // landing while a throttled commit is parked), an old `onCommit`
+  // would write the rate to the wrong target.
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
+
+  // All gesture state lives in refs — pointermove must not re-render.
+  const gesture = useRef({
+    pressed: false,
+    dragging: false,
+    pressX: 0,
+    startValue: 0,
+    anchorX: 0,
+    anchorValue: 0,
+    prevX: 0,
+    dir: 0 as -1 | 0 | 1,
+    lastShown: 0,
+  });
+  const throttle = useRef<{ timer: number | null; pending: number | null }>({
+    timer: null,
+    pending: null,
+  });
+
+  const flushCommit = useCallback((v: number) => {
+    const th = throttle.current;
+    if (th.timer !== null) {
+      window.clearTimeout(th.timer);
+      th.timer = null;
+    }
+    th.pending = null;
+    onCommitRef.current(v);
+  }, []);
+
+  const throttledCommit = useCallback((v: number) => {
+    const th = throttle.current;
+    if (th.timer !== null) {
+      th.pending = v;
+      return;
+    }
+    onCommitRef.current(v);
+    th.timer = window.setTimeout(() => {
+      th.timer = null;
+      if (th.pending !== null) {
+        const p = th.pending;
+        th.pending = null;
+        onCommitRef.current(p);
+      }
+    }, SCRUB_COMMIT_THROTTLE_MS);
+  }, []);
+
+  // Clear any pending throttle timer on unmount.
+  useEffect(() => {
+    const th = throttle.current;
+    return () => {
+      if (th.timer !== null) window.clearTimeout(th.timer);
+    };
+  }, []);
+
+  const endGesture = useCallback(() => {
+    gesture.current.pressed = false;
+    gesture.current.dragging = false;
+    setScrubValue(null);
+  }, []);
+
+  // Esc mid-drag cancels the scrub and restores the pre-drag value.
+  useEffect(() => {
+    if (scrubValue === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      flushCommit(gesture.current.startValue);
+      endGesture();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [scrubValue, flushCommit, endGesture]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Focused input = edit mode: drags do text selection as usual.
+    if (focused) return;
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    // Prevent the browser's mousedown-focus so a drag never enters
+    // edit mode; taps focus manually on pointerup.
+    e.preventDefault();
+    const g = gesture.current;
+    g.pressed = true;
+    g.dragging = false;
+    g.pressX = e.clientX;
+    g.startValue = value;
+    g.lastShown = value;
+    // Capture can throw for already-inactive pointers (synthetic
+    // events, exotic drivers) — scrubbing degrades gracefully without
+    // it as long as the pointer stays over the wrapper.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = gesture.current;
+    if (!g.pressed) return;
+    if (!g.dragging) {
+      if (Math.abs(e.clientX - g.pressX) < SCRUB_DRAG_THRESHOLD) return;
+      g.dragging = true;
+      g.anchorX = g.pressX;
+      g.anchorValue = g.startValue;
+      g.prevX = e.clientX;
+      g.dir = 0;
+    }
+    const stepX = e.clientX - g.prevX;
+    if (stepX === 0) return;
+    const newDir: -1 | 1 = stepX > 0 ? 1 : -1;
+    if (g.dir !== 0 && newDir !== g.dir) {
+      // Direction reversal: re-anchor at the turn point so backing off
+      // an overshoot is immediately fine-grained again.
+      g.anchorX = g.prevX;
+      g.anchorValue = g.lastShown;
+    }
+    g.dir = newDir;
+    g.prevX = e.clientX;
+
+    const dx = e.clientX - g.anchorX;
+    const raw = g.anchorValue + scrubDelta(dx);
+    const v = Math.max(0, snapScrubValue(raw, scrubGainAt(dx)));
+    if (v === g.lastShown) return;
+    g.lastShown = v;
+    setScrubValue(v);
+    throttledCommit(v);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = gesture.current;
+    if (!g.pressed) return;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+    if (g.dragging) {
+      flushCommit(g.lastShown);
+    } else {
+      // Tap: enter edit mode (select-all for quick retype).
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+    endGesture();
+  };
+
+  const handlePointerCancel = () => {
+    // Browser claimed the gesture (e.g. vertical scroll on touch):
+    // restore the pre-drag value.
+    const g = gesture.current;
+    if (!g.pressed) return;
+    if (g.dragging) flushCommit(g.startValue);
+    endGesture();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const step =
+      e.altKey && e.shiftKey ? 0.01 : e.altKey ? 0.1 : e.shiftKey ? 10 : 1;
+    const sign = e.key === "ArrowUp" ? 1 : -1;
+    // Step from the draft when one is being typed ("" / "." count as
+    // 0); clearing the draft hands the display back to the committed
+    // value so the stepped result is what the user sees.
+    const base = draft === null ? value : (parseRateDraft(draft) ?? 0);
+    setDraft(null);
+    onCommitRef.current(Math.max(0, round3(base + sign * step)));
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 shrink-0 select-none touch-pan-y",
+        !focused && "cursor-ew-resize",
+      )}
+      title={scrubHint}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+    >
+      <Input
+        ref={inputRef}
+        type="text"
+        inputMode="decimal"
+        value={scrubValue ?? draft ?? String(value)}
+        onChange={(e) => {
+          const raw = e.target.value;
+          // Gate to digits + one optional dot. Rejected keystrokes
+          // are a controlled no-op — React restores the prior text.
+          if (!RATE_DRAFT_PATTERN.test(raw)) return;
+          setDraft(raw);
+          // Live-commit every parseable draft; intermediates ("",
+          // ".") keep the last committed rate until blur. NEVER
+          // commit 0 for a transiently-empty field — that is what
+          // used to clobber decimal entry mid-keystroke.
+          const num = parseRateDraft(raw);
+          if (num !== null) onCommitRef.current(num);
+        }}
+        onFocus={() => {
+          setFocused(true);
+          onFocusChange(true);
+        }}
+        onBlur={() => {
+          // Finalize the draft: unparseable leftovers ("" / ".")
+          // settle to 0, matching the old empty-field behavior.
+          if (draft !== null) onCommitRef.current(parseRateDraft(draft) ?? 0);
+          setDraft(null);
+          setFocused(false);
+          onFocusChange(false);
+        }}
+        onKeyDown={handleKeyDown}
+        className="h-8 w-24 max-sm:w-20 px-2 text-xs text-right font-mono"
+        aria-label={ariaLabel}
+      />
+      {/* Hidden on phones — every pixel feeds the name column; the
+          unit stays discoverable via the input tooltip. */}
+      <span
+        className="text-[11px] text-muted-foreground font-mono max-sm:hidden"
+        title={unitTitle}
+      >
+        /min
+      </span>
+    </div>
+  );
+}
 
 type TargetItemsGridProps = {
   targets: ProductionTarget[];
   items: Item[];
+  /** Per-item Max-button gating from `useProductionPlan` — true when a
+   *  raw in the item's chain has a configured limit. */
+  maxEnabledByTarget: ReadonlyMap<ItemId, boolean>;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
+  onTargetLockToggle: (index: number) => void;
+  /** Kick off a priority-Max search for this target. */
+  onMaximizeTarget: (index: number) => void;
+  /** Index whose Max search is running (spinner) — null when idle. */
+  maximizingIndex: number | null;
+  /** True while ANY optimizer search runs — all Max buttons disable
+   *  (mutual exclusion; one search at a time). */
+  optimizerBusy: boolean;
+  /** Indices whose Max already ran to a deterministic outcome against
+   *  the CURRENT problem — the button disables until something (any
+   *  target or config change) invalidates the marks. See
+   *  `useProductionPlan`'s `MaxedMarks`. */
+  maxedIndices: ReadonlySet<number>;
   onAddClick: () => void;
   maxTargets?: number;
 };
 
+/**
+ * Production-target list in the bottom-dock row language: one
+ * tier-accented row per target (icon · name · scrubbable rate input ·
+ * max/lock/remove actions), plus a dashed full-width add button.
+ *
+ * Names **wrap instead of truncating** — the longest localized item
+ * names (46 chars in ru) never fit a single line beside the input at
+ * any sane rail width, so rows grow while short names stay compact.
+ *
+ * Action-button visibility: locked-state Lock is always visible (it is
+ * state, not just an affordance); everything else is hover-revealed on
+ * pointer devices (opacity — space reserved, no layout shift), always
+ * visible on touch, and focus-visible-revealed for keyboard users.
+ *
+ * The Max button runs the priority-Max search (`handleMaximizeTarget`
+ * in `useProductionPlan` → the `maximizeTargetRate` engine in
+ * `target-optimizer.ts`). Gated on raw limits in the item's
+ * chain (`maxEnabledByTarget`); shows a spinner while its own search
+ * runs and disables during any optimizer search (mutual exclusion).
+ */
 const TargetItemsGrid = memo(function TargetItemsGrid({
   targets,
   items,
+  maxEnabledByTarget,
   onTargetChange,
   onTargetRemove,
+  onTargetLockToggle,
+  onMaximizeTarget,
+  maximizingIndex,
+  optimizerBusy,
+  maxedIndices,
   onAddClick,
   maxTargets = MAX_TARGETS,
 }: TargetItemsGridProps) {
   const { t } = useTranslation("targets");
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
 
+  // Shared reveal classes for hover-hidden action buttons.
+  const reveal =
+    "[@media(hover:none)]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100 transition-all";
+
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="flex flex-col gap-1.5">
       {/* Existing targets */}
       {targets.map((target, index) => {
         const item = items.find((i) => i.id === target.itemId);
         if (!item) return null;
 
-        const isFocused = focusedIndex === index;
         const tc = tierClasses(item.tier);
+        const maxEnabled = maxEnabledByTarget.get(target.itemId) ?? false;
+        const alreadyMaxed = maxedIndices.has(index);
 
         return (
-          <Card
+          <div
             key={target.itemId}
             className={cn(
-              "target-card-enter relative group border-l-2 transition-all duration-150 hover:shadow-md hover:-translate-y-0.5",
+              // One structural line everywhere (like desktop): only the
+              // NAME text wraps within its own column. Phone widths fit
+              // by slimming the fixed elements at max-sm (smaller
+              // icon/input/buttons, /min and the Max stub hidden)
+              // rather than pushing controls to a second line.
+              "target-card-enter group flex items-center gap-1.5 rounded border border-border/40 border-l-2 bg-card px-2 py-1.5 min-h-11 sm:min-h-0 transition-all duration-150",
               tc.border,
-              isFocused && "ring-2 ring-primary/40",
+              focusedIndex === index && "ring-2 ring-primary/40",
             )}
             style={{ animationDelay: `${index * 30}ms` }}
           >
-            {/* Remove button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onTargetRemove(index)}
-              className="absolute -top-1.5 -right-1.5 h-5 w-5 p-0 rounded-full bg-background border border-border shadow-sm [@media(hover:none)]:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 transition-all hover:bg-destructive hover:text-destructive-foreground hover:border-destructive z-10"
-              aria-label={t("removeTarget")}
-            >
-              <X className="h-3 w-3" />
-            </Button>
-
-            <div className="px-2 space-y-2">
-              {/* Item icon, tier dot, and name */}
-              <div className="flex flex-col items-center gap-1.5">
-                <div className="h-12 w-12 flex items-center justify-center">
-                  {item.iconUrl ? (
-                    <img
-                      src={item.iconUrl}
-                      alt={getItemName(item)}
-                      className="h-full w-full object-contain"
-                    />
-                  ) : (
-                    <div className="h-full w-full bg-muted rounded flex items-center justify-center">
-                      <span className="text-xs text-muted-foreground">
-                        {t("noIcon")}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <div className="text-xs font-medium text-center line-clamp-2 w-full px-1 min-h-8 leading-tight">
-                  {getItemName(item)}
-                </div>
-              </div>
-
-              {/* Rate input */}
-              <div className="space-y-1">
-                <Input
-                  type="number"
-                  value={target.rate}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "") {
-                      onTargetChange(index, 0);
-                    } else {
-                      const num = Number(val);
-                      if (!isNaN(num)) {
-                        onTargetChange(index, num);
-                      }
-                    }
-                  }}
-                  onFocus={(e) => {
-                    setFocusedIndex(index);
-                    e.target.select();
-                  }}
-                  onBlur={(e) => {
-                    if (e.target.value === "" || Number(e.target.value) < 0) {
-                      onTargetChange(index, 0);
-                    }
-                    setFocusedIndex(null);
-                  }}
-                  className="h-7 text-xs text-center font-mono"
-                  min="0"
-                  step="1"
-                  aria-label={t("rateInput")}
+            {/* Item icon */}
+            <div className="h-8 w-8 max-sm:h-6 max-sm:w-6 flex items-center justify-center shrink-0">
+              {item.iconUrl ? (
+                <img
+                  src={item.iconUrl}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-full w-full object-contain"
                 />
-                <div className="text-[10px] text-center text-muted-foreground">
-                  {t("rateUnit")}
-                </div>
+              ) : (
+                <div className="h-full w-full bg-muted rounded" />
+              )}
+            </div>
+
+            {/* Name — wraps (never truncates); long localized names
+                take extra lines. */}
+            <div className="flex-1 min-w-0 text-xs font-medium break-words leading-tight">
+              {getItemName(item)}
+            </div>
+
+            {/* Controls group — stays inline; the name column absorbs
+                any wrapping. */}
+            <div className="flex items-center gap-1.5 ml-auto shrink-0">
+              <RateScrubInput
+                value={target.rate}
+                onCommit={(rate) => onTargetChange(index, rate)}
+                onFocusChange={(f) => setFocusedIndex(f ? index : null)}
+                ariaLabel={t("rateInput")}
+                scrubHint={t("scrubHint")}
+                unitTitle={t("rateUnit")}
+              />
+
+              <div className="flex items-center gap-0.5 shrink-0">
+              {/* Max — gated on raw limits in the item's chain (that's
+                  what makes a maximum finite). Rendered on every
+                  breakpoint (responsive sizing only) so mobile and
+                  desktop never diverge in features. Tooltip lives on a
+                  wrapper span (disabled buttons swallow pointer
+                  events). Spinner while THIS target's search runs;
+                  disabled while any search runs (one at a time) and
+                  after a completed Max until the problem changes. */}
+              <span
+                title={
+                  alreadyMaxed
+                    ? t("maximizeUpToDate")
+                    : maxEnabled
+                      ? t("maximize")
+                      : t("maximizeNoLimits")
+                }
+                className={cn(
+                  "inline-flex",
+                  maximizingIndex === index ? "opacity-100" : reveal,
+                )}
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!maxEnabled || optimizerBusy || alreadyMaxed}
+                  onClick={() => onMaximizeTarget(index)}
+                  className={cn(
+                    "h-7 w-7 max-sm:h-6 max-sm:w-6 p-0",
+                    (!maxEnabled || alreadyMaxed) && "opacity-40",
+                  )}
+                  aria-label={t("maximize")}
+                >
+                  {maximizingIndex === index ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ArrowUpToLine className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </span>
+
+                {/* Lock — visible state when locked; hover-revealed
+                  affordance when not. */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onTargetLockToggle(index)}
+                  aria-pressed={target.locked === true}
+                  aria-label={
+                    target.locked ? t("unlockTarget") : t("lockTarget")
+                  }
+                  title={target.locked ? t("unlockTarget") : t("lockTarget")}
+                className={cn(
+                  "h-7 w-7 max-sm:h-6 max-sm:w-6 p-0",
+                  target.locked ? "text-foreground" : reveal,
+                )}
+                >
+                  {target.locked ? (
+                    <Lock className="h-3.5 w-3.5" />
+                  ) : (
+                    <LockOpen className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+
+                {/* Remove */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onTargetRemove(index)}
+                className={cn(
+                  "h-7 w-7 max-sm:h-6 max-sm:w-6 p-0 rounded-full hover:bg-destructive hover:text-destructive-foreground",
+                  reveal,
+                )}
+                  aria-label={t("removeTarget")}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
               </div>
             </div>
-          </Card>
+          </div>
         );
       })}
 
       {/* Add button */}
       {targets.length < maxTargets && (
-        <Card
-          className="border-2 border-dashed border-border hover:border-primary/50 hover:bg-accent/40 cursor-pointer transition-all duration-200 group active:scale-[0.97]"
+        <button
+          type="button"
           onClick={onAddClick}
+          className="group flex w-full items-center justify-center gap-2 rounded border-2 border-dashed border-border px-2 py-2 min-h-11 sm:min-h-0 sm:py-1.5 text-xs font-medium text-muted-foreground cursor-pointer transition-all duration-200 hover:border-primary/50 hover:bg-accent/40 hover:text-foreground active:scale-[0.98]"
         >
-          <div className="h-full flex flex-col items-center justify-center p-2.5 min-h-[140px]">
-            <div className="h-10 w-10 border-2 border-dashed border-muted-foreground/30 group-hover:border-primary/50 rounded-lg flex items-center justify-center mb-2 transition-all duration-200 group-hover:scale-110">
-              <Plus className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-            </div>
-            <div className="text-xs text-muted-foreground group-hover:text-foreground transition-colors text-center font-medium">
-              {t("addTarget")}
-            </div>
-          </div>
-        </Card>
+          <Plus className="h-4 w-4 transition-transform duration-200 group-hover:scale-110" />
+          {t("addTarget")}
+        </button>
       )}
     </div>
   );

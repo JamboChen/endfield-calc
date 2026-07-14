@@ -1,6 +1,10 @@
 {
   "title": "設定",
   "open": "開啟設定",
+  "options": {
+    "title": "選項",
+    "allSettings": "全部設定"
+  },
   "intro": "為每個區域設定 AIC 研究方案、設施上限與原料速率。在下方選擇要設定的區域；開關用於將區域加入或移出你的清單。",
   "regions": {
     "configuringLabel": "正在設定",
@@ -39,7 +43,7 @@
   },
   "rawLimits": {
     "cardTitle": "自然資源",
-    "help": "留空表示該資源供應無限。填入數值可設定限額。",
+    "help": "留空表示使用該區域的最大採礦產量（輸入框中的提示值）；沒有提示值的資源供應無限。填入數值可覆蓋預設值。",
     "clearAll": "全部清除",
     "placeholder": "∞",
     "unitSuffix": "/分鐘",

@@ -3,7 +3,7 @@ import { Panel, useReactFlow, type Node } from "@xyflow/react";
 import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
-import { ItemIcon } from "../production/ProductionTable";
+import { ItemIcon } from "../production/recipe-cells";
 import { getDomainName, getItemName, getFacilityName } from "@/lib/i18n-helpers";
 import {
   filterSearchCandidates,

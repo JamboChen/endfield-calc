@@ -1,7 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": [
-    "scripts/extract-item-colors.ts"
+    "scripts/extract-item-colors.ts",
+    "i18next.config.ts"
   ],
   "ignoreExportsUsedInFile": {
     "interface": true,

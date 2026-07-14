@@ -12,6 +12,20 @@
   "rawOverCap": "{{item}}: limit exceeded ({{used}}/min / {{cap}}/min).",
   "packerOverrideInfeasible": "Formula \"{{recipe}}\" on facility \"{{facility}}\" has no valid bin shape. Packer fell back to per-formula bins for this formula.",
   "packerFallback": "Multi-formula bin packer fell back to per-formula bins due to an infeasible constraint configuration.",
+  "maximizedTo": "{{item}} maximized to {{rate}}/min.",
+  "maximizedToWithFit": "{{item}} maximized to {{rate}}/min — other unlocked targets were reduced to fit.",
+  "maximizeAlreadyMax": "{{item}} is already at its maximum — {{rate}}/min.",
+  "maximizeNoLimit": "No limit reached — nothing in this item's chain is constrained by your configured limits.",
+  "maximizeInfeasible": "Cannot maximize: the locked targets alone already exceed the configured limits.",
+  "fitApplied": "Targets scaled down to fit the configured limits.",
+  "fitNoop": "The plan already fits the configured limits.",
+  "fitImpossible": "Cannot fit: the locked targets alone exceed the configured limits.",
+  "restore": "Restore",
+  "optimizeFailed": "Optimization aborted — the solver reported an error.",
+  "autoFit": "Auto-fit to limits",
+  "autoFitHint": "When an edit pushes the plan over its limits, other unlocked targets shrink automatically to fit. Locked targets are never adjusted.",
+  "planLpInfeasible": "No valid production plan exists for these targets — the solver could not satisfy every constraint. Check pinned formulas and import routes.",
+  "planSolverError": "The solver failed unexpectedly and the plan could not be computed. It will recover on the next recalculation — edit any target to retry.",
   "footer": {
     "feedback": "Feedback & Suggestions:",
     "trademark": "Arknights: Endfield is a trademark of Hypergryph. This tool is not affiliated with or endorsed by Hypergryph.",
@@ -20,9 +34,16 @@
   "header": {
     "community": "Community",
     "discord": "Discord Server",
+    "language": "Language",
+    "menu": "Menu",
+    "open": "Open Plan",
     "qqGroup": "QQ Group",
     "save": "Save Plan",
-    "open": "Open Plan"
+    "toggleTheme": "Toggle theme"
+  },
+  "mobileNav": {
+    "plan": "Plan",
+    "production": "Production"
   },
   "tabs": {
     "merged": "Formula View",
@@ -32,5 +53,8 @@
   },
   "title": "Endfield Calc",
   "metastorageRouteConflict": "Metastorage carries one item type per source region. These targets can't all be imported: {{items}}",
-  "metastorageBudgetInsufficient": "{{item}} from {{source}}: needs {{needed}} TTV per delivery but the budget is {{cap}}. Import not applied. Reduce the target rate or expand local production."
+  "metastorageBudgetInsufficient": "{{item}} from {{source}}: needs {{needed}} TTV per delivery but the budget is {{cap}}. Import not applied. Reduce the target rate or expand local production.",
+  "viewOptions": "View options",
+  "expandPanel": "Expand panel",
+  "collapsePanel": "Collapse panel"
 }

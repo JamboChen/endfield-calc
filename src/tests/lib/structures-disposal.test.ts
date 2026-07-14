@@ -688,10 +688,11 @@ describe("Facility cap binding without alternative producer", () => {
     // pipeline (which the hook layer calls in production) emits a
     // `facility-over-cap` warning for xiranite_oven_1. Running it
     // directly here exercises the same code path the user-facing
-    // warning surface depends on.
+    // warning surface depends on — `physicalPerFacility`, the
+    // always-ceiled placement counts the hook feeds it.
     const aggregates = aggregateBinTotals(plan, [...facilities], [...items]);
     const warnings = computeOverCapWarnings(
-      aggregates.rawPerFacility,
+      aggregates.physicalPerFacility,
       facilityCaps,
     );
     const ovenWarning = warnings.find(

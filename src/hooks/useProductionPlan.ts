@@ -1,5 +1,17 @@
-import { calculateProductionPlan } from "@/lib/calculator";
-import { initHighs, isHighsReady } from "@/lib/highs-singleton";
+import {
+  calculate,
+  initCalcEngine,
+  isCalcEngineReady,
+  isCalcSuperseded,
+} from "@/lib/calc-client";
+import {
+  fitTargetsToLimits,
+  maximizeTargetRate,
+  rawsInChainOf,
+  type FeasibilityContext,
+  type TargetVectorEntry,
+} from "@/lib/target-optimizer";
+import { namespaceStorageKey } from "@/lib/storage-namespace";
 import { items, recipes, facilities, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
@@ -31,11 +43,57 @@ import {
   computeRawOverCapWarnings,
   filterPlanForDisplay,
 } from "@/lib/plan-helpers";
-import { formatCount, getItemById } from "@/lib/utils";
+import { getItemById } from "@/lib/utils";
+
+/** Auto-fit preference (Options card toggle). Channel-namespaced like
+ *  every persisted key — see `storage-namespace.ts`. */
+const AUTO_FIT_STORAGE_KEY = namespaceStorageKey("endfield-calc:auto-fit-v1");
+
+/**
+ * Debounce between "a settled calc result is over its limits" and the
+ * auto-fit pass firing. Sits ON TOP of the scrub input's
+ * trailing-throttle commit (`SCRUB_COMMIT_THROTTLE_MS`) — a scrub drag
+ * keeps resetting this timer, so the fit runs once the user pauses,
+ * not once per commit.
+ */
+const AUTO_FIT_DEBOUNCE_MS = 600;
+
+/** Optimizer search in flight — drives per-button spinners and mutual
+ *  exclusion (one search at a time). */
+export type OptimizeState =
+  | { kind: "max"; index: number }
+  | { kind: "fit" }
+  | null;
+
+/**
+ * "Max done" marker: target indices whose Max search already reached a
+ * deterministic terminal outcome (ok / already-at-max / infeasible /
+ * unbounded) against the EXACT problem identified by `forTargets`.
+ * Re-running Max for a marked index without changing anything would
+ * reproduce the same answer, so the button disables.
+ *
+ * Validity is DERIVED, not cleared: a mark only applies while the live
+ * `targets` array IS `forTargets` (identity). Any other array — rate
+ * edit, add/remove, lock toggle, Fit commit, Restore, prune, plan load
+ * — silently invalidates every mark; a Max commit marks against the
+ * array it just committed, so it survives its own write. Config-bundle
+ * changes (caps, routes, recipes, region, …) invalidate via
+ * `cancelActiveSearch` (the F-series staleness set). `cancelled` and
+ * solver-error outcomes never mark — retrying is their remedy.
+ */
+type MaxedMarks = {
+  forTargets: readonly ProductionTarget[];
+  indices: ReadonlySet<number>;
+} | null;
+
+/** Stable empty set so the derived `maxedIndices` memo keeps identity
+ *  while no marks apply. */
+const EMPTY_INDEX_SET: ReadonlySet<number> = new Set();
 
 interface SavedPlan {
   version: string;
-  targets: { itemId: string; rate: number }[];
+  /** `locked` is optional/additive: legacy saves omit it (= unlocked). */
+  targets: { itemId: string; rate: number; locked?: boolean }[];
   recipeOverrides: Record<string, string>;
   manualRawMaterials: string[];
   ceilMode: boolean;
@@ -95,6 +153,11 @@ function parseHash(): ParsedHashState {
     const knownRecipeIds = new Set(recipes.map((recipe) => recipe.id));
 
     // Parse targets: t=item_steel:6,item_glass:3
+    // A trailing `l` on the rate marks the target as locked
+    // (t=item_steel:6l). Backward AND forward compatible: old URLs have
+    // no suffix (= unlocked), and old app versions reading a new URL
+    // still get the rate via parseFloat("6l") === 6, merely dropping
+    // the flag.
     const targetsRaw = params.get("t");
     const parsedTargets: ProductionTarget[] = [];
     if (targetsRaw) {
@@ -102,9 +165,13 @@ function parseHash(): ParsedHashState {
         const colonIdx = part.lastIndexOf(":");
         if (colonIdx === -1) continue;
         const itemId = part.slice(0, colonIdx) as ItemId;
-        const rate = parseFloat(part.slice(colonIdx + 1));
+        const rateStr = part.slice(colonIdx + 1);
+        const locked = rateStr.endsWith("l");
+        const rate = parseFloat(rateStr);
         if (knownItemIds.has(itemId) && isFinite(rate) && rate >= 0) {
-          parsedTargets.push({ itemId, rate });
+          parsedTargets.push(
+            locked ? { itemId, rate, locked: true } : { itemId, rate },
+          );
         }
       }
     }
@@ -166,7 +233,12 @@ function serializeHash(
   const params = new URLSearchParams();
 
   if (targets.length > 0) {
-    params.set("t", targets.map((t) => `${t.itemId}:${t.rate}`).join(","));
+    params.set(
+      "t",
+      targets
+        .map((t) => `${t.itemId}:${t.rate}${t.locked ? "l" : ""}`)
+        .join(","),
+    );
   }
 
   if (recipeOverrides.size > 0) {
@@ -199,19 +271,14 @@ function serializeHash(
 /**
  * Format one structured `PlanWarning` into a display string.
  *
- * The single point where `ceilMode` (UI preference) and i18n strings
- * are applied to packer/calc-emitted warnings. Keeps the data layer
- * (`multi-formula-packing.ts`, `calculator.ts`) free of display state.
- *
- * Plural rules: i18next uses the `count` param for `_one` / `_other`
- * (and `_few` / `_many` in Russian). We pass `Math.ceil(used)` as
- * `count` so plurals classify on the integer physical count regardless
- * of `ceilMode`; the human-readable `displayCount` (which respects
- * `ceilMode`) drives the visible number.
+ * The single point where i18n strings are applied to packer/calc-
+ * emitted warnings. Keeps the data layer (`multi-formula-packing.ts`,
+ * `calculator.ts`) free of display state. Deliberately `ceilMode`-free:
+ * facility-cap numbers are physical integers and raw-cap numbers are
+ * rates, so no branch depends on the display-rounding preference.
  */
 function formatPlanWarning(
   w: PlanWarning,
-  ceilMode: boolean,
   t: TFunction,
   facilitiesArr: readonly Facility[],
   itemsArr: readonly Item[],
@@ -229,12 +296,12 @@ function formatPlanWarning(
   switch (w.kind) {
     case "facility-over-cap":
       // Short numeric form: `{facility}: cap exceeded ({displayCount} / {cap})`.
-      // `displayCount` respects user's `ceilMode` toggle for parity with
-      // the side-panel card count + tooltip. No plural classification
-      // needed — the format string has no pluralizable noun.
+      // `used` is a physical placement count (always-ceiled integer,
+      // mode-independent — see `BinAggregates.physicalPerFacility`),
+      // so it renders as a plain integer in both display modes.
       return t("facilityOverCap", {
         facility: lookupFacilityName(w.facilityId),
-        displayCount: formatCount(w.used, ceilMode),
+        displayCount: String(w.used),
         cap: w.cap,
       });
     case "packer-override-infeasible":
@@ -345,31 +412,52 @@ export function useProductionPlan(
     history.replaceState(null, "", newUrl);
   }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion]);
 
-  // HiGHS WASM solver is async. Kick off WASM init at mount time so
-  // the first calculation has it ready; track readiness so we can
-  // surface a "loading solver…" state instead of running calculations
-  // against an uninitialised solver.
-  const [solverReady, setSolverReady] = useState<boolean>(isHighsReady);
+  // The calculation engine (HiGHS WASM inside the calc worker, with a
+  // main-thread fallback — see `calc-client.ts`) initialises async.
+  // Kick it off at mount time so the first calculation finds a warm
+  // solver; track readiness so we can surface a "loading solver…"
+  // state instead of running calculations against a cold engine.
+  const [solverReady, setSolverReady] = useState<boolean>(isCalcEngineReady);
   useEffect(() => {
-    if (isHighsReady()) return;
+    if (isCalcEngineReady()) {
+      setSolverReady(true);
+      return;
+    }
     let cancelled = false;
-    initHighs()
+    initCalcEngine()
       .then(() => {
         if (!cancelled) setSolverReady(true);
       })
       .catch((e) => {
         if (cancelled) return;
         // Log only. The solver-loading overlay over the production
-        // area remains visible. Reaching here means the WASM
-        // compile failed (near-zero probability in modern browsers);
-        // a richer error UI is not worth the surface area until
-        // real reports surface.
-        console.error("[HIGHS] init failed:", e);
+        // area remains visible. Reaching here means BOTH the worker
+        // and the main-thread WASM fallback failed (near-zero
+        // probability in modern browsers); a richer error UI is not
+        // worth the surface area until real reports surface.
+        console.error("[CALC] engine init failed:", e);
       });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Solver-facing view of `targets`. Strips presentation-only fields
+  // (`locked`) and keys identity on the CONTENT signature, so target
+  // edits that don't change what the LP sees — lock toggles create a
+  // new array/object identity to re-render and persist the hash's `l`
+  // suffix — never re-run the calc effect below (a full HiGHS solve).
+  // Content-keying mirrors App.tsx's `metastorageRouteSig` precedent.
+  const targetsCalcSig = targets
+    .map((t) => `${t.itemId}:${t.rate}`)
+    .join(",");
+  const calcTargets = useMemo(
+    () => targets.map(({ itemId, rate }) => ({ itemId, rate })),
+    // `targetsCalcSig` fully captures the solver-relevant content of
+    // `targets` (see above); the body reads nothing else.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [targetsCalcSig],
+  );
 
   // Core calculation: async because `calculateProductionPlan` awaits
   // HiGHS via the solver wrappers. `plan` / `error` are `useState`s
@@ -381,9 +469,22 @@ export function useProductionPlan(
   // debounces this to avoid flashing the overlay on routine fast
   // recalcs.
   const [isCalculating, setIsCalculating] = useState(false);
+  // Superseded-by-a-probe recovery. The latest-wins calc queue is
+  // shared with optimizer probes: when a display calc fired by a
+  // NON-target dep change (caps, routes, …) parks behind an in-flight
+  // probe, the next probe displaces it with CalcSupersededError. The
+  // "a newer request carries the fresh answer" assumption in the catch
+  // then fails — probe results never reach setPlan — and, if the
+  // search ends without a commit (noop/unbounded/infeasible/abort),
+  // nothing re-triggers the calc: `isCalculating` would strand true,
+  // blocking the overlay debounce and the auto-fit gate. Track the
+  // displacement and let the search's finally bump `calcNonce` (a calc
+  // effect dep) to re-run the display calc once the queue is free.
+  const displayCalcSupersededRef = useRef(false);
+  const [calcNonce, setCalcNonce] = useState(0);
   useEffect(() => {
     if (!solverReady) return;
-    if (targets.length === 0) {
+    if (calcTargets.length === 0) {
       setPlan(null);
       setError(null);
       setIsCalculating(false);
@@ -392,12 +493,12 @@ export function useProductionPlan(
     let cancelled = false;
     setError(null);
     setIsCalculating(true);
-    calculateProductionPlan(
-      targets,
+    calculate({
+      targets: calcTargets,
       items,
-      availableRecipes,
+      recipes: availableRecipes,
       facilities,
-      {
+      options: {
         rawMaterials: regionRawMaterials,
         rawCaps: rawMaterialCaps,
         recipeOverrides,
@@ -405,17 +506,30 @@ export function useProductionPlan(
         facilityCaps,
         metastorageRoutes,
       },
-    )
+    })
       .then((result) => {
         // Cancelled means a newer calc has started (or unmount). Leave
         // `isCalculating` true so the debounced overlay state doesn't
         // restart its timer between back-to-back recalcs.
         if (cancelled) return;
+        displayCalcSupersededRef.current = false;
         setPlan(result);
         setIsCalculating(false);
       })
       .catch((e) => {
         if (cancelled) return;
+        // Superseded = the calc-client's latest-wins queue displaced
+        // this request in favour of a newer one. In the edit stream
+        // that newer request carries the fresh answer; when the
+        // displacer was an optimizer PROBE it does not — flag it so
+        // the search's finally re-triggers the display calc (see
+        // `displayCalcSupersededRef`). Keep `isCalculating` true
+        // either way so the overlay debounce doesn't restart between
+        // back-to-back recalcs.
+        if (isCalcSuperseded(e)) {
+          displayCalcSupersededRef.current = true;
+          return;
+        }
         setError(e instanceof Error ? e.message : t("calculationError"));
         setPlan(null);
         setIsCalculating(false);
@@ -425,7 +539,8 @@ export function useProductionPlan(
     };
   }, [
     solverReady,
-    targets,
+    calcNonce,
+    calcTargets,
     recipeOverrides,
     manualRawMaterials,
     availableRecipes,
@@ -483,6 +598,33 @@ export function useProductionPlan(
     return out;
   }, [metastorageRoutes]);
 
+  // Auto-fit per-edit context (consumed by the auto-fit effect in the
+  // optimizer block below). Declared up here because the auto-prune
+  // effect must clear it on structural target changes.
+  /** Index of the last user-edited target (the auto-fit demand). */
+  const lastEditedIndexRef = useRef<number | null>(null);
+  /** Auto-fit one-shot loop guard — re-armed by `handleTargetChange`. */
+  const autoFitSpentRef = useRef(false);
+  /**
+   * Drop auto-fit's per-edit context after a STRUCTURAL targets change
+   * (auto-prune, plan load): indices shifted or the whole array was
+   * replaced, so the remembered "last edited" index would point
+   * auto-fit's shrink-exclusion at the wrong target. `disarm`
+   * additionally sets the one-shot guard: structural changes that are
+   * not user edits (loading a plan) must not trigger an auto-fit pass
+   * by themselves. Ref writes live in this callback because
+   * react-hooks/immutability forbids them directly in effect BODIES
+   * (deferred contexts like the auto-fit effect's timer callback are
+   * exempt — that one spends the guard at fire time).
+   */
+  const resetAutoFitEditContext = useCallback(
+    (options: { disarm: boolean }) => {
+      lastEditedIndexRef.current = null;
+      if (options.disarm) autoFitSpentRef.current = true;
+    },
+    [],
+  );
+
   useEffect(() => {
     let removedOverrides = 0;
     let removedRaws = 0;
@@ -534,7 +676,13 @@ export function useProductionPlan(
     const total = removedTargets + removedOverrides + removedRaws;
     if (total === 0) return;
 
-    if (removedTargets > 0) setTargets(nextTargets);
+    if (removedTargets > 0) {
+      // Pruning shifts indices — a stale `lastEditedIndexRef` would
+      // point auto-fit's exclusion at the wrong target. Not a user
+      // edit, so leave the one-shot guard alone.
+      resetAutoFitEditContext({ disarm: false });
+      setTargets(nextTargets);
+    }
     if (removedOverrides > 0) setRecipeOverrides(nextOverrides);
     if (removedRaws > 0) setManualRawMaterials(nextRaws);
 
@@ -561,6 +709,7 @@ export function useProductionPlan(
     recipeOverrides,
     manualRawMaterials,
     regionRawMaterials,
+    resetAutoFitEditContext,
     t,
   ]);
 
@@ -652,13 +801,21 @@ export function useProductionPlan(
     [displayPlan, ceilMode],
   );
 
-  // Structured cap-overflow signals. Lifted to its own memo so two
-  // downstream consumers (the warnings string memo + the per-facility
-  // map for the side-panel visual indicator) share one computation.
+  // Structured facility-cap-overflow signals. Two downstream consumers
+  // share this memo: `facilityOverCapMap` (the over-cap stat-row
+  // chrome) and `capIssueCount` (the ticker's destructive badge).
+  // Detection uses `aggregates.physicalPerFacility` (always-ceiled,
+  // mode-independent placement counts): in-game caps are hard limits
+  // on WHOLE buildings, and single-formula fragmentation can need more
+  // placements than the fractional LP usage suggests (see the JSDoc on
+  // `BinAggregates.physicalPerFacility`). Uniformly covers recipe bins
+  // AND pickup-point source facilities (pump_1, pump_2, unloader_1) —
+  // the latter being absent from `plan.bins` and therefore invisible
+  // to the packer's earlier cap check.
   const overCapWarnings = useMemo<readonly PlanWarning[]>(
     () =>
       aggregates
-        ? computeOverCapWarnings(aggregates.rawPerFacility, facilityCaps)
+        ? computeOverCapWarnings(aggregates.physicalPerFacility, facilityCaps)
         : [],
     [aggregates, facilityCaps],
   );
@@ -715,64 +872,63 @@ export function useProductionPlan(
     invalidCycleItemIds,
   );
 
-  // Per-raw-item cap overflow detection. Mirrors `overCapWarnings`
-  // exactly, but on the raw-materials side: compares the plan's
-  // post-pack `stats.rawMaterialRequirements` (items/min consumption)
-  // against the user's `rawMaterialCaps`. The LP layer additionally
-  // adds slack-based upper-bound constraints (see `lp-solver.ts`), so
-  // the LP biases toward conservation; this surfaces any residual
-  // overage to the user.
+  // Cap-overflow issue count (facility + raw) for the stats tickers'
+  // destructive badge. Cap overflows no longer emit banner strings —
+  // the over-cap stat rows (destructive outline + AlertTriangle) ARE
+  // the warning surface — but the badge must still signal them while
+  // the dock is collapsed / the portrait sheet is closed, where those
+  // rows are invisible.
   //
+  // Raw side mirrors the facility check: compares the plan's post-pack
+  // `stats.rawMaterialRequirements` (items/min consumption) against
+  // the user's `rawMaterialCaps`. The LP layer additionally adds
+  // slack-based upper-bound constraints (see `lp-solver.ts`), so the
+  // LP biases toward conservation; this surfaces any residual overage.
   // **No entry in `rawMaterialCaps` = no limit**, structurally
   // enforced by `computeRawOverCapWarnings` iterating the caps map
   // rather than the requirements map.
-  const rawOverCapWarnings = useMemo<readonly PlanWarning[]>(
+  const capIssueCount = useMemo<number>(
     () =>
-      computeRawOverCapWarnings(
-        stats.rawMaterialRequirements,
-        rawMaterialCaps,
-      ),
-    [stats.rawMaterialRequirements, rawMaterialCaps],
+      overCapWarnings.length +
+      computeRawOverCapWarnings(stats.rawMaterialRequirements, rawMaterialCaps)
+        .length,
+    [overCapWarnings, stats.rawMaterialRequirements, rawMaterialCaps],
   );
 
-  // Per-item map for the side-panel `<ProductionStats>` raw-materials
-  // list red-tint + tooltip. Mirrors `facilityOverCapMap` shape.
-  const rawMaterialOverCapMap = useMemo<
+  // Per-item {used, cap} for EVERY valid capped raw — the stats
+  // surfaces' raw-material cards derive both the capacity bar
+  // (headroom at a glance) and the over-cap state (used > cap + ε,
+  // decided at the leaf) from this one map. Items without a cap have
+  // no entry (= no limit, no bar).
+  const rawMaterialCapMap = useMemo<
     ReadonlyMap<ItemId, { used: number; cap: number }>
   >(() => {
     const out = new Map<ItemId, { used: number; cap: number }>();
-    for (const w of rawOverCapWarnings) {
-      if (w.kind === "raw-over-cap") {
-        out.set(w.itemId, { used: w.used, cap: w.cap });
-      }
+    if (!rawMaterialCaps) return out;
+    for (const [itemId, cap] of rawMaterialCaps) {
+      // Same validity guard as `computeRawOverCapWarnings`.
+      if (!Number.isFinite(cap) || cap < 0) continue;
+      out.set(itemId, {
+        used: stats.rawMaterialRequirements.get(itemId) ?? 0,
+        cap,
+      });
     }
     return out;
-  }, [rawOverCapWarnings]);
+  }, [rawMaterialCaps, stats.rawMaterialRequirements]);
 
   // Derive warning messages from invalid cycles (with translated item
   // names) plus any non-fatal warnings the calculator surfaced (e.g.
-  // packer fallback warnings from `multi-formula-packing`) plus
-  // facility-cap overflows AND raw-cap overflows detected here at the
-  // aggregate layer.
+  // packer fallback warnings from `multi-formula-packing`).
   //
   // Cycle warnings only fire for cycles caused by user recipe overrides
   // — pre-existing unsolvable cycles in the game data are not actionable
-  // and are skipped. Structured warnings (packer + facility cap + raw
-  // cap) are formatted here with `ceilMode` + i18n via
-  // `formatPlanWarning`.
+  // and are skipped. Structured warnings (packer + metastorage) are
+  // formatted here with i18n via `formatPlanWarning`.
   //
-  // Facility-cap detection uses `aggregates.rawPerFacility` (mode-
-  // independent raw LP counts), so it uniformly covers recipe bins AND
-  // pickup-point source facilities (pump_1, pump_2, unloader_1) — the
-  // latter being absent from `plan.bins` and therefore invisible to
-  // the packer's earlier cap check. Raw-cap detection uses post-pack
-  // `stats.rawMaterialRequirements` so it reflects the ceiled plan.
-  //
-  // Single unified memo so the consumer (`AppContent` → production
-  // view) sees one array. Was previously two memos (`warnings` +
-  // `warningsWithRawCaps`) because `rawOverCapWarnings` depended on
-  // `stats`; the memo reordering done in this commit moves `stats`
-  // earlier, allowing a single memo here.
+  // Cap overflows (facility + raw) deliberately do NOT emit banner
+  // strings: the over-cap stat rows carry the destructive chrome +
+  // exact numbers (tooltip / aria), and `capIssueCount` keeps the
+  // ticker badge honest while those rows are hidden.
   const warnings: string[] = useMemo(() => {
     if (!plan) return [];
     const cycleWarnings = plan.invalidCycles
@@ -822,33 +978,42 @@ export function useProductionPlan(
       });
 
     const planWarnings = (plan.warnings ?? []).map((w) =>
-      formatPlanWarning(w, ceilMode, t, facilities, items),
+      formatPlanWarning(w, t, facilities, items),
     );
 
-    const capWarnings = overCapWarnings.map((w) =>
-      formatPlanWarning(w, ceilMode, t, facilities, items),
-    );
+    // Failed-solve banner. A non-"ok" `lpStatus` plan is an empty
+    // best-effort shell (zero rates, no bins) that otherwise renders
+    // as a silently-blank table — surface it UNLESS another warning
+    // already explains the failure (pin-caused cycles or metastorage
+    // budget/route problems carry more specific text).
+    const lpStatusWarnings: string[] = [];
+    if (
+      plan.lpStatus !== "ok" &&
+      cycleWarnings.length === 0 &&
+      !(plan.warnings ?? []).some(
+        (w) =>
+          w.kind === "metastorage-budget-insufficient" ||
+          w.kind === "metastorage-route-conflict",
+      )
+    ) {
+      lpStatusWarnings.push(
+        t(
+          plan.lpStatus === "solver_error"
+            ? "planSolverError"
+            : "planLpInfeasible",
+        ),
+      );
+    }
 
-    const rawCapWarnings = rawOverCapWarnings.map((w) =>
-      formatPlanWarning(w, ceilMode, t, facilities, items),
-    );
-
-    return [
-      ...cycleWarnings,
-      ...planWarnings,
-      ...capWarnings,
-      ...rawCapWarnings,
-    ];
-  }, [
-    plan,
-    overCapWarnings,
-    rawOverCapWarnings,
-    recipeOverrides,
-    ceilMode,
-    t,
-  ]);
+    return [...cycleWarnings, ...planWarnings, ...lpStatusWarnings];
+  }, [plan, recipeOverrides, t]);
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
+    // Auto-fit bookkeeping: the just-edited target is the demand — it
+    // is excluded from auto-shrinking — and every manual edit re-arms
+    // the one-shot loop guard.
+    lastEditedIndexRef.current = index;
+    autoFitSpentRef.current = false;
     setTargets((prev) =>
       // Clone the target object as well as the array so memoized consumers
       // that compare against `prev[index]` by reference see a new instance.
@@ -857,7 +1022,29 @@ export function useProductionPlan(
   }, []);
 
   const handleTargetRemove = useCallback((index: number) => {
+    // Removal shifts every higher index down — a stale
+    // `lastEditedIndexRef` would make auto-fit exclude (and thereby
+    // shrink-protect) the WRONG target. Clear it, and re-arm the
+    // one-shot guard: removing a target is a user edit of the demand
+    // set just like a rate change.
+    lastEditedIndexRef.current = null;
+    autoFitSpentRef.current = false;
     setTargets((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  // Toggle a target's lock flag. Locked targets are frozen under every
+  // automatic adjustment (Fit scaling and priority-Max shrinking) —
+  // see the `target-optimizer.ts` module doc.
+  const handleTargetLockToggle = useCallback((index: number) => {
+    setTargets((prev) =>
+      prev.map((t, i) =>
+        i === index
+          ? t.locked
+            ? { itemId: t.itemId, rate: t.rate }
+            : { ...t, locked: true }
+          : t,
+      ),
+    );
   }, []);
 
   const handleBatchAddTargets = useCallback(
@@ -911,12 +1098,434 @@ export function useProductionPlan(
     });
   }, []);
 
+  // Max-button gating: a target's Max action only makes sense when at
+  // least one raw material reachable in its production chain has a
+  // configured limit — that is what makes "maximum" finite. (Facility
+  // caps and metastorage budgets BOUND the eventual search, but do not
+  // ENABLE it — see the `target-optimizer.ts` module doc.) The closure walks
+  // every alternative producer, so this over-approximates toward
+  // enabling — the engine's bracketing ceiling defends at runtime.
+  //
+  // Content-keyed on the target ITEM-ID set (the `targetsCalcSig`
+  // pattern): gating is rate- and lock-independent, so scrub-commit
+  // streams and lock toggles must not re-run the per-target chain
+  // closures (each rebuilds a full producer index over `recipes`).
+  const targetItemIdsSig = targets.map((t) => t.itemId).join(",");
+  const maxEnabledByTarget = useMemo(() => {
+    const out = new Map<ItemId, boolean>();
+    const cappedRaws = rawMaterialCaps ? [...rawMaterialCaps.keys()] : [];
+    for (const target of targets) {
+      if (out.has(target.itemId)) continue;
+      if (cappedRaws.length === 0) {
+        out.set(target.itemId, false);
+        continue;
+      }
+      const chainRaws = rawsInChainOf(
+        target.itemId,
+        availableRecipes,
+        regionRawMaterials,
+      );
+      out.set(
+        target.itemId,
+        cappedRaws.some((raw) => chainRaws.has(raw)),
+      );
+    }
+    return out;
+    // `targetItemIdsSig` fully captures the item-id content the memo
+    // body reads off the targets array (see above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetItemIdsSig, availableRecipes, regionRawMaterials, rawMaterialCaps]);
+
+  /* ── Target optimizer (Max / Fit) ─────────────────────────────────
+   *
+   * The bisection engines live in `@/lib/target-optimizer`; this block
+   * wires them to the calc worker + toasts. Design & invariants:
+   * the `target-optimizer.ts` module doc. Key hazards handled here:
+   *
+   *   - **Staleness**: `CalcSupersededError` only fires when a probe is
+   *     DISPLACED from the calc-client's pending slot; a UI edit whose
+   *     solve merely alternates with the probes displaces nothing. The
+   *     `isCancelled` closure therefore also compares the `targets`
+   *     array identity captured at search start (covers rate edits,
+   *     add/remove index shifts, AND lock toggles — the calc effect
+   *     ignores lock-only changes via `targetsCalcSig`, but the
+   *     optimizer's flexible set does not).
+   *   - **Errors**: superseded → silent abort (the user changed the
+   *     problem); anything else → error toast. Never "infeasible".
+   *   - **Undo**: both operations snapshot the pre-search targets array
+   *     and offer Restore in the completion toast — priority-Max is a
+   *     multi-value write.
+   */
+  const [optimizeState, setOptimizeState] = useState<OptimizeState>(null);
+  const targetsRef = useRef(targets);
+  useEffect(() => {
+    targetsRef.current = targets;
+  }, [targets]);
+  /** Monotone search token: bumping it cancels any in-flight search. */
+  const optimizeTokenRef = useRef(0);
+  // (`lastEditedIndexRef` / `autoFitSpentRef` are declared above the
+  // auto-prune effect, which clears them on structural changes.)
+
+  // "Max done" markers — see the `MaxedMarks` type doc. State (not a
+  // ref) because it drives the Max buttons' disabled rendering.
+  const [maxedMarks, setMaxedMarks] = useState<MaxedMarks>(null);
+  /** Mark `index` as maxed against `forTargets`. Same-identity marks
+   *  accumulate (Max A then Max B, both noop → both disabled); a new
+   *  identity replaces the set. */
+  const markMaxed = useCallback(
+    (forTargets: readonly ProductionTarget[], index: number) => {
+      setMaxedMarks((prev) =>
+        prev && prev.forTargets === forTargets
+          ? { forTargets, indices: new Set(prev.indices).add(index) }
+          : { forTargets, indices: new Set([index]) },
+      );
+    },
+    [],
+  );
+  const maxedIndices = useMemo<ReadonlySet<number>>(
+    () =>
+      maxedMarks && maxedMarks.forTargets === targets
+        ? maxedMarks.indices
+        : EMPTY_INDEX_SET,
+    [maxedMarks, targets],
+  );
+
+  /**
+   * End-of-search bookkeeping: clear the busy state and, if one of our
+   * probes displaced a display calc mid-search (see
+   * `displayCalcSupersededRef`), re-run that calc now that the queue is
+   * free — otherwise `isCalculating` strands true when the search ends
+   * without a target commit.
+   */
+  const concludeSearch = useCallback(() => {
+    setOptimizeState(null);
+    if (displayCalcSupersededRef.current) {
+      displayCalcSupersededRef.current = false;
+      setCalcNonce((n) => n + 1);
+    }
+  }, []);
+
+  /** Token-gated variant for the engines' finally blocks: when a
+   *  superseding search took over, IT owns the cleanup. */
+  const finishOptimizeSearch = useCallback(
+    (token: number) => {
+      if (optimizeTokenRef.current !== token) return;
+      concludeSearch();
+    },
+    [concludeSearch],
+  );
+
+  /**
+   * Abort any in-flight search AND drop the "Max done" markers. The
+   * targets-identity staleness guard covers target edits, but NOT
+   * changes to the rest of the problem definition — caps, raw limits,
+   * routes, available recipes, pins, manual raws, region. A search
+   * probing a stale options bundle could commit values the fresh
+   * problem judges over-cap (the same probe≠UI mismatch class as the
+   * zero-rate-target bug), so the effect below cancels it the moment
+   * `optimizerSolve` / `optimizerFeasibility` change identity. Must
+   * self-clean (unlike a superseding search, a config-cancel has no
+   * successor whose finally would clear `optimizeState`).
+   */
+  const cancelActiveSearch = useCallback(() => {
+    optimizeTokenRef.current++;
+    setMaxedMarks(null);
+    concludeSearch();
+  }, [concludeSearch]);
+
+  const [autoFit, setAutoFitState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTO_FIT_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setAutoFit = useCallback((value: boolean) => {
+    setAutoFitState(value);
+    try {
+      localStorage.setItem(AUTO_FIT_STORAGE_KEY, value ? "1" : "0");
+    } catch {
+      // Persistence is best-effort (private mode etc.).
+    }
+  }, []);
+
+  // Probe transport: same latest-wins worker client and the exact
+  // options bundle the calc effect uses — feasibility must judge the
+  // very problem the UI would solve. Probe results never touch `plan`;
+  // the final setTargets commit re-triggers the calc effect naturally.
+  const optimizerSolve = useCallback(
+    (vector: TargetVectorEntry[]) =>
+      calculate({
+        targets: vector,
+        items,
+        recipes: availableRecipes,
+        facilities,
+        options: {
+          rawMaterials: regionRawMaterials,
+          rawCaps: rawMaterialCaps,
+          recipeOverrides,
+          manualRawMaterials,
+          facilityCaps,
+          metastorageRoutes,
+        },
+      }),
+    [
+      availableRecipes,
+      regionRawMaterials,
+      rawMaterialCaps,
+      recipeOverrides,
+      manualRawMaterials,
+      facilityCaps,
+      metastorageRoutes,
+    ],
+  );
+
+  const optimizerFeasibility = useMemo<FeasibilityContext>(
+    () => ({
+      facilities,
+      items,
+      facilityCaps,
+      rawCaps: rawMaterialCaps,
+      manualRawMaterials,
+    }),
+    [facilityCaps, rawMaterialCaps, manualRawMaterials],
+  );
+
+  // Problem-definition staleness: cancel any in-flight search (and drop
+  // the "Max done" markers) whenever the options bundle changes
+  // identity — see `cancelActiveSearch`. `optimizerSolve` is a superset
+  // of `optimizerFeasibility`'s inputs; both listed for clarity. The
+  // mount-time invocation is a no-op (no search, no marks).
+  useEffect(() => {
+    cancelActiveSearch();
+  }, [optimizerSolve, optimizerFeasibility, cancelActiveSearch]);
+
+  const handleMaximizeTarget = useCallback(
+    async (index: number) => {
+      const captured = targetsRef.current;
+      const targetItem = captured[index];
+      if (!targetItem) return;
+      const token = ++optimizeTokenRef.current;
+      setOptimizeState({ kind: "max", index });
+      try {
+        const result = await maximizeTargetRate({
+          targets: captured,
+          index,
+          solve: optimizerSolve,
+          feasibility: optimizerFeasibility,
+          isCancelled: () =>
+            optimizeTokenRef.current !== token ||
+            targetsRef.current !== captured,
+        });
+        if (result.kind === "cancelled") return;
+        // Deterministic terminal outcomes mark the index as "maxed":
+        // re-pressing without changing anything would reproduce the
+        // exact same answer (and burn the same solves). Cancelled and
+        // solver-error outcomes never mark — retrying is their remedy.
+        if (result.kind === "unbounded") {
+          markMaxed(captured, index);
+          toast.info(t("maximizeNoLimit"));
+          return;
+        }
+        if (result.kind === "infeasible") {
+          markMaxed(captured, index);
+          toast.warning(t("maximizeInfeasible"));
+          return;
+        }
+        const item = getItemById(items, targetItem.itemId);
+        const itemLabel = item ? getItemName(item) : targetItem.itemId;
+        // Pure noop: X is already at its maximum AND pass 2 didn't
+        // move any other target (a repeat press on an already-Maxed
+        // target returns the identical milli-grid value; exact
+        // equality is deliberate — a hand-typed sub-milli rate
+        // genuinely changes on the first press and noops thereafter).
+        // Confirm instead of claiming a maximization happened; skip
+        // the write entirely — no hash churn, nothing to Restore.
+        const unchanged =
+          result.rate === targetItem.rate &&
+          [...result.otherRates].every(
+            ([i, r]) => captured[i]?.rate === r,
+          );
+        if (unchanged) {
+          markMaxed(captured, index);
+          toast.info(
+            t("maximizeAlreadyMax", { item: itemLabel, rate: result.rate }),
+          );
+          return;
+        }
+        // Eager array (not a functional updater): the mark must be
+        // keyed to the exact post-commit identity so it survives its
+        // own write while any OTHER array invalidates it. Safe for the
+        // same reason the Restore path writes a plain array — the
+        // staleness guard aborts the search whenever `targets` moved
+        // off `captured`.
+        const committed = captured.map((tgt, i) => {
+          if (i === index) return { ...tgt, rate: result.rate };
+          const recovered = result.otherRates.get(i);
+          return recovered !== undefined ? { ...tgt, rate: recovered } : tgt;
+        });
+        setTargets(committed);
+        markMaxed(committed, index);
+        toast.success(
+          t(
+            result.otherRates.size > 0 ? "maximizedToWithFit" : "maximizedTo",
+            { item: itemLabel, rate: result.rate },
+          ),
+          {
+            action: {
+              label: t("restore"),
+              onClick: () => {
+                // Whole-array replacement — same structural-change
+                // hygiene as plan load: a remembered edit index would
+                // point into the wrong array, and auto-fit must not
+                // immediately re-shrink the values the user just
+                // restored (that would make Restore a no-op).
+                resetAutoFitEditContext({ disarm: true });
+                setTargets(captured);
+              },
+            },
+          },
+        );
+      } catch (e) {
+        if (isCalcSuperseded(e)) return;
+        console.error("[OPTIMIZER] max search failed:", e);
+        toast.error(t("optimizeFailed"));
+      } finally {
+        finishOptimizeSearch(token);
+      }
+    },
+    [
+      optimizerSolve,
+      optimizerFeasibility,
+      resetAutoFitEditContext,
+      finishOptimizeSearch,
+      markMaxed,
+      t,
+    ],
+  );
+
+  const handleFitToLimits = useCallback(
+    async (excludeIndex?: number) => {
+      const captured = targetsRef.current;
+      const token = ++optimizeTokenRef.current;
+      setOptimizeState({ kind: "fit" });
+      try {
+        const result = await fitTargetsToLimits({
+          targets: captured,
+          excludeIndex,
+          solve: optimizerSolve,
+          feasibility: optimizerFeasibility,
+          isCancelled: () =>
+            optimizeTokenRef.current !== token ||
+            targetsRef.current !== captured,
+        });
+        if (result.kind === "cancelled") return;
+        if (result.kind === "noop") {
+          toast.info(t("fitNoop"));
+          return;
+        }
+        if (result.kind === "impossible") {
+          toast.warning(t("fitImpossible"));
+          return;
+        }
+        setTargets((prev) =>
+          prev.map((tgt, i) => {
+            const fitted = result.rates.get(i);
+            return fitted !== undefined ? { ...tgt, rate: fitted } : tgt;
+          }),
+        );
+        toast.success(t("fitApplied"), {
+          action: {
+            label: t("restore"),
+            onClick: () => {
+              // See the Max Restore handler: structural replacement
+              // clears the edit context and disarms auto-fit so the
+              // restored (over-limit) snapshot isn't instantly
+              // re-shrunk.
+              resetAutoFitEditContext({ disarm: true });
+              setTargets(captured);
+            },
+          },
+        });
+      } catch (e) {
+        if (isCalcSuperseded(e)) return;
+        console.error("[OPTIMIZER] fit search failed:", e);
+        toast.error(t("optimizeFailed"));
+      } finally {
+        finishOptimizeSearch(token);
+      }
+    },
+    [
+      optimizerSolve,
+      optimizerFeasibility,
+      resetAutoFitEditContext,
+      finishOptimizeSearch,
+      t,
+    ],
+  );
+
+  // Plan-over-limit signal shared by the Fit pill and auto-fit. Same
+  // clauses as the engine's `isPlanFeasible`: cap overflows (facility
+  // physical placements + raw rates, both inside `capIssueCount`) plus
+  // the metastorage budget warning.
+  const planOverLimit = useMemo<boolean>(
+    () =>
+      capIssueCount > 0 ||
+      (plan?.warnings ?? []).some(
+        (w) => w.kind === "metastorage-budget-insufficient",
+      ),
+    [capIssueCount, plan],
+  );
+
+  // Fit pill visibility: over-limit with something to shrink, hidden
+  // while auto-fit owns the job (the two would race).
+  const showFitPill = useMemo<boolean>(
+    () =>
+      !autoFit &&
+      planOverLimit &&
+      targets.some((tgt) => !tgt.locked && tgt.rate > 0),
+    [autoFit, planOverLimit, targets],
+  );
+
+  // Auto-fit: when a SETTLED calc result is over its limits, debounce
+  // and run one fit pass excluding the just-edited target. One-shot per
+  // edit (`autoFitSpentRef`): if the plan is still infeasible after the
+  // pass (e.g. everything else is locked → "impossible"), stop until
+  // the next edit re-arms the guard.
+  useEffect(() => {
+    if (!autoFit || !planOverLimit) return;
+    if (optimizeState !== null) return; // a search is already running
+    if (isCalculating) return; // judge settled results only
+    if (autoFitSpentRef.current) return;
+    const excludeIndex = lastEditedIndexRef.current ?? undefined;
+    const hasFlexible = targets.some(
+      (tgt, i) => i !== excludeIndex && !tgt.locked && tgt.rate > 0,
+    );
+    if (!hasFlexible) return;
+    const timer = setTimeout(() => {
+      autoFitSpentRef.current = true;
+      void handleFitToLimits(excludeIndex);
+    }, AUTO_FIT_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [
+    autoFit,
+    planOverLimit,
+    optimizeState,
+    isCalculating,
+    targets,
+    handleFitToLimits,
+  ]);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSavePlan = useCallback(() => {
     const data: SavedPlan = {
       version: "1",
-      targets: targets.map((t) => ({ itemId: t.itemId, rate: t.rate })),
+      targets: targets.map((t) => ({
+        itemId: t.itemId,
+        rate: t.rate,
+        ...(t.locked ? { locked: true } : {}),
+      })),
       recipeOverrides: Object.fromEntries(recipeOverrides),
       manualRawMaterials: Array.from(manualRawMaterials),
       ceilMode,
@@ -947,8 +1556,18 @@ export function useProductionPlan(
           try {
             const data = JSON.parse(ev.target?.result as string) as SavedPlan;
             if (data.version !== "1") return;
+            // Whole-array replacement: any remembered "last edited"
+            // index now points into a different plan. Clear it and
+            // disarm auto-fit until the user edits — loading an
+            // over-limit plan is not an edit and must not trigger an
+            // immediate rebalance.
+            resetAutoFitEditContext({ disarm: true });
             setTargets(
-              data.targets.map((t) => ({ itemId: t.itemId as ItemId, rate: t.rate })),
+              data.targets.map((t) =>
+                t.locked === true
+                  ? { itemId: t.itemId as ItemId, rate: t.rate, locked: true }
+                  : { itemId: t.itemId as ItemId, rate: t.rate },
+              ),
             );
             setRecipeOverrides(
               new Map(
@@ -973,7 +1592,7 @@ export function useProductionPlan(
     }
     fileInputRef.current.value = "";
     fileInputRef.current.click();
-  }, []);
+  }, [resetAutoFitEditContext]);
 
   return {
     targets,
@@ -989,14 +1608,24 @@ export function useProductionPlan(
     stats,
     error,
     warnings,
-    rawMaterialOverCapMap,
+    capIssueCount,
+    rawMaterialCapMap,
     ceilMode,
     setCeilMode,
     binFusion,
     setBinFusion,
     handleTargetChange,
     handleTargetRemove,
+    handleTargetLockToggle,
     handleBatchAddTargets,
+    maxEnabledByTarget,
+    maxedIndices,
+    optimizeState,
+    handleMaximizeTarget,
+    handleFitToLimits,
+    showFitPill,
+    autoFit,
+    setAutoFit,
     handleToggleRawMaterial,
     handleRecipeChange,
     handleRecipePinReset,

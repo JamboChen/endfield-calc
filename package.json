@@ -18,12 +18,12 @@
     "extract:metastorage": "bun run scripts/extract-metastorage.ts",
     "extract:structures": "bun run scripts/extract-structures.ts",
     "extract:aic": "bun run scripts/extract-aic.ts",
+    "extract:raw-caps": "bun run scripts/extract-raw-caps.ts",
     "extract:all": "bun run scripts/extract-all.ts",
     "extract:item-colors": "bun run scripts/extract-item-colors.ts"
   },
   "dependencies": {
     "@bubblyworld/highs-ts": "^1.2.0",
-    "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-label": "^2.1.7",
@@ -32,7 +32,6 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
-    "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tailwindcss/vite": "^4.1.16",

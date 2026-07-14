@@ -7,7 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { RecipeIOFull, ItemIcon } from "../production/ProductionTable";
+import { RecipeIOFull, ItemIcon } from "../production/recipe-cells";
 import { getDomainName, getItemName, getFacilityName, getRecipeName, getTransportLabel } from "@/lib/i18n-helpers";
 import { useTranslation } from "react-i18next";
 import type {

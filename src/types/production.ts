@@ -307,12 +307,37 @@ export type InvalidCycleInfo = {
   overriddenItemIds: ItemId[];
 };
 
+/**
+ * Outcome of the global flow LP behind a plan.
+ *
+ *   - `"ok"` — the LP solved; facility counts are real.
+ *   - `"infeasible"` — no recipe combination satisfies the targets
+ *     (pinned dead cycles, genuine bootstrap problems, import-only
+ *     demand above the TTV budget). The plan is the best-effort EMPTY
+ *     shell: no recipe nodes, no bins, zero rates.
+ *   - `"unbounded"` — pass-1 unbounded (practically unreachable;
+ *     defensive). Same empty shell.
+ *   - `"solver_error"` — HiGHS threw mid-solve (e.g. a wedged WASM
+ *     instance). Same empty shell; the singleton self-heals on the
+ *     next solve (see `highs-singleton.ts`).
+ *
+ * Consumers MUST NOT read production data off a non-`"ok"` plan as if
+ * it were a real result — an empty shell is indistinguishable from
+ * "nothing produced" otherwise. The target optimizer's feasibility
+ * predicate treats non-`"ok"` as infeasible (a vacuously-clean empty
+ * plan once let Max bracket to its ceiling and report "unbounded"),
+ * and `useProductionPlan` surfaces a warning banner for it.
+ */
+export type PlanLpStatus = "ok" | "infeasible" | "unbounded" | "solver_error";
+
 export type ProductionDependencyGraph = {
   nodes: Map<string, ProductionGraphNode>;
   edges: Array<{ from: string; to: string }>;
   targets: Set<ItemId>;
   detectedCycles: DetectedCycle[];
   invalidCycles: InvalidCycleInfo[];
+  /** Global flow-LP outcome — see `PlanLpStatus`. */
+  lpStatus: PlanLpStatus;
   /**
    * Result of Phase 3 multi-formula bin packing. Empty when the plan
    * contains no recipes from multi-formula facilities (those with

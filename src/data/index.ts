@@ -28,6 +28,22 @@ const facilities: Facility[] = [
 ];
 
 /**
+ * Facilities that are fixed map structures rather than player-placed
+ * buildings (today: the Wuling Purification Node's Sewage Inlet). They
+ * exist at pre-set positions on the region map — the player only
+ * *enables* them — so they occupy no Core-AIC build-grid space and are
+ * excluded from `aggregateBinTotals.totalTiles`.
+ *
+ * Aliased to ALL region-subsystem facility ids on purpose: every
+ * `regionFacilities` entry is extracted from a `Factory*PlantStoreTable`
+ * map structure, so "region facility" ⟹ "map-placed" *by construction
+ * of the extractor*. If upstream data ever introduces a region-modelled
+ * facility the player builds on the grid, split this into an explicit
+ * subset — otherwise its tiles would silently vanish from `totalTiles`.
+ */
+const mapPlacedFacilities: ReadonlySet<FacilityId> = regionFacilityIds;
+
+/**
  * Combined recipe roster: the auto-generated roster plus the
  * auto-generated region-subsystem recipes (today: the two
  * `LIQUID_CLEAN_GATE_1_*` sewage-inlet variants). Same merge convention
@@ -364,6 +380,7 @@ export {
   items,
   facilities,
   recipes,
+  mapPlacedFacilities,
   rawMaterialSources,
   rawAvailabilityByDomain,
   costlessRaws,
@@ -373,5 +390,6 @@ export {
   MAX_TARGETS,
 };
 export type { RawSourceConfig };
+export { defaultRawCapsByDomain } from "./raw-caps";
 export { regionStructures } from "./region-subsystems";
 export { metastorageExports, metastorageSources } from "./metastorage";

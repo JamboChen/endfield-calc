@@ -24,6 +24,7 @@ pnpm run extract:items       # Refresh src/data/items.ts + public/locales/{lang}
 pnpm run extract:metastorage # Refresh src/data/metastorage.ts (TTV caps + per-item costs)
 pnpm run extract:structures  # Refresh src/data/region-subsystems.ts + public/locales/{lang}/structure.json
 pnpm run extract:aic         # Refresh src/data/aic-plans.ts + public/locales/{lang}/{aic,domain}.json
+pnpm run extract:raw-caps    # Refresh src/data/raw-caps.ts (per-region max mining output from scene data LevelGenForRuntime/TotalFactoryRegions.json + DomainDataTable + FactoryMinerTable; the scene file is extracted from the game client — see the script header)
 pnpm run extract:item-colors # Refresh src/data/item-colors.ts from public/images/items/*.png — STANDALONE, not in extract:all (icons are manually curated); re-run when icons change
 ```
 

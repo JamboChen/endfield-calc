@@ -579,11 +579,4 @@ type DomainId = (typeof DomainId)[keyof typeof DomainId];
 type BinId = string & { readonly __brand: "BinId" };
 
 export { ItemId, RecipeId, FacilityId, RegionStructureId, DomainId };
-export type {
-  ItemId as ItemIdType,
-  RecipeId as RecipeIdType,
-  FacilityId as FacilityIdType,
-  RegionStructureId as RegionStructureIdType,
-  DomainId as DomainIdType,
-  BinId,
-};
+export type { BinId };

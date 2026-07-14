@@ -11,6 +11,7 @@ import type {
   ProductionNode,
   DetectedCycle,
   InvalidCycleInfo,
+  PlanLpStatus,
   PlanWarning,
   ProductionDependencyGraph,
   ProductionGraphNode,
@@ -570,6 +571,7 @@ function buildProductionGraph(
   warnings: PlanWarning[] = [],
   recipePrefill: Map<RecipeId, ItemId[]> = new Map(),
   metastorageImports: PlanMetastorageImport[] = [],
+  lpStatus: PlanLpStatus = "ok",
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
@@ -781,6 +783,7 @@ function buildProductionGraph(
     targets: graph.targets,
     detectedCycles,
     invalidCycles,
+    lpStatus,
     bins,
     recipeBinAllocations,
     warnings,
@@ -1293,6 +1296,15 @@ export async function calculateProductionPlan(
         };
   const { flowData, invalidSCCs } = flowResult;
 
+  // Honest LP outcome for the returned plan. A failed solve produces a
+  // best-effort EMPTY shell (no recipe nodes, no bins) that is
+  // otherwise indistinguishable from "nothing produced" — callers that
+  // judge plans (the target optimizer's feasibility predicate, the
+  // hook's warning surface) need this marker. See `PlanLpStatus`.
+  const lpStatus: PlanLpStatus = flowResult.metrics.feasible
+    ? "ok"
+    : (flowResult.metrics.failureReason ?? "infeasible");
+
   // Metastorage plan surfacing + warnings. The viability gate in
   // `selectMetastorageImports` guarantees the winning solve carries no
   // budget overage, so these flows are always within budget; routes
@@ -1397,5 +1409,6 @@ export async function calculateProductionPlan(
     [...packing.warnings, ...metastorageWarnings],
     recipePrefill,
     metastorageImports,
+    lpStatus,
   );
 }

@@ -13,11 +13,11 @@
  * module-level promise.
  *   1. Call `initHighs()` at app startup so the WASM file fetches /
  *      compiles in the background.
- *   2. `getHighs()` is async — `@bubblyworld/highs-ts`'s `parse()` and
- *      `solve()` are async, so glue code in `highs-wrapper.ts` is also
- *      async. The init step is what blocks the UI from running
- *      calculations before HiGHS is ready (see `useProductionPlan`'s
- *      `isLoading` state).
+ *   2. `highs-wrapper.solve` awaits `initHighs()` per call — instant
+ *      when warm, and the seam that transparently recreates the
+ *      instance after a `resetHighs()` self-heal. The init step is
+ *      what blocks the UI from running calculations before HiGHS is
+ *      ready (see `useProductionPlan`'s `isLoading` state).
  *
  * In the test environment, `await initHighs()` is invoked once via
  * vitest's `test.setupFiles` (per worker) so every test file sees a
@@ -47,24 +47,28 @@ export function initHighs(): Promise<HiGHS> {
 }
 
 /**
- * Synchronous accessor for the HiGHS instance. Throws if `initHighs()`
- * hasn't resolved yet — this is intentional: solver call sites assume
- * a ready solver, and any "not ready" condition should be caught at
- * the UI layer (the calculate button is disabled until ready), not
- * inside the solver itself.
+ * Discard the current HiGHS instance so the next `initHighs()` (which
+ * `highs-wrapper.solve` awaits per call) creates a fresh one.
+ *
+ * Self-heal seam for wedged WASM: a pathological MIP (e.g. the
+ * packer's cap-infeasible retry chain on a heavily over-cap plan) can
+ * leave the instance in a state where every subsequent `solve()`
+ * throws. Those throws are caught upstream (`lp-solver` maps them to
+ * `solver_error`, the packer to its fallback path), so without this
+ * reset the app silently returns empty plans until a full page reload
+ * — the "frozen until refresh" failure mode. `highs-wrapper.solve`
+ * calls this on any parse/solve throw before rethrowing.
+ *
+ * The stale instance's `free()` is best-effort: it is already
+ * presumed broken, so a throwing free is expected noise.
  */
-export function getHighs(): HiGHS {
-  if (!highsInstance) {
-    throw new Error(
-      "[HIGHS] Solver not initialised. Call `initHighs()` and await it before using `getHighs()`.",
-    );
+export function resetHighs(): void {
+  const stale = highsInstance;
+  highsInstance = null;
+  highsPromise = null;
+  try {
+    stale?.free();
+  } catch {
+    // Ignore — see JSDoc.
   }
-  return highsInstance;
-}
-
-/**
- * True when HiGHS is ready. Used by UI layer to gate the calculate flow.
- */
-export function isHighsReady(): boolean {
-  return highsInstance !== null;
 }

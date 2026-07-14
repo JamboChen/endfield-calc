@@ -12,6 +12,20 @@
   "rawOverCap": "{{item}}：超出上限 ({{used}}/分 / {{cap}}/分)。",
   "packerOverrideInfeasible": "在「{{facility}}」上選用的配方「{{recipe}}」沒有可行的容器形狀。打包器已退回為該配方使用獨立建築。",
   "packerFallback": "由於約束配置不可行，多配方建築打包器已退回為每個配方使用獨立建築。",
+  "maximizedTo": "{{item}} 已最大化至 {{rate}}/分鐘。",
+  "maximizedToWithFit": "{{item}} 已最大化至 {{rate}}/分鐘——其他未鎖定目標已相應縮減。",
+  "maximizeAlreadyMax": "{{item}} 已達到最大值——{{rate}}/分鐘。",
+  "maximizeNoLimit": "未達到任何限制——該物品的生產鏈不受已配置限制的約束。",
+  "maximizeInfeasible": "無法最大化:僅鎖定的目標就已超出配置的限制。",
+  "fitApplied": "目標已縮減以適配配置的限制。",
+  "fitNoop": "方案已符合配置的限制。",
+  "fitImpossible": "無法適配:僅鎖定的目標就已超出配置的限制。",
+  "restore": "恢復",
+  "optimizeFailed": "優化已中止——求解器回報了錯誤。",
+  "autoFit": "自動適配限制",
+  "autoFitHint": "當編輯使方案超出限制時,自動縮減其他未鎖定目標以適配。鎖定的目標不會被調整。",
+  "planLpInfeasible": "這些目標不存在可行的生產方案——求解器無法滿足所有約束。請檢查已固定的配方和進口路線。",
+  "planSolverError": "求解器意外失敗,無法計算方案。下次重新計算時將自動恢復——編輯任意目標即可重試。",
   "footer": {
     "feedback": "反饋與建議：",
     "trademark": "明日方舟：終末地 是鷹角網絡的商標。本工具與鷹角網絡無關，未獲其認可。",
@@ -20,9 +34,16 @@
   "header": {
     "community": "社群",
     "discord": "Discord 伺服器",
+    "language": "語言",
+    "menu": "選單",
+    "open": "開啟方案",
     "qqGroup": "QQ 群",
     "save": "儲存方案",
-    "open": "開啟方案"
+    "toggleTheme": "切換主題"
+  },
+  "mobileNav": {
+    "plan": "方案",
+    "production": "生產"
   },
   "tabs": {
     "merged": "配方視圖",
@@ -32,5 +53,8 @@
   },
   "title": "終末地工廠生產計算器",
   "metastorageRouteConflict": "每個來源區域的超庫存傳輸一次只能輸送一種物品。以下目標無法同時進口：{{items}}",
-  "metastorageBudgetInsufficient": "{{item}}（來自 {{source}}）：每次配送需要 {{needed}} 傳輸總值，但上限為 {{cap}}。未套用傳輸。請降低目標速率或擴大本地生產。"
+  "metastorageBudgetInsufficient": "{{item}}（來自 {{source}}）：每次配送需要 {{needed}} 傳輸總值，但上限為 {{cap}}。未套用傳輸。請降低目標速率或擴大本地生產。",
+  "viewOptions": "檢視選項",
+  "expandPanel": "展開面板",
+  "collapsePanel": "摺疊面板"
 }

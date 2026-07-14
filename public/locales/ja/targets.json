@@ -1,1 +1,15 @@
-{ "addTarget": "目標を追加", "count": "{{current}} / {{max}}", "noIcon": "なし", "rateInput": "レート入力", "rateUnit": "毎分", "removeTarget": "目標を削除", "title": "生産目標" }
+{
+  "addTarget": "目標を追加",
+  "count": "{{current}} / {{max}}",
+  "fitToLimits": "上限内に調整",
+  "lockTarget": "目標をロック — 自動調整から保護",
+  "maximize": "上限内で最大化",
+  "maximizeNoLimits": "このアイテムの原材料に上限を設定すると最大化が使えます",
+  "maximizeUpToDate": "現在のプランでは最大化済みです — 何かを変更すると再度有効になります",
+  "rateInput": "レート入力",
+  "rateUnit": "毎分",
+  "removeTarget": "目標を削除",
+  "scrubHint": "左右にドラッグで調整 — 距離に応じて加速。矢印キー: ±1 · Shift: ±10 · Alt: ±0.1 · Alt+Shift: ±0.01",
+  "title": "生産目標",
+  "unlockTarget": "ロック解除"
+}

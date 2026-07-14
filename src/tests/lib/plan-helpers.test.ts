@@ -9,7 +9,13 @@ import {
   computeRawOverCapWarnings,
   filterPlanForDisplay,
 } from "@/lib/plan-helpers";
-import { items, recipes, facilities, rawMaterialSources } from "@/data";
+import {
+  items,
+  recipes,
+  facilities,
+  mapPlacedFacilities,
+  rawMaterialSources,
+} from "@/data";
 import { getRawSourceRate } from "@/lib/utils";
 import {
   DomainId as DomainIdEnum,
@@ -894,39 +900,6 @@ describe("aggregateBinTotals (real data)", () => {
     }
   });
 
-  test("multiFormulaBaseline >= multiFormulaActual (savings non-negative)", async () => {
-    const plan = await calculateProductionPlan(
-      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
-      items,
-      recipes,
-      facilities,
-      { rawMaterials: ALL_RAWS },
-    );
-    const totals = aggregateBinTotals(plan, facilities, items);
-    expect(totals.multiFormulaBaselineBuildings)
-      .toBeGreaterThanOrEqual(totals.multiFormulaActualBuildings);
-  });
-
-  test("multiFormulaActual sums only bins on multi-formula-eligible facilities", async () => {
-    const plan = await calculateProductionPlan(
-      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
-      items,
-      recipes,
-      facilities,
-      { rawMaterials: ALL_RAWS },
-    );
-    const totals = aggregateBinTotals(plan, facilities, items);
-    const facilityById = new Map(facilities.map((f) => [f.id, f]));
-    let expected = 0;
-    for (const bin of plan.bins) {
-      const fac = facilityById.get(bin.facilityId);
-      if (fac?.cacheSlots != null) {
-        expected += Math.max(1, Math.ceil(bin.buildingCount));
-      }
-    }
-    expect(totals.multiFormulaActualBuildings).toBe(expected);
-  });
-
   test("perFacility entries sum to totalBuildings (ceilMode=true)", async () => {
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
@@ -966,6 +939,7 @@ describe("aggregateBinTotals (real data)", () => {
       targets: new Set<ItemId>(),
       detectedCycles: [],
       invalidCycles: [],
+      lpStatus: "ok" as const,
       bins: [],
       recipeBinAllocations: new Map(),
       warnings: [],
@@ -975,8 +949,6 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalBuildings).toBe(0);
     expect(totals.totalPower).toBe(0);
     expect(totals.perFacility.size).toBe(0);
-    expect(totals.multiFormulaActualBuildings).toBe(0);
-    expect(totals.multiFormulaBaselineBuildings).toBe(0);
   });
 
   test("bin on unknown facility id is ignored (defensive)", async () => {
@@ -989,6 +961,7 @@ describe("aggregateBinTotals (real data)", () => {
       targets: new Set<ItemId>(),
       detectedCycles: [],
       invalidCycles: [],
+      lpStatus: "ok" as const,
       bins: [
         {
           id: "bin-orphan" as BinId,
@@ -1119,33 +1092,10 @@ describe("aggregateBinTotals (real data)", () => {
     expect(totals.totalPower).toBeCloseTo(binPower + pickup.power, 6);
   });
 
-  test("multiFormulaActual/Baseline are always-ceiled regardless of ceilMode", async () => {
-    // These are physical counterfactuals for the groupedSavings metric;
-    // they must stay integer regardless of ceilMode.
-    const plan = await calculateProductionPlan(
-      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
-      items,
-      recipes,
-      facilities,
-      { rawMaterials: ALL_RAWS },
-    );
-    const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
-    const fractional = aggregateBinTotals(plan, facilities, items, {
-      ceilMode: false,
-    });
-    expect(ceiled.multiFormulaActualBuildings).toBe(
-      fractional.multiFormulaActualBuildings,
-    );
-    expect(ceiled.multiFormulaBaselineBuildings).toBe(
-      fractional.multiFormulaBaselineBuildings,
-    );
-    expect(Number.isInteger(ceiled.multiFormulaActualBuildings)).toBe(true);
-    expect(Number.isInteger(ceiled.multiFormulaBaselineBuildings)).toBe(true);
-  });
 });
 
 // ════════════════════════════════════════════════════════════════════
-// rawPerFacility — mode-independent raw LP counts (covers cap detection)
+// rawPerFacility — mode-independent raw LP counts (sort + utilization)
 // ════════════════════════════════════════════════════════════════════
 
 describe("aggregateBinTotals.rawPerFacility", () => {
@@ -1177,7 +1127,8 @@ describe("aggregateBinTotals.rawPerFacility", () => {
 
   test("rawPerFacility is identical between ceilMode=true and ceilMode=false", async () => {
     // Critical invariant: rawPerFacility is the canonical LP-derived
-    // count, used by cap detection. It must NOT respond to ceilMode.
+    // count, used for mode-independent row ordering + utilization.
+    // It must NOT respond to ceilMode.
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
       items,
@@ -1225,6 +1176,175 @@ describe("aggregateBinTotals.rawPerFacility", () => {
     // SHOULD ceil to 1.
     const unloaderDisplay = totals.perFacility.get(FacilityIdEnum.UNLOADER_1);
     expect(unloaderDisplay).toBe(1);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// physicalPerFacility — always-ceiled placements (cap-detection input)
+// ════════════════════════════════════════════════════════════════════
+
+describe("aggregateBinTotals.physicalPerFacility", () => {
+  test("per-bin ceiling: single fractional bin counts as 1 physical placement", async () => {
+    // Iron Powder 15/min → one fractional grinder bin (< 1 building).
+    // Physically that's still one whole placement.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_IRON_POWDER, rate: 15 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const totals = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: false,
+    });
+    const grinderRaw = totals.rawPerFacility.get(FacilityIdEnum.GRINDER_1);
+    expect(grinderRaw!).toBeLessThan(1);
+    expect(
+      totals.physicalPerFacility.get(FacilityIdEnum.GRINDER_1),
+    ).toBe(1);
+  });
+
+  test("pickup-point source facility contributes CEILED count", async () => {
+    // Same plan as the rawPerFacility pickup test: unloader_1 demand is
+    // strictly fractional (< 1 pickup) but a partial unloader is still
+    // one physical placement.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_IRON_POWDER, rate: 15 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const totals = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: false,
+    });
+    const unloaderRaw = totals.rawPerFacility.get(FacilityIdEnum.UNLOADER_1);
+    expect(unloaderRaw!).toBeLessThan(1);
+    expect(
+      totals.physicalPerFacility.get(FacilityIdEnum.UNLOADER_1),
+    ).toBe(1);
+  });
+
+  test("identical between ceilMode=true and ceilMode=false (always-ceiled)", async () => {
+    // Critical invariant: physicalPerFacility feeds cap detection, so
+    // it must not respond to the "Round up facilities" display toggle —
+    // otherwise flipping the toggle would flip warnings.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const ceiled = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: true,
+    });
+    const fractional = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: false,
+    });
+    expect([...ceiled.physicalPerFacility.keys()].sort()).toEqual(
+      [...fractional.physicalPerFacility.keys()].sort(),
+    );
+    for (const [facilityId, value] of ceiled.physicalPerFacility) {
+      expect(fractional.physicalPerFacility.get(facilityId)).toBe(value);
+    }
+  });
+
+  test("physical ≥ raw for every facility (subsumption invariant)", async () => {
+    // Cap detection on physical counts subsumes the old fractional
+    // check precisely because ceil never shrinks: any facility whose
+    // fractional usage exceeds a cap has physical usage exceeding it
+    // too.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 6 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const totals = aggregateBinTotals(plan, facilities, items, {
+      ceilMode: false,
+    });
+    for (const [facilityId, raw] of totals.rawPerFacility) {
+      const physical = totals.physicalPerFacility.get(facilityId);
+      expect(physical).toBeDefined();
+      expect(physical!).toBeGreaterThanOrEqual(raw - 1e-9);
+      expect(Number.isInteger(physical!)).toBe(true);
+    }
+  });
+
+  test("single-formula fragmentation: fractional fits the cap, physical exceeds it (Forge-of-the-Sky regression)", async () => {
+    // The user-reported shape: a facility WITHOUT cacheSlots hosts N
+    // recipes as singleton bins. Fractional usage sums under the cap,
+    // but every recipe needs dedicated whole buildings, so physical
+    // placements exceed it — the plan is unbuildable in-game.
+    //
+    // Synthetic distillation: two recipes on xiranite_oven_1 (real
+    // facility, no cacheSlots) at 0.5 buildings each → fractional 1.0,
+    // physical 2. Cap 1: the old fractional check stayed silent; the
+    // physical check must warn with used = 2.
+    const synIn = "item_syn_frag_in" as ItemId;
+    const synA = "item_syn_frag_a" as ItemId;
+    const synB = "item_syn_frag_b" as ItemId;
+    const syntheticItems = [
+      ...items,
+      { id: synIn, name: "Syn In", iconUrl: "", tier: 1 },
+      { id: synA, name: "Syn A", iconUrl: "", tier: 1 },
+      { id: synB, name: "Syn B", iconUrl: "", tier: 1 },
+    ] as typeof items;
+    const syntheticRecipes = [
+      {
+        id: "syn_frag_a",
+        inputs: [{ itemId: synIn, amount: 1 }],
+        outputs: [{ itemId: synA, amount: 1 }],
+        facilityId: FacilityIdEnum.XIRANITE_OVEN_1,
+        craftingTime: 2, // 30/min/building
+      },
+      {
+        id: "syn_frag_b",
+        inputs: [{ itemId: synIn, amount: 1 }],
+        outputs: [{ itemId: synB, amount: 1 }],
+        facilityId: FacilityIdEnum.XIRANITE_OVEN_1,
+        craftingTime: 2,
+      },
+    ] as unknown as typeof recipes;
+    const plan = await calculateProductionPlan(
+      [
+        { itemId: synA, rate: 15 }, // 0.5 buildings
+        { itemId: synB, rate: 15 }, // 0.5 buildings
+      ],
+      syntheticItems,
+      syntheticRecipes,
+      facilities,
+      { rawMaterials: new Set([...ALL_RAWS, synIn]) },
+    );
+    const aggregates = aggregateBinTotals(plan, facilities, syntheticItems);
+    const ovenRaw = aggregates.rawPerFacility.get(
+      FacilityIdEnum.XIRANITE_OVEN_1,
+    );
+    const ovenPhysical = aggregates.physicalPerFacility.get(
+      FacilityIdEnum.XIRANITE_OVEN_1,
+    );
+    expect(ovenRaw!).toBeCloseTo(1.0, 6);
+    expect(ovenPhysical).toBe(2);
+
+    const caps = new Map([[FacilityIdEnum.XIRANITE_OVEN_1, 1]]);
+    // Old fractional input: silent (1.0 ≤ 1).
+    expect(
+      computeOverCapWarnings(aggregates.rawPerFacility, caps),
+    ).toEqual([]);
+    // Physical input: warns with the honest placement count.
+    const warnings = computeOverCapWarnings(
+      aggregates.physicalPerFacility,
+      caps,
+    );
+    expect(warnings).toHaveLength(1);
+    const w = warnings[0];
+    if (w.kind === "facility-over-cap") {
+      expect(w.facilityId).toBe(FacilityIdEnum.XIRANITE_OVEN_1);
+      expect(w.used).toBe(2);
+      expect(w.cap).toBe(1);
+    }
   });
 });
 
@@ -1452,7 +1572,8 @@ describe("computeOverCapWarnings (integration)", () => {
     // Pins the user-reported bug from the cap-enforcement work:
     // xiranite_oven_1 has no `cacheSlots`, so its recipes flow through
     // emitSingletonBins and bypass the MIP. The post-aggregator
-    // detection MUST catch this case via `rawPerFacility`.
+    // detection MUST catch this case via `physicalPerFacility` (the
+    // hook-layer input).
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_XIRANITE_POWDER, rate: 60 }],
       items,
@@ -1467,7 +1588,7 @@ describe("computeOverCapWarnings (integration)", () => {
       [FacilityIdEnum.XIRANITE_OVEN_1, 1],
     ]);
     const warnings: PlanWarning[] = computeOverCapWarnings(
-      totals.rawPerFacility,
+      totals.physicalPerFacility,
       caps,
     );
     expect(warnings).toHaveLength(1);
@@ -1476,8 +1597,8 @@ describe("computeOverCapWarnings (integration)", () => {
     if (w.kind === "facility-over-cap") {
       expect(w.facilityId).toBe(FacilityIdEnum.XIRANITE_OVEN_1);
       // xiranite_oven_xiranite_powder_1 craftingTime=2 → 30/min/bldg.
-      // 60/min target → 2 buildings.
-      expect(w.used).toBeCloseTo(2, 6);
+      // 60/min target → 2 buildings (integer physical count).
+      expect(w.used).toBe(2);
       expect(w.cap).toBe(1);
     }
   });
@@ -1520,12 +1641,16 @@ describe("computeOverCapWarnings (integration)", () => {
     const caps = new Map<FacilityId, number>([
       [FacilityIdEnum.PUMP_2, 1],
     ]);
-    const warnings = computeOverCapWarnings(totals.rawPerFacility, caps);
+    const warnings = computeOverCapWarnings(
+      totals.physicalPerFacility,
+      caps,
+    );
     expect(warnings).toHaveLength(1);
     const w = warnings[0];
     if (w.kind === "facility-over-cap") {
       expect(w.facilityId).toBe(FacilityIdEnum.PUMP_2);
-      expect(w.used).toBeCloseTo(2.5, 6);
+      // 2.5 fractional pickups → 3 physical pumps.
+      expect(w.used).toBe(3);
       expect(w.cap).toBe(1);
     }
   });
@@ -1575,6 +1700,7 @@ describe("filterPlanForDisplay", () => {
     targets: new Set(targets as ItemId[]),
     detectedCycles: [],
     invalidCycles: [],
+    lpStatus: "ok" as const,
     bins: [],
     recipeBinAllocations: new Map(),
     warnings: [],
@@ -1687,5 +1813,174 @@ describe("filterPlanForDisplay", () => {
     const filtered = filterPlanForDisplay(plan);
     expect(filtered.nodes.has("mid")).toBe(false);
     expect(filtered.edges).toHaveLength(0);
+  });
+});
+
+describe("aggregateBinTotals.totalTiles", () => {
+  /**
+   * Independent tile sum mirroring the documented contract: ceiled
+   * building counts × footprint area, with pumps (category 25/26) and
+   * map-placed facilities excluded. `includePumps` / `includeMapPlaced`
+   * let individual tests prove each exclusion actually fires (the
+   * inclusive sum must be strictly larger).
+   */
+  function independentTileSum(
+    plan: ProductionDependencyGraph,
+    opts: { includePumps?: boolean; includeMapPlaced?: boolean } = {},
+  ): number {
+    const facilityById = new Map(facilities.map((f) => [f.id, f]));
+    const itemById = new Map(items.map((i) => [i.id, i]));
+    const tilesFor = (facilityId: FacilityIdEnum): number => {
+      const fac = facilityById.get(facilityId);
+      if (!fac?.footprint) return 0;
+      if (!opts.includeMapPlaced && mapPlacedFacilities.has(fac.id)) return 0;
+      if (!opts.includePumps && (fac.category === 25 || fac.category === 26)) {
+        return 0;
+      }
+      return fac.footprint.width * fac.footprint.depth;
+    };
+    let tiles = 0;
+    for (const bin of plan.bins) {
+      tiles += tilesFor(bin.facilityId) * Math.max(1, Math.ceil(bin.buildingCount));
+    }
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "item" || !node.isRawMaterial) continue;
+      if (node.productionRate <= 0) continue;
+      const cfg = rawMaterialSources.get(node.itemId);
+      if (!cfg) continue;
+      const item = itemById.get(node.itemId);
+      const rate = getRawSourceRate(node.itemId, item);
+      if (rate <= 0) continue;
+      tiles +=
+        tilesFor(cfg.sourceFacility) * Math.ceil(node.productionRate / rate);
+    }
+    return tiles;
+  }
+
+  test("real data: matches the documented contract and is ceilMode-independent", async () => {
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const ceiled = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
+    const fractional = aggregateBinTotals(plan, facilities, items);
+    expect(ceiled.totalTiles).toBe(independentTileSum(plan));
+    // Buildings occupy whole tiles in either view mode.
+    expect(fractional.totalTiles).toBe(ceiled.totalTiles);
+    expect(ceiled.totalTiles).toBeGreaterThan(0);
+  });
+
+  test("pumps contribute buildings/power but zero tiles", async () => {
+    // Xircon consumes water via pump_1 (Wuling), so the plan carries a
+    // pump pickup. The inclusive sum must be strictly larger — proving
+    // the exclusion is actually exercised, not vacuously true.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_XIRANITE_POLY, rate: 57 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
+    expect(totals.perFacility.get(FacilityIdEnum.PUMP_1) ?? 0).toBeGreaterThan(0);
+    expect(independentTileSum(plan, { includePumps: true })).toBeGreaterThan(
+      totals.totalTiles,
+    );
+    expect(totals.totalTiles).toBe(independentTileSum(plan));
+  });
+
+  test("map-placed Sewage Inlet contributes zero tiles", async () => {
+    // cap=3 makes the LP route sewage through LIQUID_CLEAN_GATE_1 (see
+    // structures-disposal.test.ts). Its 10×3 footprint must NOT count —
+    // it is a fixed map structure, not a build-grid placement.
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemIdEnum.ITEM_COPPER_CMPT, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      {
+        rawMaterials: ALL_RAWS,
+        facilityCaps: new Map([[FacilityIdEnum.LIQUID_CLEAN_GATE_1, 3]]),
+      },
+    );
+    const inletBin = plan.bins.find(
+      (b) => b.facilityId === FacilityIdEnum.LIQUID_CLEAN_GATE_1,
+    );
+    expect(inletBin).toBeDefined();
+    const totals = aggregateBinTotals(plan, facilities, items, { ceilMode: true });
+    expect(
+      independentTileSum(plan, { includeMapPlaced: true }),
+    ).toBeGreaterThan(totals.totalTiles);
+    expect(totals.totalTiles).toBe(independentTileSum(plan));
+  });
+
+  test("synthetic: footprint area × ceiled bin count; missing footprint counts 0", async () => {
+    // Inline fixtures isolate the tile math from upstream-data drift.
+    const synthItems: Item[] = [
+      { id: "tile_raw" as ItemId, tier: 1 },
+      { id: "tile_widget" as ItemId, tier: 1 },
+    ];
+    const synthFacilities: Facility[] = [
+      {
+        id: "tile_maker" as FacilityId,
+        tier: 1,
+        category: 6,
+        powerConsumption: 5,
+        footprint: { width: 2, depth: 3 },
+        buffersIn: { belt: [{ ports: 1 }], pipe: [] },
+        buffersOut: { belt: [{ ports: 1 }], pipe: [] },
+        domains: [],
+      },
+      {
+        id: "tile_maker_unsized" as FacilityId,
+        tier: 1,
+        category: 6,
+        powerConsumption: 5,
+        // no footprint — must contribute 0 tiles, not throw.
+        buffersIn: { belt: [{ ports: 1 }], pipe: [] },
+        buffersOut: { belt: [{ ports: 1 }], pipe: [] },
+        domains: [],
+      },
+    ];
+    const synthRecipes: Recipe[] = [
+      {
+        id: "make_tile_widget" as RecipeId,
+        inputs: [{ itemId: "tile_raw" as ItemId, amount: 1 }],
+        outputs: [{ itemId: "tile_widget" as ItemId, amount: 1 }],
+        facilityId: "tile_maker" as FacilityId,
+        craftingTime: 2,
+      },
+    ];
+    // 42/min ÷ (30/min per building) = 1.4 buildings → ceil 2 → 12 tiles.
+    const plan = await calculateProductionPlan(
+      [{ itemId: "tile_widget" as ItemId, rate: 42 }],
+      synthItems,
+      synthRecipes,
+      synthFacilities,
+      { rawMaterials: new Set(["tile_raw" as ItemId]) },
+    );
+    const totals = aggregateBinTotals(plan, synthFacilities, synthItems);
+    expect(totals.totalTiles).toBe(12);
+
+    // Same plan on the footprint-less twin: zero tiles.
+    const unsizedRecipes: Recipe[] = [
+      { ...synthRecipes[0], facilityId: "tile_maker_unsized" as FacilityId },
+    ];
+    const unsizedPlan = await calculateProductionPlan(
+      [{ itemId: "tile_widget" as ItemId, rate: 42 }],
+      synthItems,
+      unsizedRecipes,
+      synthFacilities,
+      { rawMaterials: new Set(["tile_raw" as ItemId]) },
+    );
+    const unsizedTotals = aggregateBinTotals(
+      unsizedPlan,
+      synthFacilities,
+      synthItems,
+    );
+    expect(unsizedTotals.totalTiles).toBe(0);
   });
 });

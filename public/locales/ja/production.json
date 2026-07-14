@@ -46,8 +46,6 @@
     "totals": {
       "buildings": "建物総数",
       "power": "総電力",
-      "viaGrouping": "グループ化による節約",
-      "savingsExplain": "複数レシピを同一の建物にパックすることで節約した建物数。",
       "ttv": "総転送価値（{{source}}）"
     },
     "metastorage": {

@@ -1,50 +1,55 @@
 import { memo, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import TargetItemsGrid, { type ProductionTarget } from "./TargetItemsGrid";
-import ProductionStats from "../production/ProductionStats";
-import type { Facility, FacilityId, Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import PlanPanel from "./PlanPanel";
+import type { ProductionTarget } from "./TargetItemsGrid";
+import type { Item, ItemId } from "@/types";
 
 type LeftPanelProps = {
   targets: ProductionTarget[];
   items: Item[];
-  facilities: Facility[];
-  totalPowerConsumption: number;
-  productionSteps: number;
-  rawMaterialRequirements: Map<ItemId, number>;
-  facilityRequirements: Map<string, number>;
-  totalPickupPoints: number;
-  rawMaterialPickupPoints: Map<ItemId, number>;
-  facilityOverCapMap: ReadonlyMap<FacilityId, { used: number; cap: number }>;
-  rawMaterialOverCapMap: ReadonlyMap<ItemId, { used: number; cap: number }>;
-  error: string | null;
-  ceilMode?: boolean;
+  maxEnabledByTarget: ReadonlyMap<ItemId, boolean>;
+  ceilMode: boolean;
+  onCeilModeChange: (value: boolean) => void;
+  autoFit: boolean;
+  onAutoFitChange: (value: boolean) => void;
+  onOpenSettings: () => void;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
+  onTargetLockToggle: (index: number) => void;
+  onMaximizeTarget: (index: number) => void;
+  maximizingIndex: number | null;
+  optimizerBusy: boolean;
+  maxedIndices: ReadonlySet<number>;
+  showFitPill: boolean;
+  fitRunning: boolean;
+  onFitToLimits: () => void;
   onAddClick: () => void;
 };
 
 const LeftPanel = memo(function LeftPanel({
   targets,
   items,
-  facilities,
-  totalPowerConsumption,
-  productionSteps,
-  rawMaterialRequirements,
-  facilityRequirements,
-  totalPickupPoints,
-  rawMaterialPickupPoints,
-  facilityOverCapMap,
-  rawMaterialOverCapMap,
-  error,
-  ceilMode = false,
+  maxEnabledByTarget,
+  ceilMode,
+  onCeilModeChange,
+  autoFit,
+  onAutoFitChange,
+  onOpenSettings,
   onTargetChange,
   onTargetRemove,
+  onTargetLockToggle,
+  onMaximizeTarget,
+  maximizingIndex,
+  optimizerBusy,
+  maxedIndices,
+  showFitPill,
+  fitRunning,
+  onFitToLimits,
   onAddClick,
 }: LeftPanelProps) {
-  const { t } = useTranslation("targets");
+  const { t } = useTranslation("app");
   const [collapsed, setCollapsed] = useState(false);
 
   if (collapsed) {
@@ -54,7 +59,7 @@ const LeftPanel = memo(function LeftPanel({
           variant="outline"
           className="h-full w-8 rounded-r-none border-r-0 flex flex-col gap-1 py-4 px-0"
           onClick={() => setCollapsed(false)}
-          aria-label="Expand panel"
+          aria-label={t("expandPanel")}
         >
           <PanelLeftOpen className="h-4 w-4 shrink-0" />
         </Button>
@@ -63,51 +68,38 @@ const LeftPanel = memo(function LeftPanel({
   }
 
   return (
-    <div className="w-[420px] flex flex-col gap-2.5 overflow-y-auto shrink-0 pb-2">
-      <Card className="flex flex-col shrink-0">
-        <CardHeader className="shrink-0">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">{t("title")}</CardTitle>
-            <div className="flex items-center gap-2">
-              <div className="text-xs text-muted-foreground">
-                {t("count", { current: targets.length, max: 12 })}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 shrink-0"
-                onClick={() => setCollapsed(true)}
-                aria-label="Collapse panel"
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <TargetItemsGrid
-            targets={targets}
-            items={items}
-            onTargetChange={onTargetChange}
-            onTargetRemove={onTargetRemove}
-            onAddClick={onAddClick}
-          />
-        </CardContent>
-      </Card>
-
-      <ProductionStats
-        totalPowerConsumption={totalPowerConsumption}
-        productionSteps={productionSteps}
-        rawMaterialRequirements={rawMaterialRequirements}
-        facilityRequirements={facilityRequirements}
-        totalPickupPoints={totalPickupPoints}
-        rawMaterialPickupPoints={rawMaterialPickupPoints}
-        facilityOverCapMap={facilityOverCapMap}
-        rawMaterialOverCapMap={rawMaterialOverCapMap}
-        facilities={facilities}
+    <div className="w-[420px] flex flex-col overflow-y-auto shrink-0 pb-2">
+      <PlanPanel
+        targets={targets}
         items={items}
-        error={error}
+        maxEnabledByTarget={maxEnabledByTarget}
         ceilMode={ceilMode}
+        onCeilModeChange={onCeilModeChange}
+        autoFit={autoFit}
+        onAutoFitChange={onAutoFitChange}
+        onOpenSettings={onOpenSettings}
+        onTargetChange={onTargetChange}
+        onTargetRemove={onTargetRemove}
+        onTargetLockToggle={onTargetLockToggle}
+        onMaximizeTarget={onMaximizeTarget}
+        maximizingIndex={maximizingIndex}
+        optimizerBusy={optimizerBusy}
+        maxedIndices={maxedIndices}
+        showFitPill={showFitPill}
+        fitRunning={fitRunning}
+        onFitToLimits={onFitToLimits}
+        onAddClick={onAddClick}
+        headerAction={
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            onClick={() => setCollapsed(true)}
+            aria-label={t("collapsePanel")}
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </Button>
+        }
       />
     </div>
   );

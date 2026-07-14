@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -46,6 +46,10 @@ export function RegionPicker({
   onChange,
 }: RegionPickerProps) {
   const { t } = useTranslation(["settings", "domain"]);
+  // Instance-unique control id: the picker renders in both the left
+  // rail and the portrait drawer, which stay mounted simultaneously
+  // (orientation swap is CSS-only) — a static id would duplicate.
+  const pickerId = useId();
 
   const options = useMemo<readonly Domain[]>(
     () =>
@@ -62,7 +66,7 @@ export function RegionPicker({
   return (
     <div className="space-y-1.5">
       <label
-        htmlFor="region-picker"
+        htmlFor={pickerId}
         className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
       >
         {t("region.label", {
@@ -79,7 +83,7 @@ export function RegionPicker({
         disabled={isTrivial}
       >
         <SelectTrigger
-          id="region-picker"
+          id={pickerId}
           className={cn(
             "w-full pl-3 gap-2",
             // Domain-color accent stripe on the left edge (matches

@@ -46,8 +46,6 @@
     "totals": {
       "buildings": "Edificios totales",
       "power": "Energía total",
-      "viaGrouping": "ahorrados al agrupar",
-      "savingsExplain": "Edificios ahorrados al empacar fórmulas en edificios multifórmula compartidos.",
       "ttv": "VTT ({{source}})"
     },
     "metastorage": {

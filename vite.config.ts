@@ -58,6 +58,12 @@ export default defineConfig({
     },
   },
   base: "/endfield-calc/",
+  // The calc worker (`src/workers/calc.worker.ts`) dynamically imports
+  // the HiGHS emscripten wrapper — module workers with dynamic imports
+  // require ES format (the default iife build would fail).
+  worker: {
+    format: "es",
+  },
   build: {
     rolldownOptions: {
       output: {

@@ -46,8 +46,6 @@
     "totals": {
       "buildings": "建筑总数",
       "power": "总功耗",
-      "viaGrouping": "因组合节省",
-      "savingsExplain": "通过将配方打包到多配方建筑中节省的建筑数量。",
       "ttv": "传输总值（{{source}}）"
     },
     "metastorage": {
