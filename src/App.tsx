@@ -37,7 +37,8 @@ import {
 import { buildRawMaterialCaps } from "./lib/raw-limits-helpers";
 import { structureKey } from "./lib/settings-helpers";
 import { namespaceStorageKey } from "./lib/storage-namespace";
-import type { DomainId, FacilityId, ItemId } from "./types";
+import type { FacilityId, ItemId } from "./types";
+import { DomainId } from "./types/constants";
 import type { MetastorageRouteConfig } from "./types/metastorage";
 
 /**
@@ -67,7 +68,7 @@ function ThemedToaster() {
  * the provider's value (the hook errors when called above its provider).
  */
 function AppContent() {
-  const { i18n } = useTranslation("app");
+  const { i18n, t } = useTranslation("app");
   const settings = useDomainSettingsContext();
 
   // Canonical `availableRecipes` set used by the picker, the calc, the

@@ -24,6 +24,8 @@
   "optimizeFailed": "优化已中止——求解器报告了错误。",
   "autoFit": "自动适配限制",
   "autoFitHint": "当编辑使方案超出限制时,自动缩减其他未锁定目标以适配。锁定的目标不会被调整。",
+  "metastorageTransfer": "谷地 IV → 武陵转运",
+  "metastorageTransferHint": "允许计算器使用来自谷地 IV 的元存储导入。",
   "planLpInfeasible": "这些目标不存在可行的生产方案——求解器无法满足所有约束。请检查已固定的配方和进口路线。",
   "planSolverError": "求解器意外失败,无法计算方案。下次重新计算时将自动恢复——编辑任意目标即可重试。",
   "footer": {
