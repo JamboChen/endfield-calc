@@ -10,17 +10,17 @@ paths:
 
 When a plan contains a recipe-level cycle whose tight back-and-forth has no external entry, the player must seed one of the cycle items into the hosting building's inner inventory at startup; the loop self-sustains afterwards.
 
-**Canonical algorithm doc**: `propagatePrefillCandidates` JSDoc in `src/lib/calculator.ts:253-315` is authoritative — read it before changing detection logic.
+**Canonical algorithm doc**: `propagatePrefillCandidates` JSDoc in `src/lib/calculator.ts:170-232` is authoritative — read it before changing detection logic.
 
 **Canonical scenarios**: `src/tests/lib/calculator.test.ts:1385-2200+` covers Xircon-60, planter↔seedcollector, T1/T3 synthetic topologies, manual-raws regression, and the singleton self-loop case. Every behavioural change must keep these tests green.
 
 ## Two-phase detection (verified summary)
 
-- **Phase 1 — Intra-bin (`calculator.ts:372-460`)**: for every bin with ≥ 2 recipes, build the intra-bin recipe-flow graph (edges = item flows between co-located recipes, self-loops included), run iterative Tarjan SCC. For each SCC with non-empty cycle items: skip iff ANY cycle item is in `bin.externalInputs` (per-CYCLE, not per-item — single external port suffices). Otherwise flag each recipe with the cycle items it consumes. Handles 2-recipe, 3-recipe, N-recipe intra-bin cycles, and multi-recipe-bin singleton self-loops uniformly.
-- **Phase 2 — Inter-bin 2-cycles (`calculator.ts:462+`)**: for each recipe-graph SCC, iterate pairs (A, B). For each (binA hosting A, binB hosting B) where `binA != binB` (intra-bin pairs are skipped), apply the bootability filter: flag iff BOTH cycle items are non-bootable from raws via the active recipe set.
-- **Singleton SCC with self-loop (`calculator.ts:481-503`)**: 1-recipe degenerate case, flagged via bootability filter only.
+- **Phase 1 — Intra-bin (`calculator.ts:290-379`)**: for every bin with ≥ 2 recipes, build the intra-bin recipe-flow graph (edges = item flows between co-located recipes, self-loops included), run iterative Tarjan SCC. For each SCC with non-empty cycle items: skip iff ANY cycle item is in `bin.externalInputs` (per-CYCLE, not per-item — single external port suffices). Otherwise flag each recipe with the cycle items it consumes. Handles 2-recipe, 3-recipe, N-recipe intra-bin cycles, and multi-recipe-bin singleton self-loops uniformly.
+- **Phase 2 — Inter-bin 2-cycles (`calculator.ts:380+`)**: for each recipe-graph SCC, iterate pairs (A, B). For each (binA hosting A, binB hosting B) where `binA != binB` (intra-bin pairs are skipped), apply the bootability filter: flag iff BOTH cycle items are non-bootable from raws via the active recipe set.
+- **Singleton SCC with self-loop (`calculator.ts:403-417`)**: 1-recipe degenerate case, flagged via bootability filter only.
 
-## `computeBootableItems` (`calculator.ts:155`)
+## `computeBootableItems` (`calculator.ts:72`)
 
 Fixpoint over the active recipe set: start with `rawMaterials`, repeatedly add outputs of recipes whose inputs are all bootable. The `rawMaterials` parameter is the plan's `graph.rawMaterials` — union of the per-region raw set (passed into `buildBipartiteGraph`) + user-supplied `manualRawMaterials` (URL `m=`) + items chain-terminated by AIC/override constraints. **NOT** the per-region set alone.
 
@@ -37,7 +37,7 @@ Fixpoint over the active recipe set: start with `rawMaterials`, repeatedly add o
 
 ## Testing
 
-`propagatePrefillCandidates` is exported (`calculator.ts:316`) so synthetic T1/T3 topology tests can call it directly with hand-crafted Bin/RecipeBinAllocation/Recipe arguments. Production code reaches it only through `calculateProductionPlan` (single call site at `calculator.ts:961`).
+`propagatePrefillCandidates` is exported (`calculator.ts:233`) so synthetic T1/T3 topology tests can call it directly with hand-crafted Bin/RecipeBinAllocation/Recipe arguments. Production code reaches it only through `calculateProductionPlan` (single call site at `calculator.ts:1393`).
 
 ## DO NOT
 

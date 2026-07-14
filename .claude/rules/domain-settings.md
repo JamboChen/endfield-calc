@@ -63,8 +63,8 @@ UI: `MetastorageContent` in a region-conditional tab that renders for **source-c
 ## Persistence (verified)
 
 - **Channel namespacing**: every localStorage key in this file is the *base* (production) value. Beta builds (served at `/endfield-calc/beta/`) suffix all keys with `:beta` via `namespaceStorageKey` (`src/lib/storage-namespace.ts`), so on beta these become `endfield-calc:aic-v1:beta` and `endfield-calc:onboarding-v1:beta`. The two channels share an origin and would otherwise collide. New persisted keys MUST go through `namespaceStorageKey` for the same reason.
-- Sole version signal: localStorage key `endfield-calc:aic-v1` (line 96). No `v` field inside the JSON.
-- Loader detects shape (line 217-224): nested `{ domains, aic }` is current; flat `{ unresearched, capOverrides, inactiveDomains? }` is v1, migrated in-memory and re-written nested on next save.
+- Sole version signal: localStorage key `endfield-calc:aic-v1` (line 174). No `v` field inside the JSON.
+- Loader detects shape (line 325): nested `{ domains, aic }` is current; flat `{ unresearched, capOverrides, inactiveDomains? }` is v1, migrated in-memory and re-written nested on next save.
 - AIC sub-state uses a **deny-list** for research (`aic.unresearched`); domains use a **deny-list** for activation (`domains.inactive`). `rawLimits.overrides` + `structures.enabled` are **allow-lists** (optional keys; absent in older payloads).
 - Defensive filter on load: drops tech / domain / cap-override / raw-limit / structure entries whose IDs no longer exist in data (e.g. after an `extract:aic` run, or a `regionStructures` change).
 
@@ -75,11 +75,11 @@ UI: `MetastorageContent` in a region-conditional tab that renders for **source-c
 
 ## Soft deactivation
 
-`toggleDomain` only mutates `inactiveDomains` (lines 360-365). `researched` is preserved across activation flips — re-activating restores prior research state automatically. Pinned domains refuse deactivation silently.
+`toggleDomain` only mutates `inactiveDomains` (line 1073). `researched` is preserved across activation flips — re-activating restores prior research state automatically. Pinned domains refuse deactivation silently.
 
 ## Onboarding dialog
 
-`AicOnboardingDialog` (`src/components/onboarding/AicOnboardingDialog.tsx`) is rendered by `DomainSettingsProvider` as a sibling of children. It's self-gating against localStorage key **`endfield-calc:onboarding-v1`** (line 81) — a separate key from the AIC state. Shown once per browser. `applyOnboardingChoices` (`useDomainSettings.ts:367-383`) does the bulk apply atomically (one `setInactiveDomains` + one `setResearched` so the persist effect fires once).
+`AicOnboardingDialog` (`src/components/onboarding/AicOnboardingDialog.tsx`) is rendered by `DomainSettingsProvider` as a sibling of children. It's self-gating against localStorage key **`endfield-calc:onboarding-v1`** (line 91) — a separate key from the AIC state. Shown once per browser. `applyOnboardingChoices` (`useDomainSettings.ts:823`) does the bulk apply atomically (one `setInactiveDomains` + one `setResearched` so the persist effect fires once).
 
 ## Per-plan reset
 

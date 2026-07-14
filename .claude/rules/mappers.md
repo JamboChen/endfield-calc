@@ -4,13 +4,14 @@ paths:
   - "src/components/flow/ProductionDependencyTree.tsx"
   - "src/components/nodes/**"
   - "src/components/production/ProductionTable.tsx"
+  - "src/components/production/ProductionCards.tsx"
   - "src/tests/lib/flow-integrity.test.ts"
   - "src/tests/lib/bin-fusion-mapper.test.ts"
 ---
 
 # Mapper and rendering invariants
 
-`ProductionDependencyTree.tsx` (`src/components/flow/ProductionDependencyTree.tsx:265-285`) selects the mapper. Three modes:
+`ProductionDependencyTree.tsx` (`src/components/flow/ProductionDependencyTree.tsx:329-341`) selects the mapper. Three modes:
 
 | Visualization | `bf` flag | Mapper |
 |---|---|---|
@@ -25,10 +26,10 @@ The `bf` URL hash flag persists in `SavedPlan` JSON alongside `ceilMode`. Toggle
 Phase 3 emits `plan.bins: Bin[]` + `plan.recipeBinAllocations: Map<RecipeId, RecipeBinAllocation>`. Even single-formula recipes get a singleton `Bin` so downstream consumers see a uniform shape.
 
 `bin-fused-mapper.ts` has two entry points:
-- `mapPlanToFlowBinFused` (line 55) — Recipe View, one node per bin.
-- `mapPlanToFlowBinFusedSeparated` (line 563) — Facility View, one node per ceiled building.
+- `mapPlanToFlowBinFused` (line 59) — Recipe View, one node per bin.
+- `mapPlanToFlowBinFusedSeparated` (line 636) — Facility View, one node per ceiled building.
 
-Both call `assertFlowIntegrity` (lines 546, 1199) before returning.
+Both call `assertFlowIntegrity` (lines 619, 1332) before returning.
 
 ## `assertFlowIntegrity` (`flow-assertions.ts:128`)
 
@@ -78,6 +79,7 @@ The legacy `mapPlanToFlowMerged` (bf=0) still uses the pickup-only model — pic
 - **Target sinks register BEFORE disposal sinks** in `consumersByItem`. The greedy allocator iterates in insertion order; targets must get first claim.
 - **`merged-mapper.ts` and `bin-fused-mapper.ts` compute per-recipe rate independently and MUST agree.** Don't modify one without auditing the other.
 - **`ProductionTable.totals` is a required prop** — callers thread `tableData.totals` from `useProductionTable` (which routes through `aggregateBinTotals`). No row-derived fallback.
+- **`ProductionCards` (portrait) and `ProductionTable` (landscape) consume identical `tableData.rows`/`totals`/handlers** — they are view twins swapped by `usePortrait()` in `ProductionViewTabs`. Don't change a number source in one without the other.
 - **React row keys must include recipe id** when rendering merged item nodes: `${item.id}-${recipeId}`. Bare `item.id` collides under `mergeItemNodes`' row-per-producer model.
 
 ## DO NOT
@@ -89,6 +91,6 @@ The legacy `mapPlanToFlowMerged` (bf=0) still uses the pickup-only model — pic
 - DO NOT pass `item` to `getPickupPointCount`. The signature is `(demandRate, perFacilityRate)` — get `perFacilityRate` via `getRawSourceRate(itemId, item)` first.
 - DO NOT use bare `0.001` literals — import `MIN_VISIBLE_RATE_PER_MIN` from `@/lib/flow-thresholds`.
 - DO NOT use `line.item.id` alone as a React key. Use `${item.id}-${recipeId}` to disambiguate sister rows under `mergeItemNodes`.
-- DO NOT set `elk.layered.priority.direction` to a negative value. Lower bound is 0 (see `layout.ts:319`); values below are silently clamped.
+- DO NOT set `elk.layered.priority.direction` to a negative value. Lower bound is 0 (see `src/lib/layout.ts:326-341`); values below are silently clamped.
 - DO NOT allocate producer→consumer edges with bespoke loops (sequential carving, proportional splits). Route through `computeTransportAllocation` — every bespoke copy has produced fragment daisy-chains (#91).
 - DO NOT style the pinned-node indicator on the React Flow wrapper. The ring lives on the node CARDS via `nodeRingClasses` (`flow-utils.ts`) — wrapper-level outlines slice through port handles and mismatch the card radius.
