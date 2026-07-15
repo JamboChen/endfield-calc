@@ -68,7 +68,7 @@ function ThemedToaster() {
  * the provider's value (the hook errors when called above its provider).
  */
 function AppContent() {
-  const { i18n, t } = useTranslation("app");
+  const { i18n } = useTranslation("app");
   const settings = useDomainSettingsContext();
 
   // Canonical `availableRecipes` set used by the picker, the calc, the
