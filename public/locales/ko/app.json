@@ -25,6 +25,8 @@
   "optimizeFailed": "솔버가 오류를 보고하여 최적화가 중단되었습니다.",
   "autoFit": "한도 자동 맞춤",
   "autoFitHint": "편집으로 플랜이 한도를 초과하면 잠기지 않은 다른 목표를 자동으로 축소합니다. 잠긴 목표는 조정되지 않습니다.",
+  "metastorageTransfer": "밸리 IV → 우링 전송",
+  "metastorageTransferHint": "계산기가 밸리 IV의 메타스토리지 수입을 사용하도록 허용합니다.",
   "powerSustain": "전력 자급",
   "powerSustainHint": "열에너지 뱅크와 배터리 생산을 자동으로 계획에 추가해 소비 전력을 자급합니다. 목표 배터리는 연소되지 않습니다.",
   "optionInfo": "{{label}} 정보",

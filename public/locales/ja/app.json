@@ -25,6 +25,8 @@
   "optimizeFailed": "ソルバーがエラーを報告したため、最適化を中止しました。",
   "autoFit": "上限内に自動調整",
   "autoFitHint": "編集でプランが上限を超えた場合、他のロックされていない目標を自動的に縮小します。ロックされた目標は変更されません。",
+  "metastorageTransfer": "谷地IV → 武陵 転送",
+  "metastorageTransferHint": "計算機が谷地IVからのメタストレージ輸入を使用できるようにします。",
   "powerSustain": "電力自給",
   "powerSustainHint": "発電機とバッテリー生産を自動でプランに追加し、消費電力を自給します。目標のバッテリーは燃焼されません。",
   "optionInfo": "{{label}}の詳細",

@@ -10,8 +10,9 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { RegionPicker } from "@/components/settings/RegionPicker";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
-import { regionStructures } from "@/data";
+import { metastorageSources, regionStructures } from "@/data";
 import { facilityIconUrl } from "@/lib/facility-icons";
+import { DomainId } from "@/types/constants";
 import {
   countRegionStructuresEnabled,
   structureKey,
@@ -64,6 +65,7 @@ const OptionsSection = memo(function OptionsSection({
     currentDomain,
     setCurrentDomain,
     structures,
+    metastorage,
   } = useDomainSettingsContext();
   // Instance-unique control ids: LeftPanel and the portrait Plan tab
   // both stay mounted (orientation swap is CSS-only), so static ids
@@ -71,6 +73,7 @@ const OptionsSection = memo(function OptionsSection({
   const ceilSwitchId = useId();
   const autoFitSwitchId = useId();
   const powerSustainSwitchId = useId();
+  const metastorageSwitchId = useId();
 
   const regionStructureList = regionStructures.get(currentDomain) ?? [];
   const structureCount = countRegionStructuresEnabled(
@@ -231,6 +234,40 @@ const OptionsSection = memo(function OptionsSection({
             className="ml-auto"
           />
         </div>
+
+        {currentDomain === DomainId.DOMAIN_2 &&
+          metastorageSources.has(DomainId.DOMAIN_1) && (
+            <div className="flex items-center gap-1.5">
+              <Label
+                htmlFor={metastorageSwitchId}
+                className="text-sm cursor-pointer"
+              >
+                {t("metastorageTransfer", { ns: "app" })}
+              </Label>
+              <InfoHint
+                ariaLabel={t("optionInfo", {
+                  ns: "app",
+                  label: t("metastorageTransfer", { ns: "app" }),
+                })}
+              >
+                {t("metastorageTransferHint", { ns: "app" })}
+              </InfoHint>
+              <Switch
+                id={metastorageSwitchId}
+                checked={
+                  (metastorage.routeModes.get(DomainId.DOMAIN_1) ??
+                    "auto") !== "disabled"
+                }
+                onCheckedChange={(checked) =>
+                  metastorage.setRouteMode(
+                    DomainId.DOMAIN_1,
+                    checked ? DomainId.DOMAIN_2 : "disabled",
+                  )
+                }
+                className="ml-auto"
+              />
+            </div>
+          )}
 
         <div className="flex items-center gap-1.5">
           <Label

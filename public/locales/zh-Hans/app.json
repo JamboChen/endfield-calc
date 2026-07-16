@@ -25,6 +25,8 @@
   "optimizeFailed": "优化已中止：求解器报告了错误。",
   "autoFit": "自动适配上限",
   "autoFitHint": "当编辑使方案超出上限时，自动缩减其他未锁定目标以适配。锁定的目标不会被调整。",
+  "metastorageTransfer": "谷地 IV → 武陵转运",
+  "metastorageTransferHint": "允许计算器使用来自谷地 IV 的元存储导入。",
   "powerSustain": "电力自给",
   "powerSustainHint": "自动为计划加入热能池与电池生产，使发电量覆盖自身耗电。目标电池不会被燃烧。",
   "optionInfo": "关于{{label}}",
