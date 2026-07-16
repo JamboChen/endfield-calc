@@ -12,7 +12,7 @@ import { RegionPicker } from "@/components/settings/RegionPicker";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { metastorageSources, regionStructures } from "@/data";
 import { facilityIconUrl } from "@/lib/facility-icons";
-import { DomainId } from "@/types/constants";
+import { getDomainName } from "@/lib/i18n-helpers";
 import {
   countRegionStructuresEnabled,
   structureKey,
@@ -235,39 +235,59 @@ const OptionsSection = memo(function OptionsSection({
           />
         </div>
 
-        {currentDomain === DomainId.DOMAIN_2 &&
-          metastorageSources.has(DomainId.DOMAIN_1) && (
-            <div className="flex items-center gap-1.5">
-              <Label
-                htmlFor={metastorageSwitchId}
-                className="text-sm cursor-pointer"
-              >
-                {t("metastorageTransfer", { ns: "app" })}
-              </Label>
-              <InfoHint
-                ariaLabel={t("optionInfo", {
-                  ns: "app",
-                  label: t("metastorageTransfer", { ns: "app" }),
-                })}
-              >
-                {t("metastorageTransferHint", { ns: "app" })}
-              </InfoHint>
-              <Switch
-                id={metastorageSwitchId}
-                checked={
-                  (metastorage.routeModes.get(DomainId.DOMAIN_1) ??
-                    "auto") !== "disabled"
-                }
-                onCheckedChange={(checked) =>
-                  metastorage.setRouteMode(
-                    DomainId.DOMAIN_1,
-                    checked ? DomainId.DOMAIN_2 : "disabled",
-                  )
-                }
-                className="ml-auto"
-              />
-            </div>
-          )}
+        {/* One quick toggle per Metastorage source that can feed the
+          * CURRENT region — generic by construction (PR #101 review:
+          * hardcoding Valley IV → Wuling would leave Valley IV without
+          * a toggle once Wuling gains Metastorage capability). The
+          * eligibility filter and the checked-predicate both mirror
+          * the App bridge exactly (App.tsx: source S feeds region D
+          * iff S ∈ metastorageSources ∧ S ≠ D ∧ S active ∧ route mode
+          * ∈ {"auto", D}) — a route locked to ANOTHER region correctly
+          * shows off here. The toggle writes the coarse states only
+          * ("auto" on enable — the system default — and "disabled");
+          * per-region locking stays in Settings → Metastorage. */}
+        {[...metastorageSources.keys()]
+          .filter(
+            (source) =>
+              source !== currentDomain && activeDomains.has(source),
+          )
+          .map((source) => {
+            const label = t("metastorageTransfer", {
+              ns: "app",
+              source: getDomainName(source),
+              target: getDomainName(currentDomain),
+            });
+            const mode = metastorage.routeModes.get(source) ?? "auto";
+            return (
+              <div key={source} className="flex items-center gap-1.5">
+                <Label
+                  htmlFor={`${metastorageSwitchId}-${source}`}
+                  className="text-sm cursor-pointer"
+                >
+                  {label}
+                </Label>
+                <InfoHint
+                  ariaLabel={t("optionInfo", { ns: "app", label })}
+                >
+                  {t("metastorageTransferHint", {
+                    ns: "app",
+                    source: getDomainName(source),
+                  })}
+                </InfoHint>
+                <Switch
+                  id={`${metastorageSwitchId}-${source}`}
+                  checked={mode === "auto" || mode === currentDomain}
+                  onCheckedChange={(checked) =>
+                    metastorage.setRouteMode(
+                      source,
+                      checked ? "auto" : "disabled",
+                    )
+                  }
+                  className="ml-auto"
+                />
+              </div>
+            );
+          })}
 
         <div className="flex items-center gap-1.5">
           <Label
