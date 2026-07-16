@@ -26,6 +26,10 @@ import type {
  *   2. Emit it from the source (packer / calculator).
  *   3. Add a formatter branch in `useProductionPlan.formatPlanWarning`.
  *   4. Add i18n keys to all 7 `app.json` locales.
+ *   5. If the kind means "this plan exceeds a configured limit", add
+ *      it to `OVER_LIMIT_WARNING_KINDS` (plan-helpers.ts) — that
+ *      enrolls it in Fit/Max/auto-fit and the Fit pill automatically
+ *      (see `.claude/rules/optimizer.md`).
  */
 export type PlanWarning =
   | {

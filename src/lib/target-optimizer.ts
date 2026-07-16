@@ -2,8 +2,9 @@
  * Target optimizer — Max(X) / Fit-to-limits engine.
  *
  * Three layers, all pure (no React, no calc-client import — the solver
- * transport is injected so tests drive `calculateProductionPlan`
- * directly and the hook drives the worker client):
+ * transport is injected: tests pass `calculateProductionPlan` directly,
+ * and in production the CALC WORKER runs these engines as single jobs
+ * with the same direct call — see `calc.worker.ts`):
  *
  *   - `rawsInChainOf` — Max-button gating closure (Phase F).
  *   - `isPlanFeasible` — the shared feasibility predicate: an `"ok"`
