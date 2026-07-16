@@ -9,13 +9,14 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { RegionPicker } from "@/components/settings/RegionPicker";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
-import { regionStructures } from "@/data";
+import { metastorageSources, regionStructures } from "@/data";
 import { facilityIconUrl } from "@/lib/facility-icons";
 import {
   countRegionStructuresEnabled,
   structureKey,
 } from "@/lib/settings-helpers";
 import { cn } from "@/lib/utils";
+import { DomainId } from "@/types/constants";
 
 type OptionsSectionProps = {
   /** Whether facility counts round up (physical view). */
@@ -57,12 +58,14 @@ const OptionsSection = memo(function OptionsSection({
     currentDomain,
     setCurrentDomain,
     structures,
+    metastorage,
   } = useDomainSettingsContext();
   // Instance-unique control ids: LeftPanel and the portrait Plan tab
   // both stay mounted (orientation swap is CSS-only), so static ids
   // would duplicate in the DOM.
   const ceilSwitchId = useId();
   const autoFitSwitchId = useId();
+  const metastorageSwitchId = useId();
 
   const regionStructureList = regionStructures.get(currentDomain) ?? [];
   const structureCount = countRegionStructuresEnabled(
@@ -206,6 +209,36 @@ const OptionsSection = memo(function OptionsSection({
             {t("autoFitHint", { ns: "app" })}
           </p>
         </div>
+
+        {currentDomain === DomainId.DOMAIN_2 &&
+          metastorageSources.has(DomainId.DOMAIN_1) && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <Label
+                  htmlFor={metastorageSwitchId}
+                  className="text-sm cursor-pointer"
+                >
+                  {t("metastorageTransfer", { ns: "app" })}
+                </Label>
+                <Switch
+                  id={metastorageSwitchId}
+                  checked={
+                    (metastorage.routeModes.get(DomainId.DOMAIN_1) ??
+                      "auto") !== "disabled"
+                  }
+                  onCheckedChange={(checked) =>
+                    metastorage.setRouteMode(
+                      DomainId.DOMAIN_1,
+                      checked ? DomainId.DOMAIN_2 : "disabled",
+                    )
+                  }
+                />
+              </div>
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                {t("metastorageTransferHint", { ns: "app" })}
+              </p>
+            </div>
+          )}
       </div>
     </section>
   );

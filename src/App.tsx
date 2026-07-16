@@ -37,7 +37,8 @@ import {
 import { buildRawMaterialCaps } from "./lib/raw-limits-helpers";
 import { structureKey } from "./lib/settings-helpers";
 import { namespaceStorageKey } from "./lib/storage-namespace";
-import type { DomainId, FacilityId, ItemId } from "./types";
+import type { FacilityId, ItemId } from "./types";
+import { DomainId } from "./types/constants";
 import type { MetastorageRouteConfig } from "./types/metastorage";
 
 /**
