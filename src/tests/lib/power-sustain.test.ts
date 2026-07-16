@@ -21,7 +21,7 @@
 import { describe, test, expect } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
 import { aggregateBinTotals } from "@/lib/plan-helpers";
-import { isPlanFeasible } from "@/lib/target-optimizer";
+import { fitTargetsToLimits, isPlanFeasible } from "@/lib/target-optimizer";
 import { mapPlanToFlowBinFused, mapPlanToFlowBinFusedSeparated } from "@/components/mappers/bin-fused-mapper";
 import { mapPlanToFlowMerged } from "@/components/mappers/merged-mapper";
 import type {
@@ -466,6 +466,64 @@ describe("power sustain: battery production never violates user caps", () => {
     if (warning?.kind === "power-sustain-insufficient") {
       expect(warning.shortfallWatts).toBeCloseTo(493.333, 2);
     }
+  });
+
+  test("Fit shrinks an unlocked target until the power shortfall clears", async () => {
+    // The unlock → adjust flow (user-reported): a locked target plus an
+    // unlocked one saturate the ore cap, leaving no headroom for power
+    // batteries. Fit must scale the UNLOCKED target down until the
+    // batteries fit — and the fitted vector must re-solve clean.
+    //
+    // Closed form: cap 20 ore/min; locked nugget 10 (10 ore, 1000 W);
+    // unlocked nugget-2… simplest: second unlocked battery-consuming
+    // demand is the battery target itself. Use nugget locked 10 +
+    // battery_1 target unlocked 10 (net-for-pickup). At λ=1: ore =
+    // 10 + 10 = 20 (cap), zero headroom for BURN batteries → shortfall.
+    // Shrinking the battery target frees ore that funds burn batteries.
+    const rawCaps = new Map([[ItemId.ITEM_IRON_ORE, 20]]);
+    const solveOpts = {
+      rawMaterials: RAWS,
+      rawCaps,
+      powerSustain: { fuels: [burn1] },
+    };
+    const result = await fitTargetsToLimits({
+      targets: [
+        { itemId: ItemId.ITEM_IRON_NUGGET, rate: 10, locked: true },
+        { itemId: ItemId.ITEM_PROC_BATTERY_1, rate: 10 },
+      ],
+      solve: (vector) =>
+        calculateProductionPlan(
+          vector,
+          testItems,
+          [nuggetRecipe, battery1Recipe],
+          testFacilities,
+          solveOpts,
+        ),
+      feasibility: { facilities: testFacilities, items: testItems, rawCaps },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    // The locked target is untouched; the unlocked one shrank.
+    const fittedBatteryRate = result.rates.get(1)!;
+    expect(fittedBatteryRate).toBeLessThan(10);
+    expect(fittedBatteryRate).toBeGreaterThan(0);
+
+    // The fitted vector re-solves with no shortfall (the engine's
+    // verified-by-actual-solve invariant, asserted independently).
+    const fitted = await calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_IRON_NUGGET, rate: 10 },
+        { itemId: ItemId.ITEM_PROC_BATTERY_1, rate: fittedBatteryRate },
+      ],
+      testItems,
+      [nuggetRecipe, battery1Recipe],
+      testFacilities,
+      solveOpts,
+    );
+    expect(
+      fitted.warnings.some((w) => w.kind === "power-sustain-insufficient"),
+    ).toBe(false);
   });
 
   test("isPlanFeasible treats the shortfall warning as over-limit", async () => {

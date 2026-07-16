@@ -1162,7 +1162,19 @@ export function useProductionPlan(
   // Toggle a target's lock flag. Locked targets are frozen under every
   // automatic adjustment (Fit scaling and priority-Max shrinking) —
   // see the `target-optimizer.ts` module doc.
+  //
+  // A lock toggle is a user edit of the ADJUSTABILITY contract, so it
+  // re-arms auto-fit like a rate edit does (user-reported dead-end:
+  // with auto-fit on and its one-shot guard already spent, unlocking a
+  // target over a power shortfall did nothing — and the Fit pill was
+  // hidden because auto-fit owns the job). It also clears the
+  // last-edited exclusion: the just-unlocked target must be ELIGIBLE
+  // for shrinking, not shielded as the protected demand (second
+  // dead-end: unlock after scrubbing that same target's rate left no
+  // flexible target for auto-fit to act on).
   const handleTargetLockToggle = useCallback((index: number) => {
+    lastEditedIndexRef.current = null;
+    autoFitSpentRef.current = false;
     setTargets((prev) =>
       prev.map((t, i) =>
         i === index
@@ -1620,7 +1632,9 @@ export function useProductionPlan(
   // and run one fit pass excluding the just-edited target. One-shot per
   // edit (`autoFitSpentRef`): if the plan is still infeasible after the
   // pass (e.g. everything else is locked → "impossible"), stop until
-  // the next edit re-arms the guard.
+  // the next edit re-arms the guard. Rate edits, target removals AND
+  // lock toggles all re-arm — unlocking a target is precisely the
+  // "let auto-fit adjust this" gesture.
   useEffect(() => {
     if (!autoFit || !planOverLimit) return;
     if (optimizeState !== null) return; // a search is already running
