@@ -1,6 +1,7 @@
 import { memo, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
+import { InfoHint } from "@/components/InfoHint";
 import { SectionHeader } from "@/components/SectionHeader";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -181,56 +182,77 @@ const OptionsSection = memo(function OptionsSection({
 
         <Separator />
 
-        <div className="flex items-center justify-between gap-2">
+        {/* Option rows: single-line `Label · ⓘ · Switch`. The hint
+          * bodies live in tap-friendly popovers (`InfoHint`) instead
+          * of inline paragraphs — compact on desktop, reachable on
+          * touch (hover tooltips never open on tap). */}
+        <div className="flex items-center gap-1.5">
           <Label
             htmlFor={ceilSwitchId}
             className="text-sm cursor-pointer"
           >
             {t("ceilMode", { ns: "app" })}
           </Label>
+          <InfoHint
+            ariaLabel={t("optionInfo", {
+              ns: "app",
+              label: t("ceilMode", { ns: "app" }),
+            })}
+          >
+            {t("ceilModeHint", { ns: "app" })}
+          </InfoHint>
           <Switch
             id={ceilSwitchId}
             checked={ceilMode}
             onCheckedChange={onCeilModeChange}
+            className="ml-auto"
           />
         </div>
 
-        <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <Label
-              htmlFor={autoFitSwitchId}
-              className="text-sm cursor-pointer"
-            >
-              {t("autoFit", { ns: "app" })}
-            </Label>
-            <Switch
-              id={autoFitSwitchId}
-              checked={autoFit}
-              onCheckedChange={onAutoFitChange}
-            />
-          </div>
-          <p className="text-[11px] leading-snug text-muted-foreground">
+        <div className="flex items-center gap-1.5">
+          <Label
+            htmlFor={autoFitSwitchId}
+            className="text-sm cursor-pointer"
+          >
+            {t("autoFit", { ns: "app" })}
+          </Label>
+          <InfoHint
+            ariaLabel={t("optionInfo", {
+              ns: "app",
+              label: t("autoFit", { ns: "app" }),
+            })}
+          >
             {t("autoFitHint", { ns: "app" })}
-          </p>
+          </InfoHint>
+          <Switch
+            id={autoFitSwitchId}
+            checked={autoFit}
+            onCheckedChange={onAutoFitChange}
+            className="ml-auto"
+          />
         </div>
 
-        <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <Label
-              htmlFor={powerSustainSwitchId}
-              className="text-sm cursor-pointer"
-            >
-              {t("powerSustain", { ns: "app" })}
-            </Label>
-            <Switch
-              id={powerSustainSwitchId}
-              checked={powerSustain}
-              onCheckedChange={onPowerSustainChange}
-            />
-          </div>
-          <p className="text-[11px] leading-snug text-muted-foreground">
+        <div className="flex items-center gap-1.5">
+          <Label
+            htmlFor={powerSustainSwitchId}
+            className="text-sm cursor-pointer"
+          >
+            {t("powerSustain", { ns: "app" })}
+          </Label>
+          <InfoHint
+            ariaLabel={t("optionInfo", {
+              ns: "app",
+              label: t("powerSustain", { ns: "app" }),
+            })}
+          >
             {t("powerSustainHint", { ns: "app" })}
-          </p>
+          </InfoHint>
+          <Switch
+            id={powerSustainSwitchId}
+            checked={powerSustain}
+            onCheckedChange={onPowerSustainChange}
+            className="ml-auto"
+          />
         </div>
       </div>
     </section>
