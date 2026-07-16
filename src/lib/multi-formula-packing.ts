@@ -166,10 +166,12 @@ export type PackingResult = {
    * checking `aggregateBinTotals.physicalPerFacility`, which uniformly
    * covers recipe bins AND pickup-point source facilities. The MIP cap
    * constraint inside `solvePacking` still applies as the first line
-   * of defence, but the diagnostic emission lives at the hook layer.
+   * of defence; the diagnostic emission lives in the calculator.
    *
-   * Consumer (`useProductionPlan.warnings` memo) formats each kind
-   * with `ceilMode` + i18n before display.
+   * Consumer: `useProductionPlan` formats the packer kinds with i18n
+   * for the warning banner (`formatPlanWarning`); cap kinds are
+   * filtered OFF the banner — the over-cap stat-row chrome is their
+   * display surface.
    */
   warnings: PlanWarning[];
 };

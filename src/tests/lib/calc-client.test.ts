@@ -3,8 +3,9 @@
  * solver.
  *
  * Pins the client's resilience contract:
- *   1. Latest-wins coalescing (one inflight + one pending slot;
- *      displaced pending jobs reject with `CalcSupersededError`).
+ *   1. Latest-wins coalescing (one inflight job + one parked SOLVE
+ *      slot; displaced parked solves reject with
+ *      `CalcSupersededError`).
  *   2. A worker crash mid-solve is INVISIBLE to callers — the inflight
  *      job is re-dispatched onto a fresh worker, and after the per-job
  *      retry budget is exhausted, onto the main-thread fallback. The
@@ -13,11 +14,18 @@
  *   3. Worker-side CALCULATION errors (the `{ kind: "error" }`
  *      protocol message) still reject the caller — those are real
  *      solve failures, not transport faults.
+ *   4. Optimizer searches (`searchMaximize` / `searchFit`) are single
+ *      worker jobs with their OWN parked slot, dispatched ahead of a
+ *      parked solve and never displacing it; `cancel()` resolves
+ *      `{ kind: "cancelled" }` (parked → immediately; inflight → via
+ *      the `cancel-search` control message; crashed-while-cancelled →
+ *      without re-running the search).
  *
- * `@/lib/calculator` + `@/lib/highs-singleton` are mocked so the
- * fallback path is observable without running the real pipeline. The
- * client's module-level state (worker, budgets, queue slots) is reset
- * between tests via `vi.resetModules()` + a fresh dynamic import.
+ * `@/lib/calculator` + `@/lib/highs-singleton` + `@/lib/target-optimizer`
+ * are mocked so the fallback paths are observable without running the
+ * real pipeline. The client's module-level state (worker, budgets,
+ * queue slots) is reset between tests via `vi.resetModules()` + a
+ * fresh dynamic import.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import type { CalcRequest } from "@/lib/calc-client";

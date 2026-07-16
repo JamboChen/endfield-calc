@@ -448,11 +448,13 @@ export function computeOverCapWarnings(
  *   - Detection threshold is invariant to `ceilMode` — display
  *     formatting in the warning consumer applies that.
  *
- * Mode-of-emission: this runs at the hook layer (`useProductionPlan`)
- * AFTER packing completes, comparing post-pack `rawMaterialRequirements`
- * against the user's caps. The LP layer separately adds slack-based
- * upper-bound constraints (see `lp-solver.ts`); the two work together
- * — the LP biases toward conservation, this surfaces residual overage.
+ * Mode-of-emission: the calculator runs this at plan assembly (via
+ * `computeLimitViolations` above), comparing the packed plan's
+ * raw-node requirement fold against the user's caps — the result
+ * lands in `plan.warnings`, the shared over-limit verdict. The LP
+ * layer separately adds slack-based upper-bound constraints (see
+ * `lp-solver.ts`); the two work together — the LP biases toward
+ * conservation, this surfaces residual overage.
  */
 export function computeRawOverCapWarnings(
   rawMaterialRequirements: ReadonlyMap<ItemId, number>,

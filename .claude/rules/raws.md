@@ -40,7 +40,7 @@ Per-facility throughput defaults to transport capacity (30/min belt, 120/min pip
 
 - **Defaults**: `defaultRawCapsByDomain` (`src/data/raw-caps.ts`) carries each region's max mining output per raw. **User overrides**: `useDomainSettings().rawLimits.overrides` (per item+region; see `.claude/rules/domain-settings.md`).
 - **Merge**: `buildRawMaterialCaps` (`src/lib/raw-limits-helpers.ts`) resolves override-wins-over-default for the current domain, filtering invalid values and other-region/malformed keys. The result threads App.tsx → `useProductionPlan` → `calculateProductionPlan` as `options.rawCaps`.
-- **LP side**: raw caps are SOFT constraints (`SLACK_PENALTY`) — over-demand plans stay solvable and diagnosable. `computeRawOverCapWarnings` at the hook layer emits the user-facing `raw-over-cap` warning; the target optimizer's feasibility check treats any raw-over-cap as infeasible.
+- **LP side**: raw caps are SOFT constraints (`SLACK_PENALTY`) — over-demand plans stay solvable and diagnosable. The calculator emits the user-facing `raw-over-cap` warning into `plan.warnings` at plan assembly (`computeLimitViolations`, plan-helpers.ts); the target optimizer's feasibility check treats any raw-over-cap as infeasible (it scans the same warnings — see `.claude/rules/optimizer.md`).
 - Units are items/min everywhere (defaults, overrides, LP, warnings). Blank override = use default; raws without a default are unlimited.
 
 ## Transport capacities (`src/lib/utils.ts:19-31`)
