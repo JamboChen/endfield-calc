@@ -384,8 +384,9 @@ export type LPInput = {
    * When NO alternative producer is available the LP engages slack to
    * satisfy the target, returning a feasible (over-cap) plan. The
    * packer's existing MIP-cap path triggers its retry-without-caps
-   * fallback, and `computeOverCapWarnings` (`plan-helpers.ts:277`)
-   * surfaces the `facility-over-cap` warning at the hook layer.
+   * fallback, and the calculator emits the `facility-over-cap`
+   * warning at plan assembly (`computeLimitViolations`,
+   * plan-helpers.ts).
    *
    * **Why not hard**: a hard cap returns LP-infeasible whenever target
    * demand exceeds `cap × throughput` and no alternative producer is
@@ -773,8 +774,9 @@ const buildModel = (
   // overflow routes to the uncapped Liquid Cleaner — Cleaner cost ≪
   // slack penalty). When NO alternative exists, slack engages and
   // the LP returns a feasible (over-cap) plan; the packer's existing
-  // retry-without-caps path takes over and `computeOverCapWarnings`
-  // surfaces the `facility-over-cap` warning at the hook layer.
+  // retry-without-caps path takes over and the calculator emits the
+  // `facility-over-cap` warning at plan assembly
+  // (`computeLimitViolations`, plan-helpers.ts).
   //
   // **Why not hard**: a hard cap returns LP-infeasible whenever
   // target demand exceeds `cap × throughput` and no alternative

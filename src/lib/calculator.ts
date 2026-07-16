@@ -1639,11 +1639,15 @@ export async function calculateProductionPlan(
       }
     }
 
-    // Re-anchor the shortfall figure on the FINAL plan's aggregates:
-    // the LP slack was measured against the PREVIOUS iteration's floor,
-    // but the re-solve's recipe mix can shift the ceiled consumption by
-    // a few whole-building quanta — the displayed warning must match
-    // the displayed power stat, not a stale floor.
+  // Re-anchor the shortfall figure on the FINAL plan's aggregates:
+  // the LP slack was measured against the PREVIOUS iteration's floor,
+  // but the re-solve's recipe mix can shift the ceiled consumption by
+  // a few whole-building quanta — the displayed warning must match
+  // the displayed power stat, not a stale floor. Kind-scoped on
+  // purpose (findIndex/splice by `power-sustain-insufficient` only):
+  // `assemblePlan` appends the cap-violation warnings
+  // (`computeLimitViolations`) to the same array, and this re-anchor
+  // must never disturb them regardless of emission order.
     const shortfallIdx = plan.warnings.findIndex(
       (w) => w.kind === "power-sustain-insufficient",
     );

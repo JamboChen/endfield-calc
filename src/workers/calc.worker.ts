@@ -78,7 +78,8 @@ export type CalcSearchRequest = {
 } & CalcSearchOp;
 
 /** Cooperative cancellation for an in-flight search job. Safe to send
- *  for a seq that already finished (the flag is dropped either way). */
+ *  for a seq that already finished — the worker drops any cancel whose
+ *  seq isn't the ACTIVE search's (see `activeSearchSeq`). */
 export interface CalcSearchCancel {
   kind: "cancel-search";
   seq: number;
@@ -108,21 +109,32 @@ ready
     });
   });
 
-/** Seqs whose `cancel-search` arrived. Entries are removed when the
- *  search settles; a cancel that races a completed search is dropped
- *  by the same cleanup (the client only cancels its own inflight). */
-const cancelledSearches = new Set<number>();
+/**
+ * The running search job's seq + cancellation flag. The client
+ * guarantees at most one outstanding job, so a pair of scalars
+ * suffices. `activeSearchSeq` is set SYNCHRONOUSLY before the search
+ * branch's first await (message ordering delivers `search` before its
+ * own `cancel-search`, but the cancel can be processed during any
+ * await). A `cancel-search` whose seq doesn't match the active search
+ * is dropped outright — it raced an already-settled job (the client's
+ * `inflight` clears only after it processes the result message), and
+ * seqs are never reused, so dropping is always safe.
+ */
+let activeSearchSeq: number | null = null;
+let activeSearchCancelled = false;
 
 self.onmessage = async (e: MessageEvent<CalcWorkerRequest>) => {
   const data = e.data;
 
   if (data.kind === "cancel-search") {
-    cancelledSearches.add(data.seq);
+    if (data.seq === activeSearchSeq) activeSearchCancelled = true;
     return;
   }
 
   if (data.kind === "search") {
     const { seq } = data;
+    activeSearchSeq = seq;
+    activeSearchCancelled = false;
     try {
       await ready;
       const solve = (vector: TargetVectorEntry[]) =>
@@ -133,7 +145,7 @@ self.onmessage = async (e: MessageEvent<CalcWorkerRequest>) => {
           data.facilities,
           data.options,
         );
-      const isCancelled = () => cancelledSearches.has(seq);
+      const isCancelled = () => activeSearchCancelled;
       const result =
         data.op === "max"
           ? await maximizeTargetRate({
@@ -163,7 +175,7 @@ self.onmessage = async (e: MessageEvent<CalcWorkerRequest>) => {
         message: err instanceof Error ? err.message : String(err),
       } satisfies CalcWorkerResponse);
     } finally {
-      cancelledSearches.delete(seq);
+      if (activeSearchSeq === seq) activeSearchSeq = null;
     }
     return;
   }

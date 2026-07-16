@@ -462,13 +462,15 @@ export function useProductionPlan(
   );
 
   // The complete problem definition MINUS targets — the single bundle
-  // consumed by BOTH the display calc effect and the optimizer probes
-  // (`optimizerSolve`). Optimizer probes must judge the exact problem
+  // consumed by BOTH the display calc effect and the optimizer's
+  // worker searches (`useTargetOptimizer` spreads it into
+  // `searchMaximize`/`searchFit`). Probes must judge the exact problem
   // the UI solves after a commit (the probe≡UI invariant — see
   // `target-optimizer.ts`); building the bundle once makes drift
   // between the two call sites structurally impossible. Its identity
-  // doubles as the config-staleness key: the effect below
-  // `optimizerSolve` cancels any in-flight search when it changes.
+  // doubles as the config-staleness key: `useTargetOptimizer`'s
+  // `cancelActiveSearch` effect kills any in-flight search when it
+  // changes.
   const calcProblem = useMemo(
     () => ({
       items,

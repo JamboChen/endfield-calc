@@ -116,8 +116,13 @@ export function useTargetOptimizer(params: {
     // previous array (rate edits, add/remove index shifts, AND lock
     // toggles — the calc effect ignores lock-only changes via its
     // content signature, but the optimizer's flexible set does not).
+    // Nulled immediately so the ref never points at a dead search;
+    // the handler's finally is identity-guarded, so it skips cleanly.
     const active = activeSearchRef.current;
-    if (active && active.captured !== targets) active.cancel();
+    if (active && active.captured !== targets) {
+      active.cancel();
+      activeSearchRef.current = null;
+    }
   }, [targets]);
   /** Monotone search token: bumping it invalidates any in-flight
    *  search's commit (the worker-side loop is stopped separately via
@@ -181,6 +186,8 @@ export function useTargetOptimizer(params: {
   const cancelActiveSearch = useCallback(() => {
     optimizeTokenRef.current++;
     activeSearchRef.current?.cancel();
+    // Null immediately — see the targets-change cancel above.
+    activeSearchRef.current = null;
     dispatch({ type: "config-change" });
     setOptimizeState(null);
   }, []);
@@ -439,14 +446,18 @@ export function useTargetOptimizer(params: {
   // enabling — the engine's bracketing ceiling defends at runtime.
   //
   // Content-keyed on the target ITEM-ID set (the `targetsCalcSig`
-  // pattern): gating is rate- and lock-independent, so scrub-commit
-  // streams and lock toggles must not re-run the per-target chain
-  // closures (each rebuilds a full producer index over `recipes`).
+  // pattern) plus the THREE `calcProblem` fields the body actually
+  // reads — NOT the whole bundle: gating is rate- and lock-independent
+  // and must not recompute on unrelated config changes (pins, manual
+  // raws, routes, power mode), because the per-target chain closures
+  // each rebuild a full producer index over `recipes`.
   const targetItemIdsSig = targets.map((tgt) => tgt.itemId).join(",");
+  const gatingRecipes = calcProblem.recipes;
+  const gatingRawMaterials = calcProblem.options.rawMaterials;
+  const gatingRawCaps = calcProblem.options.rawCaps;
   const maxEnabledByTarget = useMemo(() => {
     const out = new Map<ItemId, boolean>();
-    const rawCaps = calcProblem.options.rawCaps;
-    const cappedRaws = rawCaps ? [...rawCaps.keys()] : [];
+    const cappedRaws = gatingRawCaps ? [...gatingRawCaps.keys()] : [];
     for (const target of targets) {
       if (out.has(target.itemId)) continue;
       if (cappedRaws.length === 0) {
@@ -455,8 +466,8 @@ export function useTargetOptimizer(params: {
       }
       const chainRaws = rawsInChainOf(
         target.itemId,
-        calcProblem.recipes,
-        calcProblem.options.rawMaterials,
+        gatingRecipes,
+        gatingRawMaterials,
       );
       out.set(
         target.itemId,
@@ -467,7 +478,7 @@ export function useTargetOptimizer(params: {
     // `targetItemIdsSig` fully captures the item-id content the memo
     // body reads off the targets array (see above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetItemIdsSig, calcProblem]);
+  }, [targetItemIdsSig, gatingRecipes, gatingRawMaterials, gatingRawCaps]);
 
   return {
     optimizeState,
