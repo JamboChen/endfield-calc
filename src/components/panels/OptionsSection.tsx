@@ -1,14 +1,20 @@
 import { memo, useId } from "react";
 import { useTranslation } from "react-i18next";
-import { Settings } from "lucide-react";
+import { ChevronDown, Settings } from "lucide-react";
 import { InfoHint } from "@/components/InfoHint";
 import { SectionHeader } from "@/components/SectionHeader";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { RegionPicker } from "@/components/settings/RegionPicker";
+import { RouteModeSelect } from "@/components/settings/RouteModeSelect";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { metastorageSources, regionStructures } from "@/data";
 import { facilityIconUrl } from "@/lib/facility-icons";
@@ -73,7 +79,18 @@ const OptionsSection = memo(function OptionsSection({
   const ceilSwitchId = useId();
   const autoFitSwitchId = useId();
   const powerSustainSwitchId = useId();
-  const metastorageSwitchId = useId();
+
+  // Metastorage sources that can feed the CURRENT region — the
+  // App-bridge eligibility filter (S ∈ sources ∧ S ≠ current ∧ S
+  // active). `activeImportCount` = routes whose mode actually feeds
+  // this region (mode ∈ {"auto", current}) — the status-chip figure.
+  const metastorageSourceList = [...metastorageSources.keys()].filter(
+    (source) => source !== currentDomain && activeDomains.has(source),
+  );
+  const activeImportCount = metastorageSourceList.filter((source) => {
+    const mode = metastorage.routeModes.get(source) ?? "auto";
+    return mode === "auto" || mode === currentDomain;
+  }).length;
 
   const regionStructureList = regionStructures.get(currentDomain) ?? [];
   const structureCount = countRegionStructuresEnabled(
@@ -235,59 +252,74 @@ const OptionsSection = memo(function OptionsSection({
           />
         </div>
 
-        {/* One quick toggle per Metastorage source that can feed the
-          * CURRENT region — generic by construction (PR #101 review:
-          * hardcoding Valley IV → Wuling would leave Valley IV without
-          * a toggle once Wuling gains Metastorage capability). The
-          * eligibility filter and the checked-predicate both mirror
-          * the App bridge exactly (App.tsx: source S feeds region D
-          * iff S ∈ metastorageSources ∧ S ≠ D ∧ S active ∧ route mode
-          * ∈ {"auto", D}) — a route locked to ANOTHER region correctly
-          * shows off here. The toggle writes the coarse states only
-          * ("auto" on enable — the system default — and "disabled");
-          * per-region locking stays in Settings → Metastorage. */}
-        {[...metastorageSources.keys()]
-          .filter(
-            (source) =>
-              source !== currentDomain && activeDomains.has(source),
-          )
-          .map((source) => {
-            const label = t("metastorageTransfer", {
-              ns: "app",
-              source: getDomainName(source),
-              target: getDomainName(currentDomain),
-            });
-            const mode = metastorage.routeModes.get(source) ?? "auto";
-            return (
-              <div key={source} className="flex items-center gap-1.5">
-                <Label
-                  htmlFor={`${metastorageSwitchId}-${source}`}
-                  className="text-sm cursor-pointer"
+        {/* Metastorage imports: ONE status row regardless of how many
+          * source regions exist (PR #101 review fallout — per-source
+          * switch rows both grew unboundedly and flattened the
+          * tri-state route mode into a lying boolean). The chip shows
+          * how many routes feed the CURRENT region; the popover lists
+          * each eligible source (App-bridge filter: S ∈
+          * metastorageSources ∧ S ≠ current ∧ S active) with the SAME
+          * tri-state `RouteModeSelect` the Settings tab uses — a route
+          * locked to another region displays as that region, and
+          * changing it is a deliberate pick among all modes, never a
+          * silent hijack to "auto". */}
+        {metastorageSourceList.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">
+              {t("metastorageImports", { ns: "app" })}
+            </span>
+            <InfoHint
+              ariaLabel={t("optionInfo", {
+                ns: "app",
+                label: t("metastorageImports", { ns: "app" }),
+              })}
+            >
+              {t("metastorageImportsHint", { ns: "app" })}
+            </InfoHint>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto h-7 gap-1 px-2.5 text-xs"
                 >
-                  {label}
-                </Label>
-                <InfoHint
-                  ariaLabel={t("optionInfo", { ns: "app", label })}
-                >
-                  {t("metastorageTransferHint", {
-                    ns: "app",
-                    source: getDomainName(source),
-                  })}
-                </InfoHint>
-                <Switch
-                  id={`${metastorageSwitchId}-${source}`}
-                  checked={mode === "auto" || mode === currentDomain}
-                  onCheckedChange={(checked) =>
-                    metastorage.setRouteMode(
-                      source,
-                      checked ? "auto" : "disabled",
-                    )
-                  }
-                  className="ml-auto"
-                />
-              </div>
-            );
-          })}
+                  {activeImportCount > 0
+                    ? t("metastorageImportsOn", {
+                        ns: "app",
+                        count: activeImportCount,
+                      })
+                    : t("metastorageImportsOff", { ns: "app" })}
+                  <ChevronDown className="size-3 opacity-60" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="w-72 px-3 py-2.5 space-y-2"
+              >
+                {metastorageSourceList.map((source) => (
+                  <div
+                    key={source}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="text-xs min-w-0 truncate">
+                      {t("metastorageImportsRoute", {
+                        ns: "app",
+                        source: getDomainName(source),
+                      })}
+                    </span>
+                    <RouteModeSelect
+                      source={source}
+                      domains={domains}
+                      mode={metastorage.routeModes.get(source) ?? "auto"}
+                      onSetRouteMode={metastorage.setRouteMode}
+                      className="h-7 w-[130px] text-xs shrink-0"
+                    />
+                  </div>
+                ))}
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
 
         <div className="flex items-center gap-1.5">
           <Label
