@@ -304,16 +304,83 @@ export function aggregateBinTotals(
  * drifted once before (metastorage); any future soft tier that emits
  * an over-limit warning must ONLY be added here.
  *
- * Deliberately excludes:
- *   - `facility-over-cap` / `raw-over-cap` — those are computed from
- *     aggregates by both consumers directly (they need caps + usage,
- *     not just the plan).
- *   - `power-sustain-unavailable` — "no fuel exists" is a
- *     configuration state, not a limit violation; scaling targets
- *     cannot fix it.
+ * Every kind in this set is emitted INTO `plan.warnings` by
+ * `calculateProductionPlan` itself (the cap kinds via
+ * `computeLimitViolations` at plan assembly) — so the verdict "is this
+ * plan over its limits?" is a plain warning scan for every consumer,
+ * and an optimizer probe judges the exact plan the UI would show.
+ * Enrolling a new limit = emit its warning in the calculator + add the
+ * kind here. Nothing else.
+ *
+ * Deliberately excludes `power-sustain-unavailable` — "no fuel exists"
+ * is a configuration state, not a limit violation; scaling targets
+ * cannot fix it.
  */
 export const OVER_LIMIT_WARNING_KINDS: ReadonlySet<PlanWarning["kind"]> =
-  new Set(["metastorage-budget-insufficient", "power-sustain-insufficient"]);
+  new Set([
+    "facility-over-cap",
+    "raw-over-cap",
+    "metastorage-budget-insufficient",
+    "power-sustain-insufficient",
+  ]);
+
+/**
+ * The single limit-violation judge, run by `calculateProductionPlan`
+ * at plan assembly (each ceil-floor iteration re-assembles, so the
+ * final plan always carries a fresh verdict):
+ *
+ *   - Facility caps against `physicalPerFacility` — always-ceiled
+ *     physical placement counts, mode-independent (see the
+ *     `BinAggregates.physicalPerFacility` doc for why fractional
+ *     usage under-detects).
+ *   - Raw caps against the plan's raw-node requirement fold: raw item
+ *     nodes (plus manually-pinned raws — mirrors
+ *     `useProductionStats.collectStats`) summed by `productionRate`.
+ *
+ * Runs on the UNfiltered plan: `filterPlanForDisplay` only drops
+ * zero-rate nodes, which contribute nothing to either check, and
+ * `plan.bins` is identical either way — so this verdict matches what
+ * the display-layer chrome derives (probe/badge parity is structural).
+ */
+export function computeLimitViolations(
+  plan: ProductionDependencyGraph,
+  facilities: readonly Facility[],
+  items: readonly Item[],
+  ctx: {
+    facilityCaps?: ReadonlyMap<FacilityId, number>;
+    rawCaps?: ReadonlyMap<ItemId, number>;
+    manualRawMaterials?: ReadonlySet<ItemId>;
+  },
+): PlanWarning[] {
+  const hasFacilityCaps = !!ctx.facilityCaps && ctx.facilityCaps.size > 0;
+  const hasRawCaps = !!ctx.rawCaps && ctx.rawCaps.size > 0;
+  if (!hasFacilityCaps && !hasRawCaps) return [];
+
+  const warnings: PlanWarning[] = [];
+  if (hasFacilityCaps) {
+    const aggregates = aggregateBinTotals(plan, facilities, items);
+    warnings.push(
+      ...computeOverCapWarnings(
+        aggregates.physicalPerFacility,
+        ctx.facilityCaps,
+      ),
+    );
+  }
+  if (hasRawCaps) {
+    const rawRequirements = new Map<ItemId, number>();
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "item") continue;
+      if (node.isRawMaterial || ctx.manualRawMaterials?.has(node.itemId)) {
+        rawRequirements.set(
+          node.itemId,
+          (rawRequirements.get(node.itemId) ?? 0) + node.productionRate,
+        );
+      }
+    }
+    warnings.push(...computeRawOverCapWarnings(rawRequirements, ctx.rawCaps));
+  }
+  return warnings;
+}
 
 /**
  * Detect facility-cap overflows.

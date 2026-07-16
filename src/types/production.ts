@@ -30,14 +30,16 @@ import type {
 export type PlanWarning =
   | {
       /**
-       * Per-facility placement cap exceeded. Emitted by the Phase 5
-       * packer post-packing when total `buildingCount` for a capped
-       * facility exceeds the cap. `used` may be fractional (LP-derived);
+       * Per-facility placement cap exceeded. Emitted by
+       * `calculateProductionPlan` at plan assembly (via
+       * `computeLimitViolations` in plan-helpers), comparing the
+       * always-ceiled `physicalPerFacility` aggregate against the
+       * user's caps. `used` is a physical placement count (integer);
        * `cap` is always integer (parseInt-guarded at the UI input).
        *
-       * Applies to single-formula facilities (singleton bins) and
-       * multi-formula facilities (LP-packed bins) uniformly — the
-       * check walks the final emitted bin set.
+       * Applies uniformly to single-formula facilities (singleton
+       * bins), multi-formula facilities (LP-packed bins), and
+       * pickup-point source facilities (pump_1, pump_2, unloader_1).
        */
       kind: "facility-over-cap";
       facilityId: FacilityId;
@@ -66,10 +68,11 @@ export type PlanWarning =
   | {
       /**
        * Per-(item, region) raw-material limit exceeded. Emitted by
-       * `computeRawOverCapWarnings` in `plan-helpers.ts` after the
-       * packer runs, comparing post-pack `rawMaterialRequirements`
-       * (items/min consumption) against the user-configured
-       * `rawCaps` map for the current region.
+       * `calculateProductionPlan` at plan assembly (via
+       * `computeLimitViolations` in plan-helpers), comparing the
+       * plan's raw-node requirement fold (items/min consumption)
+       * against the user-configured `rawCaps` map for the current
+       * region.
        *
        * Mirrors `facility-over-cap` semantically: the value is
        * informational (warn-only, never blocks). The LP layer

@@ -8,7 +8,6 @@ import {
   fitTargetsToLimits,
   maximizeTargetRate,
   rawsInChainOf,
-  type FeasibilityContext,
   type TargetVectorEntry,
 } from "@/lib/target-optimizer";
 import { namespaceStorageKey } from "@/lib/storage-namespace";
@@ -39,8 +38,6 @@ import {
 } from "@/lib/i18n-helpers";
 import {
   aggregateBinTotals,
-  computeOverCapWarnings,
-  computeRawOverCapWarnings,
   filterPlanForDisplay,
   OVER_LIMIT_WARNING_KINDS,
 } from "@/lib/plan-helpers";
@@ -414,11 +411,12 @@ function formatPlanWarning(
  *
  * `rawMaterialCaps` is the per-(raw item) cap for the current region,
  * in items/min. Passed into `calculateProductionPlan` → LP (which adds
- * slack-based upper-bound constraints) AND used here to compute
- * `raw-over-cap` PlanWarnings against post-pack
- * `rawMaterialRequirements`. **No entry in this map = no limit** for
- * that item; items the user hasn't capped don't appear here and don't
- * trigger warnings. Optional and undefined when nothing is capped.
+ * slack-based upper-bound constraints); residual overage comes back as
+ * calculator-emitted `raw-over-cap` PlanWarnings (see
+ * `computeLimitViolations` in plan-helpers). **No entry in this map =
+ * no limit** for that item; items the user hasn't capped don't appear
+ * here and don't trigger warnings. Optional and undefined when nothing
+ * is capped.
  *
  * `metastorageRoutes` are the Metastorage import routes resolved for
  * the current region by App.tsx. Threaded into
@@ -897,23 +895,18 @@ export function useProductionPlan(
     [powerSustain, plan],
   );
 
-  // Structured facility-cap-overflow signals. Two downstream consumers
-  // share this memo: `facilityOverCapMap` (the over-cap stat-row
-  // chrome) and `capIssueCount` (the ticker's destructive badge).
-  // Detection uses `aggregates.physicalPerFacility` (always-ceiled,
-  // mode-independent placement counts): in-game caps are hard limits
-  // on WHOLE buildings, and single-formula fragmentation can need more
-  // placements than the fractional LP usage suggests (see the JSDoc on
-  // `BinAggregates.physicalPerFacility`). Uniformly covers recipe bins
-  // AND pickup-point source facilities (pump_1, pump_2, unloader_1) —
-  // the latter being absent from `plan.bins` and therefore invisible
-  // to the packer's earlier cap check.
-  const overCapWarnings = useMemo<readonly PlanWarning[]>(
+  // Structured limit-violation warnings, read STRAIGHT off the plan:
+  // `calculateProductionPlan` emits them at assembly via
+  // `computeLimitViolations` (facility caps against always-ceiled
+  // `physicalPerFacility`, raw caps against the raw-node requirement
+  // fold) — the same single judge the optimizer's `isPlanFeasible`
+  // probes read, so the badges and the engines cannot disagree.
+  const limitViolationWarnings = useMemo<readonly PlanWarning[]>(
     () =>
-      aggregates
-        ? computeOverCapWarnings(aggregates.physicalPerFacility, facilityCaps)
-        : [],
-    [aggregates, facilityCaps],
+      (plan?.warnings ?? []).filter((w) =>
+        OVER_LIMIT_WARNING_KINDS.has(w.kind),
+      ),
+    [plan],
   );
 
   // Per-facility map for the side-panel `<ProductionStats>` card
@@ -923,13 +916,13 @@ export function useProductionPlan(
     ReadonlyMap<FacilityId, { used: number; cap: number }>
   >(() => {
     const out = new Map<FacilityId, { used: number; cap: number }>();
-    for (const w of overCapWarnings) {
+    for (const w of limitViolationWarnings) {
       if (w.kind === "facility-over-cap") {
         out.set(w.facilityId, { used: w.used, cap: w.cap });
       }
     }
     return out;
-  }, [overCapWarnings]);
+  }, [limitViolationWarnings]);
 
   // Collect overridden item IDs from invalid cycles for table row styling.
   // Only the items whose recipe override caused the cycle get highlighted,
@@ -969,26 +962,18 @@ export function useProductionPlan(
   );
 
   // Cap-overflow issue count (facility + raw) for the stats tickers'
-  // destructive badge. Cap overflows no longer emit banner strings —
-  // the over-cap stat rows (destructive outline + AlertTriangle) ARE
-  // the warning surface — but the badge must still signal them while
-  // the dock is collapsed / the portrait sheet is closed, where those
-  // rows are invisible.
-  //
-  // Raw side mirrors the facility check: compares the plan's post-pack
-  // `stats.rawMaterialRequirements` (items/min consumption) against
-  // the user's `rawMaterialCaps`. The LP layer additionally adds
-  // slack-based upper-bound constraints (see `lp-solver.ts`), so the
-  // LP biases toward conservation; this surfaces any residual overage.
-  // **No entry in `rawMaterialCaps` = no limit**, structurally
-  // enforced by `computeRawOverCapWarnings` iterating the caps map
-  // rather than the requirements map.
+  // destructive badge. Cap overflows don't emit banner strings — the
+  // over-cap stat rows (destructive outline + AlertTriangle) ARE the
+  // warning surface — but the badge must still signal them while the
+  // dock is collapsed / the portrait sheet is closed, where those rows
+  // are invisible. Counted off the plan-emitted violation warnings
+  // (the single judge — see `limitViolationWarnings`).
   const capIssueCount = useMemo<number>(
     () =>
-      overCapWarnings.length +
-      computeRawOverCapWarnings(stats.rawMaterialRequirements, rawMaterialCaps)
-        .length,
-    [overCapWarnings, stats.rawMaterialRequirements, rawMaterialCaps],
+      limitViolationWarnings.filter(
+        (w) => w.kind === "facility-over-cap" || w.kind === "raw-over-cap",
+      ).length,
+    [limitViolationWarnings],
   );
 
   // Per-item {used, cap} for EVERY valid capped raw — the stats
@@ -1073,9 +1058,17 @@ export function useProductionPlan(
         });
       });
 
-    const planWarnings = (plan.warnings ?? []).map((w) =>
-      formatPlanWarning(w, t, facilities, items),
-    );
+    // Cap kinds are excluded from the banner: the over-cap stat rows
+    // (destructive chrome + exact numbers) are their surface, and
+    // `capIssueCount` keeps the ticker badge honest while those rows
+    // are hidden. They still live in `plan.warnings` — the calculator
+    // emits them as the shared over-limit verdict (see
+    // `limitViolationWarnings`).
+    const planWarnings = (plan.warnings ?? [])
+      .filter(
+        (w) => w.kind !== "facility-over-cap" && w.kind !== "raw-over-cap",
+      )
+      .map((w) => formatPlanWarning(w, t, facilities, items));
 
     // Failed-solve banner. A non-"ok" `lpStatus` plan is an empty
     // best-effort shell (zero rates, no bins) that otherwise renders
@@ -1362,7 +1355,7 @@ export function useProductionPlan(
    * probing a stale options bundle could commit values the fresh
    * problem judges over-cap (the same probe≠UI mismatch class as the
    * zero-rate-target bug), so the effect below cancels it the moment
-   * `optimizerSolve` / `optimizerFeasibility` change identity. Must
+   * `optimizerSolve` changes identity. Must
    * self-clean (unlike a superseding search, a config-cancel has no
    * successor whose finally would clear `optimizeState`).
    */
@@ -1421,25 +1414,14 @@ export function useProductionPlan(
     ],
   );
 
-  const optimizerFeasibility = useMemo<FeasibilityContext>(
-    () => ({
-      facilities,
-      items,
-      facilityCaps,
-      rawCaps: rawMaterialCaps,
-      manualRawMaterials,
-    }),
-    [facilityCaps, rawMaterialCaps, manualRawMaterials],
-  );
-
   // Problem-definition staleness: cancel any in-flight search (and drop
   // the "Max done" markers) whenever the options bundle changes
-  // identity — see `cancelActiveSearch`. `optimizerSolve` is a superset
-  // of `optimizerFeasibility`'s inputs; both listed for clarity. The
-  // mount-time invocation is a no-op (no search, no marks).
+  // identity — see `cancelActiveSearch`. `optimizerSolve` captures the
+  // full problem definition (caps, routes, recipes, pins, raws, power
+  // mode). The mount-time invocation is a no-op (no search, no marks).
   useEffect(() => {
     cancelActiveSearch();
-  }, [optimizerSolve, optimizerFeasibility, cancelActiveSearch]);
+  }, [optimizerSolve, cancelActiveSearch]);
 
   const handleMaximizeTarget = useCallback(
     async (index: number) => {
@@ -1453,7 +1435,6 @@ export function useProductionPlan(
           targets: captured,
           index,
           solve: optimizerSolve,
-          feasibility: optimizerFeasibility,
           isCancelled: () =>
             optimizeTokenRef.current !== token ||
             targetsRef.current !== captured,
@@ -1537,7 +1518,6 @@ export function useProductionPlan(
     },
     [
       optimizerSolve,
-      optimizerFeasibility,
       resetAutoFitEditContext,
       finishOptimizeSearch,
       markMaxed,
@@ -1555,7 +1535,6 @@ export function useProductionPlan(
           targets: captured,
           excludeIndex,
           solve: optimizerSolve,
-          feasibility: optimizerFeasibility,
           isCancelled: () =>
             optimizeTokenRef.current !== token ||
             targetsRef.current !== captured,
@@ -1598,24 +1577,20 @@ export function useProductionPlan(
     },
     [
       optimizerSolve,
-      optimizerFeasibility,
       resetAutoFitEditContext,
       finishOptimizeSearch,
       t,
     ],
   );
 
-  // Plan-over-limit signal shared by the Fit pill and auto-fit. Same
-  // clauses as the engine's `isPlanFeasible`: cap overflows (facility
-  // physical placements + raw rates, both inside `capIssueCount`) plus
-  // the shared over-limit warning kinds (metastorage budget,
-  // power-sustain shortfall — see `OVER_LIMIT_WARNING_KINDS`, the
-  // single source of truth both consumers read).
+  // Plan-over-limit signal shared by the Fit pill and auto-fit.
+  // Literally the same clause as the engine's `isPlanFeasible`: the
+  // calculator emits every limit violation into `plan.warnings`, and
+  // `OVER_LIMIT_WARNING_KINDS` is the single source of truth for which
+  // kinds count — the pill and the probes cannot disagree.
   const planOverLimit = useMemo<boolean>(
-    () =>
-      capIssueCount > 0 ||
-      (plan?.warnings ?? []).some((w) => OVER_LIMIT_WARNING_KINDS.has(w.kind)),
-    [capIssueCount, plan],
+    () => limitViolationWarnings.length > 0,
+    [limitViolationWarnings],
   );
 
   // Fit pill visibility: over-limit with something to shrink, hidden

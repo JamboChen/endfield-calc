@@ -21,7 +21,10 @@ import type {
 } from "@/types";
 import type { MetastorageRouteConfig } from "@/types/metastorage";
 import { calcRate } from "@/lib/utils";
-import { aggregateBinTotals } from "@/lib/plan-helpers";
+import {
+  aggregateBinTotals,
+  computeLimitViolations,
+} from "@/lib/plan-helpers";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
 import { computeVariantExclusions } from "@/lib/variant-filter";
 import { buildBipartiteGraph, detectSCCs } from "./graph-builder";
@@ -1512,7 +1515,7 @@ export async function calculateProductionPlan(
       maps.recipeMap,
       graph.rawMaterials,
     );
-    return buildProductionGraph(
+    const builtPlan = buildProductionGraph(
       graph,
       flowData,
       sccs,
@@ -1532,6 +1535,19 @@ export async function calculateProductionPlan(
       lpStatus,
       powerGenerationByRecipe,
     );
+    // Limit-violation verdict (facility caps + raw caps) — emitted by
+    // the calculator so EVERY consumer (optimizer probes, the hook's
+    // Fit pill / badges) reads the same judgment off `plan.warnings`.
+    // Probe/badge parity is structural: there is exactly one judge and
+    // it runs inside the pipeline. See `OVER_LIMIT_WARNING_KINDS`.
+    builtPlan.warnings.push(
+      ...computeLimitViolations(builtPlan, facilities, items, {
+        facilityCaps,
+        rawCaps,
+        manualRawMaterials,
+      }),
+    );
+    return builtPlan;
   };
 
   let plan = await assemblePlan(flowResult);

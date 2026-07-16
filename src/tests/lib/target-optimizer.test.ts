@@ -6,7 +6,6 @@ import {
   fitTargetsToLimits,
   type OptimizableTarget,
   type TargetVectorEntry,
-  type FeasibilityContext,
 } from "@/lib/target-optimizer";
 import { calculateProductionPlan } from "@/lib/calculator";
 import {
@@ -43,8 +42,6 @@ function fakePlan(lpStatus: PlanLpStatus): ProductionDependencyGraph {
     metastorageImports: [],
   };
 }
-
-const emptyCtx: FeasibilityContext = { facilities: [], items: [] };
 
 /** Terse synthetic-recipe builder (tests only — casts are fine here). */
 function recipe(
@@ -216,14 +213,16 @@ const worldRecipes = [
 ];
 const worldRaws = raws("raw_w") as Set<ItemId>;
 
-/** Solve + feasibility pair for one cap configuration. `solve` counts
- *  invocations so cancellation tests can assert zero solver work. */
+/** Solve closure for one cap configuration. Caps ride the calculator
+ *  options — the calculator emits the over-limit verdict into
+ *  `plan.warnings`, which `isPlanFeasible` scans (no separate
+ *  feasibility context exists). `solve` counts invocations so
+ *  cancellation tests can assert zero solver work. */
 function makeWorld(caps: {
   rawCap?: number;
   facBCap?: number;
 }): {
   solve: (v: TargetVectorEntry[]) => Promise<ProductionDependencyGraph>;
-  feasibility: FeasibilityContext;
   solveCount: () => number;
 } {
   const rawCaps =
@@ -246,12 +245,6 @@ function makeWorld(caps: {
         { rawMaterials: worldRaws, rawCaps, facilityCaps },
       );
     },
-    feasibility: {
-      facilities: worldFacilities,
-      items: worldItems,
-      rawCaps,
-      facilityCaps,
-    },
     solveCount: () => count,
   };
 }
@@ -272,7 +265,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       targets: [target("prod_a", 5)],
       index: 0,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -286,7 +278,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       targets: [target("prod_a", 10), target("prod_b", 5)],
       index: 1,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -303,7 +294,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       targets: [target("prod_a", 10), target("prod_b", 5)],
       index: 1,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -317,7 +307,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       targets: [target("prod_a", 10, true), target("prod_b", 5)],
       index: 1,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -332,7 +321,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       targets: [target("prod_b", 5)],
       index: 0,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -345,7 +333,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       targets: [target("prod_a", 30, true), target("prod_b", 5)],
       index: 1,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -358,7 +345,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       targets: [target("prod_a", 40, true), target("prod_b", 5)],
       index: 1,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("infeasible");
   });
@@ -370,7 +356,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       index: 0,
       maxRateCeiling: 64,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("unbounded");
   });
@@ -382,7 +367,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       targets,
       index: 1,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -392,7 +376,7 @@ describe("maximizeTargetRate (priority-Max)", () => {
         i === 1 ? result.rate : (result.otherRates.get(i) ?? t.rate),
     }));
     const plan = await w.solve(finalVector.filter((t) => t.rate > 0));
-    expect(isPlanFeasible(plan, w.feasibility)).toBe(true);
+    expect(isPlanFeasible(plan)).toBe(true);
   });
 
   test("cancellation: no solver work when cancelled up front", async () => {
@@ -401,7 +385,6 @@ describe("maximizeTargetRate (priority-Max)", () => {
       targets: [target("prod_a", 5)],
       index: 0,
       solve: w.solve,
-      feasibility: w.feasibility,
       isCancelled: () => true,
     });
     expect(result.kind).toBe("cancelled");
@@ -421,16 +404,10 @@ describe("maximizeTargetRate (priority-Max)", () => {
         rawMaterials: ALL_RAWS,
         rawCaps,
       });
-    const feasibility: FeasibilityContext = {
-      facilities,
-      items,
-      rawCaps,
-    };
     const result = await maximizeTargetRate({
       targets: [{ itemId: ItemIdEnum.ITEM_COPPER_CMPT, rate: 1 }],
       index: 0,
       solve,
-      feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -438,7 +415,7 @@ describe("maximizeTargetRate (priority-Max)", () => {
     const plan = await solve([
       { itemId: ItemIdEnum.ITEM_COPPER_CMPT, rate: result.rate },
     ]);
-    expect(isPlanFeasible(plan, feasibility)).toBe(true);
+    expect(isPlanFeasible(plan)).toBe(true);
   });
 });
 
@@ -448,7 +425,6 @@ describe("fitTargetsToLimits", () => {
     const result = await fitTargetsToLimits({
       targets: [target("prod_a", 20, true), target("prod_b", 20)],
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -468,7 +444,6 @@ describe("fitTargetsToLimits", () => {
       ],
       excludeIndex: 0,
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -482,7 +457,6 @@ describe("fitTargetsToLimits", () => {
     const result = await fitTargetsToLimits({
       targets: [target("prod_a", 10), target("prod_b", 10)],
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("noop");
   });
@@ -492,7 +466,6 @@ describe("fitTargetsToLimits", () => {
     const result = await fitTargetsToLimits({
       targets: [target("prod_a", 20, true), target("prod_b", 20, true)],
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("impossible");
   });
@@ -502,7 +475,6 @@ describe("fitTargetsToLimits", () => {
     const result = await fitTargetsToLimits({
       targets: [target("prod_a", 40, true), target("prod_b", 20)],
       solve: w.solve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("impossible");
   });
@@ -522,16 +494,64 @@ describe("isPlanFeasible", () => {
         capPerCycle: 5,
       },
     ] as unknown as ProductionDependencyGraph["warnings"];
-    expect(isPlanFeasible(plan, emptyCtx)).toBe(false);
-    expect(isPlanFeasible({ ...plan, warnings: [] }, emptyCtx)).toBe(true);
+    expect(isPlanFeasible(plan)).toBe(false);
+    expect(isPlanFeasible({ ...plan, warnings: [] })).toBe(true);
+  });
+
+  test("calculator-emitted cap warnings ARE the verdict: over-cap plan is infeasible, fitting plan is feasible", async () => {
+    // The calculator emits `raw-over-cap` / `facility-over-cap` into
+    // `plan.warnings` at assembly (computeLimitViolations) — the probe
+    // and the hook's badges read the same warnings, so parity is
+    // structural. Over the cap:
+    const w = makeWorld({ rawCap: 30 });
+    const over = await w.solve([
+      { itemId: "prod_a" as ItemId, rate: 40 },
+    ]);
+    expect(over.lpStatus).toBe("ok"); // soft cap — plan still solves
+    expect(
+      over.warnings.some((warn) => warn.kind === "raw-over-cap"),
+    ).toBe(true);
+    expect(isPlanFeasible(over)).toBe(false);
+    // Under the cap:
+    const under = await w.solve([
+      { itemId: "prod_a" as ItemId, rate: 20 },
+    ]);
+    expect(
+      under.warnings.some((warn) => warn.kind === "raw-over-cap"),
+    ).toBe(false);
+    expect(isPlanFeasible(under)).toBe(true);
+  });
+
+  test("facility caps detect on physical placements (calculator emission)", async () => {
+    // fac_b capped at 2 → 25/min needs 2.5 buildings → 3 physical
+    // placements > cap. The always-ceiled physicalPerFacility input
+    // is what makes this fire (fractional 2.5 alone would too, but
+    // ceiling subsumes it — see BinAggregates.physicalPerFacility).
+    const w = makeWorld({ facBCap: 2 });
+    const over = await w.solve([
+      { itemId: "prod_b" as ItemId, rate: 25 },
+    ]);
+    const capWarning = over.warnings.find(
+      (warn) => warn.kind === "facility-over-cap",
+    );
+    expect(capWarning).toBeDefined();
+    if (capWarning?.kind === "facility-over-cap") {
+      expect(capWarning.used).toBe(3);
+      expect(capWarning.cap).toBe(2);
+    }
+    expect(isPlanFeasible(over)).toBe(false);
+    const under = await w.solve([
+      { itemId: "prod_b" as ItemId, rate: 20 },
+    ]);
+    expect(isPlanFeasible(under)).toBe(true);
   });
 
   test("probe/badge parity: unfiltered-plan aggregates equal display-plan aggregates", async () => {
-    // isPlanFeasible runs aggregateBinTotals on the UNfiltered plan
-    // while the hook's over-cap badges aggregate the display plan
-    // (post `filterPlanForDisplay`). The two must agree — bins are
+    // The calculator judges the UNfiltered plan (computeLimitViolations
+    // at assembly) while the hook's stat chrome aggregates the display
+    // plan (post `filterPlanForDisplay`). The two must agree — bins are
     // shared by reference and dropped zero-rate nodes contribute
-    // nothing — or the engine and the Fit pill silently diverge.
+    // nothing — or the warning numbers and the badges silently diverge.
     const plan = await calculateProductionPlan(
       [{ itemId: ItemIdEnum.ITEM_COPPER_CMPT, rate: 30 }],
       items,
@@ -576,17 +596,18 @@ describe("isPlanFeasible", () => {
   });
 
   test("lpStatus matrix: only 'ok' plans can be feasible", () => {
-    // A failed solve returns an empty shell that passes every cap
-    // check vacuously — the lpStatus clause is what stops a wedged
-    // solver from turning every probe "feasible" (the frozen-state
-    // "No limit reached on any target" bug).
-    expect(isPlanFeasible(fakePlan("ok"), emptyCtx)).toBe(true);
+    // A failed solve returns an empty shell that carries no cap
+    // warnings and would pass the scan vacuously — the lpStatus clause
+    // is what stops a wedged solver from turning every probe
+    // "feasible" (the frozen-state "No limit reached on any target"
+    // bug).
+    expect(isPlanFeasible(fakePlan("ok"))).toBe(true);
     for (const status of [
       "infeasible",
       "unbounded",
       "solver_error",
     ] as const) {
-      expect(isPlanFeasible(fakePlan(status), emptyCtx)).toBe(false);
+      expect(isPlanFeasible(fakePlan(status))).toBe(false);
     }
   });
 });
@@ -608,7 +629,6 @@ describe("probe vectors mirror the UI calc problem", () => {
       targets: [target("prod_a", 10), target("prod_b", 5)],
       index: 1,
       solve: spySolve,
-      feasibility: w.feasibility,
     });
     expect(result.kind).toBe("ok");
     expect(captured.length).toBeGreaterThan(0);
@@ -638,7 +658,6 @@ describe("failed-solve (lpStatus) handling in the engines", () => {
       targets: [target("prod_a", 5)],
       index: 0,
       solve: brokenSolve,
-      feasibility: emptyCtx,
     });
     expect(result.kind).toBe("infeasible");
   });
@@ -657,7 +676,6 @@ describe("failed-solve (lpStatus) handling in the engines", () => {
       targets: [target("prod_a", 5)],
       index: 0,
       solve: thresholdSolve,
-      feasibility: emptyCtx,
     });
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
@@ -688,7 +706,6 @@ describe("failed-solve (lpStatus) handling in the engines", () => {
         targets: [target("prod_a", 10), target("prod_b", 5)],
         index: 1,
         solve: wedgingSolve,
-        feasibility: emptyCtx,
       }),
     ).rejects.toThrow(/contradicted pass-1/);
   });
@@ -703,14 +720,12 @@ describe("failed-solve (lpStatus) handling in the engines", () => {
         targets: [target("prod_a", 5)],
         index: 0,
         solve: wedgedSolve,
-        feasibility: emptyCtx,
       }),
     ).rejects.toThrow(/solver error/);
     await expect(
       fitTargetsToLimits({
         targets: [target("prod_a", 5), target("prod_b", 5)],
         solve: wedgedSolve,
-        feasibility: emptyCtx,
       }),
     ).rejects.toThrow(/solver error/);
   });

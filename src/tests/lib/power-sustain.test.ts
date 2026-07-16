@@ -499,7 +499,6 @@ describe("power sustain: battery production never violates user caps", () => {
           testFacilities,
           solveOpts,
         ),
-      feasibility: { facilities: testFacilities, items: testItems, rawCaps },
     });
 
     expect(result.kind).toBe("ok");
@@ -528,11 +527,6 @@ describe("power sustain: battery production never violates user caps", () => {
 
   test("isPlanFeasible treats the shortfall warning as over-limit", async () => {
     const rawCaps = new Map([[ItemId.ITEM_IRON_ORE, 10]]);
-    const feasibility = {
-      facilities: testFacilities,
-      items: testItems,
-      rawCaps,
-    };
 
     // Without power sustain the plan sits exactly at the cap — feasible.
     const noPower = await calculateProductionPlan(
@@ -542,7 +536,7 @@ describe("power sustain: battery production never violates user caps", () => {
       testFacilities,
       { rawMaterials: RAWS, rawCaps },
     );
-    expect(isPlanFeasible(noPower, feasibility)).toBe(true);
+    expect(isPlanFeasible(noPower)).toBe(true);
 
     // With power sustain the unfunded shortfall marks it over-limit —
     // Fit scales unlocked targets, Max treats it as a ceiling.
@@ -553,7 +547,7 @@ describe("power sustain: battery production never violates user caps", () => {
       testFacilities,
       { rawMaterials: RAWS, rawCaps, powerSustain: { fuels: [burn1] } },
     );
-    expect(isPlanFeasible(withPower, feasibility)).toBe(false);
+    expect(isPlanFeasible(withPower)).toBe(false);
   });
 });
 

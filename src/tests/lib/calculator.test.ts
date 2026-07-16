@@ -3068,15 +3068,10 @@ describe("Raw-material cap enforcement (LP-aware)", () => {
     // Target 30 Iron Nugget/min → ~30 Iron Ore/min demand. Cap at 5/min
     // is artificially tight. The LP can't reduce consumption (only one
     // canonical route from raw ore to nugget), so slack engages. The
-    // plan still completes — warn-only enforcement never blocks.
-    //
-    // Note: `plan.warnings` carries warnings emitted by the calculator
-    // layer (packer fallbacks, override-infeasibility). The post-pack
-    // `raw-over-cap` warnings are emitted by the hook layer
-    // (`useProductionPlan.computeRawOverCapWarnings`), NOT by the
-    // calculator. To verify the LP-side cap activation we trust the
-    // unit tests at `lp-solver.test.ts` and assert plan feasibility
-    // here.
+    // plan still completes — warn-only enforcement never blocks — and
+    // the calculator emits the residual overage as a `raw-over-cap`
+    // warning at assembly (`computeLimitViolations`), the shared
+    // over-limit verdict every consumer reads.
     const rawCaps = new Map<ItemId, number>([
       [ItemId.ITEM_IRON_ORE, 5],
     ]);
@@ -3105,6 +3100,13 @@ describe("Raw-material cap enforcement (LP-aware)", () => {
     if (oreNode?.type === "item") {
       expect(oreNode.isRawMaterial).toBe(true);
       expect(oreNode.productionRate).toBeGreaterThan(0);
+    }
+    // Calculator-emitted verdict: consumption (~30) over the cap (5).
+    const overCap = plan.warnings.find((w) => w.kind === "raw-over-cap");
+    expect(overCap).toBeDefined();
+    if (overCap?.kind === "raw-over-cap") {
+      expect(overCap.used).toBeCloseTo(30, 1);
+      expect(overCap.cap).toBe(5);
     }
   });
 
