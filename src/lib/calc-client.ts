@@ -59,6 +59,11 @@ export interface CalcRequest {
   options: CalculateProductionPlanOptions;
 }
 
+/** The problem definition minus targets — what `useProductionPlan`'s
+ *  `calcProblem` memo builds once and both the display calc and the
+ *  optimizer searches consume (the probe≡UI invariant, structurally). */
+export type CalcProblem = Omit<CalcRequest, "targets">;
+
 /** A worker search job minus transport framing — what the hook hands
  *  `searchMaximize` / `searchFit`. Same shape as `CalcSearchRequest`
  *  without `kind`/`seq`. (Spelled out rather than `Omit`-derived:
