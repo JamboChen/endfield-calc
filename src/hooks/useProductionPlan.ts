@@ -3,13 +3,10 @@ import {
   initCalcEngine,
   isCalcEngineReady,
   isCalcSuperseded,
+  searchFit,
+  searchMaximize,
 } from "@/lib/calc-client";
-import {
-  fitTargetsToLimits,
-  maximizeTargetRate,
-  rawsInChainOf,
-  type TargetVectorEntry,
-} from "@/lib/target-optimizer";
+import { rawsInChainOf } from "@/lib/target-optimizer";
 import { namespaceStorageKey } from "@/lib/storage-namespace";
 import { items, recipes, facilities, powerFuels, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -557,19 +554,6 @@ export function useProductionPlan(
   // debounces this to avoid flashing the overlay on routine fast
   // recalcs.
   const [isCalculating, setIsCalculating] = useState(false);
-  // Superseded-by-a-probe recovery. The latest-wins calc queue is
-  // shared with optimizer probes: when a display calc fired by a
-  // NON-target dep change (caps, routes, …) parks behind an in-flight
-  // probe, the next probe displaces it with CalcSupersededError. The
-  // "a newer request carries the fresh answer" assumption in the catch
-  // then fails — probe results never reach setPlan — and, if the
-  // search ends without a commit (noop/unbounded/infeasible/abort),
-  // nothing re-triggers the calc: `isCalculating` would strand true,
-  // blocking the overlay debounce and the auto-fit gate. Track the
-  // displacement and let the search's finally bump `calcNonce` (a calc
-  // effect dep) to re-run the display calc once the queue is free.
-  const displayCalcSupersededRef = useRef(false);
-  const [calcNonce, setCalcNonce] = useState(0);
   useEffect(() => {
     if (!solverReady) return;
     if (calcTargets.length === 0) {
@@ -587,24 +571,18 @@ export function useProductionPlan(
         // `isCalculating` true so the debounced overlay state doesn't
         // restart its timer between back-to-back recalcs.
         if (cancelled) return;
-        displayCalcSupersededRef.current = false;
         setPlan(result);
         setIsCalculating(false);
       })
       .catch((e) => {
         if (cancelled) return;
-        // Superseded = the calc-client's latest-wins queue displaced
-        // this request in favour of a newer one. In the edit stream
-        // that newer request carries the fresh answer; when the
-        // displacer was an optimizer PROBE it does not — flag it so
-        // the search's finally re-triggers the display calc (see
-        // `displayCalcSupersededRef`). Keep `isCalculating` true
-        // either way so the overlay debounce doesn't restart between
-        // back-to-back recalcs.
-        if (isCalcSuperseded(e)) {
-          displayCalcSupersededRef.current = true;
-          return;
-        }
+        // Superseded = the calc-client's latest-wins solve slot
+        // displaced this request in favour of a newer solve — which
+        // carries the fresh answer. (Searches live in their own slot
+        // and cannot displace solves — see `calc-client.ts`.) Keep
+        // `isCalculating` true so the overlay debounce doesn't restart
+        // between back-to-back recalcs.
+        if (isCalcSuperseded(e)) return;
         setError(e instanceof Error ? e.message : t("calculationError"));
         setPlan(null);
         setIsCalculating(false);
@@ -612,7 +590,7 @@ export function useProductionPlan(
     return () => {
       cancelled = true;
     };
-  }, [solverReady, calcNonce, calcTargets, calcProblem, t]);
+  }, [solverReady, calcTargets, calcProblem, t]);
 
   // Auto-prune effect.
   //
@@ -1278,18 +1256,20 @@ export function useProductionPlan(
 
   /* ── Target optimizer (Max / Fit) ─────────────────────────────────
    *
-   * The bisection engines live in `@/lib/target-optimizer`; this block
-   * wires them to the calc worker + toasts. Design & invariants:
-   * the `target-optimizer.ts` module doc. Key hazards handled here:
+   * The bisection engines live in `@/lib/target-optimizer` and RUN IN
+   * THE CALC WORKER as a single job each (`searchMaximize` /
+   * `searchFit` in calc-client.ts); this block wires them to state +
+   * toasts. Design & invariants: the `target-optimizer.ts` module doc.
+   * Key hazards handled here:
    *
-   *   - **Staleness**: `CalcSupersededError` only fires when a probe is
-   *     DISPLACED from the calc-client's pending slot; a UI edit whose
-   *     solve merely alternates with the probes displaces nothing. The
-   *     `isCancelled` closure therefore also compares the `targets`
-   *     array identity captured at search start (covers rate edits,
-   *     add/remove index shifts, AND lock toggles — the calc effect
-   *     ignores lock-only changes via `targetsCalcSig`, but the
-   *     optimizer's flexible set does not).
+   *   - **Staleness**: a running search must die when its inputs move.
+   *     Target edits (rate, add/remove, lock toggles) are caught by
+   *     the `targetsRef` effect below — it cancels the active search
+   *     whenever the live array's identity leaves the captured
+   *     snapshot. Config changes cancel via `cancelActiveSearch`
+   *     (keyed on `calcProblem`). Both paths also gate the COMMIT: the
+   *     handlers re-check token + targets identity after the await,
+   *     because a result can be in flight when the cancel lands.
    *   - **Errors**: superseded → silent abort (the user changed the
    *     problem); anything else → error toast. Never "infeasible".
    *   - **Undo**: both operations snapshot the pre-search targets array
@@ -1297,11 +1277,25 @@ export function useProductionPlan(
    *     multi-value write.
    */
   const [optimizeState, setOptimizeState] = useState<OptimizeState>(null);
+  /** The active search's cancel handle + captured targets snapshot.
+   *  Null while no search runs. */
+  const activeSearchRef = useRef<{
+    cancel: () => void;
+    captured: readonly ProductionTarget[];
+  } | null>(null);
   const targetsRef = useRef(targets);
   useEffect(() => {
     targetsRef.current = targets;
+    // Any targets-identity change invalidates a search captured on a
+    // previous array (rate edits, add/remove index shifts, AND lock
+    // toggles — the calc effect ignores lock-only changes via
+    // `targetsCalcSig`, but the optimizer's flexible set does not).
+    const active = activeSearchRef.current;
+    if (active && active.captured !== targets) active.cancel();
   }, [targets]);
-  /** Monotone search token: bumping it cancels any in-flight search. */
+  /** Monotone search token: bumping it invalidates any in-flight
+   *  search's commit (the worker-side loop is stopped separately via
+   *  the search's `cancel()` handle). */
   const optimizeTokenRef = useRef(0);
   // (`lastEditedIndexRef` / `autoFitSpentRef` are declared above the
   // auto-prune effect, which clears them on structural changes.)
@@ -1330,30 +1324,12 @@ export function useProductionPlan(
     [maxedMarks, targets],
   );
 
-  /**
-   * End-of-search bookkeeping: clear the busy state and, if one of our
-   * probes displaced a display calc mid-search (see
-   * `displayCalcSupersededRef`), re-run that calc now that the queue is
-   * free — otherwise `isCalculating` strands true when the search ends
-   * without a target commit.
-   */
-  const concludeSearch = useCallback(() => {
+  /** End-of-search bookkeeping, token-gated: when a superseding search
+   *  took over, IT owns the busy state. */
+  const finishOptimizeSearch = useCallback((token: number) => {
+    if (optimizeTokenRef.current !== token) return;
     setOptimizeState(null);
-    if (displayCalcSupersededRef.current) {
-      displayCalcSupersededRef.current = false;
-      setCalcNonce((n) => n + 1);
-    }
   }, []);
-
-  /** Token-gated variant for the engines' finally blocks: when a
-   *  superseding search took over, IT owns the cleanup. */
-  const finishOptimizeSearch = useCallback(
-    (token: number) => {
-      if (optimizeTokenRef.current !== token) return;
-      concludeSearch();
-    },
-    [concludeSearch],
-  );
 
   /**
    * Abort any in-flight search AND drop the "Max done" markers. The
@@ -1363,15 +1339,16 @@ export function useProductionPlan(
    * probing a stale options bundle could commit values the fresh
    * problem judges over-cap (the same probe≠UI mismatch class as the
    * zero-rate-target bug), so the effect below cancels it the moment
-   * `optimizerSolve` changes identity. Must
-   * self-clean (unlike a superseding search, a config-cancel has no
-   * successor whose finally would clear `optimizeState`).
+   * `calcProblem` changes identity. Must self-clean (unlike a
+   * superseding search, a config-cancel has no successor whose finally
+   * would clear `optimizeState`).
    */
   const cancelActiveSearch = useCallback(() => {
     optimizeTokenRef.current++;
+    activeSearchRef.current?.cancel();
     setMaxedMarks(null);
-    concludeSearch();
-  }, [concludeSearch]);
+    setOptimizeState(null);
+  }, []);
 
   const [autoFit, setAutoFitState] = useState<boolean>(() => {
     try {
@@ -1389,42 +1366,40 @@ export function useProductionPlan(
     }
   }, []);
 
-  // Probe transport: same latest-wins worker client and the SAME
-  // problem bundle the calc effect uses (`calcProblem` — the shared
-  // memo is what enforces the probe≡UI invariant). Probe results never
-  // touch `plan`; the final setTargets commit re-triggers the calc
-  // effect naturally.
-  const optimizerSolve = useCallback(
-    (vector: TargetVectorEntry[]) =>
-      calculate({ targets: vector, ...calcProblem }),
-    [calcProblem],
-  );
-
   // Problem-definition staleness: cancel any in-flight search (and drop
   // the "Max done" markers) whenever the options bundle changes
-  // identity — see `cancelActiveSearch`. `optimizerSolve` captures the
-  // full problem definition (caps, routes, recipes, pins, raws, power
-  // mode). The mount-time invocation is a no-op (no search, no marks).
+  // identity — see `cancelActiveSearch`. `calcProblem` IS the full
+  // problem definition (caps, routes, recipes, pins, raws, power
+  // mode) — the same bundle the searches capture at start. The
+  // mount-time invocation is a no-op (no search, no marks).
   useEffect(() => {
     cancelActiveSearch();
-  }, [optimizerSolve, cancelActiveSearch]);
+  }, [calcProblem, cancelActiveSearch]);
 
   const handleMaximizeTarget = useCallback(
     async (index: number) => {
       const captured = targetsRef.current;
       const targetItem = captured[index];
       if (!targetItem) return;
+      // A previous search may still be draining in the worker
+      // (mutual-exclusion UI normally prevents this; defend anyway).
+      activeSearchRef.current?.cancel();
       const token = ++optimizeTokenRef.current;
       setOptimizeState({ kind: "max", index });
+      const handle = searchMaximize({ targets: captured, index, ...calcProblem });
+      activeSearchRef.current = { cancel: handle.cancel, captured };
       try {
-        const result = await maximizeTargetRate({
-          targets: captured,
-          index,
-          solve: optimizerSolve,
-          isCancelled: () =>
-            optimizeTokenRef.current !== token ||
-            targetsRef.current !== captured,
-        });
+        const result = await handle.promise;
+        // Commit gate: the search loop was stopped via `cancel()` on
+        // staleness, but a result can already be in flight when the
+        // cancel lands — never commit against moved targets or a
+        // superseded token.
+        if (
+          optimizeTokenRef.current !== token ||
+          targetsRef.current !== captured
+        ) {
+          return;
+        }
         if (result.kind === "cancelled") return;
         // Deterministic terminal outcomes mark the index as "maxed":
         // re-pressing without changing anything would reproduce the
@@ -1499,11 +1474,14 @@ export function useProductionPlan(
         console.error("[OPTIMIZER] max search failed:", e);
         toast.error(t("optimizeFailed"));
       } finally {
+        if (activeSearchRef.current?.cancel === handle.cancel) {
+          activeSearchRef.current = null;
+        }
         finishOptimizeSearch(token);
       }
     },
     [
-      optimizerSolve,
+      calcProblem,
       resetAutoFitEditContext,
       finishOptimizeSearch,
       markMaxed,
@@ -1514,17 +1492,20 @@ export function useProductionPlan(
   const handleFitToLimits = useCallback(
     async (excludeIndex?: number) => {
       const captured = targetsRef.current;
+      activeSearchRef.current?.cancel();
       const token = ++optimizeTokenRef.current;
       setOptimizeState({ kind: "fit" });
+      const handle = searchFit({ targets: captured, excludeIndex, ...calcProblem });
+      activeSearchRef.current = { cancel: handle.cancel, captured };
       try {
-        const result = await fitTargetsToLimits({
-          targets: captured,
-          excludeIndex,
-          solve: optimizerSolve,
-          isCancelled: () =>
-            optimizeTokenRef.current !== token ||
-            targetsRef.current !== captured,
-        });
+        const result = await handle.promise;
+        // Commit gate — see the Max handler.
+        if (
+          optimizeTokenRef.current !== token ||
+          targetsRef.current !== captured
+        ) {
+          return;
+        }
         if (result.kind === "cancelled") return;
         if (result.kind === "noop") {
           toast.info(t("fitNoop"));
@@ -1558,11 +1539,14 @@ export function useProductionPlan(
         console.error("[OPTIMIZER] fit search failed:", e);
         toast.error(t("optimizeFailed"));
       } finally {
+        if (activeSearchRef.current?.cancel === handle.cancel) {
+          activeSearchRef.current = null;
+        }
         finishOptimizeSearch(token);
       }
     },
     [
-      optimizerSolve,
+      calcProblem,
       resetAutoFitEditContext,
       finishOptimizeSearch,
       t,
