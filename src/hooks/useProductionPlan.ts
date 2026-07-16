@@ -512,6 +512,41 @@ export function useProductionPlan(
     [targetsCalcSig],
   );
 
+  // The complete problem definition MINUS targets — the single bundle
+  // consumed by BOTH the display calc effect and the optimizer probes
+  // (`optimizerSolve`). Optimizer probes must judge the exact problem
+  // the UI solves after a commit (the probe≡UI invariant — see
+  // `target-optimizer.ts`); building the bundle once makes drift
+  // between the two call sites structurally impossible. Its identity
+  // doubles as the config-staleness key: the effect below
+  // `optimizerSolve` cancels any in-flight search when it changes.
+  const calcProblem = useMemo(
+    () => ({
+      items,
+      recipes: availableRecipes,
+      facilities,
+      options: {
+        rawMaterials: regionRawMaterials,
+        rawCaps: rawMaterialCaps,
+        recipeOverrides,
+        manualRawMaterials,
+        facilityCaps,
+        metastorageRoutes,
+        powerSustain: powerSustain ? { fuels: powerFuels } : undefined,
+      },
+    }),
+    [
+      availableRecipes,
+      regionRawMaterials,
+      rawMaterialCaps,
+      recipeOverrides,
+      manualRawMaterials,
+      facilityCaps,
+      metastorageRoutes,
+      powerSustain,
+    ],
+  );
+
   // Core calculation: async because `calculateProductionPlan` awaits
   // HiGHS via the solver wrappers. `plan` / `error` are `useState`s
   // updated via effect rather than `useMemo` returns, because async
@@ -546,21 +581,7 @@ export function useProductionPlan(
     let cancelled = false;
     setError(null);
     setIsCalculating(true);
-    calculate({
-      targets: calcTargets,
-      items,
-      recipes: availableRecipes,
-      facilities,
-      options: {
-        rawMaterials: regionRawMaterials,
-        rawCaps: rawMaterialCaps,
-        recipeOverrides,
-        manualRawMaterials,
-        facilityCaps,
-        metastorageRoutes,
-        powerSustain: powerSustain ? { fuels: powerFuels } : undefined,
-      },
-    })
+    calculate({ targets: calcTargets, ...calcProblem })
       .then((result) => {
         // Cancelled means a newer calc has started (or unmount). Leave
         // `isCalculating` true so the debounced overlay state doesn't
@@ -591,20 +612,7 @@ export function useProductionPlan(
     return () => {
       cancelled = true;
     };
-  }, [
-    solverReady,
-    calcNonce,
-    calcTargets,
-    recipeOverrides,
-    manualRawMaterials,
-    availableRecipes,
-    regionRawMaterials,
-    facilityCaps,
-    rawMaterialCaps,
-    metastorageRoutes,
-    powerSustain,
-    t,
-  ]);
+  }, [solverReady, calcNonce, calcTargets, calcProblem, t]);
 
   // Auto-prune effect.
   //
@@ -1381,37 +1389,15 @@ export function useProductionPlan(
     }
   }, []);
 
-  // Probe transport: same latest-wins worker client and the exact
-  // options bundle the calc effect uses — feasibility must judge the
-  // very problem the UI would solve. Probe results never touch `plan`;
-  // the final setTargets commit re-triggers the calc effect naturally.
+  // Probe transport: same latest-wins worker client and the SAME
+  // problem bundle the calc effect uses (`calcProblem` — the shared
+  // memo is what enforces the probe≡UI invariant). Probe results never
+  // touch `plan`; the final setTargets commit re-triggers the calc
+  // effect naturally.
   const optimizerSolve = useCallback(
     (vector: TargetVectorEntry[]) =>
-      calculate({
-        targets: vector,
-        items,
-        recipes: availableRecipes,
-        facilities,
-        options: {
-          rawMaterials: regionRawMaterials,
-          rawCaps: rawMaterialCaps,
-          recipeOverrides,
-          manualRawMaterials,
-          facilityCaps,
-          metastorageRoutes,
-          powerSustain: powerSustain ? { fuels: powerFuels } : undefined,
-        },
-      }),
-    [
-      availableRecipes,
-      regionRawMaterials,
-      rawMaterialCaps,
-      recipeOverrides,
-      manualRawMaterials,
-      facilityCaps,
-      metastorageRoutes,
-      powerSustain,
-    ],
+      calculate({ targets: vector, ...calcProblem }),
+    [calcProblem],
   );
 
   // Problem-definition staleness: cancel any in-flight search (and drop
