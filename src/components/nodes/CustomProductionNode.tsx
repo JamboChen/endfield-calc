@@ -133,7 +133,7 @@ export default function CustomProductionNode({
           <p className="text-muted-foreground">
             {t("tree.metastorageTooltip", {
               defaultValue:
-                "Delivered via Metastorage Transfer — no local production or depot debit at the source.",
+                "Delivered via Metastorage Transfer. No local production or depot debit at the source.",
             })}
           </p>
           <div className="mt-1 text-muted-foreground">
@@ -456,7 +456,7 @@ export default function CustomProductionNode({
                             </TooltipTrigger>
                             <TooltipContent side="top">
                               <p className="text-xs">
-                                {getItemName(it)} — {t("tree.prefillItemTooltip", {
+                                {getItemName(it)}: {t("tree.prefillItemTooltip", {
                                   defaultValue: "Requires prefill at startup to bootstrap this cycle",
                                 })}
                               </p>

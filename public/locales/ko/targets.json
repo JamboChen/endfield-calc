@@ -2,14 +2,14 @@
   "addTarget": "목표 추가",
   "count": "{{current}} / {{max}}",
   "fitToLimits": "한도에 맞추기",
-  "lockTarget": "목표 잠금 — 자동 조정에서 보호",
+  "lockTarget": "목표 잠금 (자동 조정에서 보호)",
   "maximize": "한도 내 최대화",
   "maximizeNoLimits": "이 아이템의 원자재에 한도를 설정하면 최대화를 사용할 수 있습니다",
-  "maximizeUpToDate": "현재 플랜에서 이미 최대화되었습니다 — 무엇이든 변경하면 다시 활성화됩니다",
-  "rateInput": "비율 입력",
+  "maximizeUpToDate": "현재 플랜에서 이미 최대화되었습니다. 무엇이든 변경하면 다시 활성화됩니다",
+  "rateInput": "속도 입력",
   "rateUnit": "분당",
   "removeTarget": "목표 제거",
-  "scrubHint": "좌우로 드래그하여 조정 — 거리에 따라 가속됩니다. 방향키: ±1 · Shift: ±10 · Alt: ±0.1 · Alt+Shift: ±0.01",
+  "scrubHint": "좌우로 드래그하여 조정 (거리에 따라 가속). 방향키: ±1 · Shift: ±10 · Alt: ±0.1 · Alt+Shift: ±0.01",
   "title": "생산 목표",
   "unlockTarget": "잠금 해제"
 }
