@@ -22,5 +22,6 @@
   "showDetails": "상세",
   "title": "생산 통계",
   "totalPower": "총 전력",
+  "powerBalance": "소비 / 발전",
   "utilization": "가동률"
 }

@@ -4,6 +4,7 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import PlanPanel from "./PlanPanel";
 import type { ProductionTarget } from "./TargetItemsGrid";
+import type { PowerTarget } from "@/hooks/useProductionPlan";
 import type { Item, ItemId } from "@/types";
 
 type LeftPanelProps = {
@@ -14,6 +15,10 @@ type LeftPanelProps = {
   onCeilModeChange: (value: boolean) => void;
   autoFit: boolean;
   onAutoFitChange: (value: boolean) => void;
+  powerSustain: boolean;
+  onPowerSustainChange: (value: boolean) => void;
+  powerTargets: readonly PowerTarget[];
+  powerSustainUnavailable: boolean;
   onOpenSettings: () => void;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
@@ -36,6 +41,10 @@ const LeftPanel = memo(function LeftPanel({
   onCeilModeChange,
   autoFit,
   onAutoFitChange,
+  powerSustain,
+  onPowerSustainChange,
+  powerTargets,
+  powerSustainUnavailable,
   onOpenSettings,
   onTargetChange,
   onTargetRemove,
@@ -77,6 +86,10 @@ const LeftPanel = memo(function LeftPanel({
         onCeilModeChange={onCeilModeChange}
         autoFit={autoFit}
         onAutoFitChange={onAutoFitChange}
+        powerSustain={powerSustain}
+        onPowerSustainChange={onPowerSustainChange}
+        powerTargets={powerTargets}
+        powerSustainUnavailable={powerSustainUnavailable}
         onOpenSettings={onOpenSettings}
         onTargetChange={onTargetChange}
         onTargetRemove={onTargetRemove}

@@ -16,6 +16,7 @@
     "extract:recipes": "bun run scripts/extract-recipes.ts",
     "extract:items": "bun run scripts/extract-items.ts",
     "extract:metastorage": "bun run scripts/extract-metastorage.ts",
+    "extract:power": "bun run scripts/extract-power.ts",
     "extract:structures": "bun run scripts/extract-structures.ts",
     "extract:aic": "bun run scripts/extract-aic.ts",
     "extract:raw-caps": "bun run scripts/extract-raw-caps.ts",

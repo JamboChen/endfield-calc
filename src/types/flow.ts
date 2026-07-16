@@ -138,6 +138,37 @@ export interface DisposalSinkNodeData {
 export type FlowDisposalNode = Node<DisposalSinkNodeData>;
 
 /**
+ * Data for a power-generation sink node (Thermal Bank burning
+ * batteries). Structurally a consumer sink like disposal — the flow /
+ * allocation machinery treats both identically — but rendered as an
+ * amber "Power Generation" card instead of a rose "Disposal" one.
+ */
+export interface PowerSinkNodeData {
+  /** The battery being burned. */
+  item: Item;
+  /** Burn rate in items/min. */
+  burnRate: number;
+  /** The Thermal Bank facility. */
+  facility: Facility;
+  /** Number of banks (fractional = duty cycle). */
+  facilityCount: number;
+  /** Watts provided per bank while burning this fuel. */
+  powerGeneration: number;
+  /** All available items (for icon rendering) */
+  items: Item[];
+  facilities: Facility[];
+  ceilMode: boolean;
+  /** Spotlight: direct consumer of the pinned building (amber ring). */
+  pinConsumer?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Type alias for a power-generation sink node in the React Flow graph.
+ */
+export type FlowPowerNode = Node<PowerSinkNodeData>;
+
+/**
  * Updated FlowProductionNode that can include target information.
  */
 export type FlowProductionNode =

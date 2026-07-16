@@ -24,6 +24,11 @@
   "optimizeFailed": "優化已中止：求解器回報了錯誤。",
   "autoFit": "自動適配上限",
   "autoFitHint": "當編輯使方案超出上限時，自動縮減其他未鎖定目標以適配。鎖定的目標不會被調整。",
+  "powerSustain": "電力自給",
+  "powerSustainHint": "自動為計劃加入熱能池與電池生產，使發電量覆蓋自身耗電。目標電池不會被燃燒。",
+  "powerSustainUnavailable": "電力自給：目前設定下無法生產或傳輸任何電池，無法發電。",
+  "powerSustainInsufficient": "在目前資源限制內無法為 {{watts}} 電力生產足夠的電池。請提高限制或解鎖目標。",
+  "powerDeficit": "發電量比耗電量少 {{deficit}}（按整數建築計算）。",
   "planLpInfeasible": "這些目標不存在可行的生產方案：求解器無法滿足所有約束。請檢查已固定的配方和傳輸路線。",
   "planSolverError": "求解器意外失敗，無法計算方案。下次重新計算時將自動恢復，編輯任何目標即可重試。",
   "footer": {

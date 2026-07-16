@@ -6,6 +6,7 @@ import {
   regionRecipes,
   regionFacilityVariants,
 } from "./region-subsystems";
+import { powerStationFacility } from "./power";
 import { DomainId, FacilityId } from "@/types/constants";
 import type { Facility, ItemId, Recipe, RecipeId as RecipeIdType } from "@/types";
 
@@ -22,9 +23,18 @@ import type { Facility, ItemId, Recipe, RecipeId as RecipeIdType } from "@/types
  * the region extractor also models).
  */
 const regionFacilityIds = new Set(regionFacilities.map((f) => f.id));
+/**
+ * The Thermal Bank (`power_station_1`, from `./power`) joins the roster
+ * tail so `aggregateBinTotals` / mappers / the facility list can resolve
+ * it. Its burn recipes are intentionally NOT merged into `recipes` —
+ * they are consumer-only pseudo-recipes that enter the solver via
+ * `CalculateProductionPlanOptions.powerSustain`, bypassing the App-layer
+ * availability filters.
+ */
 const facilities: Facility[] = [
   ...generatedFacilities.filter((f) => !regionFacilityIds.has(f.id)),
   ...regionFacilities,
+  powerStationFacility,
 ];
 
 /**
@@ -393,3 +403,4 @@ export type { RawSourceConfig };
 export { defaultRawCapsByDomain } from "./raw-caps";
 export { regionStructures } from "./region-subsystems";
 export { metastorageExports, metastorageSources } from "./metastorage";
+export { powerFuels } from "./power";

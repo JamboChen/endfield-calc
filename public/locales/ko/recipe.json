@@ -1,4 +1,9 @@
 {
+  "burn_item_proc_battery_1": "발전 (저용량 협곡 배터리)",
+  "burn_item_proc_battery_2": "발전 (중용량 협곡 배터리)",
+  "burn_item_proc_battery_3": "발전 (대용량 협곡 배터리)",
+  "burn_item_proc_battery_4": "발전 (저용량 무릉 배터리)",
+  "burn_item_proc_battery_5": "발전 (중용량 무릉 배터리)",
   "component_activity_xiranite_cmpt_1": "실험용 식양 부품 생산",
   "component_activity_xiranite_enr_cmpt_1": "실험용 중식양 부품 생산",
   "component_copper_cmpt_1": "적동 부품 생산",

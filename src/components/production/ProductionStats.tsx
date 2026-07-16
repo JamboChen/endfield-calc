@@ -63,8 +63,16 @@ const ProductionStats = memo(function ProductionStats({
           <div className="grid grid-cols-3 gap-x-3 gap-y-4">
             <KpiBlock
               icon={Zap}
-              label={t("totalPower")}
-              value={stats.totalPowerConsumption.toFixed(1)}
+              label={
+                stats.totalPowerGeneration > 0
+                  ? t("powerBalance")
+                  : t("totalPower")
+              }
+              value={
+                stats.totalPowerGeneration > 0
+                  ? `${stats.totalPowerConsumption.toFixed(1)} / ${stats.totalPowerGeneration.toFixed(1)}`
+                  : stats.totalPowerConsumption.toFixed(1)
+              }
             />
             <KpiBlock
               icon={Factory}

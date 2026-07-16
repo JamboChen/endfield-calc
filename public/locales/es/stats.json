@@ -22,5 +22,6 @@
   "showDetails": "Detalles",
   "title": "Estadísticas de Producción",
   "totalPower": "Energía Total",
+  "powerBalance": "Consumo / generación",
   "utilization": "Utilización"
 }

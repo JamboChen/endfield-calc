@@ -73,6 +73,12 @@ The legacy `mapPlanToFlowMerged` (bf=0) still uses the pickup-only model — pic
 - Table: `mergeItemNodes` emits one import row per imported item (replacing the empty no-producer row for import-only items); `ProductionTable` keys it `import-${item.id}` and shows TTV per delivery in the Count column + a per-route TTV footer chip.
 - Graph search (`GraphSearchPanel`) indexes the import node's sublabel as `"<tree.metastorage> · <source region>"` (facility is null on import nodes) so "metastorage"/region queries find it and result rows disambiguate import vs local producer.
 
+## Power sinks (Thermal Bank burn recipes)
+
+- Burn recipes (self-sustaining power, `powerSustain` option) are zero-output consumer bins that share the **entire disposal flow**: same `isDisposalBin` classification, same `disposal-<recipeId>` sink ids, same consumer registration + allocation. Only the EMISSION branches — a plan recipe node carrying `powerGeneration` gets `createPowerSinkNode` (type `powerSink`, amber `CustomPowerNode`) instead of `createDisposalSinkNode`. Check `powerGeneration` BEFORE `isDisposal` in any new consumer.
+- Burn recipes are NOT in `availableRecipes` (they ride the options bag), so both bin-fused mappers seed `recipeById` from `plan.nodes` recipe entries as fallback. Do not remove that seeding — without it power bins misclassify as production bins and produce isolated-node integrity failures.
+- Displayed generation is `powerGeneration × facilityCount` with the FRACTIONAL count in both ceil modes (fuel-limited; matches `aggregateBinTotals.totalPowerGeneration`). `useProductionStats` excludes power nodes from the Byproducts list.
+
 ## Cardinal invariants
 
 - **Singleton-terminal bin detection runs BEFORE producer/consumer map construction**. The bin→sink redirect is baked into map construction; post-hoc remapping leaves phantom state.

@@ -1,4 +1,9 @@
 {
+  "burn_item_proc_battery_1": "发电（低容谷地电池）",
+  "burn_item_proc_battery_2": "发电（中容谷地电池）",
+  "burn_item_proc_battery_3": "发电（高容谷地电池）",
+  "burn_item_proc_battery_4": "发电（低容武陵电池）",
+  "burn_item_proc_battery_5": "发电（中容武陵电池）",
   "component_activity_xiranite_cmpt_1": "实验息壤零件生产",
   "component_activity_xiranite_enr_cmpt_1": "实验重息壤零件生产",
   "component_copper_cmpt_1": "赤铜零件生产",

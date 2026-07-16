@@ -35,6 +35,7 @@ import {
   aggregateBinTotals,
   computeOverCapWarnings,
   computeRawOverCapWarnings,
+  OVER_LIMIT_WARNING_KINDS,
 } from "@/lib/plan-helpers";
 import type {
   Facility,
@@ -187,8 +188,12 @@ export function isPlanFeasible(
     return false;
   }
 
+  // Over-limit warning kinds (metastorage budget, power-sustain
+  // shortfall, …) — shared with the hook's `planOverLimit` via the
+  // single source of truth in `plan-helpers.ts` so Fit/Max and the
+  // Fit pill can never disagree about what counts as over-limit.
   for (const w of plan.warnings ?? []) {
-    if (w.kind === "metastorage-budget-insufficient") return false;
+    if (OVER_LIMIT_WARNING_KINDS.has(w.kind)) return false;
   }
   return true;
 }

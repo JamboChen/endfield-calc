@@ -38,6 +38,9 @@ function TickerStat({ icon: Icon, label, value, title }: TickerStatProps) {
 
 type StatsTickerOwnProps = {
   totalPowerConsumption: number;
+  /** Σ watts provided by Thermal Banks (self-sustaining power). When
+   *  > 0 the power stat renders as `consumption / generation`. */
+  totalPowerGeneration?: number;
   /** Σ effective buildings (ceilMode-adjusted; format via formatCount). */
   totalBuildings: number;
   /** Σ build-grid tiles (always whole; a lower bound — belts excluded). */
@@ -95,6 +98,7 @@ type StatsTickerProps = StatsTickerOwnProps &
  */
 const StatsTicker = memo(function StatsTicker({
   totalPowerConsumption,
+  totalPowerGeneration = 0,
   totalBuildings,
   totalTiles,
   depotPickupPoints,
@@ -111,6 +115,14 @@ const StatsTicker = memo(function StatsTicker({
   const { t } = useTranslation("stats");
   const Chevron = expanded ? ChevronDown : ChevronUp;
   const hero = variant === "hero";
+  // Self-sustaining power: surface both sides of the balance as
+  // `consumption / generation` under the Zap stat.
+  const powerValue =
+    totalPowerGeneration > 0
+      ? `${totalPowerConsumption.toFixed(1)} / ${totalPowerGeneration.toFixed(1)}`
+      : totalPowerConsumption.toFixed(1);
+  const powerLabel =
+    totalPowerGeneration > 0 ? t("powerBalance") : t("totalPower");
 
   return (
     <button
@@ -163,8 +175,8 @@ const StatsTicker = memo(function StatsTicker({
           <KpiBlock
             hero
             icon={Zap}
-            label={t("totalPower")}
-            value={totalPowerConsumption.toFixed(1)}
+            label={powerLabel}
+            value={powerValue}
             className="px-6 first:pl-0 border-l border-border/60 first:border-l-0"
           />
           <KpiBlock
@@ -201,8 +213,8 @@ const StatsTicker = memo(function StatsTicker({
         <>
           <TickerStat
             icon={Zap}
-            label={t("totalPower")}
-            value={totalPowerConsumption.toFixed(1)}
+            label={powerLabel}
+            value={powerValue}
           />
           <TickerStat
             icon={Factory}

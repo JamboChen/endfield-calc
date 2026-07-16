@@ -1,11 +1,12 @@
 import type { FacilityId, ItemId, RecipeId } from "@/types";
-import { forcedDisposalItems, costlessRaws } from "@/data";
-import { calcRate } from "@/lib/utils";
+import { forcedDisposalItems, costlessRaws, rawMaterialSources } from "@/data";
+import { calcRate, getRawSourceRate } from "@/lib/utils";
 import {
   solveLP,
   type LPInput,
   type LPItemConstraint,
   type LPMetastorageImport,
+  type LPPowerBalance,
   type LPSolution,
 } from "./lp-solver";
 import type {
@@ -84,6 +85,17 @@ export async function calculateFlows(
    * TTV budget row to the LP — see `LPMetastorageImport`.
    */
   metastorageImports?: readonly LPMetastorageImport[],
+  /**
+   * Thermal Bank power generation. When `generationByRecipe` is
+   * non-empty, the LP gains a hard power-balance row — generation must
+   * cover fractional consumption incl. pump power — and, when
+   * `minGeneration` is set, a hard whole-building generation floor
+   * (the calculator's ceil-floor loop). See `LPPowerBalance`.
+   */
+  powerBalanceInput?: {
+    generationByRecipe: ReadonlyMap<RecipeId, number>;
+    minGeneration?: number;
+  },
 ): Promise<{
   flowData: FlowData;
   invalidSCCs: InvalidSCCInfo[];
@@ -120,6 +132,7 @@ export async function calculateFlows(
           feasible: true,
           slackMagnitude: 0,
           ttvOverusePerMinute: 0,
+          powerShortfall: 0,
           totalRawCost: 0,
           totalBuildingCount: 0,
           totalPower: 0,
@@ -213,6 +226,35 @@ export async function calculateFlows(
     }
   }
 
+  // Power-balance input: forward the generation map (+ optional
+  // whole-building floor) and derive the per-raw-item pump-power rates
+  // (source-facility watts per item/min) from `rawMaterialSources` —
+  // the same data the display-side pickup fold in `aggregateBinTotals`
+  // uses, so LP balance and displayed consumption agree.
+  // Synthetic-test raws absent from `rawMaterialSources` (or whose
+  // source facility isn't in the plan's facilityMap) simply contribute
+  // no pump power.
+  let powerBalance: LPPowerBalance | undefined;
+  if (
+    powerBalanceInput &&
+    powerBalanceInput.generationByRecipe.size > 0
+  ) {
+    const pumpPowerPerItemRate = new Map<ItemId, number>();
+    for (const [itemId, cfg] of rawMaterialSources) {
+      const sourcePower =
+        maps.facilityMap.get(cfg.sourceFacility)?.powerConsumption ?? 0;
+      if (sourcePower <= 0) continue;
+      const perFacilityRate = getRawSourceRate(itemId, maps.itemMap.get(itemId));
+      if (perFacilityRate <= 0) continue;
+      pumpPowerPerItemRate.set(itemId, sourcePower / perFacilityRate);
+    }
+    powerBalance = {
+      generationByRecipe: powerBalanceInput.generationByRecipe,
+      pumpPowerPerItemRate,
+      minGeneration: powerBalanceInput.minGeneration,
+    };
+  }
+
   const lpInput: LPInput = {
     recipes: recipesList,
     itemConstraints,
@@ -221,6 +263,7 @@ export async function calculateFlows(
     rawCaps,
     facilityCaps,
     metastorageImports,
+    powerBalance,
     facilityMap: maps.facilityMap,
   };
 
@@ -256,6 +299,7 @@ export async function calculateFlows(
         failureReason: result.reason,
         slackMagnitude: 0,
         ttvOverusePerMinute: 0,
+        powerShortfall: 0,
         totalRawCost: 0,
         totalBuildingCount: 0,
         totalPower: 0,
@@ -465,12 +509,19 @@ function buildSolveMetrics(result: LPSolution): FlowSolveMetrics {
   let ttvOveruse = 0;
   for (const v of result.ttvOveruse.values()) ttvOveruse += v;
   slack += ttvOveruse;
+  // `powerShortfall` is deliberately NOT folded into `slackMagnitude`:
+  // watts and items/min are incommensurable, and summing them once let
+  // the Metastorage selection trade a 50 ore/min cap violation for a
+  // token 367 W of generation (user-reported route flip). It rides as
+  // its own field and its own — lower-priority — comparison key in
+  // `compareSolveMetrics`.
   let ttvUsed = 0;
   for (const v of result.ttvUsedPerMinute.values()) ttvUsed += v;
   return {
     feasible: true,
     slackMagnitude: slack,
     ttvOverusePerMinute: ttvOveruse,
+    powerShortfall: result.powerShortfall,
     totalRawCost: result.totalRawCost,
     totalBuildingCount: result.totalBuildingCount,
     totalPower: result.totalPower,

@@ -72,11 +72,18 @@ export type FlowData = {
 /**
  * LP-solution quality metrics surfaced by `calculateFlows` for the
  * Metastorage candidate enumeration in `calculator.ts`. Compared
- * lexicographically: `feasible` → `slackMagnitude` → `totalRawCost` →
- * `totalBuildingCount` → `totalPower` → `totalTtvUsedPerMinute`.
- * `ttvOverusePerMinute` is not a ranking key — it's the viability
- * gate: any positive value disqualifies the candidate outright (an
- * over-budget plan is physically unrealizable).
+ * lexicographically: `feasible` → `slackMagnitude` → `powerShortfall`
+ * → `totalRawCost` → `totalBuildingCount` → `totalPower` →
+ * `totalTtvUsedPerMinute`. `ttvOverusePerMinute` is not a ranking key
+ * — it's the viability gate: any positive value disqualifies the
+ * candidate outright (an over-budget plan is physically unrealizable).
+ *
+ * **Cross-unit rule**: metrics with different units must NEVER be
+ * summed into one key — `powerShortfall` (watts) folded into
+ * `slackMagnitude` (items/min) once let the selection trade a cap
+ * violation for a token amount of generation. New soft tiers get
+ * their own comparison key at the position matching the LP's penalty
+ * lattice.
  */
 export type FlowSolveMetrics = {
   feasible: boolean;
@@ -88,11 +95,14 @@ export type FlowSolveMetrics = {
    */
   failureReason?: "infeasible" | "unbounded" | "solver_error";
   /**
-   * Σ of all soft-constraint violations (disposal deficits + surpluses
-   * + raw-cap overuse + TTV-budget overuse). A candidate with less
-   * slack is strictly better regardless of cost totals — the LP itself
-   * already prices slack at `SLACK_PENALTY`, this mirrors that ranking
-   * across separate solves.
+   * Σ of the `SLACK_PENALTY`-tier soft-constraint violations (disposal
+   * deficits + surpluses + raw-cap overuse + TTV-budget overuse), all
+   * in items-per-minute-scale units. A candidate with less slack is
+   * strictly better regardless of cost totals — the LP itself already
+   * prices this tier at `SLACK_PENALTY`, this mirrors that ranking
+   * across separate solves. `powerShortfall` (watts — a LOWER tier and
+   * a different unit) is deliberately NOT included; it has its own
+   * comparison key.
    */
   slackMagnitude: number;
   /**
@@ -101,6 +111,16 @@ export type FlowSolveMetrics = {
    * import-only demand — see `TTV_SLACK_PENALTY` in `lp-solver.ts`).
    */
   ttvOverusePerMinute: number;
+  /**
+   * Watts of self-sustaining-power demand not fundable from headroom
+   * under the user's raw/facility caps (`LPSolution.powerShortfall`).
+   * 0 when power sustain is off or fully funded. Surfaced by the
+   * calculator as the `power-sustain-insufficient` plan warning, and
+   * ranked as its own comparison key AFTER `slackMagnitude` (cap
+   * compliance strictly dominates power coverage) and BEFORE
+   * `totalRawCost` (covering power is worth real cost, within caps).
+   */
+  powerShortfall: number;
   totalRawCost: number;
   totalBuildingCount: number;
   totalPower: number;

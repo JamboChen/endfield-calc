@@ -112,6 +112,20 @@ export type BinAggregates = {
    * Facilities without a `footprint` contribute 0 (unknown ≠ guessed).
    */
   totalTiles: number;
+  /**
+   * Σ `node.powerGeneration × node.facilityCount` over power-generation
+   * recipe nodes (Thermal Bank burn recipes). **Mode-independent**
+   * (fractional LP bank counts in both views): generation is
+   * fuel-supply-limited — a ceiled bank without extra batteries cannot
+   * provide more power — so the fractional figure is what the battery
+   * production actually sustains. The calculator's ceil-floor loop
+   * sizes this to cover the ceilMode `totalPower` (whole buildings each
+   * paying full power), so in the fractional view it shows headroom;
+   * the hook-level power-deficit warning remains as the safety net for
+   * the loop's iteration-cap residual case. 0 when the plan has no
+   * power-generation nodes.
+   */
+  totalPowerGeneration: number;
 };
 
 /**
@@ -163,8 +177,8 @@ export function buildBinActivitySums(
  */
 export function aggregateBinTotals(
   plan: ProductionDependencyGraph,
-  facilities: Facility[],
-  items: Item[],
+  facilities: readonly Facility[],
+  items: readonly Item[],
   options: { ceilMode?: boolean } = {},
 ): BinAggregates {
   const { ceilMode = false } = options;
@@ -211,6 +225,16 @@ export function aggregateBinTotals(
     );
     // Always-ceiled — buildings occupy whole tiles in either view mode.
     totalTiles += tilesPerBuilding(facility) * ceiledBuildings;
+  }
+
+  // Power generation (Thermal Bank burn recipes): fuel-supply-limited,
+  // so it follows the FRACTIONAL LP bank count in both view modes —
+  // see the `totalPowerGeneration` field doc.
+  let totalPowerGeneration = 0;
+  for (const node of plan.nodes.values()) {
+    if (node.type !== "recipe") continue;
+    if (!node.powerGeneration) continue;
+    totalPowerGeneration += node.powerGeneration * node.facilityCount;
   }
 
   // Fold pickup-point source facilities (unloader_1, pump_1, pump_2)
@@ -268,8 +292,28 @@ export function aggregateBinTotals(
     rawPerFacility,
     physicalPerFacility,
     totalTiles,
+    totalPowerGeneration,
   };
 }
+
+/**
+ * Plan-warning kinds that mean "this plan exceeds a configured limit"
+ * — the single source of truth shared by the optimizer's
+ * `isPlanFeasible` (Fit/Max reject such plans) and the hook's
+ * `planOverLimit` (Fit pill / auto-fit trigger). The two consumers
+ * drifted once before (metastorage); any future soft tier that emits
+ * an over-limit warning must ONLY be added here.
+ *
+ * Deliberately excludes:
+ *   - `facility-over-cap` / `raw-over-cap` — those are computed from
+ *     aggregates by both consumers directly (they need caps + usage,
+ *     not just the plan).
+ *   - `power-sustain-unavailable` — "no fuel exists" is a
+ *     configuration state, not a limit violation; scaling targets
+ *     cannot fix it.
+ */
+export const OVER_LIMIT_WARNING_KINDS: ReadonlySet<PlanWarning["kind"]> =
+  new Set(["metastorage-budget-insufficient", "power-sustain-insufficient"]);
 
 /**
  * Detect facility-cap overflows.

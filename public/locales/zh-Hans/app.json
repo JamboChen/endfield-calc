@@ -24,6 +24,11 @@
   "optimizeFailed": "优化已中止：求解器报告了错误。",
   "autoFit": "自动适配上限",
   "autoFitHint": "当编辑使方案超出上限时，自动缩减其他未锁定目标以适配。锁定的目标不会被调整。",
+  "powerSustain": "电力自给",
+  "powerSustainHint": "自动为计划加入热能池与电池生产，使发电量覆盖自身耗电。目标电池不会被燃烧。",
+  "powerSustainUnavailable": "电力自给：当前设置下无法生产或传输任何电池，无法发电。",
+  "powerSustainInsufficient": "在当前资源限制内无法为 {{watts}} 电力生产足够的电池。请提高限制或解锁目标。",
+  "powerDeficit": "发电量比耗电量少 {{deficit}}（按整数建筑计算）。",
   "planLpInfeasible": "这些目标不存在可行的生产方案：求解器无法满足所有约束。请检查已固定的配方和传输路线。",
   "planSolverError": "求解器意外失败，无法计算方案。下次重新计算时将自动恢复，编辑任意目标即可重试。",
   "footer": {

@@ -24,6 +24,11 @@
   "optimizeFailed": "Optimization aborted: the solver reported an error.",
   "autoFit": "Auto-fit to limits",
   "autoFitHint": "When an edit pushes the plan over its limits, other unlocked targets shrink automatically to fit. Locked targets are never adjusted.",
+  "powerSustain": "Self-sustaining power",
+  "powerSustainHint": "Adds Thermal Banks and battery production so the plan generates the power it consumes. Targeted batteries are never burned.",
+  "powerSustainUnavailable": "Self-sustaining power: no battery can be produced or imported with the current settings, so no power is generated.",
+  "powerSustainInsufficient": "Not enough resources within your limits to produce batteries for {{watts}} of power. Raise limits or unlock targets.",
+  "powerDeficit": "Power generation falls short of consumption by {{deficit}} (whole-building rounding).",
   "planLpInfeasible": "No valid production plan exists for these targets. The solver could not satisfy every constraint. Check pinned formulas and import routes.",
   "planSolverError": "The solver failed unexpectedly and the plan could not be computed. It will recover on the next recalculation. Edit any target to retry.",
   "footer": {

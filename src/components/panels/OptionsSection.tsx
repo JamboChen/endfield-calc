@@ -26,6 +26,10 @@ type OptionsSectionProps = {
    *  `useProductionPlan`'s AUTO_FIT_STORAGE_KEY). */
   autoFit: boolean;
   onAutoFitChange: (value: boolean) => void;
+  /** Self-sustaining power: plan Thermal Banks + battery production so
+   *  the factory covers its own power draw (URL flag `ps=1`). */
+  powerSustain: boolean;
+  onPowerSustainChange: (value: boolean) => void;
   /** Opens the full Settings sheet (AIC plan / limits / resources / …). */
   onOpenSettings: () => void;
 };
@@ -48,6 +52,8 @@ const OptionsSection = memo(function OptionsSection({
   onCeilModeChange,
   autoFit,
   onAutoFitChange,
+  powerSustain,
+  onPowerSustainChange,
   onOpenSettings,
 }: OptionsSectionProps) {
   const { t } = useTranslation(["settings", "app", "structure"]);
@@ -63,6 +69,7 @@ const OptionsSection = memo(function OptionsSection({
   // would duplicate in the DOM.
   const ceilSwitchId = useId();
   const autoFitSwitchId = useId();
+  const powerSustainSwitchId = useId();
 
   const regionStructureList = regionStructures.get(currentDomain) ?? [];
   const structureCount = countRegionStructuresEnabled(
@@ -204,6 +211,25 @@ const OptionsSection = memo(function OptionsSection({
           </div>
           <p className="text-[11px] leading-snug text-muted-foreground">
             {t("autoFitHint", { ns: "app" })}
+          </p>
+        </div>
+
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <Label
+              htmlFor={powerSustainSwitchId}
+              className="text-sm cursor-pointer"
+            >
+              {t("powerSustain", { ns: "app" })}
+            </Label>
+            <Switch
+              id={powerSustainSwitchId}
+              checked={powerSustain}
+              onCheckedChange={onPowerSustainChange}
+            />
+          </div>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            {t("powerSustainHint", { ns: "app" })}
           </p>
         </div>
       </div>

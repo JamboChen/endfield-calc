@@ -146,6 +146,37 @@ const SLACK_PENALTY = 1e6;
 const TTV_SLACK_PENALTY = 1e8;
 
 /**
+ * Cost coefficient on the shared power-sustain slack (`power_slack`,
+ * watts) — deliberately TWO tiers BELOW the user-cap `SLACK_PENALTY`.
+ *
+ * The full slack-penalty ordering (each tier must lose every trade
+ * against the tier above it):
+ *
+ *   real lex costs (≈0.2 rawCost/W)          — always paid when affordable
+ *   ≪ POWER_SLACK_PENALTY = 1e2 per watt      — power sustain is a SUGGESTION
+ *   ≪ SLACK_PENALTY       = 1e6 per unit      — raw/facility caps are USER limits
+ *   ≪ TTV_SLACK_PENALTY   = 1e8 per TTV       — the budget is a GAME constant
+ *
+ * Rationale: battery production for the self-sustaining-power option is
+ * a suggestion the calculator makes, not a user demand — it must be
+ * funded exclusively from headroom UNDER the user's raw/facility caps,
+ * never by violating them (user-reported: toggling power pushed a
+ * maxed-out Originium Ore cap from 590 to 700/min). With the ordering
+ * above, the LP covers every affordable watt (1e2 ≫ real per-watt cost)
+ * and leaves the rest as reported shortfall (`LPSolution.powerShortfall`
+ * → the `power-sustain-insufficient` plan warning) the moment covering
+ * it would need cap slack.
+ *
+ * **Magnitude bound**: violating one raw-cap unit (1e6) must cost more
+ * than the power slack it saves, so `maxWattsPerRawUnit ×
+ * POWER_SLACK_PENALTY < SLACK_PENALTY` ⇒ watts-per-raw-unit must stay
+ * below 1e4. The densest battery (SC Wuling, 3200 W / 1.5 per min ≈
+ * 2133 W per battery) with ≥ 1 raw unit per battery keeps real data
+ * ≤ ~2133 — a 4.7× margin.
+ */
+const POWER_SLACK_PENALTY = 1e2;
+
+/**
  * Tiny positive baseline added to each recipe's `power` cost so zero-power
  * recipes (or recipes whose facility lookup fails) remain bounded under
  * the power-minimization pass. Without this, LP could run such recipes
@@ -230,6 +261,66 @@ export type LPMetastorageImport = {
   ttvCostPerItem: number;
   /** TTV budget per minute (cap-per-cycle ÷ cycle minutes). */
   ttvBudgetPerMinute: number;
+};
+
+/**
+ * Power-balance input for the self-sustaining-power feature (Thermal
+ * Bank battery burning). When present AND at least one recipe in the LP
+ * carries a positive generation value, `buildModel` adds one row
+ *
+ *   power_balance: Σ_r (generation_r − powerConsumption_r − pumpPower_r) × x_r + slack ≥ 0
+ *
+ * i.e. total generation must cover total consumption. Because power is
+ * linear in the recipe variables, this solves the circular "batteries
+ * need buildings that need power" fixed point exactly in one solve.
+ *
+ * `pumpPower_r` charges each recipe for the source-facility wattage of
+ * the raw items it consumes: Σ over raw inputs of
+ * `inputRate/min × pumpPowerPerItemRate[item]` — mirroring the pickup-
+ * point power fold in `plan-helpers.aggregateBinTotals` so the balance
+ * matches the displayed consumption. (Gross consumption is charged;
+ * the rare raw-byproduct netting in `aggregateBinTotals` makes the LP
+ * marginally conservative, never short.)
+ *
+ * **Soft, one tier BELOW the user caps** (`POWER_SLACK_PENALTY` — see
+ * its JSDoc for the full ordering): battery production is a
+ * suggestion, funded exclusively from headroom under the user's
+ * raw/facility caps. When headroom runs out, the shared `power_slack`
+ * variable (watts) absorbs the remainder at `max(balance deficit,
+ * floor deficit)` — one slack satisfies BOTH rows, so the shortfall is
+ * penalized (and reported) exactly once via
+ * `LPSolution.powerShortfall`, which the calculator surfaces as the
+ * `power-sustain-insufficient` plan warning.
+ *
+ * The row is named `power_balance`, NOT `power`: constraint names and
+ * objective keys share one flat coefficient record per variable, and
+ * `power` is the pass-3 lex objective key (`buildVariableCoefficients`).
+ */
+export type LPPowerBalance = {
+  /** RecipeId → power provided per facility while that recipe runs. */
+  generationByRecipe: ReadonlyMap<RecipeId, number>;
+  /**
+   * Raw item → source-facility watts per (item/min) of consumption
+   * (e.g. water via pump_1: 10 W / 60 per min = 0.1667). Items absent
+   * from the map cost no pump power (unloader_1 draws 0 W).
+   */
+  pumpPowerPerItemRate?: ReadonlyMap<ItemId, number>;
+  /**
+   * Whole-building generation floor (watts). When set (and a generator
+   * recipe is present), adds a second row (softened by the same shared
+   * `power_slack` — see above)
+   *
+   *   power_floor: Σ_r generation_r × x_r + slack ≥ minGeneration
+   *
+   * The balance row above keeps generation ≥ FRACTIONAL consumption,
+   * but players build whole buildings: `calculateProductionPlan`'s
+   * ceil-floor loop measures the packed plan's ceiled consumption
+   * (`aggregateBinTotals(..., { ceilMode: true }).totalPower`) and
+   * re-solves with that figure here, iterating to the discrete fixed
+   * point. Also covers consumption the LP cannot see structurally
+   * (raw-only targets' pickup pumps).
+   */
+  minGeneration?: number;
 };
 
 export type LPInput = {
@@ -325,6 +416,11 @@ export type LPInput = {
    * absent or empty means no import variables. See `LPMetastorageImport`.
    */
   metastorageImports?: readonly LPMetastorageImport[];
+  /**
+   * Self-sustaining-power balance row. **Optional**: absent means no
+   * power constraint (the historical behaviour). See `LPPowerBalance`.
+   */
+  powerBalance?: LPPowerBalance;
   /** Facility lookup for power-cost computation. */
   facilityMap: Map<FacilityId, Facility>;
 };
@@ -392,6 +488,15 @@ export type LPSolution = {
    */
   totalBuildingCount: number;
   totalPower: number;
+  /**
+   * Watts of self-sustaining-power demand the LP could NOT fund from
+   * headroom under the user's raw/facility caps (the shared
+   * `power_slack` value — `max(balance deficit, floor deficit)`). 0
+   * when power sustain is off, no generator recipe exists, or every
+   * watt was affordable. The calculator surfaces values above its
+   * tolerance as the `power-sustain-insufficient` plan warning.
+   */
+  powerShortfall: number;
 };
 
 export type LPFailure = {
@@ -501,6 +606,8 @@ const buildModel = (
   rawCapSlackVarMap: Map<string, ItemId>;
   importVarMap: Map<string, LPMetastorageImport>;
   ttvSlackVarMap: Map<string, DomainId>;
+  /** `"power_slack"` when the power rows were emitted, else null. */
+  powerSlackVarName: string | null;
 } => {
   // Stable variable names: x_<index>; map back to RecipeId via the index map.
   // Raw materials are excluded from balance constraints — their consumption
@@ -714,6 +821,66 @@ const buildModel = (
     }
   }
 
+  // Power-balance + power-floor rows (SOFT, one shared slack) — see
+  // `LPPowerBalance` and `POWER_SLACK_PENALTY` for the tier ordering
+  // that keeps battery production strictly inside user-cap headroom.
+  //
+  // Only anchored when a generator recipe is actually present in THIS
+  // LP: with no generator the rows would be pure slack burn for every
+  // powered recipe. The calculator surfaces the no-fuel case as a
+  // `power-sustain-unavailable` warning instead.
+  //
+  // The single `power_slack` variable (+1 on both rows) satisfies them
+  // at `max(balance deficit, floor deficit)` — one penalty, one
+  // reported shortfall. Import variables carry no coefficient on these
+  // rows: they neither draw nor provide power (battery imports feed
+  // generation indirectly through the fuel item's balance row). The
+  // lex-cap rows below exclude `power_slack` like every other slack.
+  let powerSlackVarName: string | null = null;
+  if (input.powerBalance) {
+    const { generationByRecipe, pumpPowerPerItemRate, minGeneration } =
+      input.powerBalance;
+    const hasGenerator = input.recipes.some(
+      (r) => (generationByRecipe.get(r.id) ?? 0) > 0,
+    );
+    if (hasGenerator) {
+      const rowName = "power_balance";
+      constraints[rowName] = { min: 0 };
+      // Whole-building generation floor — see `LPPowerBalance.minGeneration`.
+      const floorRow =
+        minGeneration !== undefined && minGeneration > 0
+          ? "power_floor"
+          : undefined;
+      if (floorRow) constraints[floorRow] = { min: minGeneration! };
+      input.recipes.forEach((recipe, idx) => {
+        const facility = input.facilityMap.get(recipe.facilityId);
+        const generation = generationByRecipe.get(recipe.id) ?? 0;
+        let coef = generation - (facility?.powerConsumption ?? 0);
+        if (pumpPowerPerItemRate && pumpPowerPerItemRate.size > 0) {
+          for (const inp of recipe.inputs) {
+            if (!input.rawMaterials.has(inp.itemId)) continue;
+            const perItemRate = pumpPowerPerItemRate.get(inp.itemId);
+            if (!perItemRate) continue;
+            coef -= calcRate(inp.amount, recipe.craftingTime) * perItemRate;
+          }
+        }
+        if (coef !== 0) variables[`x_${idx}`][rowName] = coef;
+        if (floorRow && generation > 0) {
+          variables[`x_${idx}`][floorRow] = generation;
+        }
+      });
+      powerSlackVarName = "power_slack";
+      variables[powerSlackVarName] = {
+        [rowName]: 1,
+        ...(floorRow ? { [floorRow]: 1 } : {}),
+        rawCost: POWER_SLACK_PENALTY,
+        buildingCount: POWER_SLACK_PENALTY,
+        power: POWER_SLACK_PENALTY,
+        ttvCost: POWER_SLACK_PENALTY,
+      };
+    }
+  }
+
   // Metastorage import variables + per-route TTV budget rows.
   //
   // For each pre-filtered route r (single item i):
@@ -784,6 +951,7 @@ const buildModel = (
       if (rawCapSlackVarMap.has(varName)) continue;
       if (facilityCapSlackVarMap.has(varName)) continue;
       if (ttvSlackVarMap.has(varName)) continue;
+      if (varName === powerSlackVarName) continue;
       coefs[capName] = coefs[capObj] ?? 0;
     }
   }
@@ -801,6 +969,7 @@ const buildModel = (
     rawCapSlackVarMap,
     importVarMap,
     ttvSlackVarMap,
+    powerSlackVarName,
   };
 };
 
@@ -816,6 +985,7 @@ type ExtractedSolution = {
   totalBuildings: number;
   totalPower: number;
   totalTtv: number;
+  powerShortfall: number;
 };
 
 const extractSolution = (
@@ -826,6 +996,7 @@ const extractSolution = (
   rawCapSlackVarMap: Map<string, ItemId>,
   importVarMap: Map<string, LPMetastorageImport>,
   ttvSlackVarMap: Map<string, DomainId>,
+  powerSlackVarName: string | null,
   recipes: Recipe[],
   facilityMap: Map<FacilityId, Facility>,
   rawMaterials: Set<ItemId>,
@@ -909,6 +1080,15 @@ const extractSolution = (
     }
   }
 
+  // Power-sustain shortfall: the shared `power_slack` value (watts of
+  // demand not fundable from cap headroom). Same epsilon guard as the
+  // other slack reports.
+  let powerShortfall = 0;
+  if (powerSlackVarName) {
+    const v = rawResult[powerSlackVarName];
+    if (typeof v === "number" && v > LP_EPSILON) powerShortfall = v;
+  }
+
   return {
     facilityCounts,
     disposalDeficits,
@@ -921,6 +1101,7 @@ const extractSolution = (
     totalBuildings,
     totalPower,
     totalTtv,
+    powerShortfall,
   };
 };
 
@@ -974,6 +1155,7 @@ const finaliseSolution = (sol: ExtractedSolution): LPSolution => ({
   totalRawCost: sol.totalRaw,
   totalBuildingCount: sol.totalBuildings,
   totalPower: sol.totalPower,
+  powerShortfall: sol.powerShortfall,
 });
 
 /**
@@ -1042,6 +1224,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       totalRawCost: 0,
       totalBuildingCount: 0,
       totalPower: 0,
+      powerShortfall: 0,
     };
   }
 
@@ -1083,6 +1266,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       rawCapSlackVarMap,
       importVarMap,
       ttvSlackVarMap,
+      powerSlackVarName,
     } = buildModel(
       input,
       eligibleRoutes,
@@ -1173,6 +1357,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       rawCapSlackVarMap,
       importVarMap,
       ttvSlackVarMap,
+      powerSlackVarName,
       input.recipes,
       input.facilityMap,
       input.rawMaterials,

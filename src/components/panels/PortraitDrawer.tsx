@@ -66,6 +66,7 @@ export default function PortraitDrawer({
       <SheetTrigger asChild>
         <StatsTicker
           totalPowerConsumption={stats.totalPowerConsumption}
+          totalPowerGeneration={stats.totalPowerGeneration}
           totalBuildings={stats.totalBuildings}
           totalTiles={stats.totalTiles}
           depotPickupPoints={stats.depotPickupPoints}

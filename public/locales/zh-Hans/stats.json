@@ -22,5 +22,6 @@
   "showDetails": "详情",
   "title": "生产统计",
   "totalPower": "总功耗",
+  "powerBalance": "耗电 / 发电",
   "utilization": "利用率"
 }

@@ -12,7 +12,7 @@ import {
   type TargetVectorEntry,
 } from "@/lib/target-optimizer";
 import { namespaceStorageKey } from "@/lib/storage-namespace";
-import { items, recipes, facilities, MAX_TARGETS } from "@/data";
+import { items, recipes, facilities, powerFuels, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import type { ProductionTarget } from "@/components/panels/TargetItemsGrid";
@@ -42,8 +42,10 @@ import {
   computeOverCapWarnings,
   computeRawOverCapWarnings,
   filterPlanForDisplay,
+  OVER_LIMIT_WARNING_KINDS,
 } from "@/lib/plan-helpers";
-import { getItemById } from "@/lib/utils";
+import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
+import { calcRate, getItemById } from "@/lib/utils";
 
 /** Auto-fit preference (Options card toggle). Channel-namespaced like
  *  every persisted key — see `storage-namespace.ts`. */
@@ -57,6 +59,26 @@ const AUTO_FIT_STORAGE_KEY = namespaceStorageKey("endfield-calc:auto-fit-v1");
  * not once per commit.
  */
 const AUTO_FIT_DEBOUNCE_MS = 600;
+
+/**
+ * One read-only "Power Target" row: a battery the plan produces solely
+ * to feed Thermal Banks under the self-sustaining-power option. Derived
+ * from the display plan's power-generation recipe nodes; rendered by
+ * `PowerTargetsSection` below the Production Targets (informational —
+ * the LP sizes these, the user can't edit them).
+ */
+export type PowerTarget = {
+  /** The battery being burned. */
+  item: Item;
+  /** Battery production consumed for power, items/min. */
+  ratePerMinute: number;
+  /** Thermal Bank count (fractional = duty cycle). */
+  banks: number;
+  /** Watts provided (`powerGeneration × banks`, fuel-limited). */
+  watts: number;
+  /** The Thermal Bank facility (for the localized name). */
+  facility: Facility;
+};
 
 /** Optimizer search in flight — drives per-button spinners and mutual
  *  exclusion (one search at a time). */
@@ -103,6 +125,12 @@ interface SavedPlan {
    * `parseHash` default.
    */
   binFusion?: boolean;
+  /**
+   * Optional. Self-sustaining power (Thermal Bank battery burning).
+   * When absent (legacy saves), defaults to `false` — matching the
+   * `parseHash` default.
+   */
+  powerSustain?: boolean;
 }
 
 /**
@@ -131,6 +159,7 @@ interface ParsedHashState {
   manualRawMaterials: Set<ItemId>;
   ceilMode: boolean;
   binFusion: boolean;
+  powerSustain: boolean;
 }
 
 function parseHash(): ParsedHashState {
@@ -142,6 +171,8 @@ function parseHash(): ParsedHashState {
     // binFusion defaults to ON. The hash key `bf=0` opts out;
     // omitting `bf` (or setting `bf=1`) keeps the default ON.
     binFusion: true,
+    // powerSustain defaults to OFF. The hash key `ps=1` opts in.
+    powerSustain: false,
   };
 
   try {
@@ -211,12 +242,16 @@ function parseHash(): ParsedHashState {
     const binFusionRaw = params.get("bf");
     const parsedBinFusion = binFusionRaw !== "0";
 
+    // Parse powerSustain: ps=1 enables (default off).
+    const parsedPowerSustain = params.get("ps") === "1";
+
     return {
       targets: parsedTargets,
       recipeOverrides: parsedRecipeOverrides,
       manualRawMaterials: parsedManualRawMaterials,
       ceilMode: parsedCeilMode,
       binFusion: parsedBinFusion,
+      powerSustain: parsedPowerSustain,
     };
   } catch {
     return defaultState;
@@ -229,6 +264,7 @@ function serializeHash(
   manualRawMaterials: Set<ItemId>,
   ceilMode: boolean,
   binFusion: boolean,
+  powerSustain: boolean,
 ): string {
   const params = new URLSearchParams();
 
@@ -262,6 +298,11 @@ function serializeHash(
   // (on) keeps the hash short.
   if (!binFusion) {
     params.set("bf", "0");
+  }
+
+  // Only emit `ps=1` when self-sustaining power is enabled (default off).
+  if (powerSustain) {
+    params.set("ps", "1");
   }
 
   return params.toString();
@@ -337,6 +378,18 @@ function formatPlanWarning(
       return t("metastorageRouteConflict", {
         items: w.itemIds.map(lookupItemName).join(", "),
       });
+    case "power-sustain-unavailable":
+      // Self-sustaining power was requested but no battery is
+      // producible / raw / importable — the LP ran without a
+      // power-balance row, so the plan's power is uncovered.
+      return t("powerSustainUnavailable");
+    case "power-sustain-insufficient":
+      // Battery production is a suggestion — it never violates the
+      // user's raw/facility limits. This reports the watts that could
+      // NOT be funded from headroom under those limits.
+      return t("powerSustainInsufficient", {
+        watts: w.shortfallWatts.toFixed(0),
+      });
   }
 }
 
@@ -397,6 +450,7 @@ export function useProductionPlan(
   );
   const [ceilMode, setCeilMode] = useState(initialState.ceilMode);
   const [binFusion, setBinFusion] = useState(initialState.binFusion);
+  const [powerSustain, setPowerSustain] = useState(initialState.powerSustain);
 
   useEffect(() => {
     const hash = serializeHash(
@@ -405,12 +459,13 @@ export function useProductionPlan(
       manualRawMaterials,
       ceilMode,
       binFusion,
+      powerSustain,
     );
     const newUrl = hash
       ? `${window.location.pathname}${window.location.search}#${hash}`
       : window.location.pathname + window.location.search;
     history.replaceState(null, "", newUrl);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain]);
 
   // The calculation engine (HiGHS WASM inside the calc worker, with a
   // main-thread fallback — see `calc-client.ts`) initialises async.
@@ -505,6 +560,7 @@ export function useProductionPlan(
         manualRawMaterials,
         facilityCaps,
         metastorageRoutes,
+        powerSustain: powerSustain ? { fuels: powerFuels } : undefined,
       },
     })
       .then((result) => {
@@ -548,6 +604,7 @@ export function useProductionPlan(
     facilityCaps,
     rawMaterialCaps,
     metastorageRoutes,
+    powerSustain,
     t,
   ]);
 
@@ -801,6 +858,45 @@ export function useProductionPlan(
     [displayPlan, ceilMode],
   );
 
+  // Read-only "Power Targets" rows (self-sustaining power): one row per
+  // active burn fuel, sorted by watts provided. Empty when the option
+  // is off, no plan exists, or no bank runs. Consumed by
+  // `PowerTargetsSection` in the plan rail.
+  const powerTargets = useMemo<PowerTarget[]>(() => {
+    if (!powerSustain || !displayPlan) return [];
+    const out: PowerTarget[] = [];
+    for (const node of displayPlan.nodes.values()) {
+      if (node.type !== "recipe" || !node.powerGeneration) continue;
+      const input = node.recipe.inputs[0];
+      if (!input) continue;
+      const item = getItemById(items, input.itemId);
+      if (!item) continue;
+      const ratePerMinute =
+        calcRate(input.amount, node.recipe.craftingTime) * node.facilityCount;
+      if (ratePerMinute <= MIN_VISIBLE_RATE_PER_MIN) continue;
+      out.push({
+        item,
+        ratePerMinute,
+        banks: node.facilityCount,
+        watts: node.powerGeneration * node.facilityCount,
+        facility: node.facility,
+      });
+    }
+    out.sort((a, b) => b.watts - a.watts);
+    return out;
+  }, [powerSustain, displayPlan]);
+
+  // "No fuel available" marker for the Power Targets empty state —
+  // mirrors the `power-sustain-unavailable` plan warning.
+  const powerSustainUnavailable = useMemo<boolean>(
+    () =>
+      powerSustain &&
+      (plan?.warnings ?? []).some(
+        (w) => w.kind === "power-sustain-unavailable",
+      ),
+    [powerSustain, plan],
+  );
+
   // Structured facility-cap-overflow signals. Two downstream consumers
   // share this memo: `facilityOverCapMap` (the over-cap stat-row
   // chrome) and `capIssueCount` (the ticker's destructive badge).
@@ -1007,6 +1103,37 @@ export function useProductionPlan(
 
     return [...cycleWarnings, ...planWarnings, ...lpStatusWarnings];
   }, [plan, recipeOverrides, t]);
+
+  // Power-deficit warning (self-sustaining power) — the residual
+  // safety net: the calculator's ceil-floor loop normally sizes
+  // generation to the whole-building consumption, so this only fires
+  // when the loop hit its iteration cap with a gap left. Suppressed
+  // while another surface already explains the state (no-fuel warning,
+  // the cap-headroom `power-sustain-insufficient` warning, failed
+  // solve).
+  const powerWarnings = useMemo<string[]>(() => {
+    if (!powerSustain || !plan || !aggregates) return [];
+    if (plan.lpStatus !== "ok") return [];
+    if (
+      (plan.warnings ?? []).some(
+        (w) =>
+          w.kind === "power-sustain-unavailable" ||
+          w.kind === "power-sustain-insufficient",
+      )
+    ) {
+      return [];
+    }
+    const deficit = aggregates.totalPower - aggregates.totalPowerGeneration;
+    // 0.5 W threshold: absorbs LP float noise while catching any real
+    // ceiling-induced gap (the smallest power draw in the data is 5 W).
+    if (deficit <= 0.5) return [];
+    return [t("powerDeficit", { deficit: deficit.toFixed(0) })];
+  }, [powerSustain, plan, aggregates, t]);
+
+  const allWarnings = useMemo<string[]>(
+    () => (powerWarnings.length > 0 ? [...warnings, ...powerWarnings] : warnings),
+    [warnings, powerWarnings],
+  );
 
   const handleTargetChange = useCallback((index: number, rate: number) => {
     // Auto-fit bookkeeping: the just-edited target is the demand — it
@@ -1267,6 +1394,7 @@ export function useProductionPlan(
           manualRawMaterials,
           facilityCaps,
           metastorageRoutes,
+          powerSustain: powerSustain ? { fuels: powerFuels } : undefined,
         },
       }),
     [
@@ -1277,6 +1405,7 @@ export function useProductionPlan(
       manualRawMaterials,
       facilityCaps,
       metastorageRoutes,
+      powerSustain,
     ],
   );
 
@@ -1467,13 +1596,13 @@ export function useProductionPlan(
   // Plan-over-limit signal shared by the Fit pill and auto-fit. Same
   // clauses as the engine's `isPlanFeasible`: cap overflows (facility
   // physical placements + raw rates, both inside `capIssueCount`) plus
-  // the metastorage budget warning.
+  // the shared over-limit warning kinds (metastorage budget,
+  // power-sustain shortfall — see `OVER_LIMIT_WARNING_KINDS`, the
+  // single source of truth both consumers read).
   const planOverLimit = useMemo<boolean>(
     () =>
       capIssueCount > 0 ||
-      (plan?.warnings ?? []).some(
-        (w) => w.kind === "metastorage-budget-insufficient",
-      ),
+      (plan?.warnings ?? []).some((w) => OVER_LIMIT_WARNING_KINDS.has(w.kind)),
     [capIssueCount, plan],
   );
 
@@ -1530,6 +1659,7 @@ export function useProductionPlan(
       manualRawMaterials: Array.from(manualRawMaterials),
       ceilMode,
       binFusion,
+      powerSustain,
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -1541,7 +1671,7 @@ export function useProductionPlan(
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain]);
 
   const handleOpenPlan = useCallback(() => {
     if (!fileInputRef.current) {
@@ -1582,6 +1712,8 @@ export function useProductionPlan(
             // Legacy saves (pre-bin-fusion) omit `binFusion`; default to on
             // to match `parseHash` and the in-app default.
             setBinFusion(data.binFusion ?? true);
+            // Legacy saves omit `powerSustain`; default off (parseHash).
+            setPowerSustain(data.powerSustain ?? false);
           } catch {
             // ignore invalid files
           }
@@ -1607,13 +1739,17 @@ export function useProductionPlan(
     tableData,
     stats,
     error,
-    warnings,
+    warnings: allWarnings,
     capIssueCount,
     rawMaterialCapMap,
     ceilMode,
     setCeilMode,
     binFusion,
     setBinFusion,
+    powerSustain,
+    setPowerSustain,
+    powerTargets,
+    powerSustainUnavailable,
     handleTargetChange,
     handleTargetRemove,
     handleTargetLockToggle,

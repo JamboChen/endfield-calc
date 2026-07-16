@@ -122,6 +122,34 @@ export type PlanWarning =
        */
       kind: "metastorage-route-conflict";
       itemIds: ItemId[];
+    }
+  | {
+      /**
+       * The plan was asked to sustain its own power (`powerSustain`
+       * option) but no battery fuel is producible, raw, or importable
+       * under the current configuration — no burn recipe entered the
+       * graph and the LP ran WITHOUT the power-balance constraint.
+       * The plan's power consumption is therefore uncovered by any
+       * generation. Emitted by `calculateProductionPlan`.
+       */
+      kind: "power-sustain-unavailable";
+    }
+  | {
+      /**
+       * Self-sustaining power could not be fully funded from headroom
+       * UNDER the user's raw/facility limits: battery production is a
+       * suggestion, so it never violates caps (unlike locked user
+       * targets, which may — with their own warnings). The LP covered
+       * every affordable watt and reports the rest here
+       * (`LPSolution.powerShortfall` via the `power_slack` tier — see
+       * `POWER_SLACK_PENALTY` in `lp-solver.ts`). Remedies: raise
+       * limits, unlock targets (Fit treats this warning as
+       * over-limit), or accept the shortfall. Emitted by
+       * `calculateProductionPlan`.
+       */
+      kind: "power-sustain-insufficient";
+      /** Watts of consumption left uncovered by generation. */
+      shortfallWatts: number;
     };
 
 /**
@@ -266,6 +294,14 @@ export type ProductionGraphNode =
       facility: Facility;
       facilityCount: number;
       isDisposal?: boolean;
+      /**
+       * Power provided per facility while this recipe runs (Thermal
+       * Bank battery burning). Present only on power-generation recipe
+       * nodes injected via `CalculateProductionPlanOptions.powerSustain`.
+       * Such nodes are also `isDisposal` (zero outputs) — consumers
+       * that render power sinks must check this field FIRST.
+       */
+      powerGeneration?: number;
       /**
        * Bin id this recipe is hosted in (Phase 3). Set for all recipes
        * after Phase 3 runs; mappers use it to annotate group
