@@ -588,6 +588,7 @@ export function mapPlanToFlowMerged(
             node.recipeId,
             node.envSupport,
             envBuffedMachines(plan, node.envSupport, facilityById, recipeById),
+            [],
             items,
             facilities,
             ceilMode,

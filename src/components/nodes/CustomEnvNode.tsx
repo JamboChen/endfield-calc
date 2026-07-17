@@ -1,4 +1,5 @@
-import { Handle, Position } from "@xyflow/react";
+import { useCallback } from "react";
+import { Handle, Position, useReactFlow } from "@xyflow/react";
 import type { Node, NodeProps } from "@xyflow/react";
 import { Wind } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -44,12 +45,45 @@ export default function CustomEnvNode({
   targetPosition = Position.Left,
   selected,
 }: NodeProps<Node<EnvSinkNodeData>>) {
-  const { item, intakeRate, facility, facilityCount, vaporizeRecipeId, covered, ceilMode } =
-    data;
+  const {
+    item,
+    intakeRate,
+    facility,
+    facilityCount,
+    vaporizeRecipeId,
+    covered,
+    coveredBuildings,
+    ceilMode,
+  } = data;
   const { t } = useTranslation("production");
   const itemName = getItemName(item);
   const facilityName = getFacilityName(facility);
   const buffName = getRecipeName(vaporizeRecipeId);
+
+  // Click-to-jump to a specific buffed building node (Facility View):
+  // center + select it, mirroring the graph search panel's jump. The
+  // selection change pins the spotlight via `onSelectionChange`.
+  const rf = useReactFlow();
+  const jumpToBuilding = useCallback(
+    (targetId: string) => {
+      const n = rf.getNode(targetId);
+      if (!n) return;
+      const w = n.measured?.width ?? n.width ?? 208;
+      const h = n.measured?.height ?? n.height ?? 125;
+      rf.setCenter(n.position.x + w / 2, n.position.y + h / 2, {
+        zoom: Math.max(rf.getZoom(), 0.8),
+        duration: 400,
+      });
+      rf.setNodes((nds) =>
+        nds.map((x) =>
+          x.selected !== (x.id === targetId)
+            ? { ...x, selected: x.id === targetId }
+            : x,
+        ),
+      );
+    },
+    [rf],
+  );
 
   return (
     <Tooltip>
@@ -109,8 +143,61 @@ export default function CustomEnvNode({
               </div>
             </div>
 
-            {/* === Zone 4: Buffed machines (by formula) === */}
-            {covered.length > 0 && (
+            {/* === Zone 4: Buffed machines === */}
+            {/* Facility View: one row PER buffed building, named
+                `<facility> i/N` and linkable to that building node.
+                Recipe View / merged: aggregate by (facility, formula). */}
+            {coveredBuildings.length > 0 ? (
+              <div className="mx-2.5 mb-2">
+                <div className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide mb-0.5">
+                  {t("tree.gasEnvBuffs")}
+                </div>
+                <ul className="space-y-0.5">
+                  {coveredBuildings.map((b, i) => {
+                    const label = `${getFacilityName(b.facility)} ${b.index + 1}/${b.total}`;
+                    const row = (
+                      <>
+                        <FacilityIcon
+                          facility={b.facility}
+                          alt={getFacilityName(b.facility)}
+                          className="h-3.5 w-3.5 object-contain shrink-0"
+                        />
+                        <span className="text-[10px] truncate flex-1 min-w-0 text-left">
+                          {getFacilityName(b.facility)}
+                        </span>
+                        <span className="font-mono text-[10px] shrink-0">
+                          {b.index + 1}/{b.total}
+                        </span>
+                      </>
+                    );
+                    return (
+                      <li key={`${b.nodeId ?? label}-${i}`}>
+                        {b.nodeId ? (
+                          <button
+                            type="button"
+                            title={label}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              jumpToBuilding(b.nodeId!);
+                            }}
+                            className="nodrag nopan flex items-center gap-1.5 min-w-0 w-full rounded-sm px-0.5 hover:bg-teal-100/60 dark:hover:bg-teal-900/40 cursor-pointer text-teal-800 dark:text-teal-200"
+                          >
+                            {row}
+                          </button>
+                        ) : (
+                          <div
+                            title={label}
+                            className="flex items-center gap-1.5 min-w-0 px-0.5"
+                          >
+                            {row}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : covered.length > 0 ? (
               <div className="mx-2.5 mb-2">
                 <div className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide mb-0.5">
                   {t("tree.gasEnvBuffs")}
@@ -136,7 +223,7 @@ export default function CustomEnvNode({
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
 
             {/* === Zone 5: Facility === */}
             <div className="flex items-center justify-between mx-2.5 mb-2.5 bg-blue-100/50 dark:bg-blue-900/30 border border-blue-200/50 dark:border-blue-800/50 rounded-sm px-2 py-1">
@@ -168,7 +255,25 @@ export default function CustomEnvNode({
               rate: formatNumber(intakeRate),
             })}
           </div>
-          {covered.length > 0 && (
+          {coveredBuildings.length > 0 ? (
+            <div className="mt-2 pt-2 border-t">
+              <div className="text-muted-foreground mb-1">
+                {t("tree.gasEnvBuffsDetail")}
+              </div>
+              <ul className="space-y-0.5">
+                {coveredBuildings.map((b, i) => (
+                  <li key={`tt-${b.nodeId ?? b.facility.id}-${i}`}>
+                    <span className="font-medium">
+                      {getFacilityName(b.facility)}
+                    </span>{" "}
+                    <span className="text-muted-foreground font-mono">
+                      {b.index + 1}/{b.total}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : covered.length > 0 ? (
             <div className="mt-2 pt-2 border-t">
               <div className="text-muted-foreground mb-1">
                 {t("tree.gasEnvBuffsDetail")}
@@ -186,7 +291,7 @@ export default function CustomEnvNode({
                 ))}
               </ul>
             </div>
-          )}
+          ) : null}
           <div className="mt-2 pt-2 border-t">
             <div className="text-muted-foreground">
               {t("tree.facility")}: {facilityName}

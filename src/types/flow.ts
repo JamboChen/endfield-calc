@@ -183,6 +183,24 @@ export interface EnvCoverageEntry {
 }
 
 /**
+ * One individual buffed BUILDING (Facility View), named the way the
+ * production building nodes are: `<facility> <index+1>/<total>` (per-bin
+ * numbering, matching `CustomProductionNode`). `nodeId` is the React
+ * Flow id of that building instance for click-to-jump; undefined for
+ * singleton-terminal env producers (folded into the target sink, no
+ * separate node) which render as a non-clickable `1/1`.
+ */
+export interface EnvCoveredBuilding {
+  facility: Facility;
+  /** 0-based instance index within its bin. */
+  index: number;
+  /** Total buildings in that bin (the `/N`). */
+  total: number;
+  /** `${bin.id}-bldg${index}`, or undefined (singleton-terminal). */
+  nodeId?: string;
+}
+
+/**
  * Data for a gas-environment sink node (1.4 Gas Dispersing Unit /
  * vaporizer). Structurally a consumer sink like disposal — the flow /
  * allocation machinery treats it identically — but rendered as a teal
@@ -209,8 +227,18 @@ export interface EnvSinkNodeData {
   vaporizeRecipeId: RecipeId;
   /** Upstream env id (`Recipe.gasEnv` / `vaporizerEnvs` key). */
   env: number;
-  /** Buffed machines grouped by (facility, formula). */
+  /**
+   * Buffed machines grouped by (facility, formula) — Recipe View +
+   * merged (no per-building instances there). Facility View uses
+   * `coveredBuildings` instead.
+   */
   covered: EnvCoverageEntry[];
+  /**
+   * Facility View only: the individual buffed BUILDINGS this specific
+   * Gas Dispersing Unit covers, named `<facility> i/N` and linkable to
+   * their building nodes. Empty in Recipe View / merged.
+   */
+  coveredBuildings: EnvCoveredBuilding[];
   /** All available items (for icon rendering). */
   items: Item[];
   facilities: Facility[];

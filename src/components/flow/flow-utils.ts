@@ -13,6 +13,7 @@ import type {
   FlowPowerNode,
   FlowEnvNode,
   EnvCoverageEntry,
+  EnvCoveredBuilding,
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
@@ -452,39 +453,28 @@ export function envBuffedMachines(
 }
 
 /**
- * Partition buffed machines across `unitCount` Gas Dispersing Units as a
- * representative even split: expand the (facility, formula) groups into a
- * flat machine list, chunk `ceil(total / unitCount)` per unit, and
- * re-group each chunk. The SET of buffed machines is exact (from
+ * Partition the flat buffed-BUILDING list across `unitCount` Gas
+ * Dispersing Units as a representative BALANCED split: the first
+ * `total % unitCount` units get `ceil(total / unitCount)` buildings, the
+ * rest get `floor` — so no unit is ever left empty (a fixed-chunk split
+ * can strand the last unit). The SET of buffed buildings is exact (from
  * `gasEnv`); only the which-unit-covers-which grouping is representative
- * (the calculator has no spatial model). Returns one `EnvCoverageEntry[]`
- * per unit (length === unitCount).
+ * (the calculator has no spatial model). Returns one `EnvCoveredBuilding[]`
+ * per unit (length === `unitCount`).
  */
-export function partitionEnvCoverage(
-  covered: EnvCoverageEntry[],
+export function partitionBuffedBuildings(
+  buildings: EnvCoveredBuilding[],
   unitCount: number,
-): EnvCoverageEntry[][] {
-  if (unitCount <= 1) return [covered];
-  // Flatten to one item per machine, preserving group order.
-  const flat: EnvCoverageEntry[] = [];
-  for (const c of covered) {
-    for (let i = 0; i < c.buildings; i++) {
-      flat.push({ facility: c.facility, recipe: c.recipe, buildings: 1 });
-    }
-  }
-  const perUnit = Math.ceil(flat.length / unitCount);
-  const units: EnvCoverageEntry[][] = [];
+): EnvCoveredBuilding[][] {
+  if (unitCount <= 1) return [buildings];
+  const base = Math.floor(buildings.length / unitCount);
+  const extra = buildings.length % unitCount;
+  const units: EnvCoveredBuilding[][] = [];
+  let cursor = 0;
   for (let u = 0; u < unitCount; u++) {
-    const slice = flat.slice(u * perUnit, (u + 1) * perUnit);
-    // Re-group the slice by (facility, recipe).
-    const grouped = new Map<string, EnvCoverageEntry>();
-    for (const m of slice) {
-      const key = `${m.facility.id}\u0000${m.recipe.id}`;
-      const existing = grouped.get(key);
-      if (existing) existing.buildings += 1;
-      else grouped.set(key, { ...m });
-    }
-    units.push([...grouped.values()]);
+    const size = base + (u < extra ? 1 : 0);
+    units.push(buildings.slice(cursor, cursor + size));
+    cursor += size;
   }
   return units;
 }
@@ -504,6 +494,7 @@ export function createEnvSinkNode(
   vaporizeRecipeId: RecipeId,
   env: number,
   covered: EnvCoverageEntry[],
+  coveredBuildings: EnvCoveredBuilding[],
   items: Item[],
   facilities: Facility[],
   ceilMode = false,
@@ -519,6 +510,7 @@ export function createEnvSinkNode(
       vaporizeRecipeId,
       env,
       covered,
+      coveredBuildings,
       items,
       facilities,
       ceilMode,

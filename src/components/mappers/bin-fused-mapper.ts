@@ -32,6 +32,7 @@ import type {
   FlowDisposalNode,
   FlowPowerNode,
   FlowEnvNode,
+  EnvCoveredBuilding,
 } from "@/types";
 import {
   createEdge,
@@ -41,7 +42,7 @@ import {
   createPowerSinkNode,
   createEnvSinkNode,
   envBuffedMachines,
-  partitionEnvCoverage,
+  partitionBuffedBuildings,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -524,6 +525,8 @@ export function mapPlanToFlowBinFused(
     // Env FIRST (before power) — a vaporize bin is also `isDisposal`.
     const envId = envSupportFor(bin.recipeIds[0]);
     if (envId !== undefined) {
+      // Recipe View: ONE aggregate node, buffed machines by formula
+      // (no per-building instances in this view).
       disposalSinkNodes.push(
         createEnvSinkNode(
           `disposal-${bin.recipeIds[0]}`,
@@ -534,6 +537,7 @@ export function mapPlanToFlowBinFused(
           bin.recipeIds[0],
           envId,
           envBuffedMachines(plan, envId, facilityById, recipeById),
+          [],
           items,
           facilities,
           ceilMode,
@@ -1255,6 +1259,39 @@ export function mapPlanToFlowBinFusedSeparated(
     );
   });
 
+  // Individual buffed BUILDINGS for a gas environment, named the way
+  // the production building nodes are (`<facility> index/total`, per-bin
+  // numbering) and linkable to those nodes. Enumerated from `plan.bins`
+  // (env recipes are single-formula, one recipe per bin), so it also
+  // catches singleton-terminal env producers (folded into a target
+  // sink, no building node → `nodeId` undefined, rendered `1/1`).
+  const buffedBuildingsForEnv = (env: number) => {
+    const out: EnvCoveredBuilding[] = [];
+    for (const b of plan.bins) {
+      const r = recipeById.get(b.recipeIds[0]);
+      if (!r || r.gasEnv !== env || !(b.buildingCount > 0)) continue;
+      const fac = facilityById.get(b.facilityId);
+      if (!fac) continue;
+      const total = Math.max(1, Math.ceil(b.buildingCount));
+      const hasNodes = !singletonTerminalBinIds.has(b.id);
+      for (let k = 0; k < total; k++) {
+        out.push({
+          facility: fac,
+          index: k,
+          total,
+          nodeId: hasNodes ? buildingInstanceId(b.id, k) : undefined,
+        });
+      }
+    }
+    out.sort(
+      (a, c) =>
+        a.facility.id.localeCompare(c.facility.id) ||
+        (a.nodeId ?? "").localeCompare(c.nodeId ?? "") ||
+        a.index - c.index,
+    );
+    return out;
+  };
+
   // Emit disposal / power / env sinks (same branch rule as the Recipe
   // View path — env FIRST, then power, then disposal). Env bins emit
   // ONE node PER vaporizer building, each with its representative slice
@@ -1273,8 +1310,10 @@ export function mapPlanToFlowBinFusedSeparated(
     const envId = envSupportFor(bin.recipeIds[0]);
     if (envId !== undefined) {
       const N = Math.max(1, Math.ceil(bin.buildingCount));
-      const partitions = partitionEnvCoverage(
-        envBuffedMachines(plan, envId, facilityById, recipeById),
+      // Individual buffed BUILDINGS (named + linkable), partitioned
+      // across the N Gas Dispersing Units — see `buffedBuildingsForEnv`.
+      const partitions = partitionBuffedBuildings(
+        buffedBuildingsForEnv(envId),
         N,
       );
       const perNode = disposalRate / N;
@@ -1288,6 +1327,7 @@ export function mapPlanToFlowBinFusedSeparated(
             1,
             bin.recipeIds[0],
             envId,
+            [],
             partitions[i] ?? [],
             items,
             facilities,

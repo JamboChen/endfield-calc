@@ -362,26 +362,35 @@ describe("gas sustain: vaporizer environments", () => {
     );
     const envUnits = separated.nodes.filter((n) => n.type === "envSink");
     expect(envUnits).toHaveLength(2);
+    type CB = { facility: { id: string }; index: number; total: number; nodeId?: string };
     for (const u of envUnits) {
       const d = u.data as unknown as {
         facilityCount: number;
-        covered: { recipe: { id: string }; buildings: number }[];
+        coveredBuildings: CB[];
       };
       expect(d.facilityCount).toBe(1);
-      // Every covered entry is keyed on the env FORMULA.
-      for (const c of d.covered) expect(c.recipe.id).toBe(envRecipe.id);
+      // Facility View lists individual BUILDINGS (i/N), not aggregates,
+      // each on the buffed facility with a valid index/total + node id.
+      expect(d.coveredBuildings.length).toBeGreaterThan(0);
+      for (const b of d.coveredBuildings) {
+        expect(b.facility.id).toBe(FacilityId.XIRANITE_OVEN_1);
+        expect(b.total).toBe(5); // ceil(4.5)
+        expect(b.index).toBeGreaterThanOrEqual(0);
+        expect(b.index).toBeLessThan(5);
+        expect(typeof b.nodeId).toBe("string"); // linkable
+      }
     }
-    // Partition sums back to the full buffed set (5 machines).
-    const totalCovered = envUnits.reduce(
-      (sum, u) =>
-        sum +
-        (u.data as unknown as { covered: { buildings: number }[] }).covered.reduce(
-          (s, c) => s + c.buildings,
-          0,
-        ),
-      0,
+    // Balanced partition covers all 5 buildings, each exactly once.
+    const allBuildings = envUnits.flatMap(
+      (u) => (u.data as unknown as { coveredBuildings: CB[] }).coveredBuildings,
     );
-    expect(totalCovered).toBe(5);
+    expect(allBuildings).toHaveLength(5);
+    expect(new Set(allBuildings.map((b) => b.index)).size).toBe(5); // no dup
+    // Balanced: 5 across 2 units → 3 + 2, no empty unit.
+    const sizes = envUnits
+      .map((u) => (u.data as unknown as { coveredBuildings: CB[] }).coveredBuildings.length)
+      .sort();
+    expect(sizes).toEqual([2, 3]);
     // Per-unit ids are distinct building instances.
     expect(new Set(envUnits.map((n) => n.id)).size).toBe(2);
 
