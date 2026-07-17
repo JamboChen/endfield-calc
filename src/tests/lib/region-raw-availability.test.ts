@@ -62,7 +62,7 @@ describe("rawAvailabilityByDomain — data shape", () => {
     );
   });
 
-  test("Wuling (domain_2) contains 4 solid raws + 2 liquid raws", () => {
+  test("Wuling (domain_2) contains 4 solid raws + 2 liquid raws + 2 gas raws", () => {
     const wulingSet = rawAvailabilityByDomain.get(DOMAIN_2);
     expect(wulingSet).toBeDefined();
     expect(wulingSet).toEqual(
@@ -73,6 +73,9 @@ describe("rawAvailabilityByDomain — data shape", () => {
         ItemId.ITEM_MUCK_FECES_1,
         ItemId.ITEM_LIQUID_WATER,
         ItemId.ITEM_LIQUID_ACID,
+        // 1.4 gas vents — mineable by gas_pump_1 (Wuling-only).
+        ItemId.ITEM_GAS_INERT,
+        ItemId.ITEM_GAS_XIRANITE,
       ]),
     );
   });
@@ -145,6 +148,38 @@ describe("rawAvailabilityByDomain — drift detection", () => {
         ).toBe(facilityAllowsDomain);
       }
     }
+  });
+
+  test("gas availability matches gas-extractor Facility.domains (1.4)", () => {
+    // Same rule as liquids, keyed on `isGas`: a gas raw is available
+    // exactly where its extractor (`gas_pump_1`) can be placed. Gas
+    // raws that are NOT in `rawMaterialSources` (e.g. Acridgen — no
+    // extractor supports it) are exempt: they're craft-only.
+    let checked = 0;
+    for (const item of items) {
+      if (item.isGas !== true) continue;
+      const cfg = rawMaterialSources.get(item.id);
+      if (!cfg) continue;
+      const facility = facilities.find((f) => f.id === cfg.sourceFacility);
+      if (!facility) continue;
+      checked++;
+
+      const facilityIsUnrestricted = facility.domains.length === 0;
+
+      for (const [domainId, rawSet] of rawAvailabilityByDomain) {
+        const isInRawSet = rawSet.has(item.id);
+        const facilityAllowsDomain =
+          facilityIsUnrestricted || facility.domains.includes(domainId);
+        expect(
+          isInRawSet,
+          `gas raw ${item.id}: expected isInRawSet=${facilityAllowsDomain} ` +
+            `for domain ${domainId} (facility ${facility.id}.domains=` +
+            `[${facility.domains.join(",")}])`,
+        ).toBe(facilityAllowsDomain);
+      }
+    }
+    // Tripwire: the 1.4 data must yield at least the two vented gases.
+    expect(checked).toBeGreaterThanOrEqual(2);
   });
 });
 

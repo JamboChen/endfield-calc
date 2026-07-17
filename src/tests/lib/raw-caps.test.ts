@@ -54,6 +54,12 @@ describe("defaultRawCapsByDomain — data shape", () => {
         [ItemId.ITEM_COPPER_ORE, 360],
         [ItemId.ITEM_IRON_ORE, 120],
         [ItemId.ITEM_ORIGINIUM_ORE, 540],
+        // 1.4 Wuling gas vents: 14 Xiragen + 2 Inergen
+        // spots × 20/min at High Purity (half-scale density 50 = 100%
+        // output — verified in-game). The 3 Acridgen vents have no
+        // supporting extractor and are skipped by the extractor script.
+        [ItemId.ITEM_GAS_XIRANITE, 280],
+        [ItemId.ITEM_GAS_INERT, 40],
       ]),
     );
   });

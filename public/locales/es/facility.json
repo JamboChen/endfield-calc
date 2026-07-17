@@ -3,6 +3,8 @@
   "dismantler_1": "Unidad de separación",
   "filling_powder_mc_1": "Unidad de relleno",
   "furnance_1": "Unidad de refinado",
+  "gas_pump_1": "Extractor de gas",
+  "gas_reactor_1": "Globo del reactor de gas",
   "grinder_1": "Unidad de triturado",
   "liquid_clean_gate_1": "Entrada de aguas residuales",
   "liquid_cleaner_1": "Unidad de tratamiento de agua",
@@ -18,7 +20,10 @@
   "shaper_1": "Unidad de moldeado",
   "thickener_1": "Unidad pulverizadora",
   "tools_assebling_mc_1": "Unidad de empaquetado",
+  "transmuter_1": "Unidad de transmutación fluido-gas",
+  "transmuter_2": "Unidad de transmutación sólido-gas",
   "unloader_1": "Descargador del depósito",
+  "vaporizer_1": "Unidad de dispersión de gas",
   "winder_1": "Unidad de engranajes",
   "xiranite_oven_1": "Forja del cielo"
 }

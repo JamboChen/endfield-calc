@@ -45,9 +45,9 @@ const facilities: Facility[] = [
  * excluded from `aggregateBinTotals.totalTiles`.
  *
  * Aliased to ALL region-subsystem facility ids on purpose: every
- * `regionFacilities` entry is extracted from a `Factory*PlantStoreTable`
- * map structure, so "region facility" ⟹ "map-placed" *by construction
- * of the extractor*. If upstream data ever introduces a region-modelled
+ * `regionFacilities` entry is a map-placed structure in the game data,
+ * so "region facility" ⟹ "map-placed" *by construction of the
+ * extractor*. If the game data ever introduces a region-modelled
  * facility the player builds on the grid, split this into an explicit
  * subset — otherwise its tiles would silently vanish from `totalTiles`.
  */
@@ -73,8 +73,8 @@ const recipes: Recipe[] = [
  *
  * `ratePerMinute` overrides the default throughput inferred from
  * transport capacity (30/min belt, 120/min pipe). It's required for
- * liquid raws because pumps cap at 60/min (one cycle per second per
- * `msPerRound: 1000`), which is half the pipe capacity. Solid raws
+ * liquid raws because pumps cap at 60/min (one cycle per second),
+ * which is half the pipe capacity. Solid raws
  * via `unloader_1` default to belt capacity (30/min).
  */
 type RawSourceConfig = {
@@ -88,10 +88,12 @@ type RawSourceConfig = {
  *   - Solid ore/sand/gatherables → unloader_1 (Depot Unloader, 0 W, 30/min)
  *   - Most liquids → pump_1 (Fluid Pump, 10 W, 60/min)
  *   - Acid → pump_2 (Acid Resistant Pump Mk II, 20 W, 60/min)
+ *   - Gases (1.4) → gas_pump_1 (Gas Extractor, 0 W, 20/min — one unit
+ *     per 3 s). Only Inergen + Xiragen: the Extractor can't tap the
+ *     3 acid-gas vents, so Acridgen is craft-only (transmuter).
  *
- * `item_muck_feces_1` (Burdo-Muck) is a pure gather item (its only
- * upstream obtain way is `item_obtain_gather_muck_feces_1` — collected
- * from Burdos in the world, never machine-crafted), consumed by the
+ * `item_muck_feces_1` (Burdo-Muck) is a pure gather item (only ever
+ * collected from Burdos in the world, never machine-crafted), consumed by the
  * Wuling-only Xiranite Oven to make Bumper-Rich. Like ores, the player
  * gathers it and feeds it in via the Depot Unloader.
  *
@@ -111,6 +113,8 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
   ["item_muck_feces_1", { sourceFacility: FacilityId.UNLOADER_1 }],
   ["item_liquid_water", { sourceFacility: FacilityId.PUMP_1, ratePerMinute: 60 }],
   ["item_liquid_acid", { sourceFacility: FacilityId.PUMP_2, ratePerMinute: 60 }],
+  ["item_gas_inert", { sourceFacility: FacilityId.GAS_PUMP_1, ratePerMinute: 20 }],
+  ["item_gas_xiranite", { sourceFacility: FacilityId.GAS_PUMP_1, ratePerMinute: 20 }],
 ]);
 
 /**
@@ -138,6 +142,14 @@ const rawMaterialSources = new Map<ItemId, RawSourceConfig>([
  *     `region-raw-availability.test.ts` enforces this invariant — if a
  *     pump's `Facility.domains` ever changes, that test fails until
  *     this map is updated.
+ *
+ *   - **Gas raws (1.4)** are tied to gas-vent nodes (Wuling, domain_2)
+ *     mined by `gas_pump_1`, whose
+ *     `Facility.domains` is likewise `["domain_2"]`. Unlike liquids
+ *     they are node-capped — `defaultRawCapsByDomain` carries the
+ *     per-region vent totals (280/min Xiragen, 40/min Inergen at max
+ *     dev) — and therefore NOT costless in the LP. The same
+ *     drift-detection test covers `gas_pump_1.domains`.
  *
  * Invariants asserted by `region-raw-availability.test.ts`:
  *   1. Soundness — every per-region raw has a `rawMaterialSources` entry.
@@ -172,6 +184,8 @@ const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
         "item_muck_feces_1",
         "item_liquid_water",
         "item_liquid_acid",
+        "item_gas_inert",
+        "item_gas_xiranite",
       ]),
     ],
   ]);
@@ -204,7 +218,10 @@ const rawAvailabilityByDomain: ReadonlyMap<DomainId, ReadonlySet<ItemId>> =
  * their input cost zero introduces no new asymmetry.
  *
  * Auto-extends if game data adds a new liquid raw — the derivation
- * uses `rawMaterialSources` as the anchor.
+ * uses `rawMaterialSources` as the anchor. Gas raws (1.4) are
+ * deliberately EXCLUDED (`isLiquid` only): gas vents are node-capped
+ * like ore spots, so gas consumption must carry normal LP raw cost and
+ * respect `defaultRawCapsByDomain`.
  */
 const costlessRaws: ReadonlySet<ItemId> = new Set(
   items

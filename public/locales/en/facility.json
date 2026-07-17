@@ -3,6 +3,8 @@
   "dismantler_1": "Separating Unit",
   "filling_powder_mc_1": "Filling Unit",
   "furnance_1": "Refining Unit",
+  "gas_pump_1": "Gas Extractor",
+  "gas_reactor_1": "Gas Reactor Globe",
   "grinder_1": "Shredding Unit",
   "liquid_clean_gate_1": "Sewage Inlet",
   "liquid_cleaner_1": "Water Treatment Unit",
@@ -18,7 +20,10 @@
   "shaper_1": "Moulding Unit",
   "thickener_1": "Grinding Unit",
   "tools_assebling_mc_1": "Packaging Unit",
+  "transmuter_1": "Fluid-Gas Transmuting Unit",
+  "transmuter_2": "Solid-Gas Transmuting Unit",
   "unloader_1": "Depot Unloader",
+  "vaporizer_1": "Gas Dispersing Unit",
   "winder_1": "Gearing Unit",
   "xiranite_oven_1": "Forge of the Sky"
 }

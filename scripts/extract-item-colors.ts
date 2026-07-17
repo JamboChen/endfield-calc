@@ -3,7 +3,7 @@
  * from its icon and emits `src/data/item-colors.ts`.
  *
  * STANDALONE by design: unlike the `extract:all` family (which reads the
- * `ENDFIELD_DATA_DIR` game-data dump), this script reads the icons that
+ * game data), this script reads the icons that
  * are MANUALLY curated into `public/images/items/<item_id>.png`. The
  * icon pipeline can't be automated, so this script is not part of the
  * `extract-all` orchestrator — re-run it whenever icons are added or
@@ -40,7 +40,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { PNG } from "pngjs";
 
-import { toCRLF, writeStable } from "./lib/io";
+import { toLF, writeStable } from "./lib/io";
 import { parseEnumBlock } from "./lib/enum-parse";
 import { REPO_ROOT } from "./lib/paths";
 
@@ -320,7 +320,7 @@ function run(): void {
   lines.push("};");
   lines.push("");
 
-  writeStable(OUT_PATH, toCRLF(lines.join("\n")));
+  writeStable(OUT_PATH, toLF(lines.join("\n")));
 
   // Summary
   const grays = [...colors.values()].filter((c) => c.isGray).length;

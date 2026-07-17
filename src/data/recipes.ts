@@ -31,6 +31,13 @@ export const recipes: Recipe[] = [
     craftingTime: 10,
   },
   {
+    id: RecipeId.COMPONENT_COPPER_ENR2_CMPT_1,
+    inputs: [{ itemId: ItemId.ITEM_COPPER_ENR2, amount: 5 }],
+    outputs: [{ itemId: ItemId.ITEM_COPPER_ENR2_CMPT, amount: 1 }],
+    facilityId: FacilityId.COMPONENT_MC_1,
+    craftingTime: 10,
+  },
+  {
     id: RecipeId.COMPONENT_GLASS_CMPT_1,
     inputs: [{ itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_GLASS_CMPT, amount: 1 }],
@@ -280,6 +287,86 @@ export const recipes: Recipe[] = [
     outputs: [
       { itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 },
       { itemId: ItemId.ITEM_LIQUID_XIRANITE_POLY, amount: 1 },
+    ],
+    facilityId: FacilityId.DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERJAR_GAS_ACID_1,
+    inputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_ACID, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_ACID, amount: 1 },
+    ],
+    facilityId: FacilityId.DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERJAR_GAS_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_COPPER, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_COPPER, amount: 1 },
+    ],
+    facilityId: FacilityId.DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERJAR_GAS_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_COPPER_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_COPPER_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERJAR_GAS_COPPER_ENR2_1,
+    inputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_COPPER_ENR2, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_COPPER_ENR2, amount: 1 },
+    ],
+    facilityId: FacilityId.DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERJAR_GAS_INERT_1,
+    inputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_INERT, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_INERT, amount: 1 },
+    ],
+    facilityId: FacilityId.DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERJAR_GAS_WATER_1,
+    inputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_WATER, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_WATER, amount: 1 },
+    ],
+    facilityId: FacilityId.DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERJAR_GAS_XIRANITE_1,
+    inputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_XIRANITE, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_XIRANITE, amount: 1 },
+    ],
+    facilityId: FacilityId.DISMANTLER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.DISMANTLER_COPPERJAR_GAS_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_XIRANITE_ENR, amount: 1 }],
+    outputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_XIRANITE_ENR, amount: 1 },
     ],
     facilityId: FacilityId.DISMANTLER_1,
     craftingTime: 2,
@@ -1485,6 +1572,88 @@ export const recipes: Recipe[] = [
     craftingTime: 10,
   },
   {
+    id: RecipeId.FILLING_COPPERJAR_COPPER_ENR2_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_COPPER_ENR2, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_COPPER_ENR2, amount: 1 }],
+    facilityId: FacilityId.FILLING_POWDER_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_COPPERJAR_GAS_ACID_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_ACID, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_ACID, amount: 1 }],
+    facilityId: FacilityId.FILLING_POWDER_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_COPPERJAR_GAS_COPPER_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_COPPER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_COPPER, amount: 1 }],
+    facilityId: FacilityId.FILLING_POWDER_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_COPPERJAR_GAS_COPPER_ENR_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_COPPER_ENR, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_COPPER_ENR, amount: 1 }],
+    facilityId: FacilityId.FILLING_POWDER_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_COPPERJAR_GAS_INERT_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_INERT, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_INERT, amount: 1 }],
+    facilityId: FacilityId.FILLING_POWDER_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_COPPERJAR_GAS_WATER_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_WATER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_WATER, amount: 1 }],
+    facilityId: FacilityId.FILLING_POWDER_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_COPPERJAR_GAS_XIRANITE_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_XIRANITE, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GASJAR_COPPER_GAS_XIRANITE, amount: 1 }],
+    facilityId: FacilityId.FILLING_POWDER_MC_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.FILLING_COPPERJAR_GAS_XIRANITE_ENR_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_XIRANITE_ENR, amount: 1 },
+    ],
+    outputs: [
+      { itemId: ItemId.ITEM_GASJAR_COPPER_GAS_XIRANITE_ENR, amount: 1 },
+    ],
+    facilityId: FacilityId.FILLING_POWDER_MC_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
     inputs: [{ itemId: ItemId.ITEM_LIQUID_SEWAGE, amount: 1 }],
     outputs: [],
@@ -1694,6 +1863,17 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.GAS_REACTOR_GAS_COPPER_ENR2_1,
+    inputs: [
+      { itemId: ItemId.ITEM_GAS_COPPER_ENR, amount: 2 },
+      { itemId: ItemId.ITEM_GAS_XIRANITE, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GAS_COPPER_ENR2, amount: 1 }],
+    facilityId: FacilityId.GAS_REACTOR_1,
+    craftingTime: 2,
+    gasEnv: 3,
+  },
+  {
     id: RecipeId.GRINDER_CARBON_POWDER_1,
     inputs: [{ itemId: ItemId.ITEM_CARBON_MTL, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_CARBON_POWDER, amount: 2 }],
@@ -1788,6 +1968,48 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.LIQUID_PURIFIER_GAS_COPPER_ENR_1,
+    inputs: [
+      { itemId: ItemId.ITEM_GAS_COPPER, amount: 2 },
+      { itemId: ItemId.ITEM_FILTER_CORE, amount: 2 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GAS_COPPER_ENR, amount: 2 }],
+    facilityId: FacilityId.LIQUID_PURIFIER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_PURIFIER_GAS_COPPER_ENR_2,
+    inputs: [
+      { itemId: ItemId.ITEM_GAS_COPPER, amount: 2 },
+      { itemId: ItemId.ITEM_FILTER_CORE, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GAS_COPPER_ENR, amount: 2 }],
+    facilityId: FacilityId.LIQUID_PURIFIER_1,
+    craftingTime: 2,
+    gasEnv: 1,
+  },
+  {
+    id: RecipeId.LIQUID_PURIFIER_GAS_XIRANITE_ENR_1,
+    inputs: [
+      { itemId: ItemId.ITEM_GAS_XIRANITE, amount: 2 },
+      { itemId: ItemId.ITEM_FILTER_CORE, amount: 2 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE_ENR, amount: 1 }],
+    facilityId: FacilityId.LIQUID_PURIFIER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_PURIFIER_GAS_XIRANITE_ENR_2,
+    inputs: [
+      { itemId: ItemId.ITEM_GAS_XIRANITE, amount: 2 },
+      { itemId: ItemId.ITEM_FILTER_CORE, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE_ENR, amount: 1 }],
+    facilityId: FacilityId.LIQUID_PURIFIER_1,
+    craftingTime: 2,
+    gasEnv: 1,
+  },
+  {
     id: RecipeId.LIQUID_PURIFIER_XIRANITE_POLY_1,
     inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_LOWPOLY, amount: 4 }],
     outputs: [
@@ -1795,6 +2017,160 @@ export const recipes: Recipe[] = [
       { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
     ],
     facilityId: FacilityId.LIQUID_PURIFIER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_ACID_1,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_ACID, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_COPPER, amount: 2 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_COPPER, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_COPPER_ENR, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_WATER_1,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_WATER, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_XIRANITE_1,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 2 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE_ENR, amount: 5 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_LIQUID_LIQUID_ACID_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_ACID, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_ACID, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_LIQUID_LIQUID_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_COPPER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_COPPER, amount: 2 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_LIQUID_LIQUID_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_COPPER_ENR, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_COPPER_ENR, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_LIQUID_LIQUID_WATER_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_WATER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_LIQUID_LIQUID_XIRANITE_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_1_LIQUID_LIQUID_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE_ENR, amount: 5 }],
+    outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 2 }],
+    facilityId: FacilityId.TRANSMUTER_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_GAS_GAS_COPPER_1,
+    inputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 2 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_COPPER, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_GAS_GAS_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_COPPER_ENR, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_COPPER_ENR, amount: 2 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_GAS_GAS_COPPER_ENR2_1,
+    inputs: [{ itemId: ItemId.ITEM_COPPER_ENR2, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_COPPER_ENR2, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_GAS_GAS_XIRANITE_1,
+    inputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_GAS_GAS_XIRANITE_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 2 }],
+    outputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE_ENR, amount: 5 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_SOLID_COPPER_ENR_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_COPPER_ENR, amount: 2 }],
+    outputs: [{ itemId: ItemId.ITEM_COPPER_ENR, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_SOLID_COPPER_ENR2_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_COPPER_ENR2, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_COPPER_ENR2, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_SOLID_COPPER_NUGGET_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_COPPER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_COPPER_NUGGET, amount: 2 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_SOLID_XIRANITE_ENR_POWDER_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE_ENR, amount: 5 }],
+    outputs: [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 2 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_SOLID_XIRANITE_POWDER_1,
+    inputs: [{ itemId: ItemId.ITEM_GAS_XIRANITE, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_2,
     craftingTime: 2,
   },
   {
@@ -2122,6 +2498,16 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.SHAPER_GAS_COPPER_JAR_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_NUGGET, amount: 2 },
+      { itemId: ItemId.ITEM_GAS_INERT, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_COPPER_JAR, amount: 1 }],
+    facilityId: FacilityId.SHAPER_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.SHAPER_GLASS_BOTTLE_1,
     inputs: [{ itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 2 }],
     outputs: [{ itemId: ItemId.ITEM_GLASS_BOTTLE, amount: 1 }],
@@ -2310,6 +2696,16 @@ export const recipes: Recipe[] = [
     craftingTime: 10,
   },
   {
+    id: RecipeId.TOOLS_PROC_FILTER_CORE_2,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_JAR, amount: 1 },
+      { itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_FILTER_CORE, amount: 2 }],
+    facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.TOOLS_PROC_FOOD_4_1,
     inputs: [
       { itemId: ItemId.ITEM_IRON_CMPT, amount: 10 },
@@ -2410,6 +2806,16 @@ export const recipes: Recipe[] = [
     craftingTime: 10,
   },
   {
+    id: RecipeId.WINDER_EQUIP_SCRIPT_4_3,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_ENR2_CMPT, amount: 1 },
+      { itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 2 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_EQUIP_SCRIPT_4_3, amount: 1 }],
+    facilityId: FacilityId.WINDER_1,
+    craftingTime: 10,
+  },
+  {
     id: RecipeId.XIRANITE_OVEN_MUCK_XIRANITE_1,
     inputs: [
       { itemId: ItemId.ITEM_MUCK_FECES_1, amount: 1 },
@@ -2438,5 +2844,16 @@ export const recipes: Recipe[] = [
     outputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 }],
     facilityId: FacilityId.XIRANITE_OVEN_1,
     craftingTime: 2,
+  },
+  {
+    id: RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_2,
+    inputs: [
+      { itemId: ItemId.ITEM_CARBON_MTL, amount: 1 },
+      { itemId: ItemId.ITEM_LIQUID_WATER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 }],
+    facilityId: FacilityId.XIRANITE_OVEN_1,
+    craftingTime: 2,
+    gasEnv: 1,
   },
 ];

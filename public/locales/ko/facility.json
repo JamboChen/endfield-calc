@@ -3,6 +3,8 @@
   "dismantler_1": "분해기",
   "filling_powder_mc_1": "충진기",
   "furnance_1": "정련로",
+  "gas_pump_1": "기체 수집기",
+  "gas_reactor_1": "기체 반응로",
   "grinder_1": "분쇄기",
   "liquid_clean_gate_1": "오염수 유입구",
   "liquid_cleaner_1": "오염수 처리기",
@@ -18,7 +20,10 @@
   "shaper_1": "성형기",
   "thickener_1": "연마기",
   "tools_assebling_mc_1": "포장기",
+  "transmuter_1": "액체 · 기체 전환기",
+  "transmuter_2": "고체 · 기체 전환기",
   "unloader_1": "창고 출력 포트",
+  "vaporizer_1": "기체 분산기",
   "winder_1": "장비 부품 합성기",
   "xiranite_oven_1": "천화로"
 }
