@@ -392,6 +392,10 @@ function AppContent() {
     setCeilMode,
     binFusion,
     setBinFusion,
+    powerSustain,
+    setPowerSustain,
+    powerTargets,
+    powerSustainUnavailable,
     handleSavePlan,
     handleOpenPlan,
     isLoading,
@@ -470,6 +474,10 @@ function AppContent() {
                 onCeilModeChange={setCeilMode}
                 autoFit={autoFit}
                 onAutoFitChange={setAutoFit}
+                powerSustain={powerSustain}
+                onPowerSustainChange={setPowerSustain}
+                powerTargets={powerTargets}
+                powerSustainUnavailable={powerSustainUnavailable}
                 onOpenSettings={handleOpenSettings}
                 onTargetChange={handleTargetChange}
                 onTargetRemove={handleTargetRemove}
@@ -505,6 +513,10 @@ function AppContent() {
             onCeilModeChange={setCeilMode}
             autoFit={autoFit}
             onAutoFitChange={setAutoFit}
+            powerSustain={powerSustain}
+            onPowerSustainChange={setPowerSustain}
+            powerTargets={powerTargets}
+            powerSustainUnavailable={powerSustainUnavailable}
             onOpenSettings={handleOpenSettings}
             onTargetChange={handleTargetChange}
             onTargetRemove={handleTargetRemove}

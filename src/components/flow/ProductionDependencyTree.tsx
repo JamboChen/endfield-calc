@@ -14,7 +14,6 @@ import {
   type Edge,
   Panel,
   useReactFlow,
-  getNodesBounds,
   getViewportForBounds,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -31,6 +30,7 @@ import type {
 import CustomProductionNode from "../nodes/CustomProductionNode";
 import CustomTargetNode from "../nodes/CustomTargetNode";
 import CustomDisposalNode from "../nodes/CustomDisposalNode";
+import CustomPowerNode from "../nodes/CustomPowerNode";
 import { useTranslation } from "react-i18next";
 import { getLayoutedElements } from "@/lib/layout";
 import {
@@ -76,7 +76,11 @@ const LABEL_FADE_ZOOM = 0.5;
 
 function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation("production");
-  const { getNodes } = useReactFlow();
+  // Instance-bound `getNodesBounds` (store nodeLookup included), NOT
+  // the standalone xyflow util — the standalone dev-warns without a
+  // nodeLookup. Store-backed is exactly right here: the nodes being
+  // measured come from `getNodes()` (the same store).
+  const { getNodes, getNodesBounds } = useReactFlow();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [format, setFormat] = useState<ExportFormat>("svg");
   const [scale, setScale] = useState(2);
@@ -367,7 +371,30 @@ export default function ProductionDependencyTree({
       if (modeChanged) {
         const pane = containerRef.current?.getBoundingClientRect();
         if (pane && rfInstance.current && layoutedNodes.length > 0) {
-          const bounds = getNodesBounds(layoutedNodes);
+          // Local bounds fold instead of xyflow's `getNodesBounds`:
+          // the standalone util dev-warns without a store nodeLookup,
+          // and the store-backed instance method would re-introduce
+          // the store race this block deliberately avoids (it
+          // resolves nodes BY ID from the store, which hasn't
+          // received the new nodes yet). ELK layout gives every node
+          // explicit position + width/height and none has a parentId,
+          // so a plain min/max fold is exact.
+          let minX = Infinity;
+          let minY = Infinity;
+          let maxX = -Infinity;
+          let maxY = -Infinity;
+          for (const n of layoutedNodes) {
+            minX = Math.min(minX, n.position.x);
+            minY = Math.min(minY, n.position.y);
+            maxX = Math.max(maxX, n.position.x + (n.width ?? 0));
+            maxY = Math.max(maxY, n.position.y + (n.height ?? 0));
+          }
+          const bounds = {
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+          };
           const viewport = getViewportForBounds(
             bounds,
             pane.width,
@@ -393,6 +420,7 @@ export default function ProductionDependencyTree({
       productionNode: CustomProductionNode,
       targetSink: CustomTargetNode,
       disposalSink: CustomDisposalNode,
+      powerSink: CustomPowerNode,
     }),
     [],
   );

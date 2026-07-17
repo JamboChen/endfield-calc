@@ -87,6 +87,7 @@ const BottomDock = memo(function BottomDock({
     <div className="shrink-0 rounded-lg border border-border bg-card shadow-sm overflow-hidden">
       <StatsTicker
         totalPowerConsumption={stats.totalPowerConsumption}
+        totalPowerGeneration={stats.totalPowerGeneration}
         totalBuildings={stats.totalBuildings}
         totalTiles={stats.totalTiles}
         depotPickupPoints={stats.depotPickupPoints}

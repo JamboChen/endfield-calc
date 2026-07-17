@@ -185,6 +185,11 @@ const ItemId = {
 type ItemId = (typeof ItemId)[keyof typeof ItemId];
 
 const RecipeId = {
+  BURN_ITEM_PROC_BATTERY_1: "burn_item_proc_battery_1",
+  BURN_ITEM_PROC_BATTERY_2: "burn_item_proc_battery_2",
+  BURN_ITEM_PROC_BATTERY_3: "burn_item_proc_battery_3",
+  BURN_ITEM_PROC_BATTERY_4: "burn_item_proc_battery_4",
+  BURN_ITEM_PROC_BATTERY_5: "burn_item_proc_battery_5",
   COMPONENT_ACTIVITY_XIRANITE_CMPT_1: "component_activity_xiranite_cmpt_1",
   COMPONENT_ACTIVITY_XIRANITE_ENR_CMPT_1:
     "component_activity_xiranite_enr_cmpt_1",
@@ -502,6 +507,7 @@ const FacilityId = {
   MIX_POOL_1: "mix_pool_1",
   MIX_POOL_2: "mix_pool_2",
   PLANTER_1: "planter_1",
+  POWER_STATION_1: "power_station_1",
   PUMP_1: "pump_1",
   PUMP_2: "pump_2",
   SEEDCOLLECTOR_1: "seedcollector_1",

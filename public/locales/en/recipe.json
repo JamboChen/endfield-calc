@@ -1,4 +1,9 @@
 {
+  "burn_item_proc_battery_1": "Power Generation (LC Valley Battery)",
+  "burn_item_proc_battery_2": "Power Generation (SC Valley Battery)",
+  "burn_item_proc_battery_3": "Power Generation (HC Valley Battery)",
+  "burn_item_proc_battery_4": "Power Generation (LC Wuling Battery)",
+  "burn_item_proc_battery_5": "Power Generation (SC Wuling Battery)",
   "component_activity_xiranite_cmpt_1": "Experimental Xiranite Part Production",
   "component_activity_xiranite_enr_cmpt_1": "Experimental Heavy Xiranite Part Production",
   "component_copper_cmpt_1": "Cuprium Part Production",

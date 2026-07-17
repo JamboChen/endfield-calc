@@ -29,7 +29,7 @@ paths:
 - **`MIN_VISIBLE_RATE_PER_MIN` contract** (`flow-thresholds.ts:39`, value `0.001`): emission filter drops variants whose max recipe rate falls below this. Cumulative plan-wide drift ≤ ~0.005/min in practice, accepted as deliberate. Production code must use the imported constant — bare `0.001` literals are forbidden.
 - **`makeBinId` is the only legal site for `as BinId` casts** (line 733-737, format `bin-<facilityId>-<recipeId...>-<index>`). Mapper synthetic IDs (`disposal-<recipeId>`, `<binId>-bldg<idx>`, target-sink IDs) are NOT BinIds — they stay plain `string`.
 - **Pinned recipes use per-pin restricted + class-wide total constraints** (lines 929-955). `cls_${idx}_pin_${pinId}: equal: pinDemand` for each pin; `cls_${idx}_total: equal: cls.slotDemand` for the class.
-- **`facilityCaps` retry path** (lines 1645-1712): cap-induced infeasibility triggers a retry without caps; the post-packing cap check still fires on the retry's bins. `facility-over-cap` warnings are NOT emitted here — they live at the hook layer via `computeOverCapWarnings` against `aggregateBinTotals.physicalPerFacility` (always-ceiled physical placements; catches single-formula fragmentation the MIP never sees).
+- **`facilityCaps` retry path** (lines 1645-1712): cap-induced infeasibility triggers a retry without caps; the post-packing cap check still fires on the retry's bins. `facility-over-cap` warnings are NOT emitted here — the calculator emits them at plan assembly (`computeLimitViolations`, plan-helpers.ts) against `aggregateBinTotals.physicalPerFacility` (always-ceiled physical placements; catches single-formula fragmentation the MIP never sees).
 
 ## DO NOT
 
@@ -39,4 +39,4 @@ paths:
 - DO NOT construct a fresh `BinId` outside `makeBinId`. Receive it through the type system.
 - DO NOT re-order `bin.recipeIds`. Sorted ascending is a contract, pinned by tests.
 - DO NOT re-sum pickup-point power at callers of `aggregateBinTotals`. The source-facility (`pump_1`, `pump_2`, `unloader_1`) power is already folded into `perFacility` and `totalPower`.
-- DO NOT assert port caps on singleton-fallback bins. `emitSingletonBins`-produced bins from the infeasibility path can legitimately exceed caps; cap warnings come from the hook layer.
+- DO NOT assert port caps on singleton-fallback bins. `emitSingletonBins`-produced bins from the infeasibility path can legitimately exceed caps; cap warnings are emitted by the calculator at plan assembly (`computeLimitViolations`).

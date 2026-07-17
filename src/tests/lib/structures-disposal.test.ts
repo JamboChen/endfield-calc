@@ -11,7 +11,7 @@ import { calculateProductionPlan } from "@/lib/calculator";
 import { items, recipes, facilities, rawMaterialSources } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { computeVariantExclusions } from "@/lib/variant-filter";
-import { aggregateBinTotals, computeOverCapWarnings } from "@/lib/plan-helpers";
+
 import { FacilityId, ItemId, RecipeId } from "@/types/constants";
 import type { ProductionGraphNode } from "@/types";
 
@@ -583,8 +583,8 @@ describe("Sewage Inlet — LP constraint fallback for orphan forced-disposal ite
     // units differ (buildings vs item-rate). Pre-fix (hard cap), the
     // LP was forced into (b) and the surplus was silently absorbed by
     // disposal-slack with no user-facing warning. Post-fix, the
-    // disposal balance is exact and the over-cap signal surfaces
-    // post-pack via `aggregateBinTotals` + `computeOverCapWarnings`
+    // disposal balance is exact and the over-cap signal lands in
+    // `plan.warnings` at plan assembly (`computeLimitViolations`)
     // — strictly better UX.
     const recipesWithoutCleanerSewage = recipes.filter(
       (r) =>
@@ -628,8 +628,9 @@ describe("Facility cap binding without alternative producer", () => {
   // `lp-solver.ts:LPInput.facilityCaps` JSDoc): when target demand
   // exceeds `cap × throughput` AND no alternative producer is
   // available, slack engages and the LP returns a feasible (over-cap)
-  // plan. The packer's retry-without-caps + `computeOverCapWarnings`
-  // pipeline surface the over-cap warning at the hook layer.
+  // plan. The packer's retry-without-caps runs, and the calculator
+  // emits the over-cap warning into `plan.warnings` at plan assembly
+  // (`computeLimitViolations`).
   //
   // Pre-fix (commit `849a147` through the pre-soft-cap state), the LP
   // returned `infeasible` in this class of scenarios and the user saw
@@ -648,9 +649,9 @@ describe("Facility cap binding without alternative producer", () => {
     //   - Total: 3 Forges on xiranite_oven_1.
     // With cap = 2, pre-fix the hard LP cap returned infeasible.
     // Post-fix, soft slack engages and the plan is feasible; the
-    // post-pack `computeOverCapWarnings` then surfaces the over-cap
-    // signal to the user — that's the entire UX point of the
-    // soft-cap design. This test locks both ends of the contract
+    // calculator then emits the over-cap signal into `plan.warnings`
+    // at plan assembly — that's the entire UX point of the soft-cap
+    // design. This test locks both ends of the contract
     // (LP feasibility + warning surface).
     const facilityCaps = new Map([[FacilityId.XIRANITE_OVEN_1, 2]]);
     const plan = await calculateProductionPlan(
@@ -684,18 +685,14 @@ describe("Facility cap binding without alternative producer", () => {
       (enrPowder?.facilityCount ?? 0) + (powder?.facilityCount ?? 0);
     expect(totalForges).toBeGreaterThan(2);
 
-    // End-to-end contract: the post-pack `computeOverCapWarnings`
-    // pipeline (which the hook layer calls in production) emits a
-    // `facility-over-cap` warning for xiranite_oven_1. Running it
-    // directly here exercises the same code path the user-facing
-    // warning surface depends on — `physicalPerFacility`, the
-    // always-ceiled placement counts the hook feeds it.
-    const aggregates = aggregateBinTotals(plan, [...facilities], [...items]);
-    const warnings = computeOverCapWarnings(
-      aggregates.physicalPerFacility,
-      facilityCaps,
-    );
-    const ovenWarning = warnings.find(
+    // End-to-end contract: the calculator emits the
+    // `facility-over-cap` warning for xiranite_oven_1 INTO the plan
+    // itself (`computeLimitViolations` at plan assembly, judging
+    // `physicalPerFacility` — always-ceiled placement counts). This is
+    // the exact warning the UI badges and the optimizer's
+    // `isPlanFeasible` read, so asserting on `plan.warnings` exercises
+    // the real production path end-to-end.
+    const ovenWarning = plan.warnings.find(
       (w) =>
         w.kind === "facility-over-cap" &&
         w.facilityId === FacilityId.XIRANITE_OVEN_1,

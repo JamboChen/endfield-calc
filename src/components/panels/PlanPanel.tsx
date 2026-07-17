@@ -1,7 +1,9 @@
 import { memo, type ReactNode } from "react";
 import TargetsSection from "./TargetsSection";
 import type { ProductionTarget } from "./TargetItemsGrid";
+import PowerTargetsSection from "./PowerTargetsSection";
 import OptionsSection from "./OptionsSection";
+import type { PowerTarget } from "@/hooks/useProductionPlan";
 import type { Item, ItemId } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +15,12 @@ type PlanPanelProps = {
   onCeilModeChange: (value: boolean) => void;
   autoFit: boolean;
   onAutoFitChange: (value: boolean) => void;
+  powerSustain: boolean;
+  onPowerSustainChange: (value: boolean) => void;
+  /** Read-only battery-for-power rows (self-sustaining power). */
+  powerTargets: readonly PowerTarget[];
+  /** No battery fuel producible — Power Targets empty-state variant. */
+  powerSustainUnavailable: boolean;
   onOpenSettings: () => void;
   onTargetChange: (index: number, rate: number) => void;
   onTargetRemove: (index: number) => void;
@@ -46,6 +54,10 @@ const PlanPanel = memo(function PlanPanel({
   onCeilModeChange,
   autoFit,
   onAutoFitChange,
+  powerSustain,
+  onPowerSustainChange,
+  powerTargets,
+  powerSustainUnavailable,
   onOpenSettings,
   onTargetChange,
   onTargetRemove,
@@ -85,11 +97,22 @@ const PlanPanel = memo(function PlanPanel({
         onAddClick={onAddClick}
         headerAction={headerAction}
       />
+      {/* Read-only power targets — only while self-sustaining power is
+          active, so the section doubles as toggle feedback. */}
+      {powerSustain && (
+        <PowerTargetsSection
+          powerTargets={powerTargets}
+          ceilMode={ceilMode}
+          unavailable={powerSustainUnavailable}
+        />
+      )}
       <OptionsSection
         ceilMode={ceilMode}
         onCeilModeChange={onCeilModeChange}
         autoFit={autoFit}
         onAutoFitChange={onAutoFitChange}
+        powerSustain={powerSustain}
+        onPowerSustainChange={onPowerSustainChange}
         onOpenSettings={onOpenSettings}
       />
     </div>

@@ -10,12 +10,14 @@ import type {
   FlowProductionNode,
   FlowTargetNode,
   FlowDisposalNode,
+  FlowPowerNode,
 } from "@/types";
 import {
   createEdge,
   createProductionFlowNode,
   createTargetSinkNode,
   createDisposalSinkNode,
+  createPowerSinkNode,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -37,7 +39,7 @@ export function mapPlanToFlowMerged(
   facilities: Facility[],
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
-): { nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode)[]; edges: Edge[] } {
+): { nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode)[]; edges: Edge[] } {
   const flowNodes: Node<FlowNodeData>[] = [];
   const flowEdges: Edge[] = [];
   const targetSinkNodes: FlowTargetNode[] = [];
@@ -535,8 +537,9 @@ export function mapPlanToFlowMerged(
     }
   });
 
-  // Create disposal sink nodes for disposal recipes
-  const disposalSinkNodes: FlowDisposalNode[] = [];
+  // Create disposal / power sink nodes for zero-output recipes (power =
+  // burn recipe carrying `powerGeneration`; same flow, different card).
+  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode)[] = [];
   plan.nodes.forEach((node, nodeId) => {
     if (node.type !== "recipe" || !node.isDisposal) return;
 
@@ -562,16 +565,28 @@ export function mapPlanToFlowMerged(
     if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) return;
 
     disposalSinkNodes.push(
-      createDisposalSinkNode(
-        disposalSinkId,
-        consumedItemNode.item,
-        disposalRate,
-        node.facility,
-        node.facilityCount,
-        items,
-        facilities,
-        ceilMode,
-      ),
+      node.powerGeneration
+        ? createPowerSinkNode(
+            disposalSinkId,
+            consumedItemNode.item,
+            disposalRate,
+            node.facility,
+            node.facilityCount,
+            node.powerGeneration,
+            items,
+            facilities,
+            ceilMode,
+          )
+        : createDisposalSinkNode(
+            disposalSinkId,
+            consumedItemNode.item,
+            disposalRate,
+            node.facility,
+            node.facilityCount,
+            items,
+            facilities,
+            ceilMode,
+          ),
     );
 
     // Create edges from producers with remaining output after consumer allocation
@@ -627,6 +642,7 @@ export function mapPlanToFlowMerged(
     | FlowProductionNode
     | FlowTargetNode
     | FlowDisposalNode
+    | FlowPowerNode
   )[];
   assertFlowIntegrity("merged-mapper", allNodes, flowEdges);
   return { nodes: allNodes, edges: flowEdges };

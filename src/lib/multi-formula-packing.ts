@@ -161,15 +161,17 @@ export type PackingResult = {
    *   - `packer-fallback` — generic LP-fallback signal when the MIP
    *     can't solve the demand under strict equality.
    *
-   * `facility-over-cap` is NOT emitted here — it's computed downstream
-   * by `useProductionPlan` via `computeOverCapWarnings` against
-   * `aggregateBinTotals.rawPerFacility`, which uniformly covers
-   * recipe bins AND pickup-point source facilities. The MIP cap
+   * `facility-over-cap` is NOT emitted here — the calculator emits it
+   * at plan assembly via `computeLimitViolations` (plan-helpers.ts),
+   * checking `aggregateBinTotals.physicalPerFacility`, which uniformly
+   * covers recipe bins AND pickup-point source facilities. The MIP cap
    * constraint inside `solvePacking` still applies as the first line
-   * of defence, but the diagnostic emission lives at the hook layer.
+   * of defence; the diagnostic emission lives in the calculator.
    *
-   * Consumer (`useProductionPlan.warnings` memo) formats each kind
-   * with `ceilMode` + i18n before display.
+   * Consumer: `useProductionPlan` formats the packer kinds with i18n
+   * for the warning banner (`formatPlanWarning`); cap kinds are
+   * filtered OFF the banner — the over-cap stat-row chrome is their
+   * display surface.
    */
   warnings: PlanWarning[];
 };
@@ -1562,10 +1564,10 @@ const assertBinPortCaps = (
 /**
  * Phase 3 entry point. Returns bins + per-recipe allocations + warnings.
  *
- * Cap-overflow detection NO LONGER lives here — `useProductionPlan`
- * computes facility-cap warnings via `computeOverCapWarnings` against
- * `aggregateBinTotals.rawPerFacility`, which uniformly covers
- * recipe bins AND pickup-point source facilities. The MIP cap
+ * Cap-overflow detection NO LONGER lives here — the calculator emits
+ * facility-cap warnings at plan assembly via `computeLimitViolations`
+ * against `aggregateBinTotals.physicalPerFacility`, which uniformly
+ * covers recipe bins AND pickup-point source facilities. The MIP cap
  * constraint inside `solvePacking` is the first line of defence:
  * it tries to find a packing that respects caps. The downstream
  * helper handles the diagnostic emission.
@@ -1718,9 +1720,9 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
     );
     // No port-cap assertion on the fallback path: it's a best-effort
     // singletonization for genuinely-infeasible scenarios. Cap-overflow
-    // detection happens at the `useProductionPlan` layer via
-    // `computeOverCapWarnings`, which covers these bins + pickup
-    // points uniformly through `aggregateBinTotals.rawPerFacility`.
+    // detection happens in the calculator at plan assembly via
+    // `computeLimitViolations`, which covers these bins + pickup
+    // points uniformly through `aggregateBinTotals.physicalPerFacility`.
     return {
       ...fallback,
       warnings,
@@ -1757,10 +1759,10 @@ export const packBins = async (input: PackingInput): Promise<PackingResult> => {
   assertBinPortCaps(packed.bins, facilityMap);
 
   const combinedBins = [...packed.bins, ...singletons.bins];
-  // Cap-overflow warnings are emitted by `useProductionPlan` via
-  // `computeOverCapWarnings`, sourced from
-  // `aggregateBinTotals.rawPerFacility`. That helper uniformly covers
-  // BOTH the bins emitted here AND pickup-point source facilities
+  // Cap-overflow warnings are emitted by the calculator at plan
+  // assembly (`computeLimitViolations`), sourced from
+  // `aggregateBinTotals.physicalPerFacility`. That helper uniformly
+  // covers BOTH the bins emitted here AND pickup-point source facilities
   // (pump_1, pump_2, unloader_1) which are never in `plan.bins`.
   return {
     bins: combinedBins,

@@ -2,14 +2,16 @@
  * Target optimizer — Max(X) / Fit-to-limits engine.
  *
  * Three layers, all pure (no React, no calc-client import — the solver
- * transport is injected so tests drive `calculateProductionPlan`
- * directly and the hook drives the worker client):
+ * transport is injected: tests pass `calculateProductionPlan` directly,
+ * and in production the CALC WORKER runs these engines as single jobs
+ * with the same direct call — see `calc.worker.ts`):
  *
  *   - `rawsInChainOf` — Max-button gating closure (Phase F).
- *   - `isPlanFeasible` — the shared feasibility predicate: facility
- *     caps on `physicalPerFacility` (the SAME aggregate the UI badges
- *     read), raw caps on the plan's raw-node requirements, and the
- *     `metastorage-budget-insufficient` warning scan.
+ *   - `isPlanFeasible` — the shared feasibility predicate: an `"ok"`
+ *     lpStatus and no over-limit warning. The calculator emits every
+ *     limit violation (facility/raw caps included) into
+ *     `plan.warnings` at assembly, so this is a plain scan — the probe
+ *     judges the exact plan the UI would show, by construction.
  *   - `maximizeTargetRate` / `fitTargetsToLimits` — the bisection
  *     engines. Max is *priority-Max*: pass 1 maximizes X with unlocked
  *     others at 0 (locked frozen), pass 2 hands the leftovers back to
@@ -31,15 +33,8 @@
  *   - **Cancellation**: `isCancelled` is checked before every solve;
  *     the engines return `{ kind: "cancelled" }`.
  */
-import {
-  aggregateBinTotals,
-  computeOverCapWarnings,
-  computeRawOverCapWarnings,
-} from "@/lib/plan-helpers";
+import { OVER_LIMIT_WARNING_KINDS } from "@/lib/plan-helpers";
 import type {
-  Facility,
-  FacilityId,
-  Item,
   ItemId,
   ProductionDependencyGraph,
   Recipe,
@@ -116,21 +111,6 @@ export type OptimizableTarget = {
   locked?: boolean;
 };
 
-/**
- * Everything `isPlanFeasible` needs besides the plan. Mirrors the
- * hook's badge pipeline exactly — `facilityCaps` against
- * `physicalPerFacility`, `rawCaps` against the raw-node requirement
- * fold (which counts `manualRawMaterials` like
- * `useProductionStats.collectStats` does).
- */
-export type FeasibilityContext = {
-  facilities: Facility[];
-  items: Item[];
-  facilityCaps?: ReadonlyMap<FacilityId, number>;
-  rawCaps?: ReadonlyMap<ItemId, number>;
-  manualRawMaterials?: ReadonlySet<ItemId>;
-};
-
 /** Injected dependencies shared by both engines. */
 export type OptimizerOptions = {
   /** Solve a target vector into a plan. The hook passes a
@@ -139,7 +119,6 @@ export type OptimizerOptions = {
    *  entries (mirroring the UI calc effect — see `probeVector`) and
    *  are never empty. */
   solve: (targets: TargetVectorEntry[]) => Promise<ProductionDependencyGraph>;
-  feasibility: FeasibilityContext;
   /** Checked before every solve; true aborts with `kind: "cancelled"`.
    *  The hook wires token + targets-identity staleness in here. */
   isCancelled?: () => boolean;
@@ -148,47 +127,23 @@ export type OptimizerOptions = {
 /**
  * The shared feasibility predicate — see the module doc.
  *
- * Deliberately runs on the UNfiltered plan: `filterPlanForDisplay`
- * only drops zero-rate nodes, which contribute nothing to any of the
- * three checks, and `plan.bins` is identical either way.
+ * A pure warning scan: `calculateProductionPlan` emits every limit
+ * violation (facility caps, raw caps, metastorage budget, power-
+ * sustain shortfall) into `plan.warnings` via `computeLimitViolations`
+ * at assembly, and `OVER_LIMIT_WARNING_KINDS` (plan-helpers.ts) is the
+ * single source of truth for which kinds count. The hook's
+ * `planOverLimit` (Fit pill / auto-fit trigger) reads the same set off
+ * the same warnings, so the engine and the UI cannot disagree.
  */
-export function isPlanFeasible(
-  plan: ProductionDependencyGraph,
-  ctx: FeasibilityContext,
-): boolean {
+export function isPlanFeasible(plan: ProductionDependencyGraph): boolean {
   // A failed solve returns a best-effort EMPTY shell (no bins, no
-  // recipe nodes, zero rates) that would pass every cap check below
-  // vacuously — that false "feasible" once let Max bracket to its
-  // ceiling on a wedged solver and report "unbounded". Non-"ok" plans
-  // are never feasible.
+  // recipe nodes, zero rates) that carries no cap warnings and would
+  // otherwise pass vacuously — that false "feasible" once let Max
+  // bracket to its ceiling on a wedged solver and report "unbounded".
+  // Non-"ok" plans are never feasible.
   if (plan.lpStatus !== "ok") return false;
-
-  const aggregates = aggregateBinTotals(plan, ctx.facilities, ctx.items);
-  if (
-    computeOverCapWarnings(aggregates.physicalPerFacility, ctx.facilityCaps)
-      .length > 0
-  ) {
-    return false;
-  }
-
-  // Raw requirements fold — mirrors `useProductionStats.collectStats`:
-  // raw item nodes (plus manually-pinned raws) summed by productionRate.
-  const rawRequirements = new Map<ItemId, number>();
-  for (const node of plan.nodes.values()) {
-    if (node.type !== "item") continue;
-    if (node.isRawMaterial || ctx.manualRawMaterials?.has(node.itemId)) {
-      rawRequirements.set(
-        node.itemId,
-        (rawRequirements.get(node.itemId) ?? 0) + node.productionRate,
-      );
-    }
-  }
-  if (computeRawOverCapWarnings(rawRequirements, ctx.rawCaps).length > 0) {
-    return false;
-  }
-
   for (const w of plan.warnings ?? []) {
-    if (w.kind === "metastorage-budget-insufficient") return false;
+    if (OVER_LIMIT_WARNING_KINDS.has(w.kind)) return false;
   }
   return true;
 }
@@ -275,7 +230,7 @@ async function probeVector(
       "optimizer probe hit a solver error (lpStatus=solver_error)",
     );
   }
-  return isPlanFeasible(plan, opts.feasibility);
+  return isPlanFeasible(plan);
 }
 
 export type MaximizeResult =
@@ -307,13 +262,11 @@ export async function maximizeTargetRate(params: {
   index: number;
   maxRateCeiling?: number;
   solve: OptimizerOptions["solve"];
-  feasibility: FeasibilityContext;
   isCancelled?: () => boolean;
 }): Promise<MaximizeResult> {
   const { targets, index, maxRateCeiling = MAX_RATE_CEILING } = params;
   const opts: OptimizerOptions = {
     solve: params.solve,
-    feasibility: params.feasibility,
     isCancelled: params.isCancelled,
   };
   const x = targets[index];
@@ -381,7 +334,6 @@ export async function maximizeTargetRate(params: {
       targets: withX,
       excludeIndex: index,
       solve: params.solve,
-      feasibility: params.feasibility,
       isCancelled: params.isCancelled,
     });
     switch (fit.kind) {
@@ -441,13 +393,11 @@ export async function fitTargetsToLimits(params: {
    *  in auto-fit, or X in Max's pass 2. */
   excludeIndex?: number;
   solve: OptimizerOptions["solve"];
-  feasibility: FeasibilityContext;
   isCancelled?: () => boolean;
 }): Promise<FitResult> {
   const { targets, excludeIndex } = params;
   const opts: OptimizerOptions = {
     solve: params.solve,
-    feasibility: params.feasibility,
     isCancelled: params.isCancelled,
   };
 

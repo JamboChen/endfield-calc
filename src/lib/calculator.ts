@@ -7,6 +7,7 @@ import type {
   ItemId,
   RecipeId,
   BinId,
+  PowerFuel,
   PlanMetastorageImport,
   ProductionNode,
   DetectedCycle,
@@ -20,6 +21,10 @@ import type {
 } from "@/types";
 import type { MetastorageRouteConfig } from "@/types/metastorage";
 import { calcRate } from "@/lib/utils";
+import {
+  aggregateBinTotals,
+  computeLimitViolations,
+} from "@/lib/plan-helpers";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
 import { computeVariantExclusions } from "@/lib/variant-filter";
 import { buildBipartiteGraph, detectSCCs } from "./graph-builder";
@@ -572,6 +577,7 @@ function buildProductionGraph(
   recipePrefill: Map<RecipeId, ItemId[]> = new Map(),
   metastorageImports: PlanMetastorageImport[] = [],
   lpStatus: PlanLpStatus = "ok",
+  powerGenerationByRecipe?: ReadonlyMap<RecipeId, number>,
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
@@ -694,6 +700,10 @@ function buildProductionGraph(
       facility,
       facilityCount: flowData.recipeFacilityCounts.get(recipeId) || 0,
       isDisposal,
+      // Thermal Bank burn recipes: watts provided per facility.
+      // Undefined for every other recipe. Power sinks are also
+      // `isDisposal` (zero outputs) — consumers check this first.
+      powerGeneration: powerGenerationByRecipe?.get(recipeId),
       binId,
       binSisterRecipeIds: sisters,
       prefillCandidates: recipePrefill.get(recipeId) ?? [],
@@ -803,6 +813,9 @@ function buildProductionGraph(
  */
 const METASTORAGE_METRIC_TOLERANCE = {
   slackMagnitude: 1e-6,
+  // Watt-scale: 0.5 W (the warning-threshold family) — a sub-watt
+  // residual shortfall must never outbid a real cost difference.
+  powerShortfall: 0.5,
   totalRawCost: 1e-6,
   totalBuildingCount: 1e-3,
   totalPower: 1e-3,
@@ -812,8 +825,20 @@ const METASTORAGE_METRIC_TOLERANCE = {
 /**
  * Lexicographic comparison of two candidate solves. Negative ⇒ `a` is
  * strictly better. Order: feasibility → total slack (soft-constraint
- * violations) → the LP's own lex objectives → TTV used (prefer the
- * cheaper-TTV candidate among otherwise-equal plans).
+ * violations) → power-sustain shortfall → the LP's own lex objectives
+ * → TTV used (prefer the cheaper-TTV candidate among otherwise-equal
+ * plans).
+ *
+ * `powerShortfall` is a SEPARATE key, not part of `slackMagnitude`:
+ * watts and items/min are incommensurable, and folding them once let
+ * a candidate trade a 50 ore/min cap violation for a token 367 W of
+ * generation (user-reported: toggling power flipped the Valley IV
+ * route from originium powder to battery_3 and pushed a maxed ore cap
+ * from 540 to 590). The key order re-states the LP's own penalty
+ * lattice across solves: cap violations (`slackMagnitude`, tier 1e6)
+ * strictly dominate power coverage (tier 1e2), which strictly
+ * dominates real costs — so the selection layer can never disagree
+ * with the solve layer about a candidate.
  */
 function compareSolveMetrics(
   a: FlowSolveMetrics,
@@ -822,6 +847,7 @@ function compareSolveMetrics(
   if (a.feasible !== b.feasible) return a.feasible ? -1 : 1;
   const keys = [
     "slackMagnitude",
+    "powerShortfall",
     "totalRawCost",
     "totalBuildingCount",
     "totalPower",
@@ -972,6 +998,17 @@ function canRoutesCoverItems(
 type FlowSolveResult = Awaited<ReturnType<typeof calculateFlows>>;
 
 /**
+ * Ceil-floor loop bounds (self-sustaining power). Iterations beyond the
+ * first are rare — the top-up's own ceiling bump is small (battery
+ * maker + banks), so most plans converge after one extra solve; the cap
+ * is a hard stop for pathological ceiling cascades. The tolerance
+ * absorbs LP/aggregation float noise well below the smallest real power
+ * draw in the data (5 W).
+ */
+const MAX_POWER_FLOOR_ITERATIONS = 5;
+const POWER_FLOOR_TOLERANCE = 0.25;
+
+/**
  * A candidate the enumeration rejected because its solve needed more
  * TTV than the route's budget. Thanks to the `TTV_SLACK_PENALTY`
  * ordering in the LP this only happens when NO within-budget solution
@@ -1021,6 +1058,7 @@ async function selectMetastorageImports(
   manualRawMaterials?: Set<ItemId>,
   rawCaps?: ReadonlyMap<ItemId, number>,
   facilityCaps?: ReadonlyMap<FacilityId, number>,
+  powerGenerationByRecipe?: ReadonlyMap<RecipeId, number>,
 ): Promise<{
   selected: LPMetastorageImport[];
   result: FlowSolveResult;
@@ -1036,6 +1074,9 @@ async function selectMetastorageImports(
       rawCaps,
       facilityCaps,
       imports,
+      powerGenerationByRecipe
+        ? { generationByRecipe: powerGenerationByRecipe }
+        : undefined,
     );
 
   let selected: LPMetastorageImport[] = [];
@@ -1169,6 +1210,23 @@ async function selectMetastorageImports(
  *   warnings instead (the budget is a hard game constant); items whose
  *   only supply is an import stay balance-constrained instead of
  *   degrading to raws.
+ * - `powerSustain`: self-sustaining-power mode (Thermal Bank battery
+ *   burning). Each fuel's zero-output burn recipe is injected into the
+ *   graph (with the fuel's production chain pulled in via backward
+ *   traversal) and the LP gains a HARD power-balance row: generation
+ *   must cover consumption incl. pump power — solving the circular
+ *   "batteries need buildings that need power" fixed point in one
+ *   solve. A post-pack ceil-floor loop then raises generation to the
+ *   WHOLE-BUILDING consumption (`aggregateBinTotals` ceilMode figure)
+ *   via `LPPowerBalance.minGeneration`, iterating to the discrete
+ *   fixed point — players build whole buildings, so batteries are
+ *   sized for what the build actually draws. Targeted batteries are
+ *   never consumed for power (target constraints are `min: rate` on
+ *   NET production). Fuels that aren't producible / raw / importable
+ *   are skipped; if none survive, the plan carries a
+ *   `power-sustain-unavailable` warning and no balance row is added.
+ *   App callers pass `powerFuels` from `@/data`; tests may pass
+ *   synthetic fuels.
  */
 export interface CalculateProductionPlanOptions {
   rawMaterials: ReadonlySet<ItemId>;
@@ -1177,6 +1235,7 @@ export interface CalculateProductionPlanOptions {
   manualRawMaterials?: Set<ItemId>;
   facilityCaps?: ReadonlyMap<FacilityId, number>;
   metastorageRoutes?: readonly MetastorageRouteConfig[];
+  powerSustain?: { fuels: readonly PowerFuel[] };
 }
 
 export async function calculateProductionPlan(
@@ -1194,6 +1253,7 @@ export async function calculateProductionPlan(
   const manualRawMaterials = options.manualRawMaterials;
   const facilityCaps = options.facilityCaps;
   const metastorageRoutes = options.metastorageRoutes ?? [];
+  const powerFuels = options.powerSustain?.fuels ?? [];
 
   // Drop opt-in variant recipes whose facility has no positive cap.
   // Variant recipes (today: `LIQUID_CLEAN_GATE_1_{DISPOSAL,BYPRODUCT}`)
@@ -1227,6 +1287,15 @@ export async function calculateProductionPlan(
     recipeMap: new Map(filteredRecipes.map((r) => [r.id, r])),
     facilityMap: new Map(facilities.map((f) => [f.id, f])),
   };
+  // Burn recipes ride the options bag (NOT the `recipes` roster — they
+  // bypass the App-layer availability filters) but downstream consumers
+  // (flow-solver itemDemands, packer, buildProductionGraph) resolve
+  // recipes through `maps.recipeMap`, so register them here. Consumer-
+  // only recipes never match `availableProducersFor`, so this cannot
+  // leak them into target-rooted traversal.
+  for (const fuel of powerFuels) {
+    maps.recipeMap.set(fuel.recipe.id, fuel.recipe);
+  }
 
   // No backtracking: the global LP includes every alternative producer as
   // a variable, so any feasible recipe combination is already in the
@@ -1257,7 +1326,23 @@ export async function calculateProductionPlan(
     manualRawMaterials,
     undefined,
     importableItems,
+    powerFuels,
   );
+
+  // Power sustain: generation map for the LP row + the warning for the
+  // "no fuel survived the availability guard" case (the LP then runs
+  // WITHOUT a power-balance row — see `injectPowerBurnRecipes`).
+  const powerGenerationByRecipe: ReadonlyMap<RecipeId, number> | undefined =
+    powerFuels.length > 0
+      ? new Map(powerFuels.map((f) => [f.recipe.id, f.powerGeneration]))
+      : undefined;
+  const powerWarnings: PlanWarning[] = [];
+  if (
+    powerFuels.length > 0 &&
+    !powerFuels.some((f) => graph.recipeNodes.has(f.recipe.id))
+  ) {
+    powerWarnings.push({ kind: "power-sustain-unavailable" });
+  }
 
   const sccs = detectSCCs(graph);
   // SCC detection is kept because `propagatePrefillCandidates` and the
@@ -1280,6 +1365,7 @@ export async function calculateProductionPlan(
           manualRawMaterials,
           rawCaps,
           facilityCaps,
+          powerGenerationByRecipe,
         )
       : {
           selected: [],
@@ -1291,38 +1377,21 @@ export async function calculateProductionPlan(
             manualRawMaterials,
             rawCaps,
             facilityCaps,
+            undefined,
+            powerGenerationByRecipe
+              ? { generationByRecipe: powerGenerationByRecipe }
+              : undefined,
           ),
           diagnostics: [] as MetastorageBudgetDiagnostic[],
         };
-  const { flowData, invalidSCCs } = flowResult;
-
-  // Honest LP outcome for the returned plan. A failed solve produces a
-  // best-effort EMPTY shell (no recipe nodes, no bins) that is
-  // otherwise indistinguishable from "nothing produced" — callers that
-  // judge plans (the target optimizer's feasibility predicate, the
-  // hook's warning surface) need this marker. See `PlanLpStatus`.
-  const lpStatus: PlanLpStatus = flowResult.metrics.feasible
-    ? "ok"
-    : (flowResult.metrics.failureReason ?? "infeasible");
-
-  // Metastorage plan surfacing + warnings. The viability gate in
+  // Metastorage warning surfacing (selection-level — computed once,
+  // reused by every assembly pass below). The viability gate in
   // `selectMetastorageImports` guarantees the winning solve carries no
-  // budget overage, so these flows are always within budget; routes
-  // whose demand CANNOT fit (import-only demand above budget) selected
-  // nothing and surface via `diagnostics` instead.
+  // budget overage; routes whose demand CANNOT fit (import-only demand
+  // above budget) selected nothing and surface via `diagnostics`.
   const routeBySource = new Map(
     metastorageRoutes.map((r) => [r.sourceDomain, r]),
   );
-  const metastorageImports: PlanMetastorageImport[] =
-    flowData.metastorageFlows.map((flow) => ({
-      sourceDomain: flow.sourceDomain,
-      itemId: flow.itemId,
-      ratePerMinute: flow.ratePerMinute,
-      ttvCostPerItem: flow.ttvCostPerItem,
-      ttvUsedPerMinute: flow.ttvUsedPerMinute,
-      ttvBudgetPerMinute: flow.ttvBudgetPerMinute,
-      cycleSeconds: routeBySource.get(flow.sourceDomain)?.cycleSeconds ?? 3600,
-    }));
   const metastorageWarnings: PlanWarning[] = diagnostics.map((d) => {
     const cycleMinutes = d.cycleSeconds / 60;
     return {
@@ -1360,14 +1429,11 @@ export async function calculateProductionPlan(
     );
   }
 
-  if (invalidSCCs.length === 0 && import.meta.env?.DEV) {
-    console.log(`[SUCCESS] Valid production plan found`);
-  } else if (invalidSCCs.length > 0 && import.meta.env?.DEV) {
-    console.warn(
-      `[FAILED] Global LP infeasible. Returning best-effort result with ${invalidSCCs.length} invalid cycle(s).`,
-    );
-  }
-
+  // Assemble one packed, render-ready plan from a flow solve. Called
+  // once for the baseline solve and once per ceil-floor iteration (the
+  // packing + prefill + render stages all depend on the LP's facility
+  // counts, so each re-solve needs a full re-assembly).
+  //
   // Disposal recipes (Liquid Cleaner + Sewage Inlet variants) are
   // injected pre-LP by `buildBipartiteGraph` and sized by the LP itself
   // — no post-LP disposal injection step is needed. The LP's lex
@@ -1382,33 +1448,225 @@ export async function calculateProductionPlan(
   // `graph-builder.ts`'s `injectDisposalRecipesIntoGraph` for the
   // injection rule, and `lp-solver.ts`'s `LPInput.facilityCaps`
   // JSDoc for the slack mechanism.
-  const packing = await packBins({
-    recipeSlotDemands: flowData.recipeFacilityCounts,
-    recipeMap: maps.recipeMap,
-    itemMap: maps.itemMap,
-    facilityMap: maps.facilityMap,
-    recipeOverrides,
-    facilityCaps,
-  });
-  const recipePrefill = propagatePrefillCandidates(
-    packing.bins,
-    sccs,
-    packing.allocations,
-    maps.recipeMap,
-    graph.rawMaterials,
-  );
-  return buildProductionGraph(
-    graph,
-    flowData,
-    sccs,
-    maps,
-    invalidSCCs,
-    recipeOverrides,
-    packing.bins,
-    packing.allocations,
-    [...packing.warnings, ...metastorageWarnings],
-    recipePrefill,
-    metastorageImports,
-    lpStatus,
-  );
+  const assemblePlan = async (
+    fr: FlowSolveResult,
+  ): Promise<ProductionDependencyGraph> => {
+    const { flowData, invalidSCCs } = fr;
+
+    // Honest LP outcome for the returned plan. A failed solve produces
+    // a best-effort EMPTY shell (no recipe nodes, no bins) that is
+    // otherwise indistinguishable from "nothing produced" — callers
+    // that judge plans (the target optimizer's feasibility predicate,
+    // the hook's warning surface) need this marker. See `PlanLpStatus`.
+    const lpStatus: PlanLpStatus = fr.metrics.feasible
+      ? "ok"
+      : (fr.metrics.failureReason ?? "infeasible");
+
+    // Metastorage plan surfacing (flow-dependent — import rates shift
+    // between ceil-floor iterations as battery chains grow).
+    const metastorageImports: PlanMetastorageImport[] =
+      flowData.metastorageFlows.map((flow) => ({
+        sourceDomain: flow.sourceDomain,
+        itemId: flow.itemId,
+        ratePerMinute: flow.ratePerMinute,
+        ttvCostPerItem: flow.ttvCostPerItem,
+        ttvUsedPerMinute: flow.ttvUsedPerMinute,
+        ttvBudgetPerMinute: flow.ttvBudgetPerMinute,
+        cycleSeconds:
+          routeBySource.get(flow.sourceDomain)?.cycleSeconds ?? 3600,
+      }));
+
+    if (invalidSCCs.length === 0 && import.meta.env?.DEV) {
+      console.log(`[SUCCESS] Valid production plan found`);
+    } else if (invalidSCCs.length > 0 && import.meta.env?.DEV) {
+      console.warn(
+        `[FAILED] Global LP infeasible. Returning best-effort result with ${invalidSCCs.length} invalid cycle(s).`,
+      );
+    }
+
+    // Power-sustain shortfall (flow-dependent — shrinks between
+    // ceil-floor iterations if a re-solve finds more headroom): watts
+    // of power demand the LP could not fund from headroom under the
+    // user's raw/facility caps. Battery production is a suggestion —
+    // it never violates caps — so the uncovered remainder surfaces as
+    // an explicit warning instead of silent cap overuse.
+    const shortfallWarnings: PlanWarning[] =
+      fr.metrics.powerShortfall > POWER_FLOOR_TOLERANCE
+        ? [
+            {
+              kind: "power-sustain-insufficient",
+              shortfallWatts: fr.metrics.powerShortfall,
+            },
+          ]
+        : [];
+
+    const packing = await packBins({
+      recipeSlotDemands: flowData.recipeFacilityCounts,
+      recipeMap: maps.recipeMap,
+      itemMap: maps.itemMap,
+      facilityMap: maps.facilityMap,
+      recipeOverrides,
+      facilityCaps,
+    });
+    const recipePrefill = propagatePrefillCandidates(
+      packing.bins,
+      sccs,
+      packing.allocations,
+      maps.recipeMap,
+      graph.rawMaterials,
+    );
+    const builtPlan = buildProductionGraph(
+      graph,
+      flowData,
+      sccs,
+      maps,
+      invalidSCCs,
+      recipeOverrides,
+      packing.bins,
+      packing.allocations,
+      [
+        ...packing.warnings,
+        ...metastorageWarnings,
+        ...powerWarnings,
+        ...shortfallWarnings,
+      ],
+      recipePrefill,
+      metastorageImports,
+      lpStatus,
+      powerGenerationByRecipe,
+    );
+    // Limit-violation verdict (facility caps + raw caps) — emitted by
+    // the calculator so EVERY consumer (optimizer probes, the hook's
+    // Fit pill / badges) reads the same judgment off `plan.warnings`.
+    // Probe/badge parity is structural: there is exactly one judge and
+    // it runs inside the pipeline. See `OVER_LIMIT_WARNING_KINDS`.
+    builtPlan.warnings.push(
+      ...computeLimitViolations(builtPlan, facilities, items, {
+        facilityCaps,
+        rawCaps,
+        manualRawMaterials,
+      }),
+    );
+    return builtPlan;
+  };
+
+  let plan = await assemblePlan(flowResult);
+
+  // ── Ceil-floor loop (self-sustaining power × whole buildings) ──────
+  //
+  // The LP's power-balance row covers FRACTIONAL consumption, but
+  // players build whole buildings: in the physical view each ceiled
+  // building pays its full rating, so a deep chain with many
+  // partially-loaded buildings can out-draw the fuel-limited generation
+  // by hundreds of watts (user-reported: 513 W on a 28-partial-bin
+  // Wuling plan). Iterate to the discrete fixed point: measure the
+  // packed plan's ceiled consumption via `aggregateBinTotals` (the
+  // single source of truth — never re-sum), re-solve with that figure
+  // as the generation floor (`LPPowerBalance.minGeneration` — soft one
+  // tier below the user caps, so batteries only ever spend cap
+  // HEADROOM), and repeat until generation covers it or the remainder
+  // is proven unaffordable (`powerShortfall` → the
+  // `power-sustain-insufficient` warning + affordability stop below).
+  // The floor is monotone increasing, so the loop terminates; typical
+  // convergence is one extra pass (the top-up's own ceiling bump is
+  // just the battery maker + banks). Also covers consumption the LP
+  // can't see structurally (raw-only targets' pickup pumps).
+  //
+  // Always on when power sustain is active — deliberately NOT gated on
+  // the display-layer `ceilMode` flag, so the plan never depends on
+  // display state (toggling "Round up facilities" must not re-solve or
+  // invalidate Max marks). In the fractional view the extra generation
+  // simply shows as headroom.
+  //
+  // On iteration-cap exhaustion or a failed re-solve the last good
+  // plan is returned; the hook-level power-deficit warning remains the
+  // honest safety net for that residual case.
+  const hasGenerators =
+    powerGenerationByRecipe !== undefined &&
+    powerFuels.some((f) => graph.recipeNodes.has(f.recipe.id));
+  if (hasGenerators && plan.lpStatus === "ok") {
+    let minGeneration = 0;
+    for (let iter = 0; iter < MAX_POWER_FLOOR_ITERATIONS; iter++) {
+      const agg = aggregateBinTotals(plan, facilities, items, {
+        ceilMode: true,
+      });
+      const deficit = agg.totalPower - agg.totalPowerGeneration;
+      if (deficit <= POWER_FLOOR_TOLERANCE) break;
+      // No-progress guard: the ceiled consumption must strictly grow
+      // past the floor we already solved for (defensive — a plateau
+      // with residual deficit would otherwise loop until the cap).
+      if (agg.totalPower <= minGeneration + POWER_FLOOR_TOLERANCE) break;
+      minGeneration = agg.totalPower;
+      if (import.meta.env?.DEV) {
+        console.log(
+          `[POWER] ceil-floor iteration ${iter + 1}: deficit ${deficit.toFixed(1)}, raising generation floor to ${minGeneration.toFixed(1)}`,
+        );
+      }
+      const fr = await calculateFlows(
+        graph,
+        sccs,
+        targetRatesMap,
+        maps,
+        manualRawMaterials,
+        rawCaps,
+        facilityCaps,
+        selectedImports.length > 0 ? selectedImports : undefined,
+        { generationByRecipe: powerGenerationByRecipe, minGeneration },
+      );
+      if (!fr.metrics.feasible) {
+        // Floor made the solve fail (raw/facility caps are soft, so
+        // this is practically a solver error) — keep the last good
+        // plan; the deficit warning surfaces the residual gap.
+        if (import.meta.env?.DEV) {
+          console.warn(
+            `[POWER] ceil-floor re-solve failed (${fr.metrics.failureReason}); keeping previous plan`,
+          );
+        }
+        break;
+      }
+      plan = await assemblePlan(fr);
+      // Affordability stop: the power slack engaged — every remaining
+      // watt would need cap headroom that doesn't exist, so raising
+      // the floor further cannot help. The assembled plan already
+      // carries the `power-sustain-insufficient` warning.
+      if (fr.metrics.powerShortfall > POWER_FLOOR_TOLERANCE) {
+        if (import.meta.env?.DEV) {
+          console.warn(
+            `[POWER] ceil-floor stopped: ${fr.metrics.powerShortfall.toFixed(1)} W not fundable within caps`,
+          );
+        }
+        break;
+      }
+    }
+
+  // Re-anchor the shortfall figure on the FINAL plan's aggregates:
+  // the LP slack was measured against the PREVIOUS iteration's floor,
+  // but the re-solve's recipe mix can shift the ceiled consumption by
+  // a few whole-building quanta — the displayed warning must match
+  // the displayed power stat, not a stale floor. Kind-scoped on
+  // purpose (findIndex/splice by `power-sustain-insufficient` only):
+  // `assemblePlan` appends the cap-violation warnings
+  // (`computeLimitViolations`) to the same array, and this re-anchor
+  // must never disturb them regardless of emission order.
+    const shortfallIdx = plan.warnings.findIndex(
+      (w) => w.kind === "power-sustain-insufficient",
+    );
+    if (shortfallIdx >= 0) {
+      const agg = aggregateBinTotals(plan, facilities, items, {
+        ceilMode: true,
+      });
+      const gap = agg.totalPower - agg.totalPowerGeneration;
+      if (gap > POWER_FLOOR_TOLERANCE) {
+        plan.warnings[shortfallIdx] = {
+          kind: "power-sustain-insufficient",
+          shortfallWatts: gap,
+        };
+      } else {
+        // Defensive: the final mix closed the gap after all.
+        plan.warnings.splice(shortfallIdx, 1);
+      }
+    }
+  }
+
+  return plan;
 }

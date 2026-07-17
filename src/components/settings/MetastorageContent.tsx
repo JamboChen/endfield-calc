@@ -1,20 +1,11 @@
-import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Truck } from "lucide-react";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { metastorageExports, metastorageSources } from "@/data";
-import { getDomainName } from "@/lib/i18n-helpers";
-import { parseDomainId } from "@/types/domain";
 import type { Domain, DomainId } from "@/types/domain";
 import type { MetastorageRouteMode } from "@/types/metastorage";
 
+import { RouteModeSelect } from "./RouteModeSelect";
 import { SettingsCard, settingsRowClass } from "./SettingsCard";
 import { cn } from "@/lib/utils";
 
@@ -54,14 +45,6 @@ export function MetastorageContent({
   const eligibleCount = metastorageExports.get(domainId)?.size ?? 0;
   const mode = routeModes.get(domainId) ?? "auto";
 
-  const destinations = useMemo(
-    () =>
-      [...domains]
-        .filter((d) => d.id !== domainId)
-        .sort((a, b) => a.sortId - b.sortId),
-    [domains, domainId],
-  );
-
   if (!info) return null;
 
   return (
@@ -89,45 +72,13 @@ export function MetastorageContent({
               defaultValue: "Exports to",
             })}
           </span>
-          <Select
-            value={mode}
-            onValueChange={(value: string) => {
-              if (value === "auto" || value === "disabled") {
-                onSetRouteMode(domainId, value);
-                return;
-              }
-              const dest = parseDomainId(value);
-              if (dest) onSetRouteMode(domainId, dest);
-            }}
-          >
-            <SelectTrigger className="h-9 sm:h-7 w-[200px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto" className="text-xs">
-                {t("metastorage.modeAuto", {
-                  ns: "settings",
-                  defaultValue: "Auto",
-                })}
-              </SelectItem>
-              <SelectItem value="disabled" className="text-xs">
-                {t("metastorage.modeDisabled", {
-                  ns: "settings",
-                  defaultValue: "Disabled",
-                })}
-              </SelectItem>
-              {destinations.map((d) => (
-                <SelectItem key={d.id} value={d.id} className="text-xs">
-                  <span
-                    aria-hidden="true"
-                    className="inline-block size-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: `#${d.color}` }}
-                  />
-                  <span className="truncate">{getDomainName(d.id)}</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <RouteModeSelect
+            source={domainId}
+            domains={domains}
+            mode={mode}
+            onSetRouteMode={onSetRouteMode}
+            className="h-9 sm:h-7 w-[200px] text-xs"
+          />
         </div>
       </SettingsCard>
     </div>

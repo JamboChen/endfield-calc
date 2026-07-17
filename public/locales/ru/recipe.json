@@ -1,4 +1,9 @@
 {
+  "burn_item_proc_battery_1": "Выработка энергии (Батарея МЕ Долины)",
+  "burn_item_proc_battery_2": "Выработка энергии (Батарея СЕ Долины)",
+  "burn_item_proc_battery_3": "Выработка энергии (Батарея ВЕ Долины)",
+  "burn_item_proc_battery_4": "Выработка энергии (Батарея МЕ Улина)",
+  "burn_item_proc_battery_5": "Выработка энергии (Батарея СЕ Улина)",
   "component_activity_xiranite_cmpt_1": "Производство экспериментальной ксиранитовой детали",
   "component_activity_xiranite_enr_cmpt_1": "Производство экспериментальной тяжелой ксиранитовой детали",
   "component_copper_cmpt_1": "Производство куприевых деталей",

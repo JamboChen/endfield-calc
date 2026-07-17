@@ -60,6 +60,19 @@ type Buffers = { belt: Buffer[]; pipe: Buffer[] };
  * planning warnings, categorical filters). They are not consumed by
  * today's solver.
  */
+/**
+ * One battery fuel the Thermal Bank (`power_station_1`) can burn: a
+ * zero-output "burn" recipe (1 fuel per `craftingTime` seconds) plus the
+ * out-of-band power output while a bank burns it. Kept off `Recipe` /
+ * `Facility` so the auto-generated rosters stay untouched; emitted by
+ * `scripts/extract-power.ts` into `src/data/power.ts`.
+ */
+type PowerFuel = {
+  /** Power provided continuously while one bank burns this fuel. */
+  powerGeneration: number;
+  recipe: Recipe;
+};
+
 type Facility = {
   id: FacilityId;
   /**
@@ -110,4 +123,4 @@ type Facility = {
   iconIsMonochrome?: boolean;
 };
 
-export type { Item, Recipe, RecipeItem, Facility, Buffer, Buffers };
+export type { Item, Recipe, RecipeItem, Facility, Buffer, Buffers, PowerFuel };

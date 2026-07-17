@@ -22,6 +22,7 @@ pnpm run extract:facilities  # Refresh src/data/facilities.ts + public/locales/{
 pnpm run extract:recipes     # Refresh src/data/recipes.ts + public/locales/{lang}/recipe.json
 pnpm run extract:items       # Refresh src/data/items.ts + public/locales/{lang}/item.json
 pnpm run extract:metastorage # Refresh src/data/metastorage.ts (TTV caps + per-item costs)
+pnpm run extract:power       # Refresh src/data/power.ts (Thermal Bank + battery burn recipes) + locale name merges
 pnpm run extract:structures  # Refresh src/data/region-subsystems.ts + public/locales/{lang}/structure.json
 pnpm run extract:aic         # Refresh src/data/aic-plans.ts + public/locales/{lang}/{aic,domain}.json
 pnpm run extract:raw-caps    # Refresh src/data/raw-caps.ts (per-region max mining output from scene data LevelGenForRuntime/TotalFactoryRegions.json + DomainDataTable + FactoryMinerTable; the scene file is extracted from the game client — see the script header)
@@ -38,6 +39,7 @@ Game-data refresh: set `ENDFIELD_DATA_DIR` to the dir containing `TableCfg/` (th
 - **`aggregateBinTotals` (`src/lib/plan-helpers.ts:164`) is the single source of truth** for buildings / power / per-facility totals. Per-recipe-ceiled aggregation triple-counts shared multi-formula bins. Source-facility power (pump_1/pump_2/unloader_1) is folded in here — do NOT re-sum at the caller.
 - **`MIN_VISIBLE_RATE_PER_MIN` (`src/lib/flow-thresholds.ts:39`, value `0.001`)** is the shared visibility threshold between the packer and the mappers. Production code must import this constant — bare `0.001` literals are forbidden.
 - **`assertFlowIntegrity` throws in test mode** (`import.meta.env.MODE === "test"`), warns in dev, no-ops in production. Mapper regressions surface as hard test failures.
+- **"Over-limit" has ONE judge**: `calculateProductionPlan` emits every limit violation (facility/raw caps, metastorage budget, power shortfall) into `plan.warnings`; `OVER_LIMIT_WARNING_KINDS` (`src/lib/plan-helpers.ts`) is the complete kind set. `isPlanFeasible`, the Fit pill, auto-fit, and the badges are all plain scans of the same warnings — never re-derive the verdict from aggregates at a consumer. See `.claude/rules/optimizer.md`.
 - **Match existing style**, even where you'd do it differently. This codebase uses closed-enum literal-string unions for game-data IDs and brand intersections for runtime-constructed IDs — see "Type system" below.
 
 ## Where critical logic lives
@@ -47,23 +49,26 @@ One sentence per file. Deep invariants in `.claude/rules/` load when you touch t
 - `src/lib/multi-formula-packing.ts` — Phase 3 ILP bin packer. See `.claude/rules/packer.md`.
 - `src/lib/lp-solver.ts` — generic LP wrapper around HiGHS (WASM); N-pass lexicographic. See `.claude/rules/solver.md`.
 - `src/lib/highs-wrapper.ts` + `src/lib/highs-singleton.ts` — HiGHS solve seam: per-solve `time_limit = accumulated + budget` compensation for the WASM instance's unresettable run clock, `resetHighs()` self-heal, raw solver status out. See `.claude/rules/solver.md`.
-- `src/lib/calc-client.ts` + `src/workers/calc.worker.ts` — worker transport for `calculateProductionPlan`: latest-wins coalescing (`CalcSupersededError`), crash re-dispatch with a per-job retry budget, main-thread fallback. See `.claude/rules/solver.md`.
-- `src/lib/target-optimizer.ts` — priority-Max / Fit-to-limits bisection engine (pure; solve injected by the hook). The module JSDoc is the canonical semantics + invariants reference.
+- `src/lib/calc-client.ts` + `src/workers/calc.worker.ts` — worker transport for `calculateProductionPlan` AND the optimizer searches (`searchMaximize`/`searchFit` run a whole Max/Fit search as ONE in-worker job with a `cancel()` handle): latest-wins solve slot + separate search slot, crash re-dispatch with a per-job retry budget, main-thread fallback. See `.claude/rules/solver.md` + `optimizer.md`.
+- `src/lib/target-optimizer.ts` — priority-Max / Fit-to-limits bisection engine (pure; solve injected — the worker in production, direct calls in tests). The module JSDoc is the canonical semantics + invariants reference. See `.claude/rules/optimizer.md`.
+- `src/lib/optimizer-orchestration.ts` — pure reducer for the optimizer gesture bookkeeping (auto-fit one-shot guard, protected-demand exclusion, Max marks). See `.claude/rules/optimizer.md`.
+- `src/hooks/useTargetOptimizer.ts` — Max / Fit / auto-fit orchestration: worker searches with token + captured-targets commit gates, cancellation on targets/config identity change, toasts + Restore. See `.claude/rules/optimizer.md`.
 - `src/lib/raw-limits-helpers.ts` + `src/data/raw-caps.ts` — per-region default mining caps (AUTO-GENERATED, `extract:raw-caps`) + user-override merge feeding the LP's soft raw caps. See `.claude/rules/raws.md`.
 - `src/lib/flow-solver.ts` — `calculateFlows`: one global LP over every recipe in the multi-recipe graph. See `.claude/rules/solver.md`.
 - `src/lib/graph-builder.ts` — `buildBipartiteGraph` (all alternative producers, no single-pick) + `detectSCCs` (Tarjan). See `.claude/rules/solver.md`.
 - `src/lib/calculator.ts` — orchestrates `calculateProductionPlan` (graph + pre-LP disposal-inject → SCC → LP → pack → prefill → render); also applies the `facilityRecipeVariants` filter so variant recipes (`LIQUID_CLEAN_GATE_1_*`) only enter the LP when their facility cap is positive.
 - `src/lib/recipe-reachability.ts` — App-layer chain-reachability closure with `bootstrapFacilities` bypass.
-- `src/lib/plan-helpers.ts` — `aggregateBinTotals` + `computeOverCapWarnings` + `buildBinActivitySums`.
+- `src/lib/plan-helpers.ts` — `aggregateBinTotals` + `computeLimitViolations` (the calculator's over-limit judge) + `OVER_LIMIT_WARNING_KINDS` + `buildBinActivitySums`.
 - `src/lib/flow-thresholds.ts` — single source of `MIN_VISIBLE_RATE_PER_MIN`.
 - `src/components/mappers/{bin-fused,merged}-mapper.ts` — selects on `bf` URL flag + Facility-vs-Recipe view. See `.claude/rules/mappers.md`.
 - `src/components/mappers/flow-assertions.ts` — `assertFlowIntegrity` (throws in test).
 - `src/hooks/useDomainSettings.ts` + `src/lib/aic-{research-helpers,cascade}.ts` — per-domain settings state. See `.claude/rules/domain-settings.md`.
 - `src/contexts/DomainSettingsProvider.tsx` — Context wrapper that broadcasts `useDomainSettings()` + renders `AicOnboardingDialog`.
-- `src/hooks/useProductionPlan.ts` — top-level plan orchestration through `calc-client`, optimizer searches (Max / Fit with token + captured-targets cancellation, auto-fit), ineffective-pin detection, `facilityCaps` / `rawMaterialCaps` threading.
+- `src/hooks/useProductionPlan.ts` — top-level plan orchestration: the `calcProblem` memo (the ONE problem-definition bundle shared by the display calc and the optimizer searches), plan/warnings derivation off `plan.warnings`, ineffective-pin detection, `facilityCaps` / `rawMaterialCaps` threading; delegates Max/Fit/auto-fit to `useTargetOptimizer`.
 - `src/data/index.ts` — `rawMaterialSources`, `rawAvailabilityByDomain`, `costlessRaws`, `forcedDisposalItems`, `bootstrapFacilities`, `facilityRecipeVariants`, `mapPlacedFacilities`; barrel re-exports `defaultRawCapsByDomain`, `regionStructures`, `metastorageSources`/`metastorageExports`. See `.claude/rules/raws.md`.
 - `src/data/region-subsystems.ts` — AUTO-GENERATED (`extract:structures`) region subsystems: map-placed structures (`regionStructures`, the `solver: { role, facilityId }` bridge that drives the Settings "Structures" tab + App-layer cap aggregation + variant filter) plus the collapsed capped facility (`regionFacilities`), the disposal/byproduct recipe variants (`regionRecipes`), and the toggle map (`regionFacilityVariants`). Derived from `Factory*PlantStoreTable` + the sibling Import/Export + `FactoryBuildingTable`; merged into `facilities`/`recipes` by the `@/data` barrel. Structure names live in `public/locales/{lang}/structure.json`.
 - `src/data/metastorage.ts` — AUTO-GENERATED (`extract:metastorage`) Metastorage Transfer capability: `metastorageSources` (per-source TTV cap/cycle/unlock) + `metastorageExports` (source → item → TTV cost). Feeds the LP import variables (`lp-solver.ts`), the per-route auto-item-selection (`calculator.ts:selectMetastorageImports`), the `useDomainSettings.metastorage` route modes, and the App-layer route resolution + reachability seeding. See `.claude/rules/solver.md` + `domain-settings.md`.
+- `src/data/power.ts` — AUTO-GENERATED (`extract:power`) Thermal Bank power generation: the `power_station_1` facility (merged into the `facilities` barrel tail) + `powerFuels` (battery-burn recipes with out-of-band `powerGeneration`; batteries only — ore burning deliberately excluded). Rides `CalculateProductionPlanOptions.powerSustain` (URL flag `ps=1`) into the graph injection + the LP's hard `power_balance` row + the calculator's ceil-floor loop (generation sized to whole-building consumption via `LPPowerBalance.minGeneration`); display side is `aggregateBinTotals.totalPowerGeneration` + the `powerSink` mapper node. See `.claude/rules/solver.md`.
 
 Everything else is discoverable via `ls` / `grep`. Game data: `src/data/{items,recipes,facilities}.ts`; types: `src/types/`; UI: `src/components/`; hooks: `src/hooks/`; tests: `src/tests/lib/`.
 
@@ -104,7 +109,7 @@ Domain types in `src/types/{core,production,flow,domain,aic}.ts`. Keep enums in 
 
 1. `pnpm run lint` — ESLint clean of new warnings.
 2. `pnpm vitest run` — all tests pass.
-3. If you touched `src/lib/`: also run targeted suites: `pnpm vitest run src/tests/lib/{calculator,flow-integrity,bin-fusion-mapper,multi-formula-packing}.test.ts`. Solver transport (`calc-client`, `highs-*`) → add `{calc-client,highs-wrapper,lp-solver-status}.test.ts`; optimizer → add `target-optimizer.test.ts`.
+3. If you touched `src/lib/`: also run targeted suites: `pnpm vitest run src/tests/lib/{calculator,flow-integrity,bin-fusion-mapper,multi-formula-packing}.test.ts`. Solver transport (`calc-client`, `highs-*`) → add `{calc-client,highs-wrapper,lp-solver-status}.test.ts`; optimizer → add `{target-optimizer,optimizer-orchestration}.test.ts`.
 4. `pnpm run build` — TypeScript clean and Vite build succeeds.
 5. `pnpm run knip` — surface any newly-unused exports.
 
@@ -131,6 +136,7 @@ These load automatically when Claude reads matching files. Listed by topic:
 
 - `packer.md` — Phase 3 ILP packer, `aggregateBinTotals`, port caps, slot semantics.
 - `solver.md` — LP / flow / graph / reachability / bootstrap, lex objectives, pinned-recipe outcomes, solver transport + `lpStatus` semantics.
+- `optimizer.md` — Max/Fit/auto-fit stack: over-limit single-judge contract, probe≡UI, wedge tripwire, orchestration reducer transitions, in-worker search protocol.
 - `prefill.md` — cycle-prefill two-phase detection (Phase 1 per-bin Tarjan, Phase 2 inter-bin pairs).
 - `mappers.md` — bin-fused vs merged vs separated, pickup counts, flow integrity, ELK gotchas.
 - `raws.md` — `rawMaterialSources` contract, source facilities, pump-vs-pipe throughput.

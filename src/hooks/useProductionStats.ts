@@ -19,6 +19,13 @@ import { PUMP_CATEGORIES } from "@/lib/plan-helpers";
 
 export type ProductionStats = {
   totalPowerConsumption: number;
+  /**
+   * Σ watts provided by Thermal Bank burn recipes
+   * (`aggregates.totalPowerGeneration`; fuel-limited, fractional-bank
+   * figure — see `BinAggregates`). 0 unless the plan was solved with
+   * the self-sustaining-power option.
+   */
+  totalPowerGeneration: number;
   rawMaterialRequirements: Map<ItemId, number>;
   uniqueProductionSteps: number;
   facilityRequirements: Map<FacilityId, number>;
@@ -70,7 +77,8 @@ export type ProductionStats = {
    * Byproduct disposal flows: items consumed by `isDisposal` recipe
    * nodes (Sewage Inlet / Water Treatment sinks), with the summed
    * disposal rate per item in items/min. Sorted by rate descending.
-   * Empty when the plan disposes of nothing.
+   * Empty when the plan disposes of nothing. Power-generation burn
+   * nodes are EXCLUDED — burning batteries is generation, not waste.
    */
   disposal: { item: Item; ratePerMinute: number }[];
   /**
@@ -161,7 +169,10 @@ function collectStats(
   plan.nodes.forEach((node) => {
     if (node.type === "recipe") {
       // Disposal sinks: rate = input consumption × facility count.
-      if (node.isDisposal && node.recipe.inputs.length > 0) {
+      // Power-generation burn nodes are excluded from the Byproducts
+      // list (their consumption is generation, surfaced via
+      // `totalPowerGeneration` + the facility list instead).
+      if (node.isDisposal && !node.powerGeneration && node.recipe.inputs.length > 0) {
         const input = node.recipe.inputs[0];
         const rate =
           calcRate(input.amount, node.recipe.craftingTime) *
@@ -185,6 +196,7 @@ function collectStats(
 
   const {
     totalPower,
+    totalPowerGeneration,
     perFacility,
     rawPerFacility,
     totalBuildings,
@@ -213,6 +225,7 @@ function collectStats(
 
   return {
     totalPowerConsumption: totalPower,
+    totalPowerGeneration,
     rawMaterialRequirements: rawMaterials,
     uniqueProductionSteps,
     facilityRequirements: perFacility,
@@ -254,6 +267,7 @@ export function useProductionStats(
     if (!plan || plan.nodes.size === 0 || !aggregates) {
       return {
         totalPowerConsumption: 0,
+        totalPowerGeneration: 0,
         rawMaterialRequirements: new Map(),
         uniqueProductionSteps: 0,
         facilityRequirements: new Map(),

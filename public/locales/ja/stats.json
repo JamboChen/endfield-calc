@@ -22,5 +22,6 @@
   "showDetails": "詳細",
   "title": "生産統計",
   "totalPower": "総消費電力",
+  "powerBalance": "消費 / 発電",
   "utilization": "稼働率"
 }

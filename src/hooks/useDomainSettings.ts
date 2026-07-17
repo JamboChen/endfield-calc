@@ -689,9 +689,10 @@ export interface AicSubState {
  *   1. **LP-aware enforcement** — `lp-solver.ts` adds soft upper-bound
  *      constraints `Σ consumption ≤ cap + slack` with `SLACK_PENALTY`.
  *      The LP biases toward recipes that conserve the capped raw.
- *   2. **Post-pack warning surface** — `computeRawOverCapWarnings`
- *      emits `raw-over-cap` PlanWarnings; ProductionStats applies red
- *      tint + tooltip on over-cap raw rows.
+ *   2. **Post-pack warning surface** — the calculator emits
+ *      `raw-over-cap` PlanWarnings at plan assembly
+ *      (`computeLimitViolations`, plan-helpers.ts); ProductionStats
+ *      applies red tint + tooltip on over-cap raw rows.
  *
  * Storage is per-(item, domain) so the user can pre-configure caps
  * for any region for forward planning, matching how `facilityBaseCaps`

@@ -4,6 +4,11 @@ import { useTranslation } from "react-i18next";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -228,8 +233,12 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
         )}
       </div>
       {uniqueRecipeIds.length > 0 && (
-        <Tooltip>
-          <TooltipTrigger asChild>
+        // Popover, not tooltip: the formula list must open on TOUCH
+        // (Radix tooltips never do) and scrolls — both are click/tap
+        // territory. Chrome matches the tooltip `rich` variant, so
+        // nothing changed visually in the migration.
+        <Popover>
+          <PopoverTrigger asChild>
             <button
               type="button"
               className="size-7 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/80 transition-colors shrink-0"
@@ -240,13 +249,12 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
             >
               <Info className="size-4" />
             </button>
-          </TooltipTrigger>
-          <TooltipContent
+          </PopoverTrigger>
+          <PopoverContent
             side="left"
-            variant="rich"
             className="max-w-xs text-xs leading-relaxed"
           >
-            {/* Tooltip header: tech name as subtitle (preserves the original
+            {/* Card header: tech name as subtitle (preserves the original
               * game-flavour name without it dominating the row). */}
             <div className="px-3 pt-2.5 pb-2 border-b border-border/70">
               <div className="font-semibold">{displayLabel}</div>
@@ -291,8 +299,8 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
                 })}
               </ul>
             </div>
-          </TooltipContent>
-        </Tooltip>
+          </PopoverContent>
+        </Popover>
       )}
     </div>
   );

@@ -6,6 +6,7 @@ import type {
   FlowProductionNode,
   FlowTargetNode,
   FlowDisposalNode,
+  FlowPowerNode,
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
@@ -365,6 +366,40 @@ export function createDisposalSinkNode(
       disposalRate,
       facility,
       facilityCount,
+      items,
+      facilities,
+      ceilMode,
+    },
+    position: { x: 0, y: 0 },
+    targetPosition: Position.Left,
+  };
+}
+
+/**
+ * Creates a power-generation sink flow node (Thermal Bank burning
+ * batteries). Flow-wise identical to a disposal sink — only the
+ * rendering differs (amber "Power Generation" card).
+ */
+export function createPowerSinkNode(
+  nodeId: string,
+  item: Item,
+  burnRate: number,
+  facility: Facility,
+  facilityCount: number,
+  powerGeneration: number,
+  items: Item[],
+  facilities: Facility[],
+  ceilMode = false,
+): FlowPowerNode {
+  return {
+    id: nodeId,
+    type: "powerSink",
+    data: {
+      item,
+      burnRate,
+      facility,
+      facilityCount,
+      powerGeneration,
       items,
       facilities,
       ceilMode,

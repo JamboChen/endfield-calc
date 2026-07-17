@@ -114,7 +114,9 @@ export const formatNumber = (num: number, decimals = 2): string =>
 /**
  * Looks up an item by its ID from an items array.
  */
-export const getItemById = (items: Item[], itemId: ItemId): Item | undefined =>
-  items.find((i) => i.id === itemId);
+export const getItemById = (
+  items: readonly Item[],
+  itemId: ItemId,
+): Item | undefined => items.find((i) => i.id === itemId);
 
 

@@ -1,4 +1,4 @@
-import type { Recipe, ItemId, RecipeId } from "@/types";
+import type { PowerFuel, Recipe, ItemId, RecipeId } from "@/types";
 import { forcedDisposalItems } from "@/data";
 import type {
   ProductionMaps,
@@ -118,6 +118,14 @@ export function buildBipartiteGraph(
   manualRawMaterials?: Set<ItemId>,
   recipeConstraints?: Map<ItemId, Set<RecipeId>>,
   importableItems?: ReadonlySet<ItemId>,
+  /**
+   * Thermal Bank battery fuels (see `CalculateProductionPlanOptions.
+   * powerSustain`). Each available fuel's zero-output burn recipe is
+   * injected as a consumer node and the fuel's production chain is
+   * pulled in via the normal backward traversal — the LP's
+   * power-balance row then sizes the burn variables.
+   */
+  powerFuels?: readonly PowerFuel[],
 ): BipartiteGraph {
   const graph: BipartiteGraph = {
     itemNodes: new Map(),
@@ -219,6 +227,41 @@ export function buildBipartiteGraph(
   }
 
   targets.forEach(({ itemId }) => traverse(itemId));
+
+  // ── Pre-LP power-burn-recipe injection ──────────────────────────────
+  //
+  // Burn recipes are consumer-only (zero outputs) so target-rooted
+  // traversal can never reach them — same structural reason as disposal
+  // recipes below. Unlike disposal, the fuel item itself is usually NOT
+  // in the graph yet: pulling in a burn recipe means pulling in the
+  // fuel's whole production chain via `traverse`.
+  //
+  // **Availability guard** (checked BEFORE traversing): a fuel is
+  // injectable only when its item can actually be supplied — it has at
+  // least one surviving producer, is a raw, a manual raw, or is
+  // Metastorage-importable. Without the guard, traversing an
+  // unproducible fuel would auto-promote it to raw (the chain-leaf
+  // rule in `traverse`), granting the LP infinite FREE batteries —
+  // free power. Skipped fuels simply don't participate; if none
+  // survive, the calculator emits a `power-sustain-unavailable`
+  // warning and the LP runs without a power-balance row.
+  //
+  // Ordering: MUST run before disposal injection — battery chains can
+  // emit forced-disposal byproducts (e.g. sewage), and the disposal
+  // pass seeds from the item nodes present in the graph.
+  if (powerFuels && powerFuels.length > 0) {
+    injectPowerBurnRecipes(
+      graph,
+      maps,
+      powerFuels,
+      traverse,
+      rawMaterials,
+      manualRawMaterials,
+      recipeOverrides,
+      recipeConstraints,
+      importableItems,
+    );
+  }
 
   // ── Pre-LP disposal-recipe injection ────────────────────────────────
   //
@@ -395,6 +438,86 @@ function injectDisposalRecipesIntoGraph(
           queue.push(output.itemId);
         }
       }
+    }
+  }
+}
+
+/**
+ * Inject the available Thermal Bank burn recipes as consumer nodes and
+ * pull each fuel's production chain into the graph. Mutates `graph` in
+ * place. See the call site in `buildBipartiteGraph` for the rationale
+ * and the availability-guard contract.
+ *
+ * A burn recipe is added only when:
+ *   1. its fuel item exists in `maps.itemMap`,
+ *   2. the fuel is suppliable (producer / raw / manual raw / importable),
+ *   3. its facility exists in `maps.facilityMap`, and
+ *   4. the recipe isn't already in the graph (defensive).
+ *
+ * Consumer-only recipes are pure sinks in the SCC digraph (recipe →
+ * output edges don't exist), so this injection can never create cycles.
+ */
+function injectPowerBurnRecipes(
+  graph: BipartiteGraph,
+  maps: ProductionMaps,
+  powerFuels: readonly PowerFuel[],
+  traverse: (itemId: ItemId) => void,
+  rawMaterials: ReadonlySet<ItemId>,
+  manualRawMaterials: Set<ItemId> | undefined,
+  recipeOverrides: Map<ItemId, RecipeId> | undefined,
+  recipeConstraints: Map<ItemId, Set<RecipeId>> | undefined,
+  importableItems: ReadonlySet<ItemId> | undefined,
+): void {
+  for (const fuel of powerFuels) {
+    const recipe = fuel.recipe;
+    const fuelInput = recipe.inputs[0];
+    if (!fuelInput || !maps.itemMap.has(fuelInput.itemId)) continue;
+    const fuelItemId = fuelInput.itemId;
+
+    // Availability guard — see call-site comment. Checked BEFORE
+    // traversal so an unproducible fuel never gets raw-promoted.
+    const suppliable =
+      rawMaterials.has(fuelItemId) ||
+      (manualRawMaterials?.has(fuelItemId) ?? false) ||
+      (importableItems?.has(fuelItemId) ?? false) ||
+      availableProducersFor(
+        fuelItemId,
+        maps.recipeMap.values(),
+        recipeOverrides,
+        recipeConstraints,
+      ).length > 0;
+    if (!suppliable) continue;
+
+    const facility = maps.facilityMap.get(recipe.facilityId);
+    if (!facility) {
+      if (import.meta.env?.DEV) {
+        console.warn(
+          `[POWER] burn recipe ${recipe.id}: facility ${recipe.facilityId} missing from facilityMap; skipping`,
+        );
+      }
+      continue;
+    }
+    if (graph.recipeNodes.has(recipe.id)) continue;
+
+    // Pull the fuel's production chain into the graph (no-op when the
+    // item is already visited — e.g. the fuel is itself a target).
+    traverse(fuelItemId);
+
+    graph.recipeNodes.set(recipe.id, {
+      recipeId: recipe.id,
+      recipe,
+      facility,
+    });
+    graph.recipeInputs.set(
+      recipe.id,
+      new Set(recipe.inputs.map((i) => i.itemId)),
+    );
+    graph.recipeOutputs.set(recipe.id, new Set());
+    for (const input of recipe.inputs) {
+      if (!graph.itemConsumedBy.has(input.itemId)) {
+        graph.itemConsumedBy.set(input.itemId, new Set());
+      }
+      graph.itemConsumedBy.get(input.itemId)!.add(recipe.id);
     }
   }
 }

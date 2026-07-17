@@ -112,6 +112,20 @@ export type BinAggregates = {
    * Facilities without a `footprint` contribute 0 (unknown ≠ guessed).
    */
   totalTiles: number;
+  /**
+   * Σ `node.powerGeneration × node.facilityCount` over power-generation
+   * recipe nodes (Thermal Bank burn recipes). **Mode-independent**
+   * (fractional LP bank counts in both views): generation is
+   * fuel-supply-limited — a ceiled bank without extra batteries cannot
+   * provide more power — so the fractional figure is what the battery
+   * production actually sustains. The calculator's ceil-floor loop
+   * sizes this to cover the ceilMode `totalPower` (whole buildings each
+   * paying full power), so in the fractional view it shows headroom;
+   * the hook-level power-deficit warning remains as the safety net for
+   * the loop's iteration-cap residual case. 0 when the plan has no
+   * power-generation nodes.
+   */
+  totalPowerGeneration: number;
 };
 
 /**
@@ -163,8 +177,8 @@ export function buildBinActivitySums(
  */
 export function aggregateBinTotals(
   plan: ProductionDependencyGraph,
-  facilities: Facility[],
-  items: Item[],
+  facilities: readonly Facility[],
+  items: readonly Item[],
   options: { ceilMode?: boolean } = {},
 ): BinAggregates {
   const { ceilMode = false } = options;
@@ -211,6 +225,16 @@ export function aggregateBinTotals(
     );
     // Always-ceiled — buildings occupy whole tiles in either view mode.
     totalTiles += tilesPerBuilding(facility) * ceiledBuildings;
+  }
+
+  // Power generation (Thermal Bank burn recipes): fuel-supply-limited,
+  // so it follows the FRACTIONAL LP bank count in both view modes —
+  // see the `totalPowerGeneration` field doc.
+  let totalPowerGeneration = 0;
+  for (const node of plan.nodes.values()) {
+    if (node.type !== "recipe") continue;
+    if (!node.powerGeneration) continue;
+    totalPowerGeneration += node.powerGeneration * node.facilityCount;
   }
 
   // Fold pickup-point source facilities (unloader_1, pump_1, pump_2)
@@ -268,7 +292,94 @@ export function aggregateBinTotals(
     rawPerFacility,
     physicalPerFacility,
     totalTiles,
+    totalPowerGeneration,
   };
+}
+
+/**
+ * Plan-warning kinds that mean "this plan exceeds a configured limit"
+ * — the single source of truth shared by the optimizer's
+ * `isPlanFeasible` (Fit/Max reject such plans) and the hook's
+ * `planOverLimit` (Fit pill / auto-fit trigger). The two consumers
+ * drifted once before (metastorage); any future soft tier that emits
+ * an over-limit warning must ONLY be added here.
+ *
+ * Every kind in this set is emitted INTO `plan.warnings` by
+ * `calculateProductionPlan` itself (the cap kinds via
+ * `computeLimitViolations` at plan assembly) — so the verdict "is this
+ * plan over its limits?" is a plain warning scan for every consumer,
+ * and an optimizer probe judges the exact plan the UI would show.
+ * Enrolling a new limit = emit its warning in the calculator + add the
+ * kind here. Nothing else.
+ *
+ * Deliberately excludes `power-sustain-unavailable` — "no fuel exists"
+ * is a configuration state, not a limit violation; scaling targets
+ * cannot fix it.
+ */
+export const OVER_LIMIT_WARNING_KINDS: ReadonlySet<PlanWarning["kind"]> =
+  new Set([
+    "facility-over-cap",
+    "raw-over-cap",
+    "metastorage-budget-insufficient",
+    "power-sustain-insufficient",
+  ]);
+
+/**
+ * The single limit-violation judge, run by `calculateProductionPlan`
+ * at plan assembly (each ceil-floor iteration re-assembles, so the
+ * final plan always carries a fresh verdict):
+ *
+ *   - Facility caps against `physicalPerFacility` — always-ceiled
+ *     physical placement counts, mode-independent (see the
+ *     `BinAggregates.physicalPerFacility` doc for why fractional
+ *     usage under-detects).
+ *   - Raw caps against the plan's raw-node requirement fold: raw item
+ *     nodes (plus manually-pinned raws — mirrors
+ *     `useProductionStats.collectStats`) summed by `productionRate`.
+ *
+ * Runs on the UNfiltered plan: `filterPlanForDisplay` only drops
+ * zero-rate nodes, which contribute nothing to either check, and
+ * `plan.bins` is identical either way — so this verdict matches what
+ * the display-layer chrome derives (probe/badge parity is structural).
+ */
+export function computeLimitViolations(
+  plan: ProductionDependencyGraph,
+  facilities: readonly Facility[],
+  items: readonly Item[],
+  ctx: {
+    facilityCaps?: ReadonlyMap<FacilityId, number>;
+    rawCaps?: ReadonlyMap<ItemId, number>;
+    manualRawMaterials?: ReadonlySet<ItemId>;
+  },
+): PlanWarning[] {
+  const hasFacilityCaps = !!ctx.facilityCaps && ctx.facilityCaps.size > 0;
+  const hasRawCaps = !!ctx.rawCaps && ctx.rawCaps.size > 0;
+  if (!hasFacilityCaps && !hasRawCaps) return [];
+
+  const warnings: PlanWarning[] = [];
+  if (hasFacilityCaps) {
+    const aggregates = aggregateBinTotals(plan, facilities, items);
+    warnings.push(
+      ...computeOverCapWarnings(
+        aggregates.physicalPerFacility,
+        ctx.facilityCaps,
+      ),
+    );
+  }
+  if (hasRawCaps) {
+    const rawRequirements = new Map<ItemId, number>();
+    for (const node of plan.nodes.values()) {
+      if (node.type !== "item") continue;
+      if (node.isRawMaterial || ctx.manualRawMaterials?.has(node.itemId)) {
+        rawRequirements.set(
+          node.itemId,
+          (rawRequirements.get(node.itemId) ?? 0) + node.productionRate,
+        );
+      }
+    }
+    warnings.push(...computeRawOverCapWarnings(rawRequirements, ctx.rawCaps));
+  }
+  return warnings;
 }
 
 /**
@@ -337,11 +448,13 @@ export function computeOverCapWarnings(
  *   - Detection threshold is invariant to `ceilMode` — display
  *     formatting in the warning consumer applies that.
  *
- * Mode-of-emission: this runs at the hook layer (`useProductionPlan`)
- * AFTER packing completes, comparing post-pack `rawMaterialRequirements`
- * against the user's caps. The LP layer separately adds slack-based
- * upper-bound constraints (see `lp-solver.ts`); the two work together
- * — the LP biases toward conservation, this surfaces residual overage.
+ * Mode-of-emission: the calculator runs this at plan assembly (via
+ * `computeLimitViolations` above), comparing the packed plan's
+ * raw-node requirement fold against the user's caps — the result
+ * lands in `plan.warnings`, the shared over-limit verdict. The LP
+ * layer separately adds slack-based upper-bound constraints (see
+ * `lp-solver.ts`); the two work together — the LP biases toward
+ * conservation, this surfaces residual overage.
  */
 export function computeRawOverCapWarnings(
   rawMaterialRequirements: ReadonlyMap<ItemId, number>,

@@ -22,6 +22,7 @@ import type {
   Item,
   ItemId,
   Recipe,
+  RecipeId,
   Facility,
   ProductionDependencyGraph,
   Bin,
@@ -29,12 +30,14 @@ import type {
   FlowProductionNode,
   FlowTargetNode,
   FlowDisposalNode,
+  FlowPowerNode,
 } from "@/types";
 import {
   createEdge,
   createProductionFlowNode,
   createTargetSinkNode,
   createDisposalSinkNode,
+  createPowerSinkNode,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -64,12 +67,12 @@ export function mapPlanToFlowBinFused(
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
 ): {
-  nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode)[];
+  nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode)[];
   edges: Edge[];
 } {
   const flowNodes: FlowProductionNode[] = [];
   const targetSinkNodes: FlowTargetNode[] = [];
-  const disposalSinkNodes: FlowDisposalNode[] = [];
+  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode)[] = [];
   const flowEdges: Edge[] = [];
   let edgeIdCounter = 0;
 
@@ -77,6 +80,26 @@ export function mapPlanToFlowBinFused(
   const recipeById = new Map(recipes.map((r) => [r.id, r] as const));
   const facilityById = new Map(facilities.map((f) => [f.id, f] as const));
   const targetItemIds = new Set(plan.targets);
+
+  // Plan-carried recipes may be absent from the caller's roster —
+  // Thermal Bank burn recipes ride the `powerSustain` option and bypass
+  // the App-layer `availableRecipes` filter. Seed them as fallbacks so
+  // bin classification (`isDisposalBin`) and sink emission resolve them.
+  plan.nodes.forEach((node) => {
+    if (node.type === "recipe" && !recipeById.has(node.recipeId)) {
+      recipeById.set(node.recipeId, node.recipe);
+    }
+  });
+
+  // Watts-per-bank lookup for power-generation (Thermal Bank burn)
+  // recipes — set on the plan's recipe nodes by the calculator. Power
+  // bins share the disposal classification / allocation flow entirely
+  // (both are consumer sinks with the same `disposal-<recipeId>` node
+  // ids); only the emitted card differs.
+  const powerGenerationFor = (recipeId: RecipeId): number | undefined => {
+    const node = plan.nodes.get(recipeId);
+    return node?.type === "recipe" ? node.powerGeneration : undefined;
+  };
 
   // Visible Metastorage imports. A region can receive the same item
   // from MULTIPLE source regions, so this is a flat list (one node per
@@ -473,7 +496,8 @@ export function mapPlanToFlowBinFused(
     );
   });
 
-  // Emit disposal sink nodes.
+  // Emit disposal / power sink nodes (power = burn recipe carrying
+  // `powerGeneration`; same ids and flow, different card).
   for (const bin of disposalBins) {
     const recipe = recipeById.get(bin.recipeIds[0]);
     if (!recipe || recipe.inputs.length === 0) continue;
@@ -485,17 +509,30 @@ export function mapPlanToFlowBinFused(
     const disposalRate =
       calcRate(inp.amount, recipe.craftingTime) * bin.buildingCount;
     if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    const powerGeneration = powerGenerationFor(bin.recipeIds[0]);
     disposalSinkNodes.push(
-      createDisposalSinkNode(
-        `disposal-${bin.recipeIds[0]}`,
-        consumedItem,
-        disposalRate,
-        facility,
-        bin.buildingCount,
-        items,
-        facilities,
-        ceilMode,
-      ),
+      powerGeneration
+        ? createPowerSinkNode(
+            `disposal-${bin.recipeIds[0]}`,
+            consumedItem,
+            disposalRate,
+            facility,
+            bin.buildingCount,
+            powerGeneration,
+            items,
+            facilities,
+            ceilMode,
+          )
+        : createDisposalSinkNode(
+            `disposal-${bin.recipeIds[0]}`,
+            consumedItem,
+            disposalRate,
+            facility,
+            bin.buildingCount,
+            items,
+            facilities,
+            ceilMode,
+          ),
     );
   }
 
@@ -611,11 +648,12 @@ export function mapPlanToFlowBinFused(
     }
   }
 
-  const allNodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode)[] = [
-    ...flowNodes,
-    ...targetSinkNodes,
-    ...disposalSinkNodes,
-  ];
+  const allNodes: (
+    | FlowProductionNode
+    | FlowTargetNode
+    | FlowDisposalNode
+    | FlowPowerNode
+  )[] = [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes];
   assertFlowIntegrity("bin-fused-mapper", allNodes, flowEdges);
   return { nodes: allNodes, edges: flowEdges };
 }
@@ -641,12 +679,12 @@ export function mapPlanToFlowBinFusedSeparated(
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
 ): {
-  nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode)[];
+  nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode)[];
   edges: Edge[];
 } {
   const flowNodes: FlowProductionNode[] = [];
   const targetSinkNodes: FlowTargetNode[] = [];
-  const disposalSinkNodes: FlowDisposalNode[] = [];
+  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode)[] = [];
   const flowEdges: Edge[] = [];
   let edgeIdCounter = 0;
 
@@ -654,6 +692,22 @@ export function mapPlanToFlowBinFusedSeparated(
   const recipeById = new Map(recipes.map((r) => [r.id, r] as const));
   const facilityById = new Map(facilities.map((f) => [f.id, f] as const));
   const targetItemIds = new Set(plan.targets);
+
+  // Seed plan-carried recipes absent from the caller's roster (burn
+  // recipes bypass `availableRecipes`) — same rule as the Recipe View
+  // path above.
+  plan.nodes.forEach((node) => {
+    if (node.type === "recipe" && !recipeById.has(node.recipeId)) {
+      recipeById.set(node.recipeId, node.recipe);
+    }
+  });
+
+  // Watts-per-bank lookup for power-generation bins — same rule as the
+  // Recipe View path above.
+  const powerGenerationFor = (recipeId: RecipeId): number | undefined => {
+    const node = plan.nodes.get(recipeId);
+    return node?.type === "recipe" ? node.powerGeneration : undefined;
+  };
 
   // Visible Metastorage imports (flat list — one node per (source,
   // item); a region can receive the same item from multiple sources).
@@ -1144,7 +1198,8 @@ export function mapPlanToFlowBinFusedSeparated(
     );
   });
 
-  // Emit disposal sinks.
+  // Emit disposal / power sinks (same branch rule as the Recipe View
+  // path — power bins render an amber generation card).
   for (const bin of disposalBins) {
     const recipe = recipeById.get(bin.recipeIds[0]);
     if (!recipe || recipe.inputs.length === 0) continue;
@@ -1156,17 +1211,30 @@ export function mapPlanToFlowBinFusedSeparated(
     const disposalRate =
       calcRate(inp.amount, recipe.craftingTime) * bin.buildingCount;
     if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    const powerGeneration = powerGenerationFor(bin.recipeIds[0]);
     disposalSinkNodes.push(
-      createDisposalSinkNode(
-        `disposal-${bin.recipeIds[0]}`,
-        consumedItem,
-        disposalRate,
-        facility,
-        bin.buildingCount,
-        items,
-        facilities,
-        ceilMode,
-      ),
+      powerGeneration
+        ? createPowerSinkNode(
+            `disposal-${bin.recipeIds[0]}`,
+            consumedItem,
+            disposalRate,
+            facility,
+            bin.buildingCount,
+            powerGeneration,
+            items,
+            facilities,
+            ceilMode,
+          )
+        : createDisposalSinkNode(
+            `disposal-${bin.recipeIds[0]}`,
+            consumedItem,
+            disposalRate,
+            facility,
+            bin.buildingCount,
+            items,
+            facilities,
+            ceilMode,
+          ),
     );
   }
 
@@ -1324,11 +1392,12 @@ export function mapPlanToFlowBinFusedSeparated(
     }
   }
 
-  const allNodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode)[] = [
-    ...flowNodes,
-    ...targetSinkNodes,
-    ...disposalSinkNodes,
-  ];
+  const allNodes: (
+    | FlowProductionNode
+    | FlowTargetNode
+    | FlowDisposalNode
+    | FlowPowerNode
+  )[] = [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes];
   assertFlowIntegrity("bin-fused-separated-mapper", allNodes, flowEdges);
   return { nodes: allNodes, edges: flowEdges };
 }

@@ -1,22 +1,29 @@
 import { memo, useId } from "react";
 import { useTranslation } from "react-i18next";
-import { Settings } from "lucide-react";
+import { ChevronDown, Settings } from "lucide-react";
+import { InfoHint } from "@/components/InfoHint";
 import { SectionHeader } from "@/components/SectionHeader";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { RegionPicker } from "@/components/settings/RegionPicker";
+import { RouteModeSelect } from "@/components/settings/RouteModeSelect";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { metastorageSources, regionStructures } from "@/data";
 import { facilityIconUrl } from "@/lib/facility-icons";
+import { getDomainName } from "@/lib/i18n-helpers";
 import {
   countRegionStructuresEnabled,
   structureKey,
 } from "@/lib/settings-helpers";
 import { cn } from "@/lib/utils";
-import { DomainId } from "@/types/constants";
 
 type OptionsSectionProps = {
   /** Whether facility counts round up (physical view). */
@@ -27,6 +34,10 @@ type OptionsSectionProps = {
    *  `useProductionPlan`'s AUTO_FIT_STORAGE_KEY). */
   autoFit: boolean;
   onAutoFitChange: (value: boolean) => void;
+  /** Self-sustaining power: plan Thermal Banks + battery production so
+   *  the factory covers its own power draw (URL flag `ps=1`). */
+  powerSustain: boolean;
+  onPowerSustainChange: (value: boolean) => void;
   /** Opens the full Settings sheet (AIC plan / limits / resources / …). */
   onOpenSettings: () => void;
 };
@@ -49,6 +60,8 @@ const OptionsSection = memo(function OptionsSection({
   onCeilModeChange,
   autoFit,
   onAutoFitChange,
+  powerSustain,
+  onPowerSustainChange,
   onOpenSettings,
 }: OptionsSectionProps) {
   const { t } = useTranslation(["settings", "app", "structure"]);
@@ -65,7 +78,19 @@ const OptionsSection = memo(function OptionsSection({
   // would duplicate in the DOM.
   const ceilSwitchId = useId();
   const autoFitSwitchId = useId();
-  const metastorageSwitchId = useId();
+  const powerSustainSwitchId = useId();
+
+  // Metastorage sources that can feed the CURRENT region — the
+  // App-bridge eligibility filter (S ∈ sources ∧ S ≠ current ∧ S
+  // active). `activeImportCount` = routes whose mode actually feeds
+  // this region (mode ∈ {"auto", current}) — the status-chip figure.
+  const metastorageSourceList = [...metastorageSources.keys()].filter(
+    (source) => source !== currentDomain && activeDomains.has(source),
+  );
+  const activeImportCount = metastorageSourceList.filter((source) => {
+    const mode = metastorage.routeModes.get(source) ?? "auto";
+    return mode === "auto" || mode === currentDomain;
+  }).length;
 
   const regionStructureList = regionStructures.get(currentDomain) ?? [];
   const structureCount = countRegionStructuresEnabled(
@@ -177,68 +202,147 @@ const OptionsSection = memo(function OptionsSection({
 
         <Separator />
 
-        <div className="flex items-center justify-between gap-2">
+        {/* Option rows: single-line `Label · ⓘ · Switch`. The hint
+          * bodies live in tap-friendly popovers (`InfoHint`) instead
+          * of inline paragraphs — compact on desktop, reachable on
+          * touch (hover tooltips never open on tap). */}
+        <div className="flex items-center gap-1.5">
           <Label
             htmlFor={ceilSwitchId}
             className="text-sm cursor-pointer"
           >
             {t("ceilMode", { ns: "app" })}
           </Label>
+          <InfoHint
+            ariaLabel={t("optionInfo", {
+              ns: "app",
+              label: t("ceilMode", { ns: "app" }),
+            })}
+          >
+            {t("ceilModeHint", { ns: "app" })}
+          </InfoHint>
           <Switch
             id={ceilSwitchId}
             checked={ceilMode}
             onCheckedChange={onCeilModeChange}
+            className="ml-auto"
           />
         </div>
 
-        <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <Label
-              htmlFor={autoFitSwitchId}
-              className="text-sm cursor-pointer"
-            >
-              {t("autoFit", { ns: "app" })}
-            </Label>
-            <Switch
-              id={autoFitSwitchId}
-              checked={autoFit}
-              onCheckedChange={onAutoFitChange}
-            />
-          </div>
-          <p className="text-[11px] leading-snug text-muted-foreground">
+        <div className="flex items-center gap-1.5">
+          <Label
+            htmlFor={autoFitSwitchId}
+            className="text-sm cursor-pointer"
+          >
+            {t("autoFit", { ns: "app" })}
+          </Label>
+          <InfoHint
+            ariaLabel={t("optionInfo", {
+              ns: "app",
+              label: t("autoFit", { ns: "app" }),
+            })}
+          >
             {t("autoFitHint", { ns: "app" })}
-          </p>
+          </InfoHint>
+          <Switch
+            id={autoFitSwitchId}
+            checked={autoFit}
+            onCheckedChange={onAutoFitChange}
+            className="ml-auto"
+          />
         </div>
 
-        {currentDomain === DomainId.DOMAIN_2 &&
-          metastorageSources.has(DomainId.DOMAIN_1) && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <Label
-                  htmlFor={metastorageSwitchId}
-                  className="text-sm cursor-pointer"
+        {/* Metastorage imports: ONE status row regardless of how many
+          * source regions exist (PR #101 review fallout — per-source
+          * switch rows both grew unboundedly and flattened the
+          * tri-state route mode into a lying boolean). The chip shows
+          * how many routes feed the CURRENT region; the popover lists
+          * each eligible source (App-bridge filter: S ∈
+          * metastorageSources ∧ S ≠ current ∧ S active) with the SAME
+          * tri-state `RouteModeSelect` the Settings tab uses — a route
+          * locked to another region displays as that region, and
+          * changing it is a deliberate pick among all modes, never a
+          * silent hijack to "auto". */}
+        {metastorageSourceList.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">
+              {t("metastorageImports", { ns: "app" })}
+            </span>
+            <InfoHint
+              ariaLabel={t("optionInfo", {
+                ns: "app",
+                label: t("metastorageImports", { ns: "app" }),
+              })}
+            >
+              {t("metastorageImportsHint", { ns: "app" })}
+            </InfoHint>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto h-7 gap-1 px-2.5 text-xs"
                 >
-                  {t("metastorageTransfer", { ns: "app" })}
-                </Label>
-                <Switch
-                  id={metastorageSwitchId}
-                  checked={
-                    (metastorage.routeModes.get(DomainId.DOMAIN_1) ??
-                      "auto") !== "disabled"
-                  }
-                  onCheckedChange={(checked) =>
-                    metastorage.setRouteMode(
-                      DomainId.DOMAIN_1,
-                      checked ? DomainId.DOMAIN_2 : "disabled",
-                    )
-                  }
-                />
-              </div>
-              <p className="text-[11px] leading-snug text-muted-foreground">
-                {t("metastorageTransferHint", { ns: "app" })}
-              </p>
-            </div>
-          )}
+                  {activeImportCount > 0
+                    ? t("metastorageImportsOn", {
+                        ns: "app",
+                        count: activeImportCount,
+                      })
+                    : t("metastorageImportsOff", { ns: "app" })}
+                  <ChevronDown className="size-3 opacity-60" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="w-72 px-3 py-2.5 space-y-2"
+              >
+                {metastorageSourceList.map((source) => (
+                  <div
+                    key={source}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="text-xs min-w-0 truncate">
+                      {t("metastorageImportsRoute", {
+                        ns: "app",
+                        source: getDomainName(source),
+                      })}
+                    </span>
+                    <RouteModeSelect
+                      source={source}
+                      domains={domains}
+                      mode={metastorage.routeModes.get(source) ?? "auto"}
+                      onSetRouteMode={metastorage.setRouteMode}
+                      className="h-7 w-[130px] text-xs shrink-0"
+                    />
+                  </div>
+                ))}
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1.5">
+          <Label
+            htmlFor={powerSustainSwitchId}
+            className="text-sm cursor-pointer"
+          >
+            {t("powerSustain", { ns: "app" })}
+          </Label>
+          <InfoHint
+            ariaLabel={t("optionInfo", {
+              ns: "app",
+              label: t("powerSustain", { ns: "app" }),
+            })}
+          >
+            {t("powerSustainHint", { ns: "app" })}
+          </InfoHint>
+          <Switch
+            id={powerSustainSwitchId}
+            checked={powerSustain}
+            onCheckedChange={onPowerSustainChange}
+            className="ml-auto"
+          />
+        </div>
       </div>
     </section>
   );

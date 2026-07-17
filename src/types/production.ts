@@ -26,18 +26,24 @@ import type {
  *   2. Emit it from the source (packer / calculator).
  *   3. Add a formatter branch in `useProductionPlan.formatPlanWarning`.
  *   4. Add i18n keys to all 7 `app.json` locales.
+ *   5. If the kind means "this plan exceeds a configured limit", add
+ *      it to `OVER_LIMIT_WARNING_KINDS` (plan-helpers.ts) — that
+ *      enrolls it in Fit/Max/auto-fit and the Fit pill automatically
+ *      (see `.claude/rules/optimizer.md`).
  */
 export type PlanWarning =
   | {
       /**
-       * Per-facility placement cap exceeded. Emitted by the Phase 5
-       * packer post-packing when total `buildingCount` for a capped
-       * facility exceeds the cap. `used` may be fractional (LP-derived);
+       * Per-facility placement cap exceeded. Emitted by
+       * `calculateProductionPlan` at plan assembly (via
+       * `computeLimitViolations` in plan-helpers), comparing the
+       * always-ceiled `physicalPerFacility` aggregate against the
+       * user's caps. `used` is a physical placement count (integer);
        * `cap` is always integer (parseInt-guarded at the UI input).
        *
-       * Applies to single-formula facilities (singleton bins) and
-       * multi-formula facilities (LP-packed bins) uniformly — the
-       * check walks the final emitted bin set.
+       * Applies uniformly to single-formula facilities (singleton
+       * bins), multi-formula facilities (LP-packed bins), and
+       * pickup-point source facilities (pump_1, pump_2, unloader_1).
        */
       kind: "facility-over-cap";
       facilityId: FacilityId;
@@ -66,10 +72,11 @@ export type PlanWarning =
   | {
       /**
        * Per-(item, region) raw-material limit exceeded. Emitted by
-       * `computeRawOverCapWarnings` in `plan-helpers.ts` after the
-       * packer runs, comparing post-pack `rawMaterialRequirements`
-       * (items/min consumption) against the user-configured
-       * `rawCaps` map for the current region.
+       * `calculateProductionPlan` at plan assembly (via
+       * `computeLimitViolations` in plan-helpers), comparing the
+       * plan's raw-node requirement fold (items/min consumption)
+       * against the user-configured `rawCaps` map for the current
+       * region.
        *
        * Mirrors `facility-over-cap` semantically: the value is
        * informational (warn-only, never blocks). The LP layer
@@ -122,6 +129,34 @@ export type PlanWarning =
        */
       kind: "metastorage-route-conflict";
       itemIds: ItemId[];
+    }
+  | {
+      /**
+       * The plan was asked to sustain its own power (`powerSustain`
+       * option) but no battery fuel is producible, raw, or importable
+       * under the current configuration — no burn recipe entered the
+       * graph and the LP ran WITHOUT the power-balance constraint.
+       * The plan's power consumption is therefore uncovered by any
+       * generation. Emitted by `calculateProductionPlan`.
+       */
+      kind: "power-sustain-unavailable";
+    }
+  | {
+      /**
+       * Self-sustaining power could not be fully funded from headroom
+       * UNDER the user's raw/facility limits: battery production is a
+       * suggestion, so it never violates caps (unlike locked user
+       * targets, which may — with their own warnings). The LP covered
+       * every affordable watt and reports the rest here
+       * (`LPSolution.powerShortfall` via the `power_slack` tier — see
+       * `POWER_SLACK_PENALTY` in `lp-solver.ts`). Remedies: raise
+       * limits, unlock targets (Fit treats this warning as
+       * over-limit), or accept the shortfall. Emitted by
+       * `calculateProductionPlan`.
+       */
+      kind: "power-sustain-insufficient";
+      /** Watts of consumption left uncovered by generation. */
+      shortfallWatts: number;
     };
 
 /**
@@ -266,6 +301,14 @@ export type ProductionGraphNode =
       facility: Facility;
       facilityCount: number;
       isDisposal?: boolean;
+      /**
+       * Power provided per facility while this recipe runs (Thermal
+       * Bank battery burning). Present only on power-generation recipe
+       * nodes injected via `CalculateProductionPlanOptions.powerSustain`.
+       * Such nodes are also `isDisposal` (zero outputs) — consumers
+       * that render power sinks must check this field FIRST.
+       */
+      powerGeneration?: number;
       /**
        * Bin id this recipe is hosted in (Phase 3). Set for all recipes
        * after Phase 3 runs; mappers use it to annotate group
