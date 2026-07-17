@@ -1,7 +1,8 @@
-import { useCallback } from "react";
-import { Handle, Position, useReactFlow } from "@xyflow/react";
+import { useContext } from "react";
+import { Handle, Position } from "@xyflow/react";
 import type { Node, NodeProps } from "@xyflow/react";
 import { Wind } from "lucide-react";
+import { NodeJumpContext } from "@/components/flow/node-jump-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { FacilityIcon } from "@/components/FacilityIcon";
 import {
@@ -60,30 +61,12 @@ export default function CustomEnvNode({
   const facilityName = getFacilityName(facility);
   const buffName = getRecipeName(vaporizeRecipeId);
 
-  // Click-to-jump to a specific buffed building node (Facility View):
-  // center + select it, mirroring the graph search panel's jump. The
-  // selection change pins the spotlight via `onSelectionChange`.
-  const rf = useReactFlow();
-  const jumpToBuilding = useCallback(
-    (targetId: string) => {
-      const n = rf.getNode(targetId);
-      if (!n) return;
-      const w = n.measured?.width ?? n.width ?? 208;
-      const h = n.measured?.height ?? n.height ?? 125;
-      rf.setCenter(n.position.x + w / 2, n.position.y + h / 2, {
-        zoom: Math.max(rf.getZoom(), 0.8),
-        duration: 400,
-      });
-      rf.setNodes((nds) =>
-        nds.map((x) =>
-          x.selected !== (x.id === targetId)
-            ? { ...x, selected: x.id === targetId }
-            : x,
-        ),
-      );
-    },
-    [rf],
-  );
+  // Click-to-jump to a specific buffed building node (Facility View).
+  // Routed through the tree's `jumpToNode` (NodeJumpContext) so the
+  // center + spotlight-pin go through the CONTROLLED `nodes` state, like
+  // the search jump — a direct `useReactFlow().setNodes` here would
+  // freeze stale node decorations and wedge the pin (see the context).
+  const jumpToNode = useContext(NodeJumpContext);
 
   return (
     <Tooltip>
@@ -176,9 +159,14 @@ export default function CustomEnvNode({
                           <button
                             type="button"
                             title={label}
+                            // Stop pointer/mouse-down so React Flow's
+                            // native node selection doesn't ALSO select
+                            // the parent env node; the click navigates.
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
-                              jumpToBuilding(b.nodeId!);
+                              jumpToNode(b.nodeId!);
                             }}
                             className="nodrag nopan flex items-center gap-1.5 min-w-0 w-full rounded-sm px-0.5 hover:bg-teal-100/60 dark:hover:bg-teal-900/40 cursor-pointer text-teal-800 dark:text-teal-200"
                           >

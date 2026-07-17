@@ -41,6 +41,7 @@ import {
 } from "@/lib/flow-spotlight";
 import { edgeBounds, computeEdgeFitView } from "@/lib/edge-fit";
 import GraphSearchPanel from "./GraphSearchPanel";
+import { NodeJumpContext } from "./node-jump-context";
 import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
 import {
   mapPlanToFlowBinFused,
@@ -74,6 +75,9 @@ const CONTENT_PADDING = 0.1; // 10% padding around nodes
 
 /** Below this zoom, edge labels fade out (spotlit/hovered edges exempt). */
 const LABEL_FADE_ZOOM = 0.5;
+
+/** Min zoom a node-jump lands at (mirrors the search panel's jump). */
+const NODE_JUMP_MIN_ZOOM = 0.8;
 
 function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation("production");
@@ -596,6 +600,29 @@ export default function ProductionDependencyTree({
     [setNodes],
   );
 
+  // Center + spotlight-pin a node from inside a custom node (the env
+  // card's buffed-building links — see `NodeJumpContext`). Centering
+  // goes through the instance; selection MUST go through `onSearchSelect`
+  // (the CONTROLLED `nodes` state), not `useReactFlow().setNodes`, or the
+  // node decorations freeze and the pin never clears on a pane click.
+  const jumpToNode = useCallback(
+    (nodeId: string) => {
+      const instance = rfInstance.current;
+      const node = instance?.getNode(nodeId);
+      if (instance && node) {
+        const width = node.measured?.width ?? node.width ?? 208;
+        const height = node.measured?.height ?? node.height ?? 125;
+        instance.setCenter(
+          node.position.x + width / 2,
+          node.position.y + height / 2,
+          { zoom: Math.max(instance.getZoom(), NODE_JUMP_MIN_ZOOM), duration: 400 },
+        );
+      }
+      onSearchSelect(nodeId);
+    },
+    [onSearchSelect],
+  );
+
   if (!plan || plan.nodes.size === 0) {
     return (
       <div className="h-full w-full flex items-center justify-center text-muted-foreground">
@@ -607,6 +634,7 @@ export default function ProductionDependencyTree({
   return (
     <div className="h-full w-full flex flex-col">
       <div className="flex-1" ref={containerRef}>
+        <NodeJumpContext.Provider value={jumpToNode}>
         <ReactFlow
           className={`flow-theme${lowZoom ? " flow-lowzoom" : ""}`}
           nodes={displayNodes}
@@ -665,6 +693,7 @@ export default function ProductionDependencyTree({
           <GraphSearchPanel nodes={nodes} onSelectResult={onSearchSelect} />
           <ExportImageButton containerRef={containerRef} />
         </ReactFlow>
+        </NodeJumpContext.Provider>
       </div>
     </div>
   );
