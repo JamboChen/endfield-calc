@@ -1238,10 +1238,6 @@ async function selectMetastorageImports(
  *   App callers pass `powerFuels` from `@/data`; tests may pass
  *   synthetic fuels.
  */
-// Re-exported from the UI-safe constants module (`sustain-constants.ts`
-// keeps the solver code-split — see its header).
-export { DEFAULT_MACHINES_PER_VAPORIZER };
-
 /** One vaporizer env entry (shape of `vaporizerEnvs` values). */
 export interface VaporizerEnvConfig {
   gasItemId: ItemId;

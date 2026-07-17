@@ -41,9 +41,6 @@ export const facilitySustainDrains: ReadonlyMap<FacilityId, SustainDrain> =
   ],
   ]);
 
-/** The facility that projects gas environments. */
-export const vaporizerFacilityId = FacilityId.VAPORIZER_1;
-
 /**
  * Gas environments by upstream env id (`Recipe.gasEnv`). The synthetic
  * recipe consumes `ratePerMinute` gas per 60 s craft — one facility
