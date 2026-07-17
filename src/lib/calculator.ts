@@ -584,6 +584,7 @@ function buildProductionGraph(
   metastorageImports: PlanMetastorageImport[] = [],
   lpStatus: PlanLpStatus = "ok",
   powerGenerationByRecipe?: ReadonlyMap<RecipeId, number>,
+  envByVaporizeRecipe?: ReadonlyMap<RecipeId, number>,
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
@@ -710,6 +711,10 @@ function buildProductionGraph(
       // Undefined for every other recipe. Power sinks are also
       // `isDisposal` (zero outputs) — consumers check this first.
       powerGeneration: powerGenerationByRecipe?.get(recipeId),
+      // Vaporizer env recipes (1.4): the env id they supply. Undefined
+      // for every other recipe. Env sinks are also `isDisposal` (zero
+      // outputs) — consumers check this BEFORE powerGeneration.
+      envSupport: envByVaporizeRecipe?.get(recipeId),
       binId,
       binSisterRecipeIds: sisters,
       prefillCandidates: recipePrefill.get(recipeId) ?? [],
@@ -1452,9 +1457,13 @@ export async function calculateProductionPlan(
   // target-rooted traversal; they enter the graph exclusively through
   // `buildBipartiteGraph`'s env-scan injection.
   const vaporizeRecipesByEnv = new Map<number, Recipe>();
+  // Inverse (vaporize recipe id → env) for stamping `envSupport` onto
+  // the plan's vaporize nodes so mappers can render env sinks.
+  const envByVaporizeRecipe = new Map<RecipeId, number>();
   for (const [env, cfg] of envConfigs) {
     if (!cfg.recipe.inputs.length) continue;
     vaporizeRecipesByEnv.set(env, cfg.recipe);
+    envByVaporizeRecipe.set(cfg.recipe.id, env);
     maps.recipeMap.set(cfg.recipe.id, cfg.recipe);
   }
 
@@ -1762,6 +1771,7 @@ export async function calculateProductionPlan(
       metastorageImports,
       lpStatus,
       powerGenerationByRecipe,
+      envByVaporizeRecipe.size > 0 ? envByVaporizeRecipe : undefined,
     );
     // Limit-violation verdict (facility caps + raw caps) — emitted by
     // the calculator so EVERY consumer (optimizer probes, the hook's

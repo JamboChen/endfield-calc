@@ -3,10 +3,16 @@ import type {
   ProductionNode,
   Item,
   Facility,
+  FacilityId,
+  Recipe,
+  RecipeId,
+  ProductionDependencyGraph,
   FlowProductionNode,
   FlowTargetNode,
   FlowDisposalNode,
   FlowPowerNode,
+  FlowEnvNode,
+  EnvCoverageEntry,
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
@@ -400,6 +406,119 @@ export function createPowerSinkNode(
       facility,
       facilityCount,
       powerGeneration,
+      items,
+      facilities,
+      ceilMode,
+    },
+    position: { x: 0, y: 0 },
+    targetPosition: Position.Left,
+  };
+}
+
+/**
+ * Buffed machines for a gas environment, grouped by (facility, formula).
+ * The buff attaches to the RECIPE (`recipe.gasEnv === env`), not the
+ * facility — so this returns one entry per env-gated ACTIVE recipe, with
+ * `buildings` = the ceiled physical count running that formula. Shared by
+ * all three mappers so the Recipe-View aggregate node and the
+ * Facility-View per-unit partition start from the same set.
+ */
+export function envBuffedMachines(
+  plan: ProductionDependencyGraph,
+  env: number,
+  facilityById: Map<FacilityId, Facility>,
+  recipeById: Map<RecipeId, Recipe>,
+): EnvCoverageEntry[] {
+  const out: EnvCoverageEntry[] = [];
+  for (const node of plan.nodes.values()) {
+    if (node.type !== "recipe" || !(node.facilityCount > 0)) continue;
+    if (node.recipe.gasEnv !== env) continue;
+    const facility = facilityById.get(node.recipe.facilityId);
+    const recipe = recipeById.get(node.recipeId) ?? node.recipe;
+    if (!facility) continue;
+    out.push({
+      facility,
+      recipe,
+      buildings: Math.max(1, Math.ceil(node.facilityCount)),
+    });
+  }
+  // Stable order: facility id, then recipe id (deterministic partition).
+  out.sort(
+    (a, b) =>
+      a.facility.id.localeCompare(b.facility.id) ||
+      a.recipe.id.localeCompare(b.recipe.id),
+  );
+  return out;
+}
+
+/**
+ * Partition buffed machines across `unitCount` Gas Dispersing Units as a
+ * representative even split: expand the (facility, formula) groups into a
+ * flat machine list, chunk `ceil(total / unitCount)` per unit, and
+ * re-group each chunk. The SET of buffed machines is exact (from
+ * `gasEnv`); only the which-unit-covers-which grouping is representative
+ * (the calculator has no spatial model). Returns one `EnvCoverageEntry[]`
+ * per unit (length === unitCount).
+ */
+export function partitionEnvCoverage(
+  covered: EnvCoverageEntry[],
+  unitCount: number,
+): EnvCoverageEntry[][] {
+  if (unitCount <= 1) return [covered];
+  // Flatten to one item per machine, preserving group order.
+  const flat: EnvCoverageEntry[] = [];
+  for (const c of covered) {
+    for (let i = 0; i < c.buildings; i++) {
+      flat.push({ facility: c.facility, recipe: c.recipe, buildings: 1 });
+    }
+  }
+  const perUnit = Math.ceil(flat.length / unitCount);
+  const units: EnvCoverageEntry[][] = [];
+  for (let u = 0; u < unitCount; u++) {
+    const slice = flat.slice(u * perUnit, (u + 1) * perUnit);
+    // Re-group the slice by (facility, recipe).
+    const grouped = new Map<string, EnvCoverageEntry>();
+    for (const m of slice) {
+      const key = `${m.facility.id}\u0000${m.recipe.id}`;
+      const existing = grouped.get(key);
+      if (existing) existing.buildings += 1;
+      else grouped.set(key, { ...m });
+    }
+    units.push([...grouped.values()]);
+  }
+  return units;
+}
+
+/**
+ * Creates a gas-environment sink flow node (1.4 Gas Dispersing Unit).
+ * Flow-wise identical to a disposal sink (consumes the env gas) — only
+ * the rendering differs (teal "Gaseous Environment" card that names the
+ * buff and lists the buffed machines by formula).
+ */
+export function createEnvSinkNode(
+  nodeId: string,
+  item: Item,
+  intakeRate: number,
+  facility: Facility,
+  facilityCount: number,
+  vaporizeRecipeId: RecipeId,
+  env: number,
+  covered: EnvCoverageEntry[],
+  items: Item[],
+  facilities: Facility[],
+  ceilMode = false,
+): FlowEnvNode {
+  return {
+    id: nodeId,
+    type: "envSink",
+    data: {
+      item,
+      intakeRate,
+      facility,
+      facilityCount,
+      vaporizeRecipeId,
+      env,
+      covered,
       items,
       facilities,
       ceilMode,

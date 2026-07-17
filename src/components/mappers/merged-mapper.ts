@@ -2,6 +2,8 @@ import type { Node, Edge } from "@xyflow/react";
 import type {
   Item,
   ItemId,
+  Recipe,
+  RecipeId,
   Facility,
   PlanMetastorageImport,
   ProductionDependencyGraph,
@@ -11,6 +13,7 @@ import type {
   FlowTargetNode,
   FlowDisposalNode,
   FlowPowerNode,
+  FlowEnvNode,
 } from "@/types";
 import {
   createEdge,
@@ -18,6 +21,8 @@ import {
   createTargetSinkNode,
   createDisposalSinkNode,
   createPowerSinkNode,
+  createEnvSinkNode,
+  envBuffedMachines,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -39,10 +44,16 @@ export function mapPlanToFlowMerged(
   facilities: Facility[],
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
-): { nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode)[]; edges: Edge[] } {
+): { nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode | FlowEnvNode)[]; edges: Edge[] } {
   const flowNodes: Node<FlowNodeData>[] = [];
   const flowEdges: Edge[] = [];
   const targetSinkNodes: FlowTargetNode[] = [];
+  // Lookup maps for env-sink coverage (buffed machines by formula).
+  const facilityById = new Map(facilities.map((f) => [f.id, f] as const));
+  const recipeById = new Map<RecipeId, Recipe>();
+  for (const n of plan.nodes.values()) {
+    if (n.type === "recipe") recipeById.set(n.recipeId, n.recipe);
+  }
 
   let edgeIdCounter = 0;
 
@@ -539,7 +550,7 @@ export function mapPlanToFlowMerged(
 
   // Create disposal / power sink nodes for zero-output recipes (power =
   // burn recipe carrying `powerGeneration`; same flow, different card).
-  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode)[] = [];
+  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode | FlowEnvNode)[] = [];
   plan.nodes.forEach((node, nodeId) => {
     if (node.type !== "recipe" || !node.isDisposal) return;
 
@@ -564,8 +575,24 @@ export function mapPlanToFlowMerged(
     // node from violating flow integrity.
     if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) return;
 
+    // Env sink FIRST (before power) — vaporize bins are also disposal.
+    // The legacy merged view keeps ONE aggregate env node per env.
     disposalSinkNodes.push(
-      node.powerGeneration
+      node.envSupport !== undefined
+        ? createEnvSinkNode(
+            disposalSinkId,
+            consumedItemNode.item,
+            disposalRate,
+            node.facility,
+            node.facilityCount,
+            node.recipeId,
+            node.envSupport,
+            envBuffedMachines(plan, node.envSupport, facilityById, recipeById),
+            items,
+            facilities,
+            ceilMode,
+          )
+        : node.powerGeneration
         ? createPowerSinkNode(
             disposalSinkId,
             consumedItemNode.item,
@@ -702,6 +729,7 @@ export function mapPlanToFlowMerged(
     | FlowTargetNode
     | FlowDisposalNode
     | FlowPowerNode
+    | FlowEnvNode
   )[];
   assertFlowIntegrity("merged-mapper", allNodes, flowEdges);
   return { nodes: allNodes, edges: flowEdges };

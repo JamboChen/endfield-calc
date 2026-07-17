@@ -79,6 +79,15 @@ The legacy `mapPlanToFlowMerged` (bf=0) still uses the pickup-only model — pic
 - Burn recipes are NOT in `availableRecipes` (they ride the options bag), so both bin-fused mappers seed `recipeById` from `plan.nodes` recipe entries as fallback. Do not remove that seeding — without it power bins misclassify as production bins and produce isolated-node integrity failures.
 - Displayed generation is `powerGeneration × facilityCount` with the FRACTIONAL count in both ceil modes (fuel-limited; matches `aggregateBinTotals.totalPowerGeneration`). `useProductionStats` excludes power nodes from the Byproducts list.
 
+## Gas-environment sinks (1.4 Gas Dispersing Units / vaporizers)
+
+- Vaporize recipes (`gasSustain`) are zero-output consumer bins that share the disposal flow, like power sinks. The calculator stamps `ProductionNode.envSupport` (the env id) on vaporize recipe nodes; the EMISSION branches check `envSupport` FIRST (before `powerGeneration`, before disposal) → `createEnvSinkNode` (type `envSink`, teal `CustomEnvNode`). `useProductionStats` excludes vaporize nodes from Byproducts (planned env upkeep, not surplus).
+- **Buffed machines are keyed on FORMULA, not facility.** `envBuffedMachines(plan, env, facilityById, recipeById)` (`flow-utils.ts`) returns one `EnvCoverageEntry { facility, recipe, buildings: ceil(fc) }` per ACTIVE recipe with `recipe.gasEnv === env`. The same facility can run non-env formulas that are NOT in the aura (a Forge running plain Xiranite Powder vs. env-gated Xiranite Powder β) — the card lists the recipe name so the user knows which buildings go in the zone.
+- **Recipe View + merged (bf=0): ONE aggregate env node** per env, id `disposal-<recipeId>` (same as disposal — existing id-based assertions hold), `facilityCount` = all vaporizers, `covered` = the full per-formula list.
+- **Facility View: ONE node PER vaporizer building.** Consumers register as `env-<recipeId>-bldg{i}` (V = `ceil(bin.buildingCount)`, gas intake split evenly so the allocator feeds each); emission mirrors with `facilityCount: 1` and `partitionEnvCoverage(covered, V)[i]` — a REPRESENTATIVE even split of the buffed machines (the SET is exact from `gasEnv`; only the which-unit-covers-which grouping is representative — no spatial model). Non-env disposal/power sinks stay aggregate in Facility View.
+- Env sinks consume RAW gas (Inergen), so the merged mapper's raw-pickup→sink edge fallback (the `consumedItemNode.isRawMaterial` branch) is what keeps them from being isolated — do not remove it.
+- Search (`GraphSearchPanel`): env/power/disposal sinks all headline the consumed item and index the FACILITY name in the sublabel (`"Gas Environment · Gas Dispersing Unit"`), so the units are findable by facility name (`filterSearchCandidates` ranks sublabel hits).
+
 ## Cardinal invariants
 
 - **Singleton-terminal bin detection runs BEFORE producer/consumer map construction**. The bin→sink redirect is baked into map construction; post-hoc remapping leaves phantom state.

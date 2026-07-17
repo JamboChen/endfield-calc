@@ -31,6 +31,7 @@ import CustomProductionNode from "../nodes/CustomProductionNode";
 import CustomTargetNode from "../nodes/CustomTargetNode";
 import CustomDisposalNode from "../nodes/CustomDisposalNode";
 import CustomPowerNode from "../nodes/CustomPowerNode";
+import CustomEnvNode from "../nodes/CustomEnvNode";
 import { useTranslation } from "react-i18next";
 import { getLayoutedElements } from "@/lib/layout";
 import {
@@ -421,6 +422,7 @@ export default function ProductionDependencyTree({
       targetSink: CustomTargetNode,
       disposalSink: CustomDisposalNode,
       powerSink: CustomPowerNode,
+      envSink: CustomEnvNode,
     }),
     [],
   );

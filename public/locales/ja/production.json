@@ -103,6 +103,11 @@
     "metastorageTooltip": "無在庫転送で届きます。現地生産は不要で、転送元の倉庫在庫も減りません。",
     "metastorageSource": "転送元地域",
     "metastorageTtvPerItem": "1個あたりの総転送価値",
-    "metastorageTtvUsage": "配送あたりの総転送価値"
+    "metastorageTtvUsage": "配送あたりの総転送価値",
+    "gasEnv": "ガス環境",
+    "gasEnvCreates": "生成",
+    "gasEnvBuffs": "効果対象",
+    "gasEnvBuffsDetail": "効果を受ける設備（代表的な割り当て）：",
+    "gasEnvDescription": "毎分{{item}}を{{rate}}消費してガス環境を生成します。効果対象の製法を実行する設備は範囲内に完全に収める必要があります。"
   }
 }

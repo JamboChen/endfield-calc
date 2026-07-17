@@ -1,5 +1,5 @@
 import type { Node } from "@xyflow/react";
-import type { Item, Facility, Recipe } from "@/types";
+import type { Item, Facility, Recipe, RecipeId } from "@/types";
 import type { ProductionNode } from "@/types";
 
 /**
@@ -167,6 +167,63 @@ export interface PowerSinkNodeData {
  * Type alias for a power-generation sink node in the React Flow graph.
  */
 export type FlowPowerNode = Node<PowerSinkNodeData>;
+
+/**
+ * One (facility, formula) group of machines buffed by a Gas Dispersing
+ * Unit. Keyed on the RECIPE, not the facility: the same facility can run
+ * non-env formulas that don't belong in the aura (e.g. a Forge of the
+ * Sky running plain Xiranite Powder vs. the env-gated Xiranite Powder β
+ * — only the latter needs the zone). `buildings` is the ceiled count
+ * running this formula that this node covers.
+ */
+export interface EnvCoverageEntry {
+  facility: Facility;
+  recipe: Recipe;
+  buildings: number;
+}
+
+/**
+ * Data for a gas-environment sink node (1.4 Gas Dispersing Unit /
+ * vaporizer). Structurally a consumer sink like disposal — the flow /
+ * allocation machinery treats it identically — but rendered as a teal
+ * "Gaseous Environment" card that names the buff (via `vaporizeRecipeId`
+ * → localized "Gaseous Environment (Inergen)") and lists the buffed
+ * machines by FORMULA (`covered`).
+ *
+ * Recipe View emits ONE aggregate node (`facilityCount` = all vaporizers
+ * for the env, `covered` = total per-formula counts). Facility View
+ * emits ONE node PER vaporizer building (`facilityCount` = 1, `covered`
+ * = the representative even partition of buffed machines assigned to
+ * this unit).
+ */
+export interface EnvSinkNodeData {
+  /** The env gas consumed (card headline — e.g. Inergen). */
+  item: Item;
+  /** Gas intake in items/min into THIS node (6/min per vaporizer). */
+  intakeRate: number;
+  /** The Gas Dispersing Unit facility. */
+  facility: Facility;
+  /** Vaporizers this node represents (1 in Facility View). */
+  facilityCount: number;
+  /** Synthetic `vaporize_*` recipe id — the localized buff name. */
+  vaporizeRecipeId: RecipeId;
+  /** Upstream env id (`Recipe.gasEnv` / `vaporizerEnvs` key). */
+  env: number;
+  /** Buffed machines grouped by (facility, formula). */
+  covered: EnvCoverageEntry[];
+  /** All available items (for icon rendering). */
+  items: Item[];
+  facilities: Facility[];
+  ceilMode: boolean;
+  /** Spotlight: direct consumer of the pinned building (amber ring). */
+  pinConsumer?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Type alias for a gas-environment sink node in the React Flow graph.
+ */
+export type FlowEnvNode = Node<EnvSinkNodeData>;
 
 /**
  * Updated FlowProductionNode that can include target information.

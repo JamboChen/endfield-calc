@@ -305,7 +305,8 @@ describe("gas sustain: vaporizer environments", () => {
     }
   });
 
-  test("mappers render the vaporizer as a consumer sink in all three views", async () => {
+  test("mappers render the vaporizer as an env sink; Facility View splits per building", async () => {
+    // 4.5 powder → 5 env machines → 2 vaporizers (ratio 4).
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 4.5 }],
       testItems,
@@ -319,6 +320,10 @@ describe("gas sustain: vaporizer environments", () => {
 
     // `assertFlowIntegrity` throws in test mode — reaching the
     // assertions below proves integrity in each view.
+
+    // Recipe View: ONE aggregate env sink, typed `envSink`, carrying the
+    // buffed machines keyed on FORMULA (the oven's env recipe), NOT a
+    // bare facility.
     const fused = mapPlanToFlowBinFused(
       plan,
       testItems,
@@ -328,8 +333,25 @@ describe("gas sustain: vaporizer environments", () => {
       false,
     );
     const sinkId = `disposal-${RecipeId.VAPORIZE_ITEM_GAS_INERT}`;
-    expect(fused.nodes.some((n) => n.id === sinkId)).toBe(true);
+    const envNode = fused.nodes.find((n) => n.id === sinkId);
+    expect(envNode?.type).toBe("envSink");
+    const envData = envNode!.data as unknown as {
+      facilityCount: number;
+      env: number;
+      vaporizeRecipeId: string;
+      covered: { facility: { id: string }; recipe: { id: string }; buildings: number }[];
+    };
+    expect(envData.facilityCount).toBe(2);
+    expect(envData.env).toBe(1);
+    expect(envData.vaporizeRecipeId).toBe(RecipeId.VAPORIZE_ITEM_GAS_INERT);
+    expect(envData.covered).toHaveLength(1);
+    expect(envData.covered[0].recipe.id).toBe(envRecipe.id);
+    expect(envData.covered[0].facility.id).toBe(FacilityId.XIRANITE_OVEN_1);
+    expect(envData.covered[0].buildings).toBe(5); // ceil(4.5)
 
+    // Facility View: ONE node PER vaporizer building (2), each covering
+    // its representative slice of the 5 buffed machines (⌈5/2⌉ = 3, then
+    // 2), keyed on formula.
     const separated = mapPlanToFlowBinFusedSeparated(
       plan,
       testItems,
@@ -338,8 +360,32 @@ describe("gas sustain: vaporizer environments", () => {
       new Map(),
       false,
     );
-    expect(separated.nodes.length).toBeGreaterThan(0);
+    const envUnits = separated.nodes.filter((n) => n.type === "envSink");
+    expect(envUnits).toHaveLength(2);
+    for (const u of envUnits) {
+      const d = u.data as unknown as {
+        facilityCount: number;
+        covered: { recipe: { id: string }; buildings: number }[];
+      };
+      expect(d.facilityCount).toBe(1);
+      // Every covered entry is keyed on the env FORMULA.
+      for (const c of d.covered) expect(c.recipe.id).toBe(envRecipe.id);
+    }
+    // Partition sums back to the full buffed set (5 machines).
+    const totalCovered = envUnits.reduce(
+      (sum, u) =>
+        sum +
+        (u.data as unknown as { covered: { buildings: number }[] }).covered.reduce(
+          (s, c) => s + c.buildings,
+          0,
+        ),
+      0,
+    );
+    expect(totalCovered).toBe(5);
+    // Per-unit ids are distinct building instances.
+    expect(new Set(envUnits.map((n) => n.id)).size).toBe(2);
 
+    // Merged (legacy bf=0): ONE aggregate env sink.
     const merged = mapPlanToFlowMerged(
       plan,
       testItems,
@@ -347,7 +393,7 @@ describe("gas sustain: vaporizer environments", () => {
       new Map(),
       false,
     );
-    expect(merged.nodes.some((n) => n.id === sinkId)).toBe(true);
+    expect(merged.nodes.find((n) => n.id === sinkId)?.type).toBe("envSink");
   });
 });
 

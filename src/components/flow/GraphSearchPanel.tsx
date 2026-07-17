@@ -14,6 +14,8 @@ import type {
   ProductionNode,
   TargetSinkNodeData,
   DisposalSinkNodeData,
+  PowerSinkNodeData,
+  EnvSinkNodeData,
 } from "@/types";
 
 /** Zoom used when jumping to a result from further out. */
@@ -88,12 +90,34 @@ export default function GraphSearchPanel({
           item: data.item,
         };
       }
+      // Sink cards (env / power / disposal) all headline the consumed
+      // item; index the FACILITY name in the sublabel so the Gas
+      // Dispersing Unit / Thermal Bank / Water Treatment Unit are all
+      // findable by name (`filterSearchCandidates` ranks sublabel hits).
+      if (node.type === "envSink") {
+        const data = node.data as unknown as EnvSinkNodeData;
+        return {
+          id: node.id,
+          label: getItemName(data.item),
+          sublabel: `${t("tree.gasEnv")} · ${getFacilityName(data.facility)}`,
+          item: data.item,
+        };
+      }
+      if (node.type === "powerSink") {
+        const data = node.data as unknown as PowerSinkNodeData;
+        return {
+          id: node.id,
+          label: getItemName(data.item),
+          sublabel: `${t("tree.powerGeneration")} · ${getFacilityName(data.facility)}`,
+          item: data.item,
+        };
+      }
       // disposalSink
       const data = node.data as unknown as DisposalSinkNodeData;
       return {
         id: node.id,
         label: getItemName(data.item),
-        sublabel: t("tree.disposal"),
+        sublabel: `${t("tree.disposal")} · ${getFacilityName(data.facility)}`,
         item: data.item,
       };
     });

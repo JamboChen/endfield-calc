@@ -329,6 +329,16 @@ export type ProductionGraphNode =
        */
       powerGeneration?: number;
       /**
+       * Gas-environment id this recipe SUPPLIES (1.4 vaporizer, joins
+       * `vaporizerEnvs`). Present only on the synthetic `vaporize_*`
+       * recipe nodes injected via `gasSustain`. Such nodes are also
+       * `isDisposal` (zero outputs); consumers that render env sinks
+       * must check this field FIRST (before `powerGeneration` and
+       * `isDisposal`). The buffed machines are the plan's recipe nodes
+       * whose `recipe.gasEnv === envSupport`.
+       */
+      envSupport?: number;
+      /**
        * Bin id this recipe is hosted in (Phase 3). Set for all recipes
        * after Phase 3 runs; mappers use it to annotate group
        * membership and to look up the bin's facility / sister recipes.

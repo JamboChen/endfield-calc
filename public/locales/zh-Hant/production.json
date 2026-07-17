@@ -103,6 +103,11 @@
     "metastorageTooltip": "透過超庫存傳輸送達。無需本地生產，也不消耗來源地區倉庫庫存。",
     "metastorageSource": "來源地區",
     "metastorageTtvPerItem": "單件傳輸總值",
-    "metastorageTtvUsage": "每次配送傳輸總值"
+    "metastorageTtvUsage": "每次配送傳輸總值",
+    "gasEnv": "氣體環境",
+    "gasEnvCreates": "生成",
+    "gasEnvBuffs": "增益",
+    "gasEnvBuffsDetail": "受增益設備（示意分配）：",
+    "gasEnvDescription": "每分鐘消耗{{rate}}個{{item}}以生成氣體環境。運行受增益配方的設備須完全位於範圍內。"
   }
 }
