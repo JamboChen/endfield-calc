@@ -586,9 +586,17 @@ describe("Sewage Inlet — LP constraint fallback for orphan forced-disposal ite
     // disposal balance is exact and the over-cap signal lands in
     // `plan.warnings` at plan assembly (`computeLimitViolations`)
     // — strictly better UX.
+    // Besides the Cleaner, also remove the Effluent-pool absorbers:
+    // pre-1.4 they were unreachable from the copper chain (no Liquid
+    // Xiranite supply in this graph), but the 1.4 gas routes make them
+    // a REAL cheaper-than-slack disposal path (Xiragen → Transmuting
+    // Unit → Liquid Xiranite), which dissolves the "no fallback
+    // disposer" premise this scenario needs.
     const recipesWithoutCleanerSewage = recipes.filter(
       (r) =>
-        r.id !== RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
+        r.id !== RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE &&
+        r.id !== RecipeId.POOL_LIQUID_XIRANITE_POLY_1 &&
+        r.id !== RecipeId.POOL_LIQUID_XIRANITE_POLY_2,
     );
 
     const plan = await calculateProductionPlan(
@@ -654,10 +662,22 @@ describe("Facility cap binding without alternative producer", () => {
     // design. This test locks both ends of the contract
     // (LP feasibility + warning surface).
     const facilityCaps = new Map([[FacilityId.XIRANITE_OVEN_1, 2]]);
+    // 1.4 adds a REAL parallel gas-phase lane for the whole chain (the
+    // Solid-Gas Transmuting Unit converts raw Xiragen into Xiranite
+    // Powder AND gas-phase Heavy Xiranite into the enriched powder) —
+    // with it available, the capped-oven demand legitimately reroutes
+    // and no over-cap arises (the soft-cap design working as intended).
+    // Exclude the transmuters to preserve THIS scenario's premise: cap
+    // binding with NO alternative producer.
+    const recipesWithoutTransmuterPowder = recipes.filter(
+      (r) =>
+        r.facilityId !== FacilityId.TRANSMUTER_1 &&
+        r.facilityId !== FacilityId.TRANSMUTER_2,
+    );
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, rate: 6 }],
       items,
-      recipes,
+      recipesWithoutTransmuterPowder,
       facilities,
       {
         rawMaterials: ALL_RAWS,
@@ -668,15 +688,17 @@ describe("Facility cap binding without alternative producer", () => {
     // The key assertion: LP did NOT return infeasible.
     expect(plan.invalidCycles).toHaveLength(0);
 
-    // Both xiranite_oven recipes are in the plan.
+    // Both xiranite_oven stages are in the plan. 1.4: the upstream
+    // Xiranite Powder may come from the classic recipe (_1) or the
+    // env-gated Carbon MTL variant (_2) — both run on xiranite_oven_1,
+    // so the cap contract is identical either way.
     const enrPowder = recipeNode(
       plan,
       RecipeId.XIRANITE_OVEN_XIRANITE_ENR_POWDER_1,
     );
-    const powder = recipeNode(
-      plan,
-      RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1,
-    );
+    const powder =
+      recipeNode(plan, RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1) ??
+      recipeNode(plan, RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_2);
     expect(enrPowder).toBeDefined();
     expect(powder).toBeDefined();
 

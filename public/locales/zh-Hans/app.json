@@ -68,5 +68,6 @@
   "metastorageBudgetInsufficient": "{{item}}（来自 {{source}}）：每次配送需要 {{needed}} 传输总值，但预算为 {{cap}}。转入未生效。请降低目标速率或扩大本地生产。",
   "viewOptions": "视图选项",
   "expandPanel": "展开面板",
-  "collapsePanel": "折叠面板"
+  "collapsePanel": "折叠面板",
+  "gasEnvUnavailable": "气体环境：当前设置下无法供应{{item}}，未规划气体散布机，气体消耗被低估。"
 }

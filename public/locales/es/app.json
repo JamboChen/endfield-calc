@@ -68,5 +68,6 @@
   "metastorageBudgetInsufficient": "{{item}} desde {{source}}: necesita {{needed}} de VTT por entrega pero el presupuesto es {{cap}}. Importación no aplicada. Reduce la tasa objetivo o amplía la producción local.",
   "viewOptions": "Opciones de vista",
   "expandPanel": "Expandir panel",
-  "collapsePanel": "Contraer panel"
+  "collapsePanel": "Contraer panel",
+  "gasEnvUnavailable": "Entorno gaseoso: no se puede suministrar {{item}} con la configuración actual, así que no se planificó ninguna unidad de dispersión de gas. El consumo de gas está subestimado."
 }

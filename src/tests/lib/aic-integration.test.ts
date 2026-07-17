@@ -295,9 +295,14 @@ describe("AIC integration: chain-reachability filter", () => {
     expect(
       runnableRecipes.some((r) => r.id === "xiranite_oven_xiranite_powder_1"),
     ).toBe(false);
-    // Xiranite Powder is NOT reachable.
-    expect(reachableItems.has(ItemId.ITEM_XIRANITE_POWDER)).toBe(false);
-    // Carbon Enr is also NOT reachable (its only producer is Furnace).
+    // 1.4: Xiranite Powder itself IS still reachable without the
+    // Furnace — the Solid-Gas Transmuting Unit converts raw Xiragen
+    // (gas_xiranite vents) straight into Xiranite Powder. The premise
+    // of the original pin (powder strictly furnace-gated) no longer
+    // holds; the recipe-level exclusion above is the surviving
+    // invariant.
+    expect(reachableItems.has(ItemId.ITEM_XIRANITE_POWDER)).toBe(true);
+    // Carbon Enr is still NOT reachable (its only producer is Furnace).
     expect(reachableItems.has(ItemId.ITEM_CARBON_ENR)).toBe(false);
   });
 

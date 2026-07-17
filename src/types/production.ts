@@ -157,6 +157,25 @@ export type PlanWarning =
       kind: "power-sustain-insufficient";
       /** Watts of consumption left uncovered by generation. */
       shortfallWatts: number;
+    }
+  | {
+      /**
+       * An env-gated recipe (`Recipe.gasEnv`, 1.4 gas mechanics) is
+       * ACTIVE in the plan but its environment's `vaporize_*` recipe
+       * could not be injected (the env's gas is not producible, raw, or
+       * importable under the current configuration — see the injection
+       * guard in `graph-builder.ts`). The plan therefore UNDERSTATES
+       * the real gas cost: in game the machines would stall without a
+       * Gas Dispersing Unit aura. Emitted by `calculateProductionPlan`
+       * once per affected env. Unreachable through the App flow in 1.4
+       * data (every env gas is suppliable wherever its consumers are
+       * placeable) — this is the honest fallback for direct callers.
+       */
+      kind: "gas-env-unavailable";
+      /** Upstream env id (`Recipe.gasEnv` / `vaporizerEnvs` key). */
+      env: number;
+      /** The env's gas item (what the vaporizer would burn). */
+      gasItemId: ItemId;
     };
 
 /**

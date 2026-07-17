@@ -68,5 +68,6 @@
   "metastorageBudgetInsufficient": "{{item}}（{{source}} から）：配送あたり {{needed}} の総転送価値が必要ですが、上限は {{cap}} です。輸入は適用されません。目標レートを下げるか、現地生産を拡大してください。",
   "viewOptions": "表示オプション",
   "expandPanel": "パネルを展開",
-  "collapsePanel": "パネルを折りたたむ"
+  "collapsePanel": "パネルを折りたたむ",
+  "gasEnvUnavailable": "ガス環境：現在の設定では{{item}}を供給できないため、ガス散布機は計画されていません。ガス消費量が過小評価されています。"
 }

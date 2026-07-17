@@ -336,6 +336,14 @@ function formatPlanWarning(
       return t("powerSustainInsufficient", {
         watts: w.shortfallWatts.toFixed(0),
       });
+    case "gas-env-unavailable":
+      // An env-gated recipe runs but its environment's gas cannot be
+      // supplied — no Gas Dispersing Unit was planned, so the real gas
+      // cost is understated. Unreachable through the App flow in 1.4
+      // data (defensive for direct callers).
+      return t("gasEnvUnavailable", {
+        item: lookupItemName(w.gasItemId),
+      });
   }
 }
 

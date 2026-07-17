@@ -96,6 +96,12 @@ export async function calculateFlows(
     generationByRecipe: ReadonlyMap<RecipeId, number>;
     minGeneration?: number;
   },
+  /**
+   * Per-recipe hard facility-count floors (the calculator's gas-sustain
+   * loop forcing vaporizer `vaporize_*` recipes to whole-building
+   * counts). Forwarded verbatim to `LPInput.recipeMinRates`.
+   */
+  recipeMinRates?: ReadonlyMap<RecipeId, number>,
 ): Promise<{
   flowData: FlowData;
   invalidSCCs: InvalidSCCInfo[];
@@ -264,6 +270,7 @@ export async function calculateFlows(
     facilityCaps,
     metastorageImports,
     powerBalance,
+    recipeMinRates,
     facilityMap: maps.facilityMap,
   };
 

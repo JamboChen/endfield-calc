@@ -592,6 +592,7 @@ export function mapPlanToFlowMerged(
     // Create edges from producers with remaining output after consumer allocation
     const greedy = greedyAllocations.get(consumedItemId);
     const producers = getItemProducers(plan, consumedItemId);
+    let allocatedToSink = 0;
 
     for (const producer of producers) {
       // Use greedy remaining if available, otherwise full proportional split
@@ -607,6 +608,7 @@ export function mapPlanToFlowMerged(
       }
 
       if (edgeRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+      allocatedToSink += edgeRate;
 
       // Compute how many facilities of this producer contribute
       const producerNode = plan.nodes.get(producer.recipeId);
@@ -633,6 +635,63 @@ export function mapPlanToFlowMerged(
           undefined,
           ceilMode,
           edgeFacilityCount,
+        ),
+      );
+    }
+
+    // Raw-consuming sink (1.4 vaporizers burn raw gas): no recipe
+    // producer exists, so the pickup node supplies the sink directly.
+    // Mirrors the raw→consumer branch of the edge handler above (which
+    // deliberately skips disposal recipes). The pickup node is created
+    // here when no other consumer already forced it into the flow.
+    const rawRemainder = disposalRate - allocatedToSink;
+    if (
+      consumedItemNode.isRawMaterial &&
+      rawRemainder > MIN_VISIBLE_RATE_PER_MIN
+    ) {
+      const rawMaterialNodeId = createRawMaterialId(consumedItemNode.itemId);
+      if (!flowNodes.find((n2) => n2.id === rawMaterialNodeId)) {
+        const cfg = rawMaterialSources.get(consumedItemNode.itemId);
+        const sourceFacility = cfg
+          ? (facilities.find((f) => f.id === cfg.sourceFacility) ?? null)
+          : null;
+        const perFacilityRate = getRawSourceRate(
+          consumedItemNode.itemId,
+          consumedItemNode.item,
+        );
+        const pickupCount =
+          perFacilityRate > 0
+            ? consumedItemNode.productionRate / perFacilityRate
+            : 0;
+        flowNodes.push(
+          createProductionFlowNode(
+            rawMaterialNodeId,
+            {
+              item: consumedItemNode.item,
+              targetRate: consumedItemNode.productionRate,
+              recipe: null,
+              facility: sourceFacility,
+              facilityCount: pickupCount,
+              isRawMaterial: true,
+              isTarget: false,
+              dependencies: [],
+            },
+            items,
+            facilities,
+            ceilMode,
+            { isDirectTarget: false },
+          ),
+        );
+      }
+      flowEdges.push(
+        createEdge(
+          `e${edgeIdCounter++}`,
+          rawMaterialNodeId,
+          disposalSinkId,
+          rawRemainder,
+          consumedItemNode.item,
+          undefined,
+          ceilMode,
         ),
       );
     }

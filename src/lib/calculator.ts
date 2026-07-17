@@ -22,6 +22,11 @@ import type {
 import type { MetastorageRouteConfig } from "@/types/metastorage";
 import { calcRate } from "@/lib/utils";
 import {
+  facilitySustainDrains,
+  vaporizerEnvs,
+  type SustainDrain,
+} from "@/data/gas-sustain";
+import {
   aggregateBinTotals,
   computeLimitViolations,
 } from "@/lib/plan-helpers";
@@ -998,15 +1003,19 @@ function canRoutesCoverItems(
 type FlowSolveResult = Awaited<ReturnType<typeof calculateFlows>>;
 
 /**
- * Ceil-floor loop bounds (self-sustaining power). Iterations beyond the
- * first are rare — the top-up's own ceiling bump is small (battery
- * maker + banks), so most plans converge after one extra solve; the cap
- * is a hard stop for pathological ceiling cascades. The tolerance
- * absorbs LP/aggregation float noise well below the smallest real power
- * draw in the data (5 W).
+ * Ceil-floor loop bounds (self-sustaining power + 1.4 gas sustain). The
+ * loop converges up to three interleaved whole-building figures — the
+ * power generation floor, the transmuter idle-drain scales, and the
+ * vaporizer min-runs — all monotone, so iterations beyond the first two
+ * are rare; the cap is a hard stop for pathological ceiling cascades.
+ * `POWER_FLOOR_TOLERANCE` absorbs LP/aggregation float noise well below
+ * the smallest real power draw in the data (5 W).
+ * `SUSTAIN_SCALE_TOLERANCE` (relative) skips re-solves for microscopic
+ * idle-drain-scale drift.
  */
-const MAX_POWER_FLOOR_ITERATIONS = 5;
+const MAX_POWER_FLOOR_ITERATIONS = 8;
 const POWER_FLOOR_TOLERANCE = 0.25;
+const SUSTAIN_SCALE_TOLERANCE = 1e-3;
 
 /**
  * A candidate the enumeration rejected because its solve needed more
@@ -1228,6 +1237,118 @@ async function selectMetastorageImports(
  *   App callers pass `powerFuels` from `@/data`; tests may pass
  *   synthetic fuels.
  */
+/**
+ * Default machines-per-vaporizer coverage ratio. One Gas Dispersing
+ * Unit's aura is 13×13 (rangeExtend 5 around a 3×3 footprint) and
+ * buildings must sit FULLY inside — best packing fits 4 machines of the
+ * 5×5/6×4 classes that carry env-gated recipes. User-tunable via
+ * `gasSustain.machinesPerVaporizer` (plan option).
+ */
+export const DEFAULT_MACHINES_PER_VAPORIZER = 4;
+
+/** One vaporizer env entry (shape of `vaporizerEnvs` values). */
+export interface VaporizerEnvConfig {
+  gasItemId: ItemId;
+  /** Gas burned per minute per always-on vaporizer. */
+  ratePerMinute: number;
+  /** Synthetic zero-output `vaporize_*` recipe (craftingTime 60 s). */
+  recipe: Recipe;
+}
+
+/**
+ * Book-keeping for one catalyst-folded recipe clone (1.4 transmuters).
+ *
+ * The transmuter catalyst (`facilitySustainDrains`) drains
+ * `ratePerMinute` per WHOLE building, even when idle. The calculator
+ * models it as an extra input on every recipe of the facility:
+ *
+ *   catalystPerCraft = ratePerMinute × craftingTime / 60 × k
+ *
+ * where `k = ceil(N_F) / N_F` (N_F = the facility's fractional LP
+ * count) is the idle-drain scale set by the sustain loop — total
+ * consumption then equals `ratePerMinute × ceil(N_F)` exactly, matching
+ * the in-game always-on drain of the physically placed buildings. The
+ * clones' input amounts are mutated in place between loop iterations
+ * (`setCatalystScale`); the graph topology never changes because the
+ * catalyst input entry exists from the start (k begins at 1).
+ */
+interface FoldedCatalystRecipe {
+  /** The cloned recipe object registered in the plan's recipeMap. */
+  recipe: Recipe;
+  facilityId: FacilityId;
+  catalystItemId: ItemId;
+  /** Catalyst units per craft at k = 1 (`rate × craftingTime / 60`). */
+  basePerCraft: number;
+  /** The catalyst entry inside `recipe.inputs` (mutated by scaling). */
+  catalystInput: { itemId: ItemId; amount: number };
+  /** Original (game-data) amount of the catalyst on this input, if any. */
+  originalInputAmount: number;
+}
+
+/**
+ * Clone every recipe whose facility carries a sustain drain, folding the
+ * catalyst in as an extra input at k = 1. Non-drain recipes pass through
+ * unchanged. Gross semantics on purpose: a transmuter recipe that also
+ * OUTPUTS the catalyst item (e.g. gas→liquid xiranite on transmuter_1)
+ * keeps its full output and gains the input — physically truthful (the
+ * catalyst enters via dedicated intake ports) and it surfaces the real
+ * self-feed cycle to SCC/prefill detection.
+ */
+function applyCatalystFolding(
+  recipes: readonly Recipe[],
+  drains: ReadonlyMap<FacilityId, SustainDrain>,
+): { recipes: Recipe[]; folded: FoldedCatalystRecipe[] } {
+  if (drains.size === 0) return { recipes: [...recipes], folded: [] };
+  const out: Recipe[] = [];
+  const folded: FoldedCatalystRecipe[] = [];
+  for (const recipe of recipes) {
+    const drain = drains.get(recipe.facilityId);
+    if (!drain || !(drain.ratePerMinute > 0) || !(recipe.craftingTime > 0)) {
+      out.push(recipe);
+      continue;
+    }
+    const basePerCraft = (drain.ratePerMinute * recipe.craftingTime) / 60;
+    const inputs = recipe.inputs.map((i) => ({ ...i }));
+    let catalystInput = inputs.find((i) => i.itemId === drain.itemId);
+    const originalInputAmount = catalystInput?.amount ?? 0;
+    if (catalystInput) {
+      catalystInput.amount = originalInputAmount + basePerCraft;
+    } else {
+      catalystInput = { itemId: drain.itemId, amount: basePerCraft };
+      inputs.push(catalystInput);
+    }
+    const clone: Recipe = {
+      ...recipe,
+      inputs,
+      outputs: recipe.outputs.map((o) => ({ ...o })),
+    };
+    out.push(clone);
+    folded.push({
+      recipe: clone,
+      facilityId: recipe.facilityId,
+      catalystItemId: drain.itemId,
+      basePerCraft,
+      catalystInput,
+      originalInputAmount,
+    });
+  }
+  return { recipes: out, folded };
+}
+
+/**
+ * Apply the idle-drain scale `k` per drain facility to every folded
+ * clone (in place). `k = 1` restores the fractional-drain baseline.
+ */
+function setCatalystScale(
+  folded: readonly FoldedCatalystRecipe[],
+  scaleByFacility: ReadonlyMap<FacilityId, number>,
+): void {
+  for (const f of folded) {
+    const k = scaleByFacility.get(f.facilityId) ?? 1;
+    f.catalystInput.amount = f.originalInputAmount + f.basePerCraft * k;
+  }
+}
+
 export interface CalculateProductionPlanOptions {
   rawMaterials: ReadonlySet<ItemId>;
   rawCaps?: ReadonlyMap<ItemId, number>;
@@ -1236,6 +1357,28 @@ export interface CalculateProductionPlanOptions {
   facilityCaps?: ReadonlyMap<FacilityId, number>;
   metastorageRoutes?: readonly MetastorageRouteConfig[];
   powerSustain?: { fuels: readonly PowerFuel[] };
+  /**
+   * 1.4 gas-sustain overrides. ALWAYS ACTIVE by default (unlike
+   * `powerSustain`, these are hard game facts, not an opt-in mode):
+   * `drains` defaults to `facilitySustainDrains` and `vaporizerEnvs` to
+   * the generated data module. Tests may inject synthetic tables or
+   * empty maps to disable. `machinesPerVaporizer` tunes the env
+   * coverage ratio (default `DEFAULT_MACHINES_PER_VAPORIZER`).
+   *
+   * Two mechanics (see `.claude/rules/solver.md` + `gas-sustain.ts`):
+   * - **Transmuter catalyst**: folded into every transmuter recipe as
+   *   an extra input; the sustain loop scales it so total consumption
+   *   equals `rate × ceil(buildings)` (drains even when idle).
+   * - **Vaporizer envs**: env-gated recipes (`Recipe.gasEnv`) pull the
+   *   env's `vaporize_*` recipe into the graph; the sustain loop forces
+   *   its facility count to `ceil(env machines / machinesPerVaporizer)`
+   *   via `LPInput.recipeMinRates` (always-on 6 gas/min per vaporizer).
+   */
+  gasSustain?: {
+    drains?: ReadonlyMap<FacilityId, SustainDrain>;
+    vaporizerEnvs?: ReadonlyMap<number, VaporizerEnvConfig>;
+    machinesPerVaporizer?: number;
+  };
 }
 
 export async function calculateProductionPlan(
@@ -1254,6 +1397,13 @@ export async function calculateProductionPlan(
   const facilityCaps = options.facilityCaps;
   const metastorageRoutes = options.metastorageRoutes ?? [];
   const powerFuels = options.powerSustain?.fuels ?? [];
+  // Gas sustain (1.4) — active by default; see the option's JSDoc.
+  const sustainDrains = options.gasSustain?.drains ?? facilitySustainDrains;
+  const envConfigs = options.gasSustain?.vaporizerEnvs ?? vaporizerEnvs;
+  const machinesPerVaporizer = Math.max(
+    1,
+    options.gasSustain?.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
+  );
 
   // Drop opt-in variant recipes whose facility has no positive cap.
   // Variant recipes (today: `LIQUID_CLEAN_GATE_1_{DISPOSAL,BYPRODUCT}`)
@@ -1282,9 +1432,16 @@ export async function calculateProductionPlan(
       ? recipes
       : recipes.filter((r) => !optInVariantRecipeIds.has(r.id));
 
+  // Catalyst folding (1.4 transmuters): clone drain-facility recipes
+  // with the catalyst as an extra input at k = 1; the sustain loop
+  // below scales the amounts to whole-building drain. See
+  // `FoldedCatalystRecipe`.
+  const { recipes: sustainRecipes, folded: foldedCatalysts } =
+    applyCatalystFolding(filteredRecipes, sustainDrains);
+
   const maps: ProductionMaps = {
     itemMap: new Map(items.map((i) => [i.id, i])),
-    recipeMap: new Map(filteredRecipes.map((r) => [r.id, r])),
+    recipeMap: new Map(sustainRecipes.map((r) => [r.id, r])),
     facilityMap: new Map(facilities.map((f) => [f.id, f])),
   };
   // Burn recipes ride the options bag (NOT the `recipes` roster — they
@@ -1295,6 +1452,16 @@ export async function calculateProductionPlan(
   // leak them into target-rooted traversal.
   for (const fuel of powerFuels) {
     maps.recipeMap.set(fuel.recipe.id, fuel.recipe);
+  }
+  // Vaporize recipes ride the same channel as burn recipes: consumer-
+  // only, so they can never match `availableProducersFor` and leak into
+  // target-rooted traversal; they enter the graph exclusively through
+  // `buildBipartiteGraph`'s env-scan injection.
+  const vaporizeRecipesByEnv = new Map<number, Recipe>();
+  for (const [env, cfg] of envConfigs) {
+    if (!cfg.recipe.inputs.length) continue;
+    vaporizeRecipesByEnv.set(env, cfg.recipe);
+    maps.recipeMap.set(cfg.recipe.id, cfg.recipe);
   }
 
   // No backtracking: the global LP includes every alternative producer as
@@ -1327,6 +1494,7 @@ export async function calculateProductionPlan(
     undefined,
     importableItems,
     powerFuels,
+    vaporizeRecipesByEnv,
   );
 
   // Power sustain: generation map for the LP row + the warning for the
@@ -1500,6 +1668,37 @@ export async function calculateProductionPlan(
           ]
         : [];
 
+    // Gas-env coverage check (1.4): an ACTIVE env-gated recipe whose
+    // env has no vaporize recipe in the graph (injection guard skipped
+    // it — gas unsuppliable) means the plan understates the real gas
+    // cost. One warning per affected env. See `gas-env-unavailable`.
+    const gasEnvWarnings: PlanWarning[] = [];
+    const uncoveredEnvs = new Set<number>();
+    for (const [recipeId, fc] of fr.flowData.recipeFacilityCounts) {
+      if (!(fc > 0)) continue;
+      const env = maps.recipeMap.get(recipeId)?.gasEnv;
+      if (env === undefined || env <= 0 || uncoveredEnvs.has(env)) continue;
+      const vaporize = vaporizeRecipesByEnv.get(env);
+      if (vaporize && graph.recipeNodes.has(vaporize.id)) continue;
+      uncoveredEnvs.add(env);
+      const envCfg = envConfigs.get(env);
+      if (!envCfg) {
+        // Env id with no vaporizer entry at all — upstream data drift
+        // (a recipe references an env the vaporizer can't produce).
+        if (import.meta.env?.DEV) {
+          console.warn(
+            `[GAS-ENV] recipe ${recipeId} requires unknown env ${env}; no warning emitted`,
+          );
+        }
+        continue;
+      }
+      gasEnvWarnings.push({
+        kind: "gas-env-unavailable",
+        env,
+        gasItemId: envCfg.gasItemId,
+      });
+    }
+
     const packing = await packBins({
       recipeSlotDemands: flowData.recipeFacilityCounts,
       recipeMap: maps.recipeMap,
@@ -1529,6 +1728,7 @@ export async function calculateProductionPlan(
         ...metastorageWarnings,
         ...powerWarnings,
         ...shortfallWarnings,
+        ...gasEnvWarnings,
       ],
       recipePrefill,
       metastorageImports,
@@ -1584,24 +1784,126 @@ export async function calculateProductionPlan(
   const hasGenerators =
     powerGenerationByRecipe !== undefined &&
     powerFuels.some((f) => graph.recipeNodes.has(f.recipe.id));
-  if (hasGenerators && plan.lpStatus === "ok") {
+  // Gas sustain (1.4): the loop also converges the transmuter
+  // idle-drain scale (catalyst = rate × ceil(buildings), not rate ×
+  // fractional count) and the vaporizer whole-building min-runs
+  // (ceil(env machines / machinesPerVaporizer) always-on vaporizers).
+  const hasDrainFacilities = foldedCatalysts.some((f) =>
+    graph.recipeNodes.has(f.recipe.id),
+  );
+  const hasEnvSupport = Array.from(vaporizeRecipesByEnv.values()).some((r) =>
+    graph.recipeNodes.has(r.id),
+  );
+  if (
+    (hasGenerators || hasDrainFacilities || hasEnvSupport) &&
+    plan.lpStatus === "ok"
+  ) {
     let minGeneration = 0;
+    // Monotone-max state (termination): ceiled drain-building counts,
+    // vaporizer min-runs, and the power floor only ever grow.
+    const maxCeilByDrainFacility = new Map<FacilityId, number>();
+    const scaleByFacility = new Map<FacilityId, number>();
+    // Scales the CURRENT `plan` was assembled with — restored if a
+    // re-solve fails so the returned plan's recipe amounts stay
+    // consistent with its flows (the clones are shared objects).
+    let appliedScales = new Map<FacilityId, number>();
+    const vaporizerMinRuns = new Map<RecipeId, number>();
     for (let iter = 0; iter < MAX_POWER_FLOOR_ITERATIONS; iter++) {
       const agg = aggregateBinTotals(plan, facilities, items, {
         ceilMode: true,
       });
-      const deficit = agg.totalPower - agg.totalPowerGeneration;
-      if (deficit <= POWER_FLOOR_TOLERANCE) break;
-      // No-progress guard: the ceiled consumption must strictly grow
-      // past the floor we already solved for (defensive — a plateau
-      // with residual deficit would otherwise loop until the cap).
-      if (agg.totalPower <= minGeneration + POWER_FLOOR_TOLERANCE) break;
-      minGeneration = agg.totalPower;
-      if (import.meta.env?.DEV) {
-        console.log(
-          `[POWER] ceil-floor iteration ${iter + 1}: deficit ${deficit.toFixed(1)}, raising generation floor to ${minGeneration.toFixed(1)}`,
-        );
+      let changed = false;
+
+      // 1. Power generation floor (whole-building consumption).
+      if (hasGenerators) {
+        const deficit = agg.totalPower - agg.totalPowerGeneration;
+        // No-progress guard: the ceiled consumption must strictly grow
+        // past the floor we already solved for (defensive — a plateau
+        // with residual deficit would otherwise loop until the cap).
+        if (
+          deficit > POWER_FLOOR_TOLERANCE &&
+          agg.totalPower > minGeneration + POWER_FLOOR_TOLERANCE
+        ) {
+          minGeneration = agg.totalPower;
+          changed = true;
+          if (import.meta.env?.DEV) {
+            console.log(
+              `[POWER] ceil-floor iteration ${iter + 1}: deficit ${deficit.toFixed(1)}, raising generation floor to ${minGeneration.toFixed(1)}`,
+            );
+          }
+        }
       }
+
+      // 2. Transmuter idle-drain scale: k_F = maxCeil_F / fractional_F
+      //    makes total catalyst = rate × ceil(buildings) exactly.
+      if (hasDrainFacilities) {
+        const fractionalByFacility = new Map<FacilityId, number>();
+        for (const node of plan.nodes.values()) {
+          if (node.type !== "recipe") continue;
+          const facId = node.recipe.facilityId;
+          if (!sustainDrains.has(facId)) continue;
+          fractionalByFacility.set(
+            facId,
+            (fractionalByFacility.get(facId) ?? 0) + node.facilityCount,
+          );
+        }
+        for (const [facId, frac] of fractionalByFacility) {
+          if (!(frac > 0)) continue;
+          const phys = agg.physicalPerFacility.get(facId) ?? 0;
+          const ceilNow = Math.max(
+            maxCeilByDrainFacility.get(facId) ?? 0,
+            phys,
+          );
+          if (ceilNow <= 0) continue;
+          maxCeilByDrainFacility.set(facId, ceilNow);
+          const k = Math.max(1, ceilNow / frac);
+          const prevK = scaleByFacility.get(facId) ?? 1;
+          if (Math.abs(k - prevK) > SUSTAIN_SCALE_TOLERANCE * prevK) {
+            scaleByFacility.set(facId, k);
+            changed = true;
+            if (import.meta.env?.DEV) {
+              console.log(
+                `[GAS-SUSTAIN] iteration ${iter + 1}: ${facId} idle-drain scale ${prevK.toFixed(3)} → ${k.toFixed(3)} (${frac.toFixed(3)} fractional / ${ceilNow} placed)`,
+              );
+            }
+          }
+        }
+      }
+
+      // 3. Vaporizer min-runs: whole always-on vaporizers per env.
+      if (hasEnvSupport) {
+        const envBuildings = new Map<number, number>();
+        for (const node of plan.nodes.values()) {
+          if (node.type !== "recipe") continue;
+          const env = node.recipe.gasEnv;
+          if (env === undefined || env <= 0 || !(node.facilityCount > 0)) {
+            continue;
+          }
+          envBuildings.set(
+            env,
+            (envBuildings.get(env) ?? 0) + Math.ceil(node.facilityCount),
+          );
+        }
+        for (const [env, buildings] of envBuildings) {
+          const vaporize = vaporizeRecipesByEnv.get(env);
+          if (!vaporize || !graph.recipeNodes.has(vaporize.id)) continue;
+          const needed = Math.ceil(buildings / machinesPerVaporizer);
+          const prev = vaporizerMinRuns.get(vaporize.id) ?? 0;
+          if (needed > prev) {
+            vaporizerMinRuns.set(vaporize.id, needed);
+            changed = true;
+            if (import.meta.env?.DEV) {
+              console.log(
+                `[GAS-SUSTAIN] iteration ${iter + 1}: env ${env} needs ${needed} vaporizer(s) for ${buildings} machine(s)`,
+              );
+            }
+          }
+        }
+      }
+
+      if (!changed) break;
+
+      setCatalystScale(foldedCatalysts, scaleByFacility);
       const fr = await calculateFlows(
         graph,
         sccs,
@@ -1611,25 +1913,37 @@ export async function calculateProductionPlan(
         rawCaps,
         facilityCaps,
         selectedImports.length > 0 ? selectedImports : undefined,
-        { generationByRecipe: powerGenerationByRecipe, minGeneration },
+        powerGenerationByRecipe
+          ? {
+              generationByRecipe: powerGenerationByRecipe,
+              minGeneration: minGeneration > 0 ? minGeneration : undefined,
+            }
+          : undefined,
+        vaporizerMinRuns.size > 0 ? vaporizerMinRuns : undefined,
       );
       if (!fr.metrics.feasible) {
         // Floor made the solve fail (raw/facility caps are soft, so
         // this is practically a solver error) — keep the last good
-        // plan; the deficit warning surfaces the residual gap.
+        // plan, restoring the catalyst scale it was assembled with so
+        // displayed recipe amounts stay consistent with its flows.
+        setCatalystScale(foldedCatalysts, appliedScales);
         if (import.meta.env?.DEV) {
           console.warn(
-            `[POWER] ceil-floor re-solve failed (${fr.metrics.failureReason}); keeping previous plan`,
+            `[GAS-SUSTAIN] ceil-floor re-solve failed (${fr.metrics.failureReason}); keeping previous plan`,
           );
         }
         break;
       }
       plan = await assemblePlan(fr);
+      appliedScales = new Map(scaleByFacility);
       // Affordability stop: the power slack engaged — every remaining
       // watt would need cap headroom that doesn't exist, so raising
       // the floor further cannot help. The assembled plan already
       // carries the `power-sustain-insufficient` warning.
-      if (fr.metrics.powerShortfall > POWER_FLOOR_TOLERANCE) {
+      if (
+        hasGenerators &&
+        fr.metrics.powerShortfall > POWER_FLOOR_TOLERANCE
+      ) {
         if (import.meta.env?.DEV) {
           console.warn(
             `[POWER] ceil-floor stopped: ${fr.metrics.powerShortfall.toFixed(1)} W not fundable within caps`,

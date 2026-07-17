@@ -68,5 +68,6 @@
   "metastorageBudgetInsufficient": "{{item}} from {{source}}: needs {{needed}} TTV per delivery but the budget is {{cap}}. Import not applied. Reduce the target rate or expand local production.",
   "viewOptions": "View options",
   "expandPanel": "Expand panel",
-  "collapsePanel": "Collapse panel"
+  "collapsePanel": "Collapse panel",
+  "gasEnvUnavailable": "Gas environment: {{item}} cannot be supplied, so no Gas Dispersing Unit was planned. Gas consumption is understated."
 }

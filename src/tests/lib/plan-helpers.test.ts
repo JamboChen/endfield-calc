@@ -895,7 +895,13 @@ describe("aggregateBinTotals (real data)", () => {
         const recipeCount = Math.max(1, bin.recipeIds.length);
         const sumActivities = sumByBin.get(bin.id) ?? bin.buildingCount;
         const mean = sumActivities / recipeCount;
-        expect(mean).toBeLessThanOrEqual(bin.buildingCount + 1e-9);
+        // Tolerance matches the solver's own noise floor
+        // (`FACILITY_COUNT_EPSILON` = 1e-6): the 1.4 catalyst folding
+        // introduces non-terminating per-craft amounts (0.2 × k) whose
+        // LP round-trip carries ~1e-8 drift — mathematically the
+        // invariant is exact, numerically it holds to the system
+        // epsilon.
+        expect(mean).toBeLessThanOrEqual(bin.buildingCount + 1e-6);
       }
     }
   });
@@ -1834,7 +1840,12 @@ describe("aggregateBinTotals.totalTiles", () => {
       const fac = facilityById.get(facilityId);
       if (!fac?.footprint) return 0;
       if (!opts.includeMapPlaced && mapPlacedFacilities.has(fac.id)) return 0;
-      if (!opts.includePumps && (fac.category === 25 || fac.category === 26)) {
+      // Mirrors `PUMP_CATEGORIES` (25/26 fluid pumps + 41 gas extractor,
+      // 1.4) — resource-spot deployables occupy no build-grid tiles.
+      if (
+        !opts.includePumps &&
+        (fac.category === 25 || fac.category === 26 || fac.category === 41)
+      ) {
         return 0;
       }
       return fac.footprint.width * fac.footprint.depth;

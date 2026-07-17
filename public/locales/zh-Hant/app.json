@@ -68,5 +68,6 @@
   "metastorageBudgetInsufficient": "{{item}}（來自 {{source}}）：每次配送需要 {{needed}} 傳輸總值，但預算為 {{cap}}。轉入未生效。請降低目標速率或擴大本地生產。",
   "viewOptions": "檢視選項",
   "expandPanel": "展開面板",
-  "collapsePanel": "摺疊面板"
+  "collapsePanel": "摺疊面板",
+  "gasEnvUnavailable": "氣體環境：目前設定下無法供應{{item}}，未規劃氣體散布機，氣體消耗被低估。"
 }

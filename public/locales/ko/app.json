@@ -68,5 +68,6 @@
   "metastorageBudgetInsufficient": "{{item}}({{source}}): 배송당 {{needed}}의 전송 총가치가 필요하지만 예산은 {{cap}}입니다. 수입이 적용되지 않았습니다. 목표 속도를 낮추거나 현지 생산을 늘리세요.",
   "viewOptions": "보기 옵션",
   "expandPanel": "패널 펼치기",
-  "collapsePanel": "패널 접기"
+  "collapsePanel": "패널 접기",
+  "gasEnvUnavailable": "기체 환경: 현재 설정으로는 {{item}}을(를) 공급할 수 없어 기체 분산기가 계획되지 않았습니다. 기체 소비량이 과소평가됩니다."
 }

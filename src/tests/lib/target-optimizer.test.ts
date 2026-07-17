@@ -148,14 +148,29 @@ describe("rawsInChainOf (Max-button gating closure)", () => {
     expect(result).toEqual(raws("raw_a"));
   });
 
-  test("real data: Cuprium Part chain = exactly {water, copper ore}", () => {
+  test("real data: Cuprium Part chain covers the gas-era alternative routes", () => {
+    // Pre-1.4 the closure was exactly {water, copper ore}. The 1.4 gas
+    // mechanics add alternative producers along the copper chain
+    // (gas-phase copper via the Transmuting Units, Filter Cores from
+    // iron/quartz for the Purification Unit's gas recipes, acid for
+    // enrichment variants), so the all-alternatives closure now spans
+    // every raw that ANY route can consume — Max-button gating widens
+    // accordingly.
     const result = rawsInChainOf(
       ItemIdEnum.ITEM_COPPER_CMPT,
       recipes,
       ALL_RAWS,
     );
     expect(result).toEqual(
-      new Set([ItemIdEnum.ITEM_LIQUID_WATER, ItemIdEnum.ITEM_COPPER_ORE]),
+      new Set([
+        ItemIdEnum.ITEM_LIQUID_WATER,
+        ItemIdEnum.ITEM_COPPER_ORE,
+        ItemIdEnum.ITEM_LIQUID_ACID,
+        ItemIdEnum.ITEM_IRON_ORE,
+        ItemIdEnum.ITEM_QUARTZ_SAND,
+        ItemIdEnum.ITEM_GAS_INERT,
+        ItemIdEnum.ITEM_GAS_XIRANITE,
+      ]),
     );
   });
 
