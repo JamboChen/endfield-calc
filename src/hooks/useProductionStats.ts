@@ -6,6 +6,7 @@ import type {
   ItemId,
   PlanMetastorageImport,
   ProductionDependencyGraph,
+  RecipeId,
 } from "@/types";
 import type { BinAggregates } from "@/lib/plan-helpers";
 import {
@@ -15,6 +16,7 @@ import {
   getRawSourceRate,
 } from "@/lib/utils";
 import { facilities, rawMaterialSources } from "@/data";
+import { vaporizerEnvs } from "@/data/gas-sustain";
 import { PUMP_CATEGORIES } from "@/lib/plan-helpers";
 
 export type ProductionStats = {
@@ -105,6 +107,11 @@ const pumpFacilityIds: ReadonlySet<FacilityId> = new Set(
   facilities.filter((f) => PUMP_CATEGORIES.has(f.category)).map((f) => f.id),
 );
 
+/** Synthetic `vaporize_*` recipe ids (1.4 gas envs) — see Byproducts note. */
+const vaporizeRecipeIds: ReadonlySet<RecipeId> = new Set(
+  Array.from(vaporizerEnvs.values(), (e) => e.recipe.id),
+);
+
 /**
  * Comparator factory for facility-requirement rows: over-cap rows
  * pinned first, then heaviest builds by the **mode-independent** raw LP
@@ -171,8 +178,17 @@ function collectStats(
       // Disposal sinks: rate = input consumption × facility count.
       // Power-generation burn nodes are excluded from the Byproducts
       // list (their consumption is generation, surfaced via
-      // `totalPowerGeneration` + the facility list instead).
-      if (node.isDisposal && !node.powerGeneration && node.recipe.inputs.length > 0) {
+      // `totalPowerGeneration` + the facility list instead). Vaporize
+      // nodes (1.4 gas envs) are excluded for the same reason: their
+      // gas intake is planned env upkeep — an input the plan procures,
+      // not a byproduct routed to disposal — surfaced via the Gas
+      // Dispersing Unit's facility-list row + raw-usage rows instead.
+      if (
+        node.isDisposal &&
+        !node.powerGeneration &&
+        !vaporizeRecipeIds.has(node.recipe.id) &&
+        node.recipe.inputs.length > 0
+      ) {
         const input = node.recipe.inputs[0];
         const rate =
           calcRate(input.amount, node.recipe.craftingTime) *
