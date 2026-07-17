@@ -27,8 +27,11 @@ const TRANSPORT_PIPE_CAPACITY = 120;
  */
 const TRANSPORT_COUNT_TOLERANCE = 1e-9;
 
+/** Liquids AND gases (1.4+) travel through pipes; solids ride belts. */
 export const getTransportCapacity = (item?: Item): number =>
-  item?.isLiquid ? TRANSPORT_PIPE_CAPACITY : TRANSPORT_BELT_CAPACITY;
+  item?.isLiquid || item?.isGas
+    ? TRANSPORT_PIPE_CAPACITY
+    : TRANSPORT_BELT_CAPACITY;
 
 export const getTransportCount = (
   itemsPerMinute: number,
@@ -57,7 +60,8 @@ export const getTransportCountWithFacilities = (
 /**
  * Per-facility throughput for the source building that supplies a raw
  * material. Honours the `ratePerMinute` override from `rawMaterialSources`
- * (60/min for liquids — pump_1/pump_2 cap at one unit per second).
+ * (60/min for liquids — pump_1/pump_2 cap at one unit per second;
+ * 20/min for gases — gas_pump_1 extracts one unit per 3 s).
  * Falls back to transport capacity (30 belt / 120 pipe) for raws without
  * an explicit override, and for items that aren't in `rawMaterialSources`
  * (defensive — shouldn't happen for actual raws).

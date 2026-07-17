@@ -18,12 +18,14 @@ import { mapPlacedFacilities, rawMaterialSources } from "@/data";
 
 /**
  * `GEnums.FacBuildingType` values for the fluid pump classes
- * (FluidPumpIn / FluidPumpOut). Pumps deploy onto fluid bodies in the
- * open world — outside the Core-AIC build grid — so they contribute no
- * grid tiles (see `BinAggregates.totalTiles`) and no depot-port count
- * (see `useProductionStats.depotPickupPoints`).
+ * (25/26: FluidPumpIn / FluidPumpOut) plus the 1.4 gas miner (41:
+ * `gas_pump_1`, the Gas Extractor). These deploy onto fixed resource
+ * spots — fluid bodies in the open world, gas vents — rather than
+ * general-purpose Core-AIC grid tiles, so they contribute no grid
+ * tiles (see `BinAggregates.totalTiles`) and count as pump pickups
+ * rather than depot ports (see `useProductionStats.pumpPickupPoints`).
  */
-export const PUMP_CATEGORIES: ReadonlySet<number> = new Set([25, 26]);
+export const PUMP_CATEGORIES: ReadonlySet<number> = new Set([25, 26, 41]);
 
 /**
  * Bin-level plan aggregates derived from `plan.bins`. Single
