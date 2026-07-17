@@ -21,6 +21,7 @@ import type {
 } from "@/types";
 import type { MetastorageRouteConfig } from "@/types/metastorage";
 import { calcRate } from "@/lib/utils";
+import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
 import {
   facilitySustainDrains,
   vaporizerEnvs,
@@ -1237,14 +1238,9 @@ async function selectMetastorageImports(
  *   App callers pass `powerFuels` from `@/data`; tests may pass
  *   synthetic fuels.
  */
-/**
- * Default machines-per-vaporizer coverage ratio. One Gas Dispersing
- * Unit's aura is 13×13 (rangeExtend 5 around a 3×3 footprint) and
- * buildings must sit FULLY inside — best packing fits 4 machines of the
- * 5×5/6×4 classes that carry env-gated recipes. User-tunable via
- * `gasSustain.machinesPerVaporizer` (plan option).
- */
-export const DEFAULT_MACHINES_PER_VAPORIZER = 4;
+// Re-exported from the UI-safe constants module (`sustain-constants.ts`
+// keeps the solver code-split — see its header).
+export { DEFAULT_MACHINES_PER_VAPORIZER };
 
 /** One vaporizer env entry (shape of `vaporizerEnvs` values). */
 export interface VaporizerEnvConfig {

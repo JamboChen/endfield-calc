@@ -394,6 +394,8 @@ function AppContent() {
     setBinFusion,
     powerSustain,
     setPowerSustain,
+    machinesPerVaporizer,
+    setMachinesPerVaporizer,
     powerTargets,
     powerSustainUnavailable,
     handleSavePlan,
@@ -476,6 +478,8 @@ function AppContent() {
                 onAutoFitChange={setAutoFit}
                 powerSustain={powerSustain}
                 onPowerSustainChange={setPowerSustain}
+                machinesPerVaporizer={machinesPerVaporizer}
+                onMachinesPerVaporizerChange={setMachinesPerVaporizer}
                 powerTargets={powerTargets}
                 powerSustainUnavailable={powerSustainUnavailable}
                 onOpenSettings={handleOpenSettings}
@@ -515,6 +519,8 @@ function AppContent() {
             onAutoFitChange={setAutoFit}
             powerSustain={powerSustain}
             onPowerSustainChange={setPowerSustain}
+            machinesPerVaporizer={machinesPerVaporizer}
+            onMachinesPerVaporizerChange={setMachinesPerVaporizer}
             powerTargets={powerTargets}
             powerSustainUnavailable={powerSustainUnavailable}
             onOpenSettings={handleOpenSettings}

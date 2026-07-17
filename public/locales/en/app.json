@@ -69,5 +69,7 @@
   "viewOptions": "View options",
   "expandPanel": "Expand panel",
   "collapsePanel": "Collapse panel",
-  "gasEnvUnavailable": "Gas environment: {{item}} cannot be supplied, so no Gas Dispersing Unit was planned. Gas consumption is understated."
+  "gasEnvUnavailable": "Gas environment: {{item}} cannot be supplied, so no Gas Dispersing Unit was planned. Gas consumption is understated.",
+  "machinesPerVaporizer": "Machines per Gas Dispersing Unit",
+  "machinesPerVaporizerHint": "How many machines that need a gaseous environment one Gas Dispersing Unit's aura covers (13×13 area, buildings must fit fully inside). The plan adds one always-on unit (6 gas/min) per group."
 }

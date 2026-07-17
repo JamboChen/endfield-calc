@@ -69,5 +69,7 @@
   "viewOptions": "檢視選項",
   "expandPanel": "展開面板",
   "collapsePanel": "摺疊面板",
-  "gasEnvUnavailable": "氣體環境：目前設定下無法供應{{item}}，未規劃氣體散布機，氣體消耗被低估。"
+  "gasEnvUnavailable": "氣體環境：目前設定下無法供應{{item}}，未規劃氣體散布機，氣體消耗被低估。",
+  "machinesPerVaporizer": "每台氣體散布機覆蓋設備數",
+  "machinesPerVaporizerHint": "一台氣體散布機的作用範圍（13×13，設備需完全位於範圍內）可覆蓋的需要氣體環境的設備數量。方案會按組新增常開的散布機（每台每分鐘消耗6氣體）。"
 }

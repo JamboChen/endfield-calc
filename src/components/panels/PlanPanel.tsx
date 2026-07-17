@@ -17,6 +17,9 @@ type PlanPanelProps = {
   onAutoFitChange: (value: boolean) => void;
   powerSustain: boolean;
   onPowerSustainChange: (value: boolean) => void;
+  /** Gas-env coverage ratio (1.4, URL flag `mpv`). */
+  machinesPerVaporizer: number;
+  onMachinesPerVaporizerChange: (value: number) => void;
   /** Read-only battery-for-power rows (self-sustaining power). */
   powerTargets: readonly PowerTarget[];
   /** No battery fuel producible — Power Targets empty-state variant. */
@@ -56,6 +59,8 @@ const PlanPanel = memo(function PlanPanel({
   onAutoFitChange,
   powerSustain,
   onPowerSustainChange,
+  machinesPerVaporizer,
+  onMachinesPerVaporizerChange,
   powerTargets,
   powerSustainUnavailable,
   onOpenSettings,
@@ -113,6 +118,8 @@ const PlanPanel = memo(function PlanPanel({
         onAutoFitChange={onAutoFitChange}
         powerSustain={powerSustain}
         onPowerSustainChange={onPowerSustainChange}
+        machinesPerVaporizer={machinesPerVaporizer}
+        onMachinesPerVaporizerChange={onMachinesPerVaporizerChange}
         onOpenSettings={onOpenSettings}
       />
     </div>

@@ -69,5 +69,7 @@
   "viewOptions": "Opciones de vista",
   "expandPanel": "Expandir panel",
   "collapsePanel": "Contraer panel",
-  "gasEnvUnavailable": "Entorno gaseoso: no se puede suministrar {{item}} con la configuración actual, así que no se planificó ninguna unidad de dispersión de gas. El consumo de gas está subestimado."
+  "gasEnvUnavailable": "Entorno gaseoso: no se puede suministrar {{item}} con la configuración actual, así que no se planificó ninguna unidad de dispersión de gas. El consumo de gas está subestimado.",
+  "machinesPerVaporizer": "Instalaciones por unidad de dispersión de gas",
+  "machinesPerVaporizerHint": "Cuántas instalaciones que necesitan un entorno gaseoso cubre el aura de una unidad de dispersión de gas (área de 13×13, los edificios deben caber completos). El plan añade una unidad siempre activa (6 gas/min) por grupo."
 }

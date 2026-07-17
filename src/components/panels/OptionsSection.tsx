@@ -5,6 +5,7 @@ import { InfoHint } from "@/components/InfoHint";
 import { SectionHeader } from "@/components/SectionHeader";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -38,6 +39,11 @@ type OptionsSectionProps = {
    *  the factory covers its own power draw (URL flag `ps=1`). */
   powerSustain: boolean;
   onPowerSustainChange: (value: boolean) => void;
+  /** Gas-env coverage: machines one Gas Dispersing Unit's 13×13 aura
+   *  covers (URL flag `mpv`, default 4). Drives the vaporizer count
+   *  the gas-sustain loop plans for env-gated recipes. */
+  machinesPerVaporizer: number;
+  onMachinesPerVaporizerChange: (value: number) => void;
   /** Opens the full Settings sheet (AIC plan / limits / resources / …). */
   onOpenSettings: () => void;
 };
@@ -62,6 +68,8 @@ const OptionsSection = memo(function OptionsSection({
   onAutoFitChange,
   powerSustain,
   onPowerSustainChange,
+  machinesPerVaporizer,
+  onMachinesPerVaporizerChange,
   onOpenSettings,
 }: OptionsSectionProps) {
   const { t } = useTranslation(["settings", "app", "structure"]);
@@ -79,6 +87,7 @@ const OptionsSection = memo(function OptionsSection({
   const ceilSwitchId = useId();
   const autoFitSwitchId = useId();
   const powerSustainSwitchId = useId();
+  const machinesPerVaporizerInputId = useId();
 
   // Metastorage sources that can feed the CURRENT region — the
   // App-bridge eligibility filter (S ∈ sources ∧ S ≠ current ∧ S
@@ -341,6 +350,37 @@ const OptionsSection = memo(function OptionsSection({
             checked={powerSustain}
             onCheckedChange={onPowerSustainChange}
             className="ml-auto"
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Label
+            htmlFor={machinesPerVaporizerInputId}
+            className="text-sm cursor-pointer min-w-0"
+          >
+            {t("machinesPerVaporizer", { ns: "app" })}
+          </Label>
+          <InfoHint
+            ariaLabel={t("optionInfo", {
+              ns: "app",
+              label: t("machinesPerVaporizer", { ns: "app" }),
+            })}
+          >
+            {t("machinesPerVaporizerHint", { ns: "app" })}
+          </InfoHint>
+          <Input
+            id={machinesPerVaporizerInputId}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={16}
+            step={1}
+            value={machinesPerVaporizer}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (Number.isFinite(v)) onMachinesPerVaporizerChange(v);
+            }}
+            className="ml-auto h-7 w-16 shrink-0 text-right"
           />
         </div>
       </div>
