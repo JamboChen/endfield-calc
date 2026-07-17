@@ -439,6 +439,33 @@ export type LPInput = {
    * defensively.
    */
   recipeMinRates?: ReadonlyMap<RecipeId, number>;
+  /**
+   * Gas-environment coverage ties (1.4). For each entry, the LP gains a
+   * HARD row
+   *
+   *   machinesPerVaporizer × x_vaporize − Σ_{r ∈ envRecipeIds} x_r ≥ 0
+   *
+   * i.e. the vaporize variable must FRACTIONALLY cover every machine
+   * running an env-gated recipe. This is what makes the env's gas cost
+   * visible to the lex objective from the FIRST solve: without the tie,
+   * env recipes are free until the ceil-floor loop imposes min-runs —
+   * and min-run rows are unconditional, so by then the vaporizer gas is
+   * a sunk cost every re-solve ignores when choosing routes (env routes
+   * end up permanently underpriced — user-reported Forge-of-the-Sky
+   * over-cap regression). The whole-building top-up (ceil to whole
+   * always-on vaporizers) still rides `recipeMinRates`; this row only
+   * carries the marginal per-machine share (rate / machinesPerVaporizer).
+   *
+   * HARD (no slack) for the same reason as `recipeMinRates`: x_vaporize
+   * is unbounded above and its gas supply is soft, so the row cannot
+   * cause infeasibility. Entries whose vaporize recipe is absent from
+   * this LP are skipped defensively.
+   */
+  envCoverage?: readonly {
+    vaporizeRecipeId: RecipeId;
+    envRecipeIds: readonly RecipeId[];
+    machinesPerVaporizer: number;
+  }[];
   /** Facility lookup for power-cost computation. */
   facilityMap: Map<FacilityId, Facility>;
 };
@@ -852,6 +879,30 @@ const buildModel = (
       constraints[rowName] = { min: floor };
       variables[`x_${idx}`][rowName] = 1;
     });
+  }
+
+  // Gas-env coverage ties (HARD) — see `LPInput.envCoverage`. One
+  // `envcov_*` row per env whose vaporize recipe is in this LP:
+  //   ratio × x_vaporize − Σ env-machine vars ≥ 0
+  if (input.envCoverage && input.envCoverage.length > 0) {
+    const idxByRecipeId = new Map<RecipeId, number>();
+    input.recipes.forEach((recipe, idx) => idxByRecipeId.set(recipe.id, idx));
+    let covIdx = 0;
+    for (const cov of input.envCoverage) {
+      const vapIdx = idxByRecipeId.get(cov.vaporizeRecipeId);
+      if (vapIdx === undefined || !(cov.machinesPerVaporizer > 0)) continue;
+      const envIdxs = cov.envRecipeIds
+        .map((id) => idxByRecipeId.get(id))
+        .filter((i): i is number => i !== undefined);
+      if (envIdxs.length === 0) continue;
+      const rowName = `envcov_${covIdx++}_${cov.vaporizeRecipeId}`;
+      constraints[rowName] = { min: 0 };
+      variables[`x_${vapIdx}`][rowName] = cov.machinesPerVaporizer;
+      for (const i of envIdxs) {
+        variables[`x_${i}`][rowName] =
+          (variables[`x_${i}`][rowName] ?? 0) - 1;
+      }
+    }
   }
 
   // Power-balance + power-floor rows (SOFT, one shared slack) — see

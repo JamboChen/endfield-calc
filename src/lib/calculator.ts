@@ -1069,6 +1069,7 @@ async function selectMetastorageImports(
   rawCaps?: ReadonlyMap<ItemId, number>,
   facilityCaps?: ReadonlyMap<FacilityId, number>,
   powerGenerationByRecipe?: ReadonlyMap<RecipeId, number>,
+  sustainLP?: Parameters<typeof calculateFlows>[9],
 ): Promise<{
   selected: LPMetastorageImport[];
   result: FlowSolveResult;
@@ -1087,6 +1088,7 @@ async function selectMetastorageImports(
       powerGenerationByRecipe
         ? { generationByRecipe: powerGenerationByRecipe }
         : undefined,
+      sustainLP,
     );
 
   let selected: LPMetastorageImport[] = [];
@@ -1511,6 +1513,38 @@ export async function calculateProductionPlan(
   // whole recipe set in one shot.
   const targetRatesMap = new Map(targets.map((t) => [t.itemId, t.rate]));
 
+  // Gas-env coverage ties (see `LPInput.envCoverage`): every machine
+  // running an env-gated recipe forces its fractional share of a
+  // vaporizer — env routes carry their gas cost from the FIRST solve.
+  // Without this, the first solve prices env recipes at zero gas and
+  // the loop's min-run rows then make the vaporizer gas a sunk cost
+  // every re-solve ignores when choosing routes (env routes end up
+  // permanently underpriced — user-reported Forge-of-the-Sky over-cap
+  // regression).
+  const envCoverage = (() => {
+    const out: {
+      vaporizeRecipeId: RecipeId;
+      envRecipeIds: RecipeId[];
+      machinesPerVaporizer: number;
+    }[] = [];
+    for (const [env, vaporize] of vaporizeRecipesByEnv) {
+      if (!graph.recipeNodes.has(vaporize.id)) continue;
+      const envRecipeIds: RecipeId[] = [];
+      for (const node of graph.recipeNodes.values()) {
+        if (node.recipe.gasEnv === env) envRecipeIds.push(node.recipeId);
+      }
+      if (envRecipeIds.length > 0) {
+        out.push({
+          vaporizeRecipeId: vaporize.id,
+          envRecipeIds,
+          machinesPerVaporizer,
+        });
+      }
+    }
+    return out.length > 0 ? out : undefined;
+  })();
+  const baseSustainLP = envCoverage ? { envCoverage } : undefined;
+
   // Metastorage auto-selection: enumerate candidate items per route and
   // keep the lex-best solve. Without routes this is the plain single
   // solve (`selected` stays empty and the baseline result is used).
@@ -1526,6 +1560,7 @@ export async function calculateProductionPlan(
           rawCaps,
           facilityCaps,
           powerGenerationByRecipe,
+          baseSustainLP,
         )
       : {
           selected: [],
@@ -1541,6 +1576,7 @@ export async function calculateProductionPlan(
             powerGenerationByRecipe
               ? { generationByRecipe: powerGenerationByRecipe }
               : undefined,
+            baseSustainLP,
           ),
           diagnostics: [] as MetastorageBudgetDiagnostic[],
         };
@@ -1786,13 +1822,25 @@ export async function calculateProductionPlan(
   const hasEnvSupport = Array.from(vaporizeRecipesByEnv.values()).some((r) =>
     graph.recipeNodes.has(r.id),
   );
+  // Fragmentation-aware cap tightening: the LP's soft cap row bounds
+  // the FRACTIONAL facility count, but the game (and the over-limit
+  // judge, `computeLimitViolations`) count PLACEMENTS — Σ ceil(x_r)
+  // over the facility's single-formula recipes. A plan can satisfy the
+  // row (11.83 ≤ 12) while needing 13 placements (10 + 3). When that
+  // happens the loop tightens the LP row to `cap − (activeRecipes − 1)`
+  // (sufficient: Σ ceil(x_r) < Σ x_r + R, so Σ x_r ≤ cap − (R − 1) ⟹
+  // placements ≤ cap) and re-solves — giving the LP a chance to find a
+  // genuinely placeable mix (e.g. offload marginal production to an
+  // alternative facility) before the over-cap warning fires.
+  const hasCapTightening = facilityCaps !== undefined && facilityCaps.size > 0;
   if (
-    (hasGenerators || hasDrainFacilities || hasEnvSupport) &&
+    (hasGenerators || hasDrainFacilities || hasEnvSupport || hasCapTightening) &&
     plan.lpStatus === "ok"
   ) {
     let minGeneration = 0;
     // Monotone-max state (termination): ceiled drain-building counts,
-    // vaporizer min-runs, and the power floor only ever grow.
+    // vaporizer min-runs, and the power floor only ever grow; the
+    // tightened caps only ever shrink.
     const maxCeilByDrainFacility = new Map<FacilityId, number>();
     const scaleByFacility = new Map<FacilityId, number>();
     // Scales the CURRENT `plan` was assembled with — restored if a
@@ -1800,6 +1848,7 @@ export async function calculateProductionPlan(
     // consistent with its flows (the clones are shared objects).
     let appliedScales = new Map<FacilityId, number>();
     const vaporizerMinRuns = new Map<RecipeId, number>();
+    const tightenedCaps = new Map<FacilityId, number>();
     for (let iter = 0; iter < MAX_POWER_FLOOR_ITERATIONS; iter++) {
       const agg = aggregateBinTotals(plan, facilities, items, {
         ceilMode: true,
@@ -1893,7 +1942,54 @@ export async function calculateProductionPlan(
         }
       }
 
+      // 4. Fragmentation-aware cap tightening (single-formula
+      //    facilities only — mix pools consolidate recipes per bin, so
+      //    the Σ ceil(x_r) placement model doesn't apply to them).
+      if (hasCapTightening) {
+        const fractionalByFacility = new Map<FacilityId, number>();
+        const activeRecipesByFacility = new Map<FacilityId, number>();
+        for (const node of plan.nodes.values()) {
+          if (node.type !== "recipe" || !(node.facilityCount > 0)) continue;
+          const facId = node.recipe.facilityId;
+          if (!facilityCaps!.has(facId)) continue;
+          if (maps.facilityMap.get(facId)?.cacheSlots !== undefined) continue;
+          fractionalByFacility.set(
+            facId,
+            (fractionalByFacility.get(facId) ?? 0) + node.facilityCount,
+          );
+          activeRecipesByFacility.set(
+            facId,
+            (activeRecipesByFacility.get(facId) ?? 0) + 1,
+          );
+        }
+        for (const [facId, frac] of fractionalByFacility) {
+          const cap = facilityCaps!.get(facId)!;
+          const physical = agg.physicalPerFacility.get(facId) ?? 0;
+          const activeRecipes = activeRecipesByFacility.get(facId) ?? 1;
+          // Only the fragmentation case: fractional fits the cap but
+          // placements exceed it. A fractionally-over cap is real
+          // demand pressure — the soft cap row + slack already own it.
+          if (!(frac <= cap + 1e-6) || physical <= cap) continue;
+          const candidate = Math.max(0, cap - (activeRecipes - 1));
+          const prev = tightenedCaps.get(facId) ?? cap;
+          if (candidate < prev) {
+            tightenedCaps.set(facId, candidate);
+            changed = true;
+            if (import.meta.env?.DEV) {
+              console.log(
+                `[GAS-SUSTAIN] iteration ${iter + 1}: ${facId} placements ${physical} > cap ${cap} at fractional ${frac.toFixed(3)} — tightening LP cap to ${candidate}`,
+              );
+            }
+          }
+        }
+      }
+
       if (!changed) break;
+
+      const effectiveCaps =
+        tightenedCaps.size > 0
+          ? new Map([...facilityCaps!, ...tightenedCaps])
+          : facilityCaps;
 
       setCatalystScale(foldedCatalysts, scaleByFacility);
       const fr = await calculateFlows(
@@ -1903,7 +1999,7 @@ export async function calculateProductionPlan(
         maps,
         manualRawMaterials,
         rawCaps,
-        facilityCaps,
+        effectiveCaps,
         selectedImports.length > 0 ? selectedImports : undefined,
         powerGenerationByRecipe
           ? {
@@ -1911,7 +2007,11 @@ export async function calculateProductionPlan(
               minGeneration: minGeneration > 0 ? minGeneration : undefined,
             }
           : undefined,
-        vaporizerMinRuns.size > 0 ? vaporizerMinRuns : undefined,
+        {
+          ...(baseSustainLP ?? {}),
+          recipeMinRates:
+            vaporizerMinRuns.size > 0 ? vaporizerMinRuns : undefined,
+        },
       );
       if (!fr.metrics.feasible) {
         // Floor made the solve fail (raw/facility caps are soft, so

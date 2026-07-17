@@ -652,19 +652,22 @@ describe("belt-minimizing producer→consumer decomposition (issue #91)", () => 
       byConsumer.set(e.target, rates);
     }
 
-    // Demand profile re-pinned for 1.4 (gas-era Xiranite Powder route):
-    // 24 water consumers whose demands divide evenly into whole pumps —
-    // every consumer drinks from EXACTLY ONE pickup (24 consumers, 24
-    // edges, zero multi-fed). The invariant under test is unchanged:
-    // the allocation must never daisy-chain complement pairs across the
-    // pickup row the way the old sequential carving did.
-    expect(byConsumer.size).toBe(24);
-    expect(waterPickupEdges).toHaveLength(24);
+    // Demand profile re-pinned for 1.4 (gas-era Xiranite Powder route,
+    // env-coverage pricing included): 27 water consumers over 28 pickup
+    // edges — EXACTLY ONE consumer (a partial-load planter) needs a
+    // two-pump seam; every other consumer drinks from exactly one
+    // pickup. The invariant under test is unchanged: the allocation
+    // must never daisy-chain complement pairs across the pickup row the
+    // way the old sequential carving did.
+    expect(byConsumer.size).toBe(27);
+    expect(waterPickupEdges).toHaveLength(28);
     const multiFed = [...byConsumer.entries()].filter(
       ([, rates]) => rates.length > 1,
     );
     expect(
       multiFed.map(([c, rates]) => `${c} <- ${rates.length} pumps`),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
+    // The seam consumer's edges still sum to its demand (30/min planter).
+    expect(multiFed[0][1].reduce((a, b) => a + b, 0)).toBeCloseTo(30, 3);
   });
 });

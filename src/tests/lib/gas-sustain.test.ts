@@ -37,6 +37,7 @@ import {
   items as realItems,
   recipes as realRecipes,
   facilities as realFacilities,
+  powerFuels as realPowerFuels,
   rawAvailabilityByDomain,
 } from "@/data";
 import { DomainId } from "@/types/constants";
@@ -350,6 +351,55 @@ describe("gas sustain: vaporizer environments", () => {
   });
 });
 
+// ── Env-coverage pricing (first-solve tie rows) ──────────────────────────────
+
+describe("gas sustain: env-coverage pricing", () => {
+  test("env-gated route pays its gas share from the FIRST solve", async () => {
+    // Two producers of the same product at equal ore cost:
+    //   - plain oven recipe: 1/min per facility (4 buildings for 4/min)
+    //   - env-gated transmuter recipe: 2/min per facility (2 buildings)
+    // Without the `envCoverage` tie rows the first solve prices the env
+    // route at ZERO gas (min-runs only appear after packing, and are
+    // then sunk cost), so the buildings pass picks the env route — and
+    // the plan pays vaporizer gas the plain route avoids. With the tie
+    // rows the env route costs its fractional vaporizer share up front
+    // (2 machines / 4 per unit × 6 gas = 3 gas/min > 0) and loses the
+    // rawCost pass outright.
+    const plainRecipe: Recipe = {
+      id: RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1,
+      inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
+      outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
+      facilityId: FacilityId.XIRANITE_OVEN_1,
+      craftingTime: 60, // 1/min per facility
+    };
+    const envAltRecipe: Recipe = {
+      id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_WATER_1,
+      inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
+      outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
+      facilityId: FacilityId.TRANSMUTER_1,
+      craftingTime: 30, // 2/min per facility — wins on buildings
+      gasEnv: 1,
+    };
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 4 }],
+      testItems,
+      [plainRecipe, envAltRecipe],
+      testFacilities,
+      {
+        rawMaterials: RAWS,
+        // No catalyst drain — isolate the env-coverage pricing.
+        gasSustain: { drains: new Map(), vaporizerEnvs: envs },
+      },
+    );
+
+    expect(plan.lpStatus).toBe("ok");
+    const plain = getRecipeNode(plan, plainRecipe.id);
+    expect(plain.facilityCount).toBeCloseTo(4, 3);
+    expect(plan.nodes.has(envAltRecipe.id)).toBe(false);
+    expect(plan.nodes.has(RecipeId.VAPORIZE_ITEM_GAS_INERT)).toBe(false);
+  });
+});
+
 // ── Real 1.4 data ────────────────────────────────────────────────────────────
 
 describe("gas sustain: real 1.4 data", () => {
@@ -396,6 +446,57 @@ describe("gas sustain: real 1.4 data", () => {
         node.facilityCount;
     }
     expect(drained).toBeCloseTo(6 * placed, 2);
+  });
+
+  test("Forge-of-the-Sky fragmentation: cap 12 plan fits 12 placements (user-reported)", async () => {
+    // User-reported 1.4 regression: this exact pre-1.4 plan
+    // (battery_5 9.564 + copper_enr_cmpt 3.25 + xiranite_enr_powder
+    // 12.968 + bottled_rec_hp_5 5.5, power sustain on) fit a 12-Forge
+    // limit; the gas-era optimum kept the FRACTIONAL oven count under
+    // 12 (≈11.83) but split it 9.67 + 2.16 across two recipes — 13
+    // PLACEMENTS. The loop's fragmentation-aware cap tightening must
+    // shrink the LP row until the placement count fits (the LP offloads
+    // the marginal production to the Solid-Gas Transmuting Unit).
+    const targets = [
+      { itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 9.564 },
+      { itemId: ItemId.ITEM_COPPER_ENR_CMPT, rate: 3.25 },
+      { itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, rate: 12.968 },
+      { itemId: ItemId.ITEM_BOTTLED_REC_HP_5, rate: 5.5 },
+    ];
+    const plan = await calculateProductionPlan(
+      targets,
+      realItems,
+      realRecipes,
+      realFacilities,
+      {
+        rawMaterials: WULING_RAWS,
+        powerSustain: { fuels: realPowerFuels },
+        facilityCaps: new Map([[FacilityId.XIRANITE_OVEN_1, 12]]),
+      },
+    );
+
+    expect(plan.lpStatus).toBe("ok");
+    const agg = aggregateBinTotals(plan, realFacilities, realItems, {
+      ceilMode: true,
+    });
+    expect(
+      agg.physicalPerFacility.get(FacilityId.XIRANITE_OVEN_1),
+    ).toBeLessThanOrEqual(12);
+    expect(
+      plan.warnings.find(
+        (w) =>
+          w.kind === "facility-over-cap" &&
+          w.facilityId === FacilityId.XIRANITE_OVEN_1,
+      ),
+    ).toBeUndefined();
+    // All four targets still met (ε-tolerant per the integer snap).
+    for (const t of targets) {
+      const node = plan.nodes.get(t.itemId);
+      expect(node?.type).toBe("item");
+      if (node?.type === "item") {
+        expect(node.productionRate).toBeGreaterThanOrEqual(t.rate - 1e-3);
+      }
+    }
   });
 
   test("plans without gas recipes are untouched by the sustain machinery", async () => {
