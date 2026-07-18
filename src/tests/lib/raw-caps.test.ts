@@ -5,10 +5,12 @@
  * Three layers of coverage:
  *
  *   1. **Data shape** — exact per-region snapshot of the max mining
- *      output (items/min) at max Regional Development Level, derived
- *      from the dump's scene data (mining spots × purity-density
- *      schedules × 20/min) and validated against the in-game region
- *      panel. Catches accidental edits / regeneration drift.
+ *      output (items/min) at max Regional Development Level, from the
+ *      dump's scene data (mining spots × purity-density schedules ×
+ *      20/min) plus a few panel-verified manual overrides for the 1.4
+ *      Wuling gas/expansion caps the scene data can't produce (see
+ *      `MANUAL_CAP_OVERRIDES` in `scripts/extract-raw-caps.ts`). Catches
+ *      accidental edits / regeneration drift.
  *
  *   2. **Invariants** vs the rest of the data layer:
  *      a. every capped item is available in that region
@@ -51,18 +53,23 @@ describe("defaultRawCapsByDomain — data shape", () => {
   test("Wuling (domain_2) max mining output", () => {
     expect(defaultRawCapsByDomain.get(DomainId.DOMAIN_2)).toEqual(
       new Map<ItemId, number>([
-        [ItemId.ITEM_COPPER_ORE, 360],
+        // Panel-verified MANUAL OVERRIDES (see MANUAL_CAP_OVERRIDES in
+        // scripts/extract-raw-caps.ts). The 1.4 "Homecoming" Wuling
+        // expansion added mineable gas vents across the map + two new
+        // regions (Yinglung Pass, North Wuling Exclusion Zone) with more
+        // gas + copper — none of it in the extractable scene data (its
+        // lone gas scene map02_lv008 is a gas-environment cluster, not
+        // the mineable vents; no table stores regional caps). Read off
+        // the in-game region panel at dev 24:
+        //   Cuprium 420 = 18 high (360) + new region (1 high + 4 low = 60)
+        //   Inergen 460 = 23 High-Purity vents
+        //   Xiragen 100 = 5 High-Purity vents (North Wuling)
+        [ItemId.ITEM_COPPER_ORE, 420],
+        [ItemId.ITEM_GAS_INERT, 460],
+        [ItemId.ITEM_GAS_XIRANITE, 100],
+        // Extractor-computed (scene data still correct for these):
         [ItemId.ITEM_IRON_ORE, 120],
         [ItemId.ITEM_ORIGINIUM_ORE, 540],
-        // 1.4 Wuling gas vents: 14 Xiragen + 14 Inergen spots
-        // × 20/min at High Purity (half-scale density 50 = 100%
-        // output — verified in-game). The game data lists only 2
-        // Inergen vents; 12 more High-Purity Inergen vents were
-        // verified in-game (stale dump), so the 280 cap is set
-        // manually. The 3 Acridgen vents have no supporting
-        // extractor and are skipped by the extractor script.
-        [ItemId.ITEM_GAS_XIRANITE, 280],
-        [ItemId.ITEM_GAS_INERT, 280],
       ]),
     );
   });
