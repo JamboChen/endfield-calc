@@ -94,10 +94,9 @@ type Facility = {
    */
   tier: number;
   /**
-   * Game enum `GEnums.FacBuildingType` value: 6 MachineCrafter,
-   * 10 loader-class (Depot Loader), 11 unloader-class (Depot Unloader),
-   * 25 pump-class (FluidPumpIn), 26 dumper-class (FluidPumpOut),
-   * 27 FluidReaction, 28 LiquidCleaner.
+   * Facility-category value: 6 machine-crafter, 10 loader-class (Depot
+   * Loader), 11 unloader-class (Depot Unloader), 25 pump-class, 26
+   * dumper-class, 27 fluid-reaction, 28 liquid-cleaner.
    */
   category: number;
   /** Power draw per active building (0 = passive). */

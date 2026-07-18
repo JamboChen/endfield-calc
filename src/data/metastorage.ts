@@ -3,9 +3,7 @@
 // Metastorage Transfer capability data: which regions can export
 // (lossless, no source-depot debit), their Total Transfer Value (TTV)
 // budget per delivery cycle, and the per-item TTV cost for every
-// eligible export item. Derived from
-// `FactoryDomainItemTransmissionTable` + `FactoryConst` +
-// `FactoryItemTable` in the upstream game-data dump.
+// eligible export item. Derived from the game data.
 //
 // Max import rate for an item = ttvCapPerCycle / cost / (cycleSeconds / 60)
 // items per minute (e.g. 1500 / 1 / 60 = 25/min for a TTV-1 item).
