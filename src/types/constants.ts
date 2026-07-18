@@ -26,6 +26,9 @@ const ItemId = {
   ITEM_COPPER_ENR: "item_copper_enr",
   ITEM_COPPER_ENR_BOTTLE: "item_copper_enr_bottle",
   ITEM_COPPER_ENR_CMPT: "item_copper_enr_cmpt",
+  ITEM_COPPER_ENR2: "item_copper_enr2",
+  ITEM_COPPER_ENR2_CMPT: "item_copper_enr2_cmpt",
+  ITEM_COPPER_JAR: "item_copper_jar",
   ITEM_COPPER_NUGGET: "item_copper_nugget",
   ITEM_COPPER_ORE: "item_copper_ore",
   ITEM_COPPER_POWDER: "item_copper_powder",
@@ -39,6 +42,7 @@ const ItemId = {
   ITEM_EQUIP_SCRIPT_4: "item_equip_script_4",
   ITEM_EQUIP_SCRIPT_4_1: "item_equip_script_4_1",
   ITEM_EQUIP_SCRIPT_4_2: "item_equip_script_4_2",
+  ITEM_EQUIP_SCRIPT_4_3: "item_equip_script_4_3",
   ITEM_FBOTTLE_COPPER_ACID: "item_fbottle_copper_acid",
   ITEM_FBOTTLE_COPPER_COPPER: "item_fbottle_copper_copper",
   ITEM_FBOTTLE_COPPER_COPPER_ENR: "item_fbottle_copper_copper_enr",
@@ -109,6 +113,23 @@ const ItemId = {
     "item_fbottle_ironenr_xiranite_lowpoly",
   ITEM_FBOTTLE_IRONENR_XIRANITE_POLY: "item_fbottle_ironenr_xiranite_poly",
   ITEM_FBOTTLE_XIRANENR_GRASS_2: "item_fbottle_xiranenr_grass_2",
+  ITEM_FILTER_CORE: "item_filter_core",
+  ITEM_GAS_ACID: "item_gas_acid",
+  ITEM_GAS_COPPER: "item_gas_copper",
+  ITEM_GAS_COPPER_ENR: "item_gas_copper_enr",
+  ITEM_GAS_COPPER_ENR2: "item_gas_copper_enr2",
+  ITEM_GAS_INERT: "item_gas_inert",
+  ITEM_GAS_WATER: "item_gas_water",
+  ITEM_GAS_XIRANITE: "item_gas_xiranite",
+  ITEM_GAS_XIRANITE_ENR: "item_gas_xiranite_enr",
+  ITEM_GASJAR_COPPER_GAS_ACID: "item_gasjar_copper_gas_acid",
+  ITEM_GASJAR_COPPER_GAS_COPPER: "item_gasjar_copper_gas_copper",
+  ITEM_GASJAR_COPPER_GAS_COPPER_ENR: "item_gasjar_copper_gas_copper_enr",
+  ITEM_GASJAR_COPPER_GAS_COPPER_ENR2: "item_gasjar_copper_gas_copper_enr2",
+  ITEM_GASJAR_COPPER_GAS_INERT: "item_gasjar_copper_gas_inert",
+  ITEM_GASJAR_COPPER_GAS_WATER: "item_gasjar_copper_gas_water",
+  ITEM_GASJAR_COPPER_GAS_XIRANITE: "item_gasjar_copper_gas_xiranite",
+  ITEM_GASJAR_COPPER_GAS_XIRANITE_ENR: "item_gasjar_copper_gas_xiranite_enr",
   ITEM_GLASS_BOTTLE: "item_glass_bottle",
   ITEM_GLASS_CMPT: "item_glass_cmpt",
   ITEM_GLASS_ENR_BOTTLE: "item_glass_enr_bottle",
@@ -195,6 +216,7 @@ const RecipeId = {
     "component_activity_xiranite_enr_cmpt_1",
   COMPONENT_COPPER_CMPT_1: "component_copper_cmpt_1",
   COMPONENT_COPPER_ENR_CMPT_1: "component_copper_enr_cmpt_1",
+  COMPONENT_COPPER_ENR2_CMPT_1: "component_copper_enr2_cmpt_1",
   COMPONENT_GLASS_CMPT_1: "component_glass_cmpt_1",
   COMPONENT_GLASS_ENR_CMPT_1: "component_glass_enr_cmpt_1",
   COMPONENT_IRON_CMPT_1: "component_iron_cmpt_1",
@@ -222,6 +244,17 @@ const RecipeId = {
   DISMANTLER_COPPERENR_XIRANITE_LOWPOLY_1:
     "dismantler_copperenr_xiranite_lowpoly_1",
   DISMANTLER_COPPERENR_XIRANITE_POLY_1: "dismantler_copperenr_xiranite_poly_1",
+  DISMANTLER_COPPERJAR_GAS_ACID_1: "dismantler_copperjar_gas_acid_1",
+  DISMANTLER_COPPERJAR_GAS_COPPER_1: "dismantler_copperjar_gas_copper_1",
+  DISMANTLER_COPPERJAR_GAS_COPPER_ENR_1:
+    "dismantler_copperjar_gas_copper_enr_1",
+  DISMANTLER_COPPERJAR_GAS_COPPER_ENR2_1:
+    "dismantler_copperjar_gas_copper_enr2_1",
+  DISMANTLER_COPPERJAR_GAS_INERT_1: "dismantler_copperjar_gas_inert_1",
+  DISMANTLER_COPPERJAR_GAS_WATER_1: "dismantler_copperjar_gas_water_1",
+  DISMANTLER_COPPERJAR_GAS_XIRANITE_1: "dismantler_copperjar_gas_xiranite_1",
+  DISMANTLER_COPPERJAR_GAS_XIRANITE_ENR_1:
+    "dismantler_copperjar_gas_xiranite_enr_1",
   DISMANTLER_GLASS_ACID_1: "dismantler_glass_acid_1",
   DISMANTLER_GLASS_COPPER_1: "dismantler_glass_copper_1",
   DISMANTLER_GLASS_COPPER_ENR_1: "dismantler_glass_copper_enr_1",
@@ -353,6 +386,14 @@ const RecipeId = {
   FILLING_BOTTLED_REC_HP_2_1: "filling_bottled_rec_hp_2_1",
   FILLING_BOTTLED_REC_HP_3_1: "filling_bottled_rec_hp_3_1",
   FILLING_BOTTLED_XIRANENR_GRASS_2: "filling_bottled_xiranenr_grass_2",
+  FILLING_COPPERJAR_COPPER_ENR2_1: "filling_copperjar_copper_enr2_1",
+  FILLING_COPPERJAR_GAS_ACID_1: "filling_copperjar_gas_acid_1",
+  FILLING_COPPERJAR_GAS_COPPER_1: "filling_copperjar_gas_copper_1",
+  FILLING_COPPERJAR_GAS_COPPER_ENR_1: "filling_copperjar_gas_copper_enr_1",
+  FILLING_COPPERJAR_GAS_INERT_1: "filling_copperjar_gas_inert_1",
+  FILLING_COPPERJAR_GAS_WATER_1: "filling_copperjar_gas_water_1",
+  FILLING_COPPERJAR_GAS_XIRANITE_1: "filling_copperjar_gas_xiranite_1",
+  FILLING_COPPERJAR_GAS_XIRANITE_ENR_1: "filling_copperjar_gas_xiranite_enr_1",
   FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE:
     "fluid_consume_liquid_cleaner_1_item_liquid_sewage",
   FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_XIRANITE_LOWPOLY:
@@ -385,6 +426,7 @@ const RecipeId = {
   FURNANCE_QUARTZ_ENR_1: "furnance_quartz_enr_1",
   FURNANCE_QUARTZ_GLASS_1: "furnance_quartz_glass_1",
   FURNANCE_QUARTZ_GLASS_2: "furnance_quartz_glass_2",
+  GAS_REACTOR_GAS_COPPER_ENR2_1: "gas_reactor_gas_copper_enr2_1",
   GRINDER_CARBON_POWDER_1: "grinder_carbon_powder_1",
   GRINDER_COPPER_POWDER_1: "grinder_copper_powder_1",
   GRINDER_CRYSTAL_POWDER_1: "grinder_crystal_powder_1",
@@ -408,7 +450,51 @@ const RecipeId = {
   LIQUID_CLEAN_GATE_1_BYPRODUCT: "liquid_clean_gate_1_byproduct",
   LIQUID_CLEAN_GATE_1_DISPOSAL: "liquid_clean_gate_1_disposal",
   LIQUID_PURIFIER_COPPER_ENR_1: "liquid_purifier_copper_enr_1",
+  LIQUID_PURIFIER_GAS_COPPER_ENR_1: "liquid_purifier_gas_copper_enr_1",
+  LIQUID_PURIFIER_GAS_COPPER_ENR_2: "liquid_purifier_gas_copper_enr_2",
+  LIQUID_PURIFIER_GAS_XIRANITE_ENR_1: "liquid_purifier_gas_xiranite_enr_1",
+  LIQUID_PURIFIER_GAS_XIRANITE_ENR_2: "liquid_purifier_gas_xiranite_enr_2",
   LIQUID_PURIFIER_XIRANITE_POLY_1: "liquid_purifier_xiranite_poly_1",
+  LIQUID_TRANSMUTER_1_GAS_GAS_ACID_1: "liquid_transmuter_1_gas_gas_acid_1",
+  LIQUID_TRANSMUTER_1_GAS_GAS_COPPER_1: "liquid_transmuter_1_gas_gas_copper_1",
+  LIQUID_TRANSMUTER_1_GAS_GAS_COPPER_ENR_1:
+    "liquid_transmuter_1_gas_gas_copper_enr_1",
+  LIQUID_TRANSMUTER_1_GAS_GAS_WATER_1: "liquid_transmuter_1_gas_gas_water_1",
+  LIQUID_TRANSMUTER_1_GAS_GAS_XIRANITE_1:
+    "liquid_transmuter_1_gas_gas_xiranite_1",
+  LIQUID_TRANSMUTER_1_GAS_GAS_XIRANITE_ENR_1:
+    "liquid_transmuter_1_gas_gas_xiranite_enr_1",
+  LIQUID_TRANSMUTER_1_LIQUID_LIQUID_ACID_1:
+    "liquid_transmuter_1_liquid_liquid_acid_1",
+  LIQUID_TRANSMUTER_1_LIQUID_LIQUID_COPPER_1:
+    "liquid_transmuter_1_liquid_liquid_copper_1",
+  LIQUID_TRANSMUTER_1_LIQUID_LIQUID_COPPER_ENR_1:
+    "liquid_transmuter_1_liquid_liquid_copper_enr_1",
+  LIQUID_TRANSMUTER_1_LIQUID_LIQUID_WATER_1:
+    "liquid_transmuter_1_liquid_liquid_water_1",
+  LIQUID_TRANSMUTER_1_LIQUID_LIQUID_XIRANITE_1:
+    "liquid_transmuter_1_liquid_liquid_xiranite_1",
+  LIQUID_TRANSMUTER_1_LIQUID_LIQUID_XIRANITE_ENR_1:
+    "liquid_transmuter_1_liquid_liquid_xiranite_enr_1",
+  LIQUID_TRANSMUTER_2_GAS_GAS_COPPER_1: "liquid_transmuter_2_gas_gas_copper_1",
+  LIQUID_TRANSMUTER_2_GAS_GAS_COPPER_ENR_1:
+    "liquid_transmuter_2_gas_gas_copper_enr_1",
+  LIQUID_TRANSMUTER_2_GAS_GAS_COPPER_ENR2_1:
+    "liquid_transmuter_2_gas_gas_copper_enr2_1",
+  LIQUID_TRANSMUTER_2_GAS_GAS_XIRANITE_1:
+    "liquid_transmuter_2_gas_gas_xiranite_1",
+  LIQUID_TRANSMUTER_2_GAS_GAS_XIRANITE_ENR_1:
+    "liquid_transmuter_2_gas_gas_xiranite_enr_1",
+  LIQUID_TRANSMUTER_2_SOLID_COPPER_ENR_1:
+    "liquid_transmuter_2_solid_copper_enr_1",
+  LIQUID_TRANSMUTER_2_SOLID_COPPER_ENR2_1:
+    "liquid_transmuter_2_solid_copper_enr2_1",
+  LIQUID_TRANSMUTER_2_SOLID_COPPER_NUGGET_1:
+    "liquid_transmuter_2_solid_copper_nugget_1",
+  LIQUID_TRANSMUTER_2_SOLID_XIRANITE_ENR_POWDER_1:
+    "liquid_transmuter_2_solid_xiranite_enr_powder_1",
+  LIQUID_TRANSMUTER_2_SOLID_XIRANITE_POWDER_1:
+    "liquid_transmuter_2_solid_xiranite_powder_1",
   PLANTER_PLANT_BBFLOWER_1: "planter_plant_bbflower_1",
   PLANTER_PLANT_GRASS_1_1: "planter_plant_grass_1_1",
   PLANTER_PLANT_GRASS_2_1: "planter_plant_grass_2_1",
@@ -446,6 +532,7 @@ const RecipeId = {
     "shaper_activity_xiranite_enr_bottle_1",
   SHAPER_COPPER_BOTTLE_1: "shaper_copper_bottle_1",
   SHAPER_COPPER_ENR_BOTTLE_1: "shaper_copper_enr_bottle_1",
+  SHAPER_GAS_COPPER_JAR_1: "shaper_gas_copper_jar_1",
   SHAPER_GLASS_BOTTLE_1: "shaper_glass_bottle_1",
   SHAPER_GLASS_ENR_BOTTLE_1: "shaper_glass_enr_bottle_1",
   SHAPER_IRON_BOTTLE_1: "shaper_iron_bottle_1",
@@ -468,19 +555,26 @@ const RecipeId = {
   TOOLS_PROC_BATTERY_4_1: "tools_proc_battery_4_1",
   TOOLS_PROC_BATTERY_5_1: "tools_proc_battery_5_1",
   TOOLS_PROC_BOMB_1_1: "tools_proc_bomb_1_1",
+  TOOLS_PROC_FILTER_CORE_2: "tools_proc_filter_core_2",
   TOOLS_PROC_FOOD_4_1: "tools_proc_food_4_1",
   TOOLS_PROC_FOOD_5_1: "tools_proc_food_5_1",
   TOOLS_PROC_REC_HP_4_1: "tools_proc_rec_hp_4_1",
   TOOLS_PROC_REC_HP_5_1: "tools_proc_rec_hp_5_1",
+  VAPORIZE_ITEM_GAS_ACID: "vaporize_item_gas_acid",
+  VAPORIZE_ITEM_GAS_INERT: "vaporize_item_gas_inert",
+  VAPORIZE_ITEM_GAS_WATER: "vaporize_item_gas_water",
+  VAPORIZE_ITEM_GAS_XIRANITE: "vaporize_item_gas_xiranite",
   WINDER_EQUIP_SCRIPT_1: "winder_equip_script_1",
   WINDER_EQUIP_SCRIPT_2: "winder_equip_script_2",
   WINDER_EQUIP_SCRIPT_3: "winder_equip_script_3",
   WINDER_EQUIP_SCRIPT_4: "winder_equip_script_4",
   WINDER_EQUIP_SCRIPT_4_1: "winder_equip_script_4_1",
   WINDER_EQUIP_SCRIPT_4_2: "winder_equip_script_4_2",
+  WINDER_EQUIP_SCRIPT_4_3: "winder_equip_script_4_3",
   XIRANITE_OVEN_MUCK_XIRANITE_1: "xiranite_oven_muck_xiranite_1",
   XIRANITE_OVEN_XIRANITE_ENR_POWDER_1: "xiranite_oven_xiranite_enr_powder_1",
   XIRANITE_OVEN_XIRANITE_POWDER_1: "xiranite_oven_xiranite_powder_1",
+  XIRANITE_OVEN_XIRANITE_POWDER_2: "xiranite_oven_xiranite_powder_2",
 } as const;
 type RecipeId = (typeof RecipeId)[keyof typeof RecipeId];
 
@@ -489,6 +583,8 @@ const FacilityId = {
   DISMANTLER_1: "dismantler_1",
   FILLING_POWDER_MC_1: "filling_powder_mc_1",
   FURNANCE_1: "furnance_1",
+  GAS_PUMP_1: "gas_pump_1",
+  GAS_REACTOR_1: "gas_reactor_1",
   GRINDER_1: "grinder_1",
   // Synthetic facility (not in the upstream game-data dump): models
   // the Wuling Purification Node's three sewage inlet gates (game IDs
@@ -519,7 +615,10 @@ const FacilityId = {
   // `public/images/facilities/tools_assebling_mc_1.png` and the recipe
   // `facilityId` references in `src/data/recipes.ts`.
   TOOLS_ASSEBLING_MC_1: "tools_assebling_mc_1",
+  TRANSMUTER_1: "transmuter_1",
+  TRANSMUTER_2: "transmuter_2",
   UNLOADER_1: "unloader_1",
+  VAPORIZER_1: "vaporizer_1",
   WINDER_1: "winder_1",
   XIRANITE_OVEN_1: "xiranite_oven_1",
 } as const;
@@ -528,8 +627,7 @@ type FacilityId = (typeof FacilityId)[keyof typeof FacilityId];
 /**
  * Region-exclusive special structures: map buildings that can be wired
  * into a factory but are NOT roster/AIC buildings. Closed enum,
- * generated by `extract-ids` from the region-subsystem structure set
- * (`scripts/lib/region-subsystems.ts`). Today only the Wuling
+ * generated from the region-subsystem structure set. Today only the Wuling
  * Purification Node (3 sewage inlet gates + 1 byproduct outlet gate, a
  * linear prereq chain). Kept distinct from `FacilityId` because a single
  * structure ID maps to one "tier" of a larger map building, while a
@@ -550,10 +648,9 @@ type RegionStructureId =
 
 /**
  * In-game factory domains (regions): `domain_1` (Valley IV), `domain_2`
- * (Wuling). Closed enum, generated by `extract-ids` from `DomainDataTable`
- * (factory domains = entries whose `facTechPackageId` matches a settlement-
- * tech-tree group — see `scripts/lib/domains.ts`). The per-domain registry
- * (isPinned / sortId / color) lives in `src/data/aic-plans.ts` `domains`;
+ * (Wuling). Closed enum, generated from the game data (factory domains =
+ * the settlement-tech-tree factory groups). The per-domain registry
+ * (isPinned / display order / color) lives in `src/data/aic-plans.ts` `domains`;
  * display names in `public/locales/{lang}/domain.json`.
  *
  * Runtime strings crossing a boundary (localStorage, `<Select>` values,

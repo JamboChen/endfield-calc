@@ -57,14 +57,14 @@ type AicTechId = string & { readonly __brand: "AicTechId" };
 /**
  * Action a tech node performs when researched.
  *
- * - `unlock` — corresponds to upstream `actionType: 501`. Resolves the
+ * - `unlock` — a plain tech unlock in the game data. Resolves the
  *   blueprint item the node grants back to one of our calc-modelled
  *   `FacilityId` values.
- * - `modeUnlock` — corresponds to upstream `actionType: 3005`. Activates an
+ * - `modeUnlock` — a machine-mode unlock in the game data. Activates an
  *   additional recipe-mode (e.g. "liquid") on an already-unlockable facility.
  *   In Step 2 these filter recipes whose `formulaGroupId` belongs to a
  *   locked mode.
- * - `capRaise` — corresponds to upstream `actionType: 5123`. Adds `delta`
+ * - `capRaise` — a placement-cap raise in the game data. Adds `delta`
  *   to the facility's per-domain placement cap. In Step 1 these are
  *   display-only; Step 5 (future) would enforce.
  *
@@ -129,8 +129,8 @@ type AicGroup = {
 
 /**
  * The base per-domain placement cap for a facility as defined by the
- * upstream game-data dump's per-building `placeDomainLimitCnt` array
- * (paired with its `placeDomains[]`). Used as the starting value for
+ * game data's per-building placement-limit array (paired with its
+ * placeable-domains list). Used as the starting value for
  * cap-raise math and for the "Game cap: N" hint in the Facility-limits
  * UI.
  *

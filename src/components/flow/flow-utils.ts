@@ -3,10 +3,17 @@ import type {
   ProductionNode,
   Item,
   Facility,
+  FacilityId,
+  Recipe,
+  RecipeId,
+  ProductionDependencyGraph,
   FlowProductionNode,
   FlowTargetNode,
   FlowDisposalNode,
   FlowPowerNode,
+  FlowEnvNode,
+  EnvCoverageEntry,
+  EnvCoveredBuilding,
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
@@ -400,6 +407,110 @@ export function createPowerSinkNode(
       facility,
       facilityCount,
       powerGeneration,
+      items,
+      facilities,
+      ceilMode,
+    },
+    position: { x: 0, y: 0 },
+    targetPosition: Position.Left,
+  };
+}
+
+/**
+ * Buffed machines for a gas environment, grouped by (facility, formula).
+ * The buff attaches to the RECIPE (`recipe.gasEnv === env`), not the
+ * facility — so this returns one entry per env-gated ACTIVE recipe, with
+ * `buildings` = the ceiled physical count running that formula. Shared by
+ * all three mappers so the Recipe-View aggregate node and the
+ * Facility-View per-unit partition start from the same set.
+ */
+export function envBuffedMachines(
+  plan: ProductionDependencyGraph,
+  env: number,
+  facilityById: Map<FacilityId, Facility>,
+  recipeById: Map<RecipeId, Recipe>,
+): EnvCoverageEntry[] {
+  const out: EnvCoverageEntry[] = [];
+  for (const node of plan.nodes.values()) {
+    if (node.type !== "recipe" || !(node.facilityCount > 0)) continue;
+    if (node.recipe.gasEnv !== env) continue;
+    const facility = facilityById.get(node.recipe.facilityId);
+    const recipe = recipeById.get(node.recipeId) ?? node.recipe;
+    if (!facility) continue;
+    out.push({
+      facility,
+      recipe,
+      buildings: Math.max(1, Math.ceil(node.facilityCount)),
+    });
+  }
+  // Stable order: facility id, then recipe id (deterministic partition).
+  out.sort(
+    (a, b) =>
+      a.facility.id.localeCompare(b.facility.id) ||
+      a.recipe.id.localeCompare(b.recipe.id),
+  );
+  return out;
+}
+
+/**
+ * Partition the flat buffed-BUILDING list across `unitCount` Gas
+ * Dispersing Units as a representative BALANCED split: the first
+ * `total % unitCount` units get `ceil(total / unitCount)` buildings, the
+ * rest get `floor` — so no unit is ever left empty (a fixed-chunk split
+ * can strand the last unit). The SET of buffed buildings is exact (from
+ * `gasEnv`); only the which-unit-covers-which grouping is representative
+ * (the calculator has no spatial model). Returns one `EnvCoveredBuilding[]`
+ * per unit (length === `unitCount`).
+ */
+export function partitionBuffedBuildings(
+  buildings: EnvCoveredBuilding[],
+  unitCount: number,
+): EnvCoveredBuilding[][] {
+  if (unitCount <= 1) return [buildings];
+  const base = Math.floor(buildings.length / unitCount);
+  const extra = buildings.length % unitCount;
+  const units: EnvCoveredBuilding[][] = [];
+  let cursor = 0;
+  for (let u = 0; u < unitCount; u++) {
+    const size = base + (u < extra ? 1 : 0);
+    units.push(buildings.slice(cursor, cursor + size));
+    cursor += size;
+  }
+  return units;
+}
+
+/**
+ * Creates a gas-environment sink flow node (1.4 Gas Dispersing Unit).
+ * Flow-wise identical to a disposal sink (consumes the env gas) — only
+ * the rendering differs (teal "Gaseous Environment" card that names the
+ * buff and lists the buffed machines by formula).
+ */
+export function createEnvSinkNode(
+  nodeId: string,
+  item: Item,
+  intakeRate: number,
+  facility: Facility,
+  facilityCount: number,
+  vaporizeRecipeId: RecipeId,
+  env: number,
+  covered: EnvCoverageEntry[],
+  coveredBuildings: EnvCoveredBuilding[],
+  items: Item[],
+  facilities: Facility[],
+  ceilMode = false,
+): FlowEnvNode {
+  return {
+    id: nodeId,
+    type: "envSink",
+    data: {
+      item,
+      intakeRate,
+      facility,
+      facilityCount,
+      vaporizeRecipeId,
+      env,
+      covered,
+      coveredBuildings,
       items,
       facilities,
       ceilMode,

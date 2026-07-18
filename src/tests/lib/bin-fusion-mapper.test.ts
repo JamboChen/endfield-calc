@@ -194,12 +194,18 @@ describe("mapPlanToFlowBinFused (Recipe View)", () => {
     const flow = mapPlanToFlowBinFused(plan, items, recipes, facilities, new Map(), false);
 
     // Total emitted production nodes (excluding raw materials and sinks)
-    // should equal the number of non-disposal bins in the plan.
+    // should equal the number of non-disposal bins in the plan. Recipe
+    // resolution falls back to `plan.nodes` for injected recipes
+    // (vaporize_*/burn_* ride the options bag, not the App roster).
     const productionBinIds = new Set(
       plan.bins
         .filter((b) => {
           if (b.recipeIds.length !== 1) return true;
-          const r = recipes.find((x) => x.id === b.recipeIds[0]);
+          const rid = b.recipeIds[0];
+          const planNode = plan.nodes.get(rid);
+          const r =
+            recipes.find((x) => x.id === rid) ??
+            (planNode?.type === "recipe" ? planNode.recipe : undefined);
           return !r || r.outputs.length > 0;
         })
         .map((b) => b.id),
@@ -730,10 +736,17 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       false,
     );
 
-    // For each non-disposal bin, count emitted building-nodes.
+    // For each non-disposal bin, count emitted building-nodes. Recipe
+    // resolution falls back to `plan.nodes` for injected recipes
+    // (vaporize_*/burn_* ride the options bag, not the App roster) —
+    // mirrors the mappers' own `recipeById` seeding.
     for (const bin of plan.bins) {
       if (bin.recipeIds.length === 1) {
-        const r = recipes.find((x) => x.id === bin.recipeIds[0]);
+        const rid = bin.recipeIds[0];
+        const planNode = plan.nodes.get(rid);
+        const r =
+          recipes.find((x) => x.id === rid) ??
+          (planNode?.type === "recipe" ? planNode.recipe : undefined);
         if (r && r.outputs.length === 0) continue; // disposal bin
       }
       const expected = Math.max(1, Math.ceil(bin.buildingCount));

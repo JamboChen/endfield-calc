@@ -31,6 +31,8 @@ import type {
   FlowTargetNode,
   FlowDisposalNode,
   FlowPowerNode,
+  FlowEnvNode,
+  EnvCoveredBuilding,
 } from "@/types";
 import {
   createEdge,
@@ -38,6 +40,9 @@ import {
   createTargetSinkNode,
   createDisposalSinkNode,
   createPowerSinkNode,
+  createEnvSinkNode,
+  envBuffedMachines,
+  partitionBuffedBuildings,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -67,12 +72,12 @@ export function mapPlanToFlowBinFused(
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
 ): {
-  nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode)[];
+  nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode | FlowEnvNode)[];
   edges: Edge[];
 } {
   const flowNodes: FlowProductionNode[] = [];
   const targetSinkNodes: FlowTargetNode[] = [];
-  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode)[] = [];
+  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode | FlowEnvNode)[] = [];
   const flowEdges: Edge[] = [];
   let edgeIdCounter = 0;
 
@@ -99,6 +104,14 @@ export function mapPlanToFlowBinFused(
   const powerGenerationFor = (recipeId: RecipeId): number | undefined => {
     const node = plan.nodes.get(recipeId);
     return node?.type === "recipe" ? node.powerGeneration : undefined;
+  };
+  // Env sinks (1.4 Gas Dispersing Units) share the same disposal
+  // classification / `disposal-<recipeId>` ids / allocation flow;
+  // `envSupport` (the supplied env id) is checked BEFORE
+  // `powerGeneration` when emitting the card.
+  const envSupportFor = (recipeId: RecipeId): number | undefined => {
+    const node = plan.nodes.get(recipeId);
+    return node?.type === "recipe" ? node.envSupport : undefined;
   };
 
   // Visible Metastorage imports. A region can receive the same item
@@ -509,6 +522,29 @@ export function mapPlanToFlowBinFused(
     const disposalRate =
       calcRate(inp.amount, recipe.craftingTime) * bin.buildingCount;
     if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    // Env FIRST (before power) — a vaporize bin is also `isDisposal`.
+    const envId = envSupportFor(bin.recipeIds[0]);
+    if (envId !== undefined) {
+      // Recipe View: ONE aggregate node, buffed machines by formula
+      // (no per-building instances in this view).
+      disposalSinkNodes.push(
+        createEnvSinkNode(
+          `disposal-${bin.recipeIds[0]}`,
+          consumedItem,
+          disposalRate,
+          facility,
+          bin.buildingCount,
+          bin.recipeIds[0],
+          envId,
+          envBuffedMachines(plan, envId, facilityById, recipeById),
+          [],
+          items,
+          facilities,
+          ceilMode,
+        ),
+      );
+      continue;
+    }
     const powerGeneration = powerGenerationFor(bin.recipeIds[0]);
     disposalSinkNodes.push(
       powerGeneration
@@ -653,6 +689,7 @@ export function mapPlanToFlowBinFused(
     | FlowTargetNode
     | FlowDisposalNode
     | FlowPowerNode
+    | FlowEnvNode
   )[] = [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes];
   assertFlowIntegrity("bin-fused-mapper", allNodes, flowEdges);
   return { nodes: allNodes, edges: flowEdges };
@@ -679,12 +716,12 @@ export function mapPlanToFlowBinFusedSeparated(
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
 ): {
-  nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode)[];
+  nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode | FlowEnvNode)[];
   edges: Edge[];
 } {
   const flowNodes: FlowProductionNode[] = [];
   const targetSinkNodes: FlowTargetNode[] = [];
-  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode)[] = [];
+  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode | FlowEnvNode)[] = [];
   const flowEdges: Edge[] = [];
   let edgeIdCounter = 0;
 
@@ -707,6 +744,14 @@ export function mapPlanToFlowBinFusedSeparated(
   const powerGenerationFor = (recipeId: RecipeId): number | undefined => {
     const node = plan.nodes.get(recipeId);
     return node?.type === "recipe" ? node.powerGeneration : undefined;
+  };
+  // Env sinks (1.4 Gas Dispersing Units) share the same disposal
+  // classification / `disposal-<recipeId>` ids / allocation flow;
+  // `envSupport` (the supplied env id) is checked BEFORE
+  // `powerGeneration` when emitting the card.
+  const envSupportFor = (recipeId: RecipeId): number | undefined => {
+    const node = plan.nodes.get(recipeId);
+    return node?.type === "recipe" ? node.envSupport : undefined;
   };
 
   // Visible Metastorage imports (flat list — one node per (source,
@@ -962,17 +1007,33 @@ export function mapPlanToFlowBinFusedSeparated(
     arr.push({ instanceId: createTargetSinkId(nodeId), rate: userTargetRate });
     consumersByItem.set(node.itemId, arr);
   });
-  // Disposal bins consume items; register one disposal-sink consumer
-  // per disposal bin (not per building, since disposal sinks aren't
-  // visualised per-instance in the existing app).
+  // Disposal / power bins consume items; register ONE aggregate
+  // consumer per bin (not per building — those sinks aren't visualised
+  // per-instance). Env (Gas Dispersing Unit) bins are the exception:
+  // one consumer PER vaporizer building, so each unit is its own node
+  // (the gas intake splits evenly; the allocator feeds each).
   for (const bin of disposalBins) {
     const recipe = recipeById.get(bin.recipeIds[0]);
     if (!recipe || recipe.inputs.length === 0) continue;
     const inp = recipe.inputs[0];
-    const rate = calcRate(inp.amount, recipe.craftingTime) * bin.buildingCount;
-    const sinkId = `disposal-${bin.recipeIds[0]}`;
+    const totalRate =
+      calcRate(inp.amount, recipe.craftingTime) * bin.buildingCount;
     const arr = consumersByItem.get(inp.itemId) ?? [];
-    arr.push({ instanceId: sinkId, rate });
+    const envId = envSupportFor(bin.recipeIds[0]);
+    if (envId !== undefined) {
+      const N = Math.max(1, Math.ceil(bin.buildingCount));
+      const perNode = totalRate / N;
+      if (perNode > MIN_VISIBLE_RATE_PER_MIN) {
+        for (let i = 0; i < N; i++) {
+          arr.push({
+            instanceId: `env-${bin.recipeIds[0]}-bldg${i}`,
+            rate: perNode,
+          });
+        }
+      }
+    } else {
+      arr.push({ instanceId: `disposal-${bin.recipeIds[0]}`, rate: totalRate });
+    }
     consumersByItem.set(inp.itemId, arr);
   }
 
@@ -1198,8 +1259,43 @@ export function mapPlanToFlowBinFusedSeparated(
     );
   });
 
-  // Emit disposal / power sinks (same branch rule as the Recipe View
-  // path — power bins render an amber generation card).
+  // Individual buffed BUILDINGS for a gas environment, named the way
+  // the production building nodes are (`<facility> index/total`, per-bin
+  // numbering) and linkable to those nodes. Enumerated from `plan.bins`
+  // (env recipes are single-formula, one recipe per bin), so it also
+  // catches singleton-terminal env producers (folded into a target
+  // sink, no building node → `nodeId` undefined, rendered `1/1`).
+  const buffedBuildingsForEnv = (env: number) => {
+    const out: EnvCoveredBuilding[] = [];
+    for (const b of plan.bins) {
+      const r = recipeById.get(b.recipeIds[0]);
+      if (!r || r.gasEnv !== env || !(b.buildingCount > 0)) continue;
+      const fac = facilityById.get(b.facilityId);
+      if (!fac) continue;
+      const total = Math.max(1, Math.ceil(b.buildingCount));
+      const hasNodes = !singletonTerminalBinIds.has(b.id);
+      for (let k = 0; k < total; k++) {
+        out.push({
+          facility: fac,
+          index: k,
+          total,
+          nodeId: hasNodes ? buildingInstanceId(b.id, k) : undefined,
+        });
+      }
+    }
+    out.sort(
+      (a, c) =>
+        a.facility.id.localeCompare(c.facility.id) ||
+        (a.nodeId ?? "").localeCompare(c.nodeId ?? "") ||
+        a.index - c.index,
+    );
+    return out;
+  };
+
+  // Emit disposal / power / env sinks (same branch rule as the Recipe
+  // View path — env FIRST, then power, then disposal). Env bins emit
+  // ONE node PER vaporizer building, each with its representative slice
+  // of the buffed machines.
   for (const bin of disposalBins) {
     const recipe = recipeById.get(bin.recipeIds[0]);
     if (!recipe || recipe.inputs.length === 0) continue;
@@ -1211,6 +1307,36 @@ export function mapPlanToFlowBinFusedSeparated(
     const disposalRate =
       calcRate(inp.amount, recipe.craftingTime) * bin.buildingCount;
     if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    const envId = envSupportFor(bin.recipeIds[0]);
+    if (envId !== undefined) {
+      const N = Math.max(1, Math.ceil(bin.buildingCount));
+      // Individual buffed BUILDINGS (named + linkable), partitioned
+      // across the N Gas Dispersing Units — see `buffedBuildingsForEnv`.
+      const partitions = partitionBuffedBuildings(
+        buffedBuildingsForEnv(envId),
+        N,
+      );
+      const perNode = disposalRate / N;
+      for (let i = 0; i < N; i++) {
+        disposalSinkNodes.push(
+          createEnvSinkNode(
+            `env-${bin.recipeIds[0]}-bldg${i}`,
+            consumedItem,
+            perNode,
+            facility,
+            1,
+            bin.recipeIds[0],
+            envId,
+            [],
+            partitions[i] ?? [],
+            items,
+            facilities,
+            ceilMode,
+          ),
+        );
+      }
+      continue;
+    }
     const powerGeneration = powerGenerationFor(bin.recipeIds[0]);
     disposalSinkNodes.push(
       powerGeneration
@@ -1397,6 +1523,7 @@ export function mapPlanToFlowBinFusedSeparated(
     | FlowTargetNode
     | FlowDisposalNode
     | FlowPowerNode
+    | FlowEnvNode
   )[] = [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes];
   assertFlowIntegrity("bin-fused-separated-mapper", allNodes, flowEdges);
   return { nodes: allNodes, edges: flowEdges };

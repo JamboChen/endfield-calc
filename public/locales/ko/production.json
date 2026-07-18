@@ -103,6 +103,11 @@
     "metastorageTooltip": "무재고 전송으로 도착합니다. 현지 생산이 필요 없고 출발 지역 창고 재고도 줄지 않습니다.",
     "metastorageSource": "출발 지역",
     "metastorageTtvPerItem": "개당 전송 총가치",
-    "metastorageTtvUsage": "배송당 전송 총가치"
+    "metastorageTtvUsage": "배송당 전송 총가치",
+    "gasEnv": "기체 환경",
+    "gasEnvCreates": "생성",
+    "gasEnvBuffs": "효과 대상",
+    "gasEnvBuffsDetail": "효과를 받는 설비 (대표 배분):",
+    "gasEnvDescription": "분당 {{item}} {{rate}}개를 소모해 기체 환경을 생성합니다. 효과 대상 제조법을 실행하는 설비는 범위 안에 완전히 들어가야 합니다."
   }
 }

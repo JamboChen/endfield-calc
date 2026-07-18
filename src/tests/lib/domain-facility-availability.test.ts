@@ -136,6 +136,12 @@ describe("computeAvailableFacilities — live game catalog", () => {
     // matches the in-game placement restriction.
     FacilityId.LIQUID_CLEAN_GATE_1,
     FacilityId.XIRANITE_OVEN_1,
+    // 1.4 gas subsystem — the whole family recommends domain_2 only.
+    FacilityId.GAS_PUMP_1,
+    FacilityId.GAS_REACTOR_1,
+    FacilityId.TRANSMUTER_1,
+    FacilityId.TRANSMUTER_2,
+    FacilityId.VAPORIZER_1,
   ]);
 
   test("game-data snapshot: Facility.domains is in sync with the expected Wuling-only set", () => {

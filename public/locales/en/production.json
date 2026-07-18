@@ -103,6 +103,11 @@
     "metastorageTooltip": "Delivered via Metastorage Transfer. No local production or depot debit at the source.",
     "metastorageSource": "Source region",
     "metastorageTtvPerItem": "TTV cost per item",
-    "metastorageTtvUsage": "TTV per delivery"
+    "metastorageTtvUsage": "TTV per delivery",
+    "gasEnv": "Gas Environment",
+    "gasEnvCreates": "Creates",
+    "gasEnvBuffs": "Buffs",
+    "gasEnvBuffsDetail": "Buffed machines (representative split):",
+    "gasEnvDescription": "Burning {{rate}} {{item}} per minute to project a gaseous environment. Machines running the buffed formulas must sit fully inside the aura."
   }
 }

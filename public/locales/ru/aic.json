@@ -73,6 +73,30 @@
     "tech_jinlong_3_xiranite_oven_amount_3": {
       "name": "Расширение кузницы IV"
     },
+    "tech_jinlong_4_filling_and_dismantler_mode_2": {
+      "name": "Газовое наполнение и разделение"
+    },
+    "tech_jinlong_4_gas_pump_1": {
+      "name": "Добыча газа"
+    },
+    "tech_jinlong_4_gas_reactor_1": {
+      "name": "Реакция газа"
+    },
+    "tech_jinlong_4_liquid_purifier_mode_1": {
+      "name": "Рафинирование газа"
+    },
+    "tech_jinlong_4_shaper_mode_2": {
+      "name": "Пневматическая формовка"
+    },
+    "tech_jinlong_4_transmuter_1": {
+      "name": "Жидкостно-газовое видоизменение"
+    },
+    "tech_jinlong_4_transmuter_2": {
+      "name": "Твердотельно-газовое видоизменение"
+    },
+    "tech_jinlong_4_vaporizer_1": {
+      "name": "Рассеивание газа"
+    },
     "tech_tundra_1_cmpt_1": {
       "name": "Штамповка деталей"
     },

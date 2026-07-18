@@ -17,11 +17,13 @@
     "extract:items": "bun run scripts/extract-items.ts",
     "extract:metastorage": "bun run scripts/extract-metastorage.ts",
     "extract:power": "bun run scripts/extract-power.ts",
+    "extract:sustain": "bun run scripts/extract-sustain.ts",
     "extract:structures": "bun run scripts/extract-structures.ts",
     "extract:aic": "bun run scripts/extract-aic.ts",
     "extract:raw-caps": "bun run scripts/extract-raw-caps.ts",
     "extract:all": "bun run scripts/extract-all.ts",
-    "extract:item-colors": "bun run scripts/extract-item-colors.ts"
+    "extract:item-colors": "bun run scripts/extract-item-colors.ts",
+    "extract:icons": "bun run scripts/extract-icons.ts"
   },
   "dependencies": {
     "@bubblyworld/highs-ts": "^1.2.0",

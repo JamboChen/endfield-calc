@@ -126,6 +126,17 @@ export function buildBipartiteGraph(
    * power-balance row then sizes the burn variables.
    */
   powerFuels?: readonly PowerFuel[],
+  /**
+   * Gas-environment support recipes (1.4 vaporizer, see
+   * `CalculateProductionPlanOptions.gasSustain`): map of upstream env id
+   * (`Recipe.gasEnv`) → the synthetic zero-output `vaporize_*` recipe
+   * that burns the env's gas. For every env referenced by a `gasEnv`
+   * recipe in the graph, the vaporize recipe is injected as a consumer
+   * node (same shape as burn recipes) and the gas's production chain is
+   * pulled in via traversal — the calculator's sustain loop then forces
+   * the vaporizer count via `LPInput.recipeMinRates`.
+   */
+  vaporizeRecipesByEnv?: ReadonlyMap<number, Recipe>,
 ): BipartiteGraph {
   const graph: BipartiteGraph = {
     itemNodes: new Map(),
@@ -261,6 +272,91 @@ export function buildBipartiteGraph(
       recipeConstraints,
       importableItems,
     );
+  }
+
+  // ── Pre-LP vaporize-recipe injection (1.4 gas environments) ─────────
+  //
+  // Env-gated recipes (`Recipe.gasEnv`) need a Gas Dispersing Unit aura
+  // to run; the vaporizer burns the env's gas at 6/min, always-on. The
+  // `vaporize_*` recipes are consumer-only (zero outputs) so — like the
+  // burn/disposal recipes — target-rooted traversal can never reach
+  // them. For every env referenced by a recipe currently in the graph,
+  // inject its vaporize recipe and pull the gas's chain in.
+  //
+  // Same availability guard as fuels (checked BEFORE traversal so an
+  // unsuppliable gas never gets raw-promoted into free supply). Envs
+  // whose gas isn't suppliable are skipped — the calculator emits a
+  // `gas-env-unavailable` warning when an env recipe is ACTIVE without
+  // its vaporize recipe in the graph.
+  //
+  // Loop-until-stable: an injected gas chain could itself contain
+  // env-gated recipes (not the case in 1.4 data, but the fixpoint is
+  // cheap and future-proof). Runs BEFORE disposal injection so any
+  // forced-disposal byproducts of injected chains get disposers.
+  if (vaporizeRecipesByEnv && vaporizeRecipesByEnv.size > 0) {
+    const injectedEnvs = new Set<number>();
+    for (;;) {
+      const wantedEnvs = new Set<number>();
+      for (const node of graph.recipeNodes.values()) {
+        const env = node.recipe.gasEnv;
+        if (env !== undefined && env > 0 && !injectedEnvs.has(env)) {
+          wantedEnvs.add(env);
+        }
+      }
+      let progressed = false;
+      for (const env of wantedEnvs) {
+        injectedEnvs.add(env);
+        const recipe = vaporizeRecipesByEnv.get(env);
+        if (!recipe) continue;
+        const gasInput = recipe.inputs[0];
+        if (!gasInput || !maps.itemMap.has(gasInput.itemId)) continue;
+        const gasItemId = gasInput.itemId;
+
+        const suppliable =
+          rawMaterials.has(gasItemId) ||
+          (manualRawMaterials?.has(gasItemId) ?? false) ||
+          (importableItems?.has(gasItemId) ?? false) ||
+          availableProducersFor(
+            gasItemId,
+            maps.recipeMap.values(),
+            recipeOverrides,
+            recipeConstraints,
+          ).length > 0;
+        if (!suppliable) continue;
+
+        const facility = maps.facilityMap.get(recipe.facilityId);
+        if (!facility) {
+          if (import.meta.env?.DEV) {
+            console.warn(
+              `[GAS-ENV] vaporize recipe ${recipe.id}: facility ${recipe.facilityId} missing from facilityMap; skipping`,
+            );
+          }
+          continue;
+        }
+        if (graph.recipeNodes.has(recipe.id)) continue;
+
+        traverse(gasItemId);
+
+        graph.recipeNodes.set(recipe.id, {
+          recipeId: recipe.id,
+          recipe,
+          facility,
+        });
+        graph.recipeInputs.set(
+          recipe.id,
+          new Set(recipe.inputs.map((i) => i.itemId)),
+        );
+        graph.recipeOutputs.set(recipe.id, new Set());
+        for (const input of recipe.inputs) {
+          if (!graph.itemConsumedBy.has(input.itemId)) {
+            graph.itemConsumedBy.set(input.itemId, new Set());
+          }
+          graph.itemConsumedBy.get(input.itemId)!.add(recipe.id);
+        }
+        progressed = true;
+      }
+      if (!progressed) break;
+    }
   }
 
   // ── Pre-LP disposal-recipe injection ────────────────────────────────

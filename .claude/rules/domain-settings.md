@@ -98,10 +98,10 @@ UI: `MetastorageContent` in a region-conditional tab that renders for **source-c
 
 ## Extraction (`pnpm run extract:aic`)
 
-- `pnpm run extract:aic` regenerates `src/data/aic-plans.ts` + `public/locales/{lang}/aic.json` + `public/locales/{lang}/domain.json` from `$ENDFIELD_DATA_DIR/TableCfg/{FacSTT*,FactoryBuildingTable,FactoryMachineCraftTable,ItemTable,DomainDataTable}.json`.
-- **Hybrid cap-raise detection**: techs whose `action.actionType !== 5123` but whose `unlockReward` includes an `item_factech_*_amount_*` milestone item get a synthesised `capRaise` action. The delta is parsed from the tech's English `desc.id` (`+N` regex) and self-checked against the explicit-5123 deltas. Currently one such case: `tech_jinlong_3_xiranite_enr_formula` ("Forge Expansion III", +4). Display label is overridden to the milestone item's name.
+- `pnpm run extract:aic` regenerates `src/data/aic-plans.ts` + `public/locales/{lang}/aic.json` + `public/locales/{lang}/domain.json` from the game data.
+- **Hybrid cap-raise detection**: techs that aren't explicit cap-raises but whose unlock reward includes an `item_factech_*_amount_*` milestone item get a synthesised `capRaise` action. The delta is parsed from the tech's English description (`+N` regex) and self-checked against the explicit cap-raise deltas. Currently one such case: `tech_jinlong_3_xiranite_enr_formula` ("Forge Expansion III", +4). Display label is overridden to the milestone item's name.
 - **Layer name normalisation**: Title-Case at extraction (`"WULING AIC I"` → `"Wuling AIC I"`), preserving ≤3-char upper-case tokens (catches "AIC") and roman numerals.
-- **Domain registry**: emits `export const domains: readonly Domain[]` from `DomainDataTable.json`. `isPinned` derived from `sortId === 1`. Color sourced from `domainColor`. Each domain's `name` lives in `domain.json` per locale.
+- **Domain registry**: emits `export const domains: readonly Domain[]` from the game data. `isPinned` derived from the domain's sort order. Color sourced from the game data. Each domain's `name` lives in `domain.json` per locale.
 
 ## Type split
 

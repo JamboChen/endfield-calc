@@ -19,7 +19,7 @@ export const getRecipeName = (recipeOrId: Recipe | RecipeId) => {
 };
 
 export const getTransportLabel = (item?: Item) => {
-  return item?.isLiquid
+  return item?.isLiquid || item?.isGas
     ? i18next.t("pipe.pipes", { ns: "production" })
     : i18next.t("belt.belts", { ns: "production" });
 };
@@ -38,7 +38,7 @@ export const getInternalFlowLabel = () => {
 
 export const getTransportTooltip = (item?: Item) => {
   const capacity = getTransportCapacity(item);
-  return item?.isLiquid
+  return item?.isLiquid || item?.isGas
     ? i18next.t("pipe.tooltip", { ns: "production", pipe_rate: capacity })
     : i18next.t("belt.tooltip", { ns: "production", belt_rate: capacity });
 };

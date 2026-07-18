@@ -3,6 +3,8 @@
   "dismantler_1": "解体機",
   "filling_powder_mc_1": "充填機",
   "furnance_1": "精錬炉",
+  "gas_pump_1": "ガス収集ポンプ",
+  "gas_reactor_1": "ガス反応装置",
   "grinder_1": "粉砕機",
   "liquid_clean_gate_1": "汚水入力口",
   "liquid_cleaner_1": "廃水処理機",
@@ -18,7 +20,10 @@
   "shaper_1": "成形機",
   "thickener_1": "研磨機",
   "tools_assebling_mc_1": "包装機",
+  "transmuter_1": "ガス液体転換機",
+  "transmuter_2": "ガス固体転換機",
   "unloader_1": "倉庫搬出口",
+  "vaporizer_1": "ガス散布機",
   "winder_1": "装備部品加工機",
   "xiranite_oven_1": "天有洪炉"
 }

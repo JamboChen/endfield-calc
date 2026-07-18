@@ -1010,33 +1010,37 @@ describe("Real 1.2 data regression", () => {
     const target = plan.nodes.get(ItemId.ITEM_XIRANITE_ENR_POWDER);
     expect(target?.type).toBe("item");
     if (target?.type === "item") {
-      expect(target.productionRate).toBeGreaterThanOrEqual(6);
+      // ε-tolerant: the LP guarantees min:6; the integer-snap at LP
+      // extraction (`FACILITY_COUNT_EPSILON`) can shave ~1e-5 off the
+      // displayed rate.
+      expect(target.productionRate).toBeGreaterThanOrEqual(6 - 1e-3);
     }
 
-    const powderRecipe = plan.nodes.get(RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1);
-    expect(powderRecipe?.type).toBe("recipe");
-    if (powderRecipe?.type === "recipe") {
-      expect(powderRecipe.facilityCount).toBeGreaterThan(0);
-    }
-
-    // The chain ends in some plant-powder grinder feeding the carbon-enr
-    // sub-chain. Under the global LP the specific grinder picked depends
-    // on the optimal raw → buildings → power lex result; any of the
-    // moss / grass grinders is acceptable as long as SOMETHING is
-    // actively grinding plant material to feed the Carbon Enr Powder
-    // requirement upstream of Xiranite Powder.
-    const plantPowderGrinders: RecipeId[] = [
-      RecipeId.GRINDER_PLANT_MOSS_POWDER_1_1,
-      RecipeId.GRINDER_PLANT_MOSS_POWDER_2_1,
-      RecipeId.GRINDER_PLANT_MOSS_POWDER_3_1,
-      RecipeId.GRINDER_PLANT_GRASS_POWDER_1_1,
-      RecipeId.GRINDER_PLANT_GRASS_POWDER_2_1,
+    // 1.4: the LP may satisfy Xiranite Powder via the classic Carbon
+    // Enr recipe (_1) or the cheaper env-gated Carbon MTL recipe (_2,
+    // inert Gaseous Environment + vaporizer upkeep priced in by the
+    // gas-sustain loop). Either is a valid lex optimum; assert that
+    // SOME oven produces the powder.
+    const powderRecipes = [
+      RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1,
+      RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_2,
     ];
-    const hasActivePlantGrinder = plantPowderGrinders.some((rid) => {
+    const activePowder = powderRecipes.filter((rid) => {
       const n = plan.nodes.get(rid);
       return n?.type === "recipe" && n.facilityCount > 0;
     });
-    expect(hasActivePlantGrinder).toBe(true);
+    expect(activePowder.length).toBeGreaterThan(0);
+
+    // If the env-gated recipe won, its vaporizer support MUST be in the
+    // plan (the sustain loop forces whole always-on Gas Dispersing
+    // Units — this is the priced-in env upkeep).
+    if (activePowder.includes(RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_2)) {
+      const vaporize = plan.nodes.get(RecipeId.VAPORIZE_ITEM_GAS_INERT);
+      expect(vaporize?.type).toBe("recipe");
+      if (vaporize?.type === "recipe") {
+        expect(vaporize.facilityCount).toBeGreaterThanOrEqual(1);
+      }
+    }
   });
 
   test("copper_enr + xiranite_poly multi-target plan is feasible and uses byproduct recovery", async () => {
@@ -1063,16 +1067,19 @@ describe("Real 1.2 data regression", () => {
     );
     expect(plan.invalidCycles).toEqual([]);
 
+    // ε-tolerant: the LP guarantees min:5; the integer-snap at LP
+    // extraction (`FACILITY_COUNT_EPSILON`) can shave ~1e-5 off the
+    // displayed rates.
     const copperEnr = plan.nodes.get(ItemId.ITEM_COPPER_ENR);
     expect(copperEnr?.type).toBe("item");
     if (copperEnr?.type === "item") {
-      expect(copperEnr.productionRate).toBeGreaterThanOrEqual(5);
+      expect(copperEnr.productionRate).toBeGreaterThanOrEqual(5 - 1e-3);
     }
 
     const xiranitePoly = plan.nodes.get(ItemId.ITEM_XIRANITE_POLY);
     expect(xiranitePoly?.type).toBe("item");
     if (xiranitePoly?.type === "item") {
-      expect(xiranitePoly.productionRate).toBeGreaterThanOrEqual(5);
+      expect(xiranitePoly.productionRate).toBeGreaterThanOrEqual(5 - 1e-3);
     }
 
     expect(
@@ -1101,20 +1108,25 @@ describe("Real 1.2 data regression", () => {
       { rawMaterials: ALL_RAWS },
     );
 
+    // Re-pinned for 1.4: the gas-era lex optimum routes the gourd's
+    // component sub-chain through Xiranite Powder-hungry recipes
+    // (26.5/min total vs the 1.2-era 14/min), but the REGRESSION under
+    // test is unchanged — the absorber pool is NOT over-run (still 4
+    // cycles/min, asserted below) and surplus sewage goes to disposal.
     const xiranite = plan.nodes.get(ItemId.ITEM_XIRANITE_POWDER);
     expect(xiranite?.type).toBe("item");
     if (xiranite?.type === "item") {
-      expect(xiranite.productionRate).toBeCloseTo(14, 1);
+      expect(xiranite.productionRate).toBeCloseTo(26.5, 1);
     }
 
-    // Sewage surplus should be disposed (5/min surplus / 30 per facility)
+    // Sewage surplus should be disposed (2/min surplus / 30 per facility)
     const sewageDisposal = plan.nodes.get(
       RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
     );
     expect(sewageDisposal).toBeDefined();
     if (sewageDisposal?.type === "recipe") {
       expect(sewageDisposal.isDisposal).toBe(true);
-      expect(sewageDisposal.facilityCount).toBeCloseTo(5 / 30, 3);
+      expect(sewageDisposal.facilityCount).toBeCloseTo(2 / 30, 3);
     }
 
     // Liquid Purifier absorbs the LOWPOLY produced by Pool to recover
@@ -2600,10 +2612,21 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         facilities,
         { rawMaterials: ALL_RAWS },
       );
+      // Resolve through `plan.nodes` first: injected recipes
+      // (vaporize_*) aren't in the App roster, and transmuter recipes
+      // are catalyst-folded clones whose input amounts differ from the
+      // game-data originals — the packer ran on the clones, so the
+      // net-flow mirror below must too.
+      const resolveRecipe = (rid: RecipeId) => {
+        const planNode = plan.nodes.get(rid);
+        return planNode?.type === "recipe"
+          ? planNode.recipe
+          : recipes.find((x) => x.id === rid);
+      };
       for (const bin of plan.bins) {
         // Skip disposal bins (recipe with no outputs).
         const isDisposal = bin.recipeIds.some((rid) => {
-          const r = recipes.find((x) => x.id === rid);
+          const r = resolveRecipe(rid);
           return r && r.outputs.length === 0;
         });
         if (isDisposal) continue;
@@ -2626,7 +2649,7 @@ describe("Xircon bin-fusion integrity (real data)", () => {
         for (const rid of bin.recipeIds) {
           const active = activeByRecipe.get(rid) ?? 0;
           if (active <= 0) continue;
-          const recipe = recipes.find((x) => x.id === rid)!;
+          const recipe = resolveRecipe(rid)!;
           for (const inp of recipe.inputs) {
             netPerItem.set(
               inp.itemId,
@@ -3011,12 +3034,22 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
         RecipeId.DISMANTLER_COPPER_XIRANITE_POLY_1,
       ],
     ]);
+    // Gas-sustain disabled for THIS scenario: the 1.4 catalyst folding
+    // pulls the transmuters' Liquid Xiranite chain into the graph,
+    // which gives the pinned-out Effluent a legitimate byproduct escape
+    // route (the pin degrades to "vacuously ineffective" and no deficit
+    // arises). The mechanism under test — disposal-slack deficit →
+    // invalid-SCC translation — needs the 1.2-shaped graph to trigger.
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 6 }],
       items,
       recipes,
       facilities,
-      { rawMaterials: ALL_RAWS, recipeOverrides: overrides },
+      {
+        rawMaterials: ALL_RAWS,
+        recipeOverrides: overrides,
+        gasSustain: { drains: new Map(), vaporizerEnvs: new Map() },
+      },
     );
 
     expect(plan.invalidCycles.length).toBeGreaterThan(0);

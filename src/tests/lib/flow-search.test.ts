@@ -8,6 +8,8 @@ describe("filterSearchCandidates", () => {
     { id: "n3", label: "Stabilized Carbon", sublabel: "Refining Unit 2/6" },
     { id: "n4", label: "Clean Water", sublabel: "Fluid Pump 3/14" },
     { id: "n5", label: "Xiranite", sublabel: "Forge of the Sky 1/6" },
+    // 1.4 env sink: gas item headline, facility name in the sublabel.
+    { id: "n6", label: "Inergen", sublabel: "Gas Environment · Gas Dispersing Unit" },
   ];
 
   test("empty / whitespace query matches nothing", () => {
@@ -27,6 +29,11 @@ describe("filterSearchCandidates", () => {
 
   test("case-insensitive", () => {
     expect(filterSearchCandidates(CANDIDATES, "XIRANITE")[0].id).toBe("n5");
+  });
+
+  test("finds a Gas Dispersing Unit env sink by facility name (sublabel)", () => {
+    const results = filterSearchCandidates(CANDIDATES, "dispersing");
+    expect(results.map((r) => r.id)).toEqual(["n6"]);
   });
 
   test("respects the limit", () => {

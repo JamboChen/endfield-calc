@@ -596,9 +596,12 @@ describe("belt-minimizing producer→consumer decomposition (issue #91)", () => 
     );
 
     // Whole-producer assignments: minimum edge count, no producer
-    // building split across two consumers (old greedy: 7 edges, one
-    // producer feeding both a mix pool and a forge).
-    expect(xiraniteEdges).toHaveLength(6);
+    // building split across two consumers (old greedy: one extra edge,
+    // one producer feeding both a mix pool and a forge). Re-pinned for
+    // 1.4: the LP routes Xiranite Powder through the Forge's gas-era
+    // recipe mix — 7 full producers (30/min) + 1 partial (12/min) →
+    // 8 whole-producer edges.
+    expect(xiraniteEdges).toHaveLength(8);
     const sources = xiraniteEdges.map((e) => e.source);
     expect(new Set(sources).size).toBe(sources.length);
 
@@ -614,7 +617,7 @@ describe("belt-minimizing producer→consumer decomposition (issue #91)", () => 
         ),
       0,
     );
-    expect(belts).toBe(6);
+    expect(belts).toBe(8);
   });
 
   // Follow-up repro: the raw-material pickup → consumer path was a
@@ -649,23 +652,22 @@ describe("belt-minimizing producer→consumer decomposition (issue #91)", () => 
       byConsumer.set(e.target, rates);
     }
 
-    // Demand profile of this plan: 26 consumers × 30/min + 4 × 18/min
-    // = 852/min → 15 pumps (14 × 60 + one 12 partial). The four 18s
-    // total 72 = 60 + 12, and no whole 18 fits into the 12-partial, so
-    // EXACTLY ONE consumer must draw from two pickups (12 + 6); every
-    // other consumer gets a single pickup edge. The old carving instead
-    // daisy-chained complement pairs across the whole row.
-    expect(byConsumer.size).toBe(30);
-    expect(waterPickupEdges).toHaveLength(31);
+    // Demand profile re-pinned for 1.4 (gas-era Xiranite Powder route,
+    // env-coverage pricing included): 27 water consumers over 28 pickup
+    // edges — EXACTLY ONE consumer (a partial-load planter) needs a
+    // two-pump seam; every other consumer drinks from exactly one
+    // pickup. The invariant under test is unchanged: the allocation
+    // must never daisy-chain complement pairs across the pickup row the
+    // way the old sequential carving did.
+    expect(byConsumer.size).toBe(27);
+    expect(waterPickupEdges).toHaveLength(28);
     const multiFed = [...byConsumer.entries()].filter(
       ([, rates]) => rates.length > 1,
     );
     expect(
       multiFed.map(([c, rates]) => `${c} <- ${rates.length} pumps`),
     ).toHaveLength(1);
-    // The seam consumer's two edges still sum to its 18/min demand.
-    expect(
-      multiFed[0][1].reduce((a, b) => a + b, 0),
-    ).toBeCloseTo(18, 3);
+    // The seam consumer's edges still sum to its demand (30/min planter).
+    expect(multiFed[0][1].reduce((a, b) => a + b, 0)).toBeCloseTo(30, 3);
   });
 });

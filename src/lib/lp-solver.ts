@@ -422,6 +422,50 @@ export type LPInput = {
    * power constraint (the historical behaviour). See `LPPowerBalance`.
    */
   powerBalance?: LPPowerBalance;
+  /**
+   * Per-recipe HARD lower bound on the recipe variable (fractional
+   * facility count), in buildings. **Optional**: absent or empty means
+   * no floors. Used by the calculator's gas-sustain loop to force the
+   * vaporizer env recipes (`vaporize_*`) to run at the whole-building
+   * vaporizer count derived from the packed plan (ceil(env machines /
+   * machinesPerVaporizer)) — the LP would otherwise never run a pure
+   * consumer voluntarily.
+   *
+   * HARD on purpose (no slack): the floored recipes consume gas whose
+   * supply is itself soft (raw caps / facility caps engage their own
+   * slack), so the row cannot make the LP infeasible in practice, and
+   * a vaporizer that must run IS a hard game fact (env recipes stall
+   * without the aura). Recipes absent from the current LP are skipped
+   * defensively.
+   */
+  recipeMinRates?: ReadonlyMap<RecipeId, number>;
+  /**
+   * Gas-environment coverage ties (1.4). For each entry, the LP gains a
+   * HARD row
+   *
+   *   machinesPerVaporizer × x_vaporize − Σ_{r ∈ envRecipeIds} x_r ≥ 0
+   *
+   * i.e. the vaporize variable must FRACTIONALLY cover every machine
+   * running an env-gated recipe. This is what makes the env's gas cost
+   * visible to the lex objective from the FIRST solve: without the tie,
+   * env recipes are free until the ceil-floor loop imposes min-runs —
+   * and min-run rows are unconditional, so by then the vaporizer gas is
+   * a sunk cost every re-solve ignores when choosing routes (env routes
+   * end up permanently underpriced — user-reported Forge-of-the-Sky
+   * over-cap regression). The whole-building top-up (ceil to whole
+   * always-on vaporizers) still rides `recipeMinRates`; this row only
+   * carries the marginal per-machine share (rate / machinesPerVaporizer).
+   *
+   * HARD (no slack) for the same reason as `recipeMinRates`: x_vaporize
+   * is unbounded above and its gas supply is soft, so the row cannot
+   * cause infeasibility. Entries whose vaporize recipe is absent from
+   * this LP are skipped defensively.
+   */
+  envCoverage?: readonly {
+    vaporizeRecipeId: RecipeId;
+    envRecipeIds: readonly RecipeId[];
+    machinesPerVaporizer: number;
+  }[];
   /** Facility lookup for power-cost computation. */
   facilityMap: Map<FacilityId, Facility>;
 };
@@ -823,6 +867,44 @@ const buildModel = (
     }
   }
 
+  // Per-recipe HARD facility-count floors (gas-sustain vaporizer
+  // min-runs — see `LPInput.recipeMinRates`). One `minrun_*` row per
+  // (recipe present in this LP, floor > 0): `x_r ≥ floor`.
+  if (input.recipeMinRates && input.recipeMinRates.size > 0) {
+    let minRunIdx = 0;
+    input.recipes.forEach((recipe, idx) => {
+      const floor = input.recipeMinRates!.get(recipe.id);
+      if (floor === undefined || !(floor > 0)) return;
+      const rowName = `minrun_${minRunIdx++}_${recipe.id}`;
+      constraints[rowName] = { min: floor };
+      variables[`x_${idx}`][rowName] = 1;
+    });
+  }
+
+  // Gas-env coverage ties (HARD) — see `LPInput.envCoverage`. One
+  // `envcov_*` row per env whose vaporize recipe is in this LP:
+  //   ratio × x_vaporize − Σ env-machine vars ≥ 0
+  if (input.envCoverage && input.envCoverage.length > 0) {
+    const idxByRecipeId = new Map<RecipeId, number>();
+    input.recipes.forEach((recipe, idx) => idxByRecipeId.set(recipe.id, idx));
+    let covIdx = 0;
+    for (const cov of input.envCoverage) {
+      const vapIdx = idxByRecipeId.get(cov.vaporizeRecipeId);
+      if (vapIdx === undefined || !(cov.machinesPerVaporizer > 0)) continue;
+      const envIdxs = cov.envRecipeIds
+        .map((id) => idxByRecipeId.get(id))
+        .filter((i): i is number => i !== undefined);
+      if (envIdxs.length === 0) continue;
+      const rowName = `envcov_${covIdx++}_${cov.vaporizeRecipeId}`;
+      constraints[rowName] = { min: 0 };
+      variables[`x_${vapIdx}`][rowName] = cov.machinesPerVaporizer;
+      for (const i of envIdxs) {
+        variables[`x_${i}`][rowName] =
+          (variables[`x_${i}`][rowName] ?? 0) - 1;
+      }
+    }
+  }
+
   // Power-balance + power-floor rows (SOFT, one shared slack) — see
   // `LPPowerBalance` and `POWER_SLACK_PENALTY` for the tier ordering
   // that keeps battery production strictly inside user-cap headroom.
@@ -1015,8 +1097,20 @@ const extractSolution = (
   let totalPower = 0;
   for (const [varName, recipeId] of recipeIndexMap.entries()) {
     const v = rawResult[varName];
-    const fc =
+    let fc =
       typeof v === "number" && Math.abs(v) > FACILITY_COUNT_EPSILON ? v : 0;
+    // Integer snap: HiGHS vertex solutions carry ~1e-9..1e-8 drift, and
+    // re-solves (the calculator's sustain/power ceil-floor loop) can
+    // land a count at e.g. 9.000000027 where the first pass returned a
+    // clean 9. Downstream `ceil()` amplifies that drift into a phantom
+    // whole building (an 10th building node with no flow to carry —
+    // isolated-node integrity failures in the separated mapper). Same
+    // epsilon as the zero clamp; genuine fractional counts (≥ 1e-6
+    // away from an integer) are untouched.
+    const nearest = Math.round(fc);
+    if (fc > 0 && Math.abs(fc - nearest) <= FACILITY_COUNT_EPSILON) {
+      fc = nearest;
+    }
     facilityCounts.set(recipeId, fc);
     const recipe = recipesById.get(recipeId)!;
     totalRaw += rawCostPerFacility(recipe, rawMaterials, costlessRaws) * fc;

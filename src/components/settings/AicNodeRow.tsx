@@ -125,8 +125,8 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
 
   /**
    * Recipes this tech unlocks, deduplicated for tooltip display.
-   * Sourced at extraction time from `recipesByTech` (FactoryMachineCraftTable
-   * joins) and collapsed on the composite key
+   * Sourced at extraction time from `recipesByTech` (from the game
+   * data) and collapsed on the composite key
    * (primary output itemId, localized recipe name). Both must match to
    * collapse to a single row:
    *

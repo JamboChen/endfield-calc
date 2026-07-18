@@ -3,11 +3,9 @@
 // Thermal Bank power generation: the `power_station_1` facility plus one
 // zero-output "burn" recipe per battery fuel, with the out-of-band
 // `powerGeneration` value (power output while a bank burns that fuel).
-// Derived from `FactoryPowerStationTable` + `FactoryFuelItemTable` +
-// `FactoryBuildingTable` in the upstream game-data dump. Batteries only:
-// the dump also allows burning Originium Ore (50 power / 8 s) but its
-// power density would suggest absurd Thermal Bank counts — see
-// `scripts/lib/power-station.ts`.
+// Derived from the game data. Batteries only: the game also allows
+// burning Originium Ore (50 power / 8 s) but its power density would
+// suggest absurd Thermal Bank counts.
 //
 // A fractional bank count is a duty cycle: one bank burning a 40 s
 // battery consumes 60/40 = 1.5 fuel/min and provides `powerGeneration`

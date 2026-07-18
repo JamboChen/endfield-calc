@@ -17,6 +17,8 @@ type LeftPanelProps = {
   onAutoFitChange: (value: boolean) => void;
   powerSustain: boolean;
   onPowerSustainChange: (value: boolean) => void;
+  machinesPerVaporizer: number;
+  onMachinesPerVaporizerChange: (value: number) => void;
   powerTargets: readonly PowerTarget[];
   powerSustainUnavailable: boolean;
   onOpenSettings: () => void;
@@ -43,6 +45,8 @@ const LeftPanel = memo(function LeftPanel({
   onAutoFitChange,
   powerSustain,
   onPowerSustainChange,
+  machinesPerVaporizer,
+  onMachinesPerVaporizerChange,
   powerTargets,
   powerSustainUnavailable,
   onOpenSettings,
@@ -88,6 +92,8 @@ const LeftPanel = memo(function LeftPanel({
         onAutoFitChange={onAutoFitChange}
         powerSustain={powerSustain}
         onPowerSustainChange={onPowerSustainChange}
+        machinesPerVaporizer={machinesPerVaporizer}
+        onMachinesPerVaporizerChange={onMachinesPerVaporizerChange}
         powerTargets={powerTargets}
         powerSustainUnavailable={powerSustainUnavailable}
         onOpenSettings={onOpenSettings}

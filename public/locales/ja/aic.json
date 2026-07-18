@@ -73,6 +73,30 @@
     "tech_jinlong_3_xiranite_oven_amount_3": {
       "name": "洪炉拡張Ⅳ"
     },
+    "tech_jinlong_4_filling_and_dismantler_mode_2": {
+      "name": "ガス充填と解体"
+    },
+    "tech_jinlong_4_gas_pump_1": {
+      "name": "ガス収集"
+    },
+    "tech_jinlong_4_gas_reactor_1": {
+      "name": "ガス反応"
+    },
+    "tech_jinlong_4_liquid_purifier_mode_1": {
+      "name": "ガス精製"
+    },
+    "tech_jinlong_4_shaper_mode_2": {
+      "name": "ガスアシスト成形"
+    },
+    "tech_jinlong_4_transmuter_1": {
+      "name": "ガス液体転換"
+    },
+    "tech_jinlong_4_transmuter_2": {
+      "name": "ガス固体転換"
+    },
+    "tech_jinlong_4_vaporizer_1": {
+      "name": "ガス散布"
+    },
     "tech_tundra_1_cmpt_1": {
       "name": "部品製造"
     },

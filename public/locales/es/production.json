@@ -103,6 +103,11 @@
     "metastorageTooltip": "Entregado mediante transferencia de metaalmacenamiento: sin producción local y sin restar del depósito de origen.",
     "metastorageSource": "Región de origen",
     "metastorageTtvPerItem": "VTT por objeto",
-    "metastorageTtvUsage": "VTT por entrega"
+    "metastorageTtvUsage": "VTT por entrega",
+    "gasEnv": "Entorno gaseoso",
+    "gasEnvCreates": "Crea",
+    "gasEnvBuffs": "Mejora",
+    "gasEnvBuffsDetail": "Instalaciones mejoradas (reparto representativo):",
+    "gasEnvDescription": "Consume {{rate}} {{item}} por minuto para proyectar un entorno gaseoso. Las instalaciones con las fórmulas mejoradas deben caber por completo dentro del área."
   }
 }

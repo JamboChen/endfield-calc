@@ -73,6 +73,30 @@
     "tech_jinlong_3_xiranite_oven_amount_3": {
       "name": "화로 확장 IV"
     },
+    "tech_jinlong_4_filling_and_dismantler_mode_2": {
+      "name": "기체 충전 및 분해"
+    },
+    "tech_jinlong_4_gas_pump_1": {
+      "name": "기체 수집"
+    },
+    "tech_jinlong_4_gas_reactor_1": {
+      "name": "기체 반응"
+    },
+    "tech_jinlong_4_liquid_purifier_mode_1": {
+      "name": "기체 정제"
+    },
+    "tech_jinlong_4_shaper_mode_2": {
+      "name": "기체 보조 성형"
+    },
+    "tech_jinlong_4_transmuter_1": {
+      "name": "액체 · 기체 전환"
+    },
+    "tech_jinlong_4_transmuter_2": {
+      "name": "고체 · 기체 전환"
+    },
+    "tech_jinlong_4_vaporizer_1": {
+      "name": "기체 분산"
+    },
     "tech_tundra_1_cmpt_1": {
       "name": "부품 제작"
     },

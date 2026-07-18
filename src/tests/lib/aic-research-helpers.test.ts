@@ -126,9 +126,9 @@ describe("aic-research-helpers", () => {
     });
 
     test("xiranite_oven_1 is gated (Wuling AIC I), default-granted via alreadyUnlocked", () => {
-      // The upstream tech_jinlong_1_xiranite_oven_1 has `actionType: 0`
-      // (a data-side anomaly — every other facility-unlock tech uses
-      // 501). The machine-id → tech mapping in the upstream data
+      // The tech_jinlong_1_xiranite_oven_1 node has no unlock action
+      // set (a data-side anomaly — unlike every other facility-unlock
+      // tech). The machine-id → tech mapping in the game data
       // correctly points `item_port_xiranite_oven_1` at this tech, so
       // our extractor (machine-map-first) emits it as a real `unlock`
       // node with `alreadyUnlocked: true`. The model matches the

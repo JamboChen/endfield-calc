@@ -13,9 +13,7 @@ import type { DomainId } from "./domain";
  * `ttvCapPerCycle / cost / (cycleSeconds / 60)` items/min.
  *
  * Capability + per-item costs are AUTO-GENERATED into
- * `src/data/metastorage.ts` by `scripts/extract-metastorage.ts` from
- * `FactoryDomainItemTransmissionTable` / `FactoryConst` /
- * `FactoryItemTable`.
+ * `src/data/metastorage.ts` from the game data.
  */
 
 /**

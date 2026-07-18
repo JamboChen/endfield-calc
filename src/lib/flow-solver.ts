@@ -96,6 +96,17 @@ export async function calculateFlows(
     generationByRecipe: ReadonlyMap<RecipeId, number>;
     minGeneration?: number;
   },
+  /**
+   * Gas-sustain LP inputs (1.4): `recipeMinRates` = per-recipe hard
+   * facility-count floors (whole always-on vaporizers from the
+   * calculator's sustain loop); `envCoverage` = the hard fractional
+   * coverage ties that price env-gated recipes from the first solve.
+   * Both forwarded verbatim to the `LPInput` fields of the same names.
+   */
+  sustainLP?: {
+    recipeMinRates?: ReadonlyMap<RecipeId, number>;
+    envCoverage?: LPInput["envCoverage"];
+  },
 ): Promise<{
   flowData: FlowData;
   invalidSCCs: InvalidSCCInfo[];
@@ -264,6 +275,8 @@ export async function calculateFlows(
     facilityCaps,
     metastorageImports,
     powerBalance,
+    recipeMinRates: sustainLP?.recipeMinRates,
+    envCoverage: sustainLP?.envCoverage,
     facilityMap: maps.facilityMap,
   };
 

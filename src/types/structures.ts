@@ -4,8 +4,8 @@ import type { DomainId } from "./domain";
 /**
  * Region-exclusive special structures (map buildings wired into a
  * factory; not roster/AIC buildings). Auto-generated into
- * `src/data/region-subsystems.ts` by `scripts/extract-structures.ts`;
- * display names live in `public/locales/{lang}/structure.json`.
+ * `src/data/region-subsystems.ts`; display names live in
+ * `public/locales/{lang}/structure.json`.
  *
  * Structures in a region form a linear opt-in chain via `requires`
  * (Wuling: liquid_clean_gate_1 -> _2 -> _3 -> liquid_recycle_gate_1).

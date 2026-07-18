@@ -2,11 +2,12 @@
 //
 // Per-region default raw-material caps (items/min): each region's maximum
 // mining output at max Regional Development Level. Derived entirely from
-// the game-data dump: mining spots + per-spot density schedules from the
-// scene data (`LevelGenForRuntime/TotalFactoryRegions.json`), region
-// membership + max dev level from `DomainDataTable.json`, and the base
-// 20/min per-spot rate from `FactoryMinerTable.json`. Spot-count comments
-// show the density mix at max dev (100% = high purity, 50% = low).
+// the game data: mining spots + per-spot density schedules, region
+// membership + max dev level, and the base 20/min per-spot rate.
+// Spot-count comments show the density mix
+// at max dev. Ore purity runs on a 100-scale (100% = high purity, 50% =
+// low); gas purity runs on a 50-scale (50% = high purity = full rate,
+// 25% = low = half rate) — verified in-game (1.4).
 //
 // Items without an entry — Burdo-Muck, liquids, any future non-rig raw —
 // have no default cap and stay unlimited unless the user sets one.
@@ -31,6 +32,8 @@ export const defaultRawCapsByDomain: ReadonlyMap<
     DomainId.DOMAIN_2,
     new Map<ItemId, number>([
       [ItemId.ITEM_COPPER_ORE, 360], // 18×100%
+      [ItemId.ITEM_GAS_INERT, 280], // 14×50% — manual: +12 High-Purity vents missing from stale game data
+      [ItemId.ITEM_GAS_XIRANITE, 280], // 14×50%
       [ItemId.ITEM_IRON_ORE, 120], // 6×100%
       [ItemId.ITEM_ORIGINIUM_ORE, 540], // 22×100% + 10×50%
     ]),

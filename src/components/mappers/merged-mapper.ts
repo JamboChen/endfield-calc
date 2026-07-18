@@ -2,6 +2,8 @@ import type { Node, Edge } from "@xyflow/react";
 import type {
   Item,
   ItemId,
+  Recipe,
+  RecipeId,
   Facility,
   PlanMetastorageImport,
   ProductionDependencyGraph,
@@ -11,6 +13,7 @@ import type {
   FlowTargetNode,
   FlowDisposalNode,
   FlowPowerNode,
+  FlowEnvNode,
 } from "@/types";
 import {
   createEdge,
@@ -18,6 +21,8 @@ import {
   createTargetSinkNode,
   createDisposalSinkNode,
   createPowerSinkNode,
+  createEnvSinkNode,
+  envBuffedMachines,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -39,10 +44,16 @@ export function mapPlanToFlowMerged(
   facilities: Facility[],
   targetRates?: Map<ItemId, number>,
   ceilMode = false,
-): { nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode)[]; edges: Edge[] } {
+): { nodes: (FlowProductionNode | FlowTargetNode | FlowDisposalNode | FlowPowerNode | FlowEnvNode)[]; edges: Edge[] } {
   const flowNodes: Node<FlowNodeData>[] = [];
   const flowEdges: Edge[] = [];
   const targetSinkNodes: FlowTargetNode[] = [];
+  // Lookup maps for env-sink coverage (buffed machines by formula).
+  const facilityById = new Map(facilities.map((f) => [f.id, f] as const));
+  const recipeById = new Map<RecipeId, Recipe>();
+  for (const n of plan.nodes.values()) {
+    if (n.type === "recipe") recipeById.set(n.recipeId, n.recipe);
+  }
 
   let edgeIdCounter = 0;
 
@@ -539,7 +550,7 @@ export function mapPlanToFlowMerged(
 
   // Create disposal / power sink nodes for zero-output recipes (power =
   // burn recipe carrying `powerGeneration`; same flow, different card).
-  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode)[] = [];
+  const disposalSinkNodes: (FlowDisposalNode | FlowPowerNode | FlowEnvNode)[] = [];
   plan.nodes.forEach((node, nodeId) => {
     if (node.type !== "recipe" || !node.isDisposal) return;
 
@@ -564,8 +575,25 @@ export function mapPlanToFlowMerged(
     // node from violating flow integrity.
     if (disposalRate <= MIN_VISIBLE_RATE_PER_MIN) return;
 
+    // Env sink FIRST (before power) — vaporize bins are also disposal.
+    // The legacy merged view keeps ONE aggregate env node per env.
     disposalSinkNodes.push(
-      node.powerGeneration
+      node.envSupport !== undefined
+        ? createEnvSinkNode(
+            disposalSinkId,
+            consumedItemNode.item,
+            disposalRate,
+            node.facility,
+            node.facilityCount,
+            node.recipeId,
+            node.envSupport,
+            envBuffedMachines(plan, node.envSupport, facilityById, recipeById),
+            [],
+            items,
+            facilities,
+            ceilMode,
+          )
+        : node.powerGeneration
         ? createPowerSinkNode(
             disposalSinkId,
             consumedItemNode.item,
@@ -592,6 +620,7 @@ export function mapPlanToFlowMerged(
     // Create edges from producers with remaining output after consumer allocation
     const greedy = greedyAllocations.get(consumedItemId);
     const producers = getItemProducers(plan, consumedItemId);
+    let allocatedToSink = 0;
 
     for (const producer of producers) {
       // Use greedy remaining if available, otherwise full proportional split
@@ -607,6 +636,7 @@ export function mapPlanToFlowMerged(
       }
 
       if (edgeRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+      allocatedToSink += edgeRate;
 
       // Compute how many facilities of this producer contribute
       const producerNode = plan.nodes.get(producer.recipeId);
@@ -636,6 +666,63 @@ export function mapPlanToFlowMerged(
         ),
       );
     }
+
+    // Raw-consuming sink (1.4 vaporizers burn raw gas): no recipe
+    // producer exists, so the pickup node supplies the sink directly.
+    // Mirrors the raw→consumer branch of the edge handler above (which
+    // deliberately skips disposal recipes). The pickup node is created
+    // here when no other consumer already forced it into the flow.
+    const rawRemainder = disposalRate - allocatedToSink;
+    if (
+      consumedItemNode.isRawMaterial &&
+      rawRemainder > MIN_VISIBLE_RATE_PER_MIN
+    ) {
+      const rawMaterialNodeId = createRawMaterialId(consumedItemNode.itemId);
+      if (!flowNodes.find((n2) => n2.id === rawMaterialNodeId)) {
+        const cfg = rawMaterialSources.get(consumedItemNode.itemId);
+        const sourceFacility = cfg
+          ? (facilities.find((f) => f.id === cfg.sourceFacility) ?? null)
+          : null;
+        const perFacilityRate = getRawSourceRate(
+          consumedItemNode.itemId,
+          consumedItemNode.item,
+        );
+        const pickupCount =
+          perFacilityRate > 0
+            ? consumedItemNode.productionRate / perFacilityRate
+            : 0;
+        flowNodes.push(
+          createProductionFlowNode(
+            rawMaterialNodeId,
+            {
+              item: consumedItemNode.item,
+              targetRate: consumedItemNode.productionRate,
+              recipe: null,
+              facility: sourceFacility,
+              facilityCount: pickupCount,
+              isRawMaterial: true,
+              isTarget: false,
+              dependencies: [],
+            },
+            items,
+            facilities,
+            ceilMode,
+            { isDirectTarget: false },
+          ),
+        );
+      }
+      flowEdges.push(
+        createEdge(
+          `e${edgeIdCounter++}`,
+          rawMaterialNodeId,
+          disposalSinkId,
+          rawRemainder,
+          consumedItemNode.item,
+          undefined,
+          ceilMode,
+        ),
+      );
+    }
   });
 
   const allNodes = [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes] as (
@@ -643,6 +730,7 @@ export function mapPlanToFlowMerged(
     | FlowTargetNode
     | FlowDisposalNode
     | FlowPowerNode
+    | FlowEnvNode
   )[];
   assertFlowIntegrity("merged-mapper", allNodes, flowEdges);
   return { nodes: allNodes, edges: flowEdges };

@@ -1,5 +1,5 @@
 import type { Node } from "@xyflow/react";
-import type { Item, Facility, Recipe } from "@/types";
+import type { Item, Facility, Recipe, RecipeId } from "@/types";
 import type { ProductionNode } from "@/types";
 
 /**
@@ -167,6 +167,91 @@ export interface PowerSinkNodeData {
  * Type alias for a power-generation sink node in the React Flow graph.
  */
 export type FlowPowerNode = Node<PowerSinkNodeData>;
+
+/**
+ * One (facility, formula) group of machines buffed by a Gas Dispersing
+ * Unit. Keyed on the RECIPE, not the facility: the same facility can run
+ * non-env formulas that don't belong in the aura (e.g. a Forge of the
+ * Sky running plain Xiranite Powder vs. the env-gated Xiranite Powder β
+ * — only the latter needs the zone). `buildings` is the ceiled count
+ * running this formula that this node covers.
+ */
+export interface EnvCoverageEntry {
+  facility: Facility;
+  recipe: Recipe;
+  buildings: number;
+}
+
+/**
+ * One individual buffed BUILDING (Facility View), named the way the
+ * production building nodes are: `<facility> <index+1>/<total>` (per-bin
+ * numbering, matching `CustomProductionNode`). `nodeId` is the React
+ * Flow id of that building instance for click-to-jump; undefined for
+ * singleton-terminal env producers (folded into the target sink, no
+ * separate node) which render as a non-clickable `1/1`.
+ */
+export interface EnvCoveredBuilding {
+  facility: Facility;
+  /** 0-based instance index within its bin. */
+  index: number;
+  /** Total buildings in that bin (the `/N`). */
+  total: number;
+  /** `${bin.id}-bldg${index}`, or undefined (singleton-terminal). */
+  nodeId?: string;
+}
+
+/**
+ * Data for a gas-environment sink node (1.4 Gas Dispersing Unit /
+ * vaporizer). Structurally a consumer sink like disposal — the flow /
+ * allocation machinery treats it identically — but rendered as a teal
+ * "Gaseous Environment" card that names the buff (via `vaporizeRecipeId`
+ * → localized "Gaseous Environment (Inergen)") and lists the buffed
+ * machines by FORMULA (`covered`).
+ *
+ * Recipe View emits ONE aggregate node (`facilityCount` = all vaporizers
+ * for the env, `covered` = total per-formula counts). Facility View
+ * emits ONE node PER vaporizer building (`facilityCount` = 1, `covered`
+ * = the representative even partition of buffed machines assigned to
+ * this unit).
+ */
+export interface EnvSinkNodeData {
+  /** The env gas consumed (card headline — e.g. Inergen). */
+  item: Item;
+  /** Gas intake in items/min into THIS node (6/min per vaporizer). */
+  intakeRate: number;
+  /** The Gas Dispersing Unit facility. */
+  facility: Facility;
+  /** Vaporizers this node represents (1 in Facility View). */
+  facilityCount: number;
+  /** Synthetic `vaporize_*` recipe id — the localized buff name. */
+  vaporizeRecipeId: RecipeId;
+  /** Upstream env id (`Recipe.gasEnv` / `vaporizerEnvs` key). */
+  env: number;
+  /**
+   * Buffed machines grouped by (facility, formula) — Recipe View +
+   * merged (no per-building instances there). Facility View uses
+   * `coveredBuildings` instead.
+   */
+  covered: EnvCoverageEntry[];
+  /**
+   * Facility View only: the individual buffed BUILDINGS this specific
+   * Gas Dispersing Unit covers, named `<facility> i/N` and linkable to
+   * their building nodes. Empty in Recipe View / merged.
+   */
+  coveredBuildings: EnvCoveredBuilding[];
+  /** All available items (for icon rendering). */
+  items: Item[];
+  facilities: Facility[];
+  ceilMode: boolean;
+  /** Spotlight: direct consumer of the pinned building (amber ring). */
+  pinConsumer?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Type alias for a gas-environment sink node in the React Flow graph.
+ */
+export type FlowEnvNode = Node<EnvSinkNodeData>;
 
 /**
  * Updated FlowProductionNode that can include target information.

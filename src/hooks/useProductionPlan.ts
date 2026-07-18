@@ -4,6 +4,7 @@ import {
   isCalcEngineReady,
   isCalcSuperseded,
 } from "@/lib/calc-client";
+import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
 import { useTargetOptimizer } from "@/hooks/useTargetOptimizer";
 import { items, recipes, facilities, powerFuels, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -77,6 +78,13 @@ interface SavedPlan {
    * `parseHash` default.
    */
   powerSustain?: boolean;
+  /**
+   * Optional. Gas-environment coverage ratio (1.4): how many env-gated
+   * machines one Gas Dispersing Unit's 13×13 aura covers. When absent,
+   * defaults to `DEFAULT_MACHINES_PER_VAPORIZER` — matching the
+   * `parseHash` default.
+   */
+  machinesPerVaporizer?: number;
 }
 
 /**
@@ -106,6 +114,14 @@ interface ParsedHashState {
   ceilMode: boolean;
   binFusion: boolean;
   powerSustain: boolean;
+  machinesPerVaporizer: number;
+}
+
+/** Sanitize an `mpv` value: integer in [1, 16], else the default. */
+function sanitizeMachinesPerVaporizer(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_MACHINES_PER_VAPORIZER;
+  const int = Math.round(value);
+  return int >= 1 && int <= 16 ? int : DEFAULT_MACHINES_PER_VAPORIZER;
 }
 
 function parseHash(): ParsedHashState {
@@ -119,6 +135,8 @@ function parseHash(): ParsedHashState {
     binFusion: true,
     // powerSustain defaults to OFF. The hash key `ps=1` opts in.
     powerSustain: false,
+    // Gas-env coverage ratio defaults to 4. The hash key `mpv=N` tunes.
+    machinesPerVaporizer: DEFAULT_MACHINES_PER_VAPORIZER,
   };
 
   try {
@@ -191,6 +209,13 @@ function parseHash(): ParsedHashState {
     // Parse powerSustain: ps=1 enables (default off).
     const parsedPowerSustain = params.get("ps") === "1";
 
+    // Parse machinesPerVaporizer: mpv=N (default 4).
+    const mpvRaw = params.get("mpv");
+    const parsedMachinesPerVaporizer =
+      mpvRaw !== null
+        ? sanitizeMachinesPerVaporizer(parseFloat(mpvRaw))
+        : DEFAULT_MACHINES_PER_VAPORIZER;
+
     return {
       targets: parsedTargets,
       recipeOverrides: parsedRecipeOverrides,
@@ -198,6 +223,7 @@ function parseHash(): ParsedHashState {
       ceilMode: parsedCeilMode,
       binFusion: parsedBinFusion,
       powerSustain: parsedPowerSustain,
+      machinesPerVaporizer: parsedMachinesPerVaporizer,
     };
   } catch {
     return defaultState;
@@ -211,6 +237,7 @@ function serializeHash(
   ceilMode: boolean,
   binFusion: boolean,
   powerSustain: boolean,
+  machinesPerVaporizer: number,
 ): string {
   const params = new URLSearchParams();
 
@@ -249,6 +276,12 @@ function serializeHash(
   // Only emit `ps=1` when self-sustaining power is enabled (default off).
   if (powerSustain) {
     params.set("ps", "1");
+  }
+
+  // Only emit `mpv=N` when the gas-env coverage ratio differs from the
+  // default. The default keeps the hash short.
+  if (machinesPerVaporizer !== DEFAULT_MACHINES_PER_VAPORIZER) {
+    params.set("mpv", String(machinesPerVaporizer));
   }
 
   return params.toString();
@@ -336,6 +369,14 @@ function formatPlanWarning(
       return t("powerSustainInsufficient", {
         watts: w.shortfallWatts.toFixed(0),
       });
+    case "gas-env-unavailable":
+      // An env-gated recipe runs but its environment's gas cannot be
+      // supplied — no Gas Dispersing Unit was planned, so the real gas
+      // cost is understated. Unreachable through the App flow in 1.4
+      // data (defensive for direct callers).
+      return t("gasEnvUnavailable", {
+        item: lookupItemName(w.gasItemId),
+      });
   }
 }
 
@@ -398,6 +439,12 @@ export function useProductionPlan(
   const [ceilMode, setCeilMode] = useState(initialState.ceilMode);
   const [binFusion, setBinFusion] = useState(initialState.binFusion);
   const [powerSustain, setPowerSustain] = useState(initialState.powerSustain);
+  const [machinesPerVaporizer, setMachinesPerVaporizerState] = useState(
+    initialState.machinesPerVaporizer,
+  );
+  const setMachinesPerVaporizer = useCallback((value: number) => {
+    setMachinesPerVaporizerState(sanitizeMachinesPerVaporizer(value));
+  }, []);
 
   useEffect(() => {
     const hash = serializeHash(
@@ -407,12 +454,13 @@ export function useProductionPlan(
       ceilMode,
       binFusion,
       powerSustain,
+      machinesPerVaporizer,
     );
     const newUrl = hash
       ? `${window.location.pathname}${window.location.search}#${hash}`
       : window.location.pathname + window.location.search;
     history.replaceState(null, "", newUrl);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer]);
 
   // The calculation engine (HiGHS WASM inside the calc worker, with a
   // main-thread fallback — see `calc-client.ts`) initialises async.
@@ -484,6 +532,10 @@ export function useProductionPlan(
         facilityCaps,
         metastorageRoutes,
         powerSustain: powerSustain ? { fuels: powerFuels } : undefined,
+        gasSustain:
+          machinesPerVaporizer !== DEFAULT_MACHINES_PER_VAPORIZER
+            ? { machinesPerVaporizer }
+            : undefined,
       },
     }),
     [
@@ -495,6 +547,7 @@ export function useProductionPlan(
       facilityCaps,
       metastorageRoutes,
       powerSustain,
+      machinesPerVaporizer,
     ],
   );
 
@@ -1205,6 +1258,9 @@ export function useProductionPlan(
       ceilMode,
       binFusion,
       powerSustain,
+      ...(machinesPerVaporizer !== DEFAULT_MACHINES_PER_VAPORIZER
+        ? { machinesPerVaporizer }
+        : {}),
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -1216,7 +1272,7 @@ export function useProductionPlan(
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer]);
 
   const handleOpenPlan = useCallback(() => {
     if (!fileInputRef.current) {
@@ -1259,6 +1315,10 @@ export function useProductionPlan(
             setBinFusion(data.binFusion ?? true);
             // Legacy saves omit `powerSustain`; default off (parseHash).
             setPowerSustain(data.powerSustain ?? false);
+            // Legacy saves omit `machinesPerVaporizer`; default 4.
+            setMachinesPerVaporizer(
+              data.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
+            );
           } catch {
             // ignore invalid files
           }
@@ -1269,7 +1329,7 @@ export function useProductionPlan(
     }
     fileInputRef.current.value = "";
     fileInputRef.current.click();
-  }, [resetEditContext]);
+  }, [resetEditContext, setMachinesPerVaporizer]);
 
   return {
     targets,
@@ -1293,6 +1353,8 @@ export function useProductionPlan(
     setBinFusion,
     powerSustain,
     setPowerSustain,
+    machinesPerVaporizer,
+    setMachinesPerVaporizer,
     powerTargets,
     powerSustainUnavailable,
     handleTargetChange,
