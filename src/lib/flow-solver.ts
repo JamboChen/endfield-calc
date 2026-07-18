@@ -143,6 +143,7 @@ export async function calculateFlows(
         metrics: {
           feasible: true,
           slackMagnitude: 0,
+          facilityPlacementOveruse: 0,
           ttvOverusePerMinute: 0,
           powerShortfall: 0,
           totalRawCost: 0,
@@ -317,6 +318,7 @@ export async function calculateFlows(
         feasible: false,
         failureReason: result.reason,
         slackMagnitude: 0,
+        facilityPlacementOveruse: 0,
         ttvOverusePerMinute: 0,
         powerShortfall: 0,
         totalRawCost: 0,
@@ -486,7 +488,7 @@ export async function calculateFlows(
       rawSupplyRates: result.rawSupplyRates,
     },
     invalidSCCs,
-    metrics: buildSolveMetrics(result),
+    metrics: buildSolveMetrics(result, facilityCaps, maps),
   };
 }
 
@@ -520,8 +522,46 @@ function buildMetastorageFlows(
   return flows;
 }
 
+/**
+ * Physical-placement over-cap of a candidate solve, in buildings (see
+ * `FlowSolveMetrics.facilityPlacementOveruse`). For each capped
+ * SINGLE-FORMULA facility (no `cacheSlots` — mix pools consolidate
+ * recipes per bin, so the `Σ ceil` placement model doesn't apply,
+ * matching the cap-tightening scope in `calculator.ts`), sum `ceil(fc_r)`
+ * over its active recipes and count the excess over the cap. The LP's
+ * fractional facility-cap slack can't see this: a sliver recipe (e.g.
+ * fc 0.42) fits the fractional cap but ceils to a whole extra building.
+ */
+function facilityPlacementOveruse(
+  facilityCounts: ReadonlyMap<RecipeId, number>,
+  facilityCaps: ReadonlyMap<FacilityId, number> | undefined,
+  maps: ProductionMaps,
+): number {
+  if (!facilityCaps || facilityCaps.size === 0) return 0;
+  const placements = new Map<FacilityId, number>();
+  for (const [recipeId, fc] of facilityCounts) {
+    if (!(fc > 0)) continue;
+    const facId = maps.recipeMap.get(recipeId)?.facilityId;
+    if (facId === undefined || !facilityCaps.has(facId)) continue;
+    // Multi-formula facilities pack multiple recipes per building — the
+    // per-recipe ceil model doesn't apply; skip them (as does the
+    // calculator's fragmentation-aware cap tightening).
+    if (maps.facilityMap.get(facId)?.cacheSlots !== undefined) continue;
+    placements.set(facId, (placements.get(facId) ?? 0) + Math.ceil(fc));
+  }
+  let overuse = 0;
+  for (const [facId, count] of placements) {
+    overuse += Math.max(0, count - facilityCaps.get(facId)!);
+  }
+  return overuse;
+}
+
 /** Fold an LP solution into the enumeration-comparison metrics. */
-function buildSolveMetrics(result: LPSolution): FlowSolveMetrics {
+function buildSolveMetrics(
+  result: LPSolution,
+  facilityCaps: ReadonlyMap<FacilityId, number> | undefined,
+  maps: ProductionMaps,
+): FlowSolveMetrics {
   let slack = 0;
   for (const v of result.disposalDeficits.values()) slack += v;
   for (const v of result.disposalSurpluses.values()) slack += v;
@@ -540,6 +580,11 @@ function buildSolveMetrics(result: LPSolution): FlowSolveMetrics {
   return {
     feasible: true,
     slackMagnitude: slack,
+    facilityPlacementOveruse: facilityPlacementOveruse(
+      result.facilityCounts,
+      facilityCaps,
+      maps,
+    ),
     ttvOverusePerMinute: ttvOveruse,
     powerShortfall: result.powerShortfall,
     totalRawCost: result.totalRawCost,

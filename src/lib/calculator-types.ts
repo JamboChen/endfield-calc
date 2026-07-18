@@ -91,9 +91,10 @@ export type FlowData = {
 /**
  * LP-solution quality metrics surfaced by `calculateFlows` for the
  * Metastorage candidate enumeration in `calculator.ts`. Compared
- * lexicographically: `feasible` → `slackMagnitude` → `powerShortfall`
- * → `totalRawCost` → `totalBuildingCount` → `totalPower` →
- * `totalTtvUsedPerMinute`. `ttvOverusePerMinute` is not a ranking key
+ * lexicographically: `feasible` → `slackMagnitude` →
+ * `facilityPlacementOveruse` → `powerShortfall` → `totalRawCost` →
+ * `totalBuildingCount` → `totalPower` → `totalTtvUsedPerMinute`.
+ * `ttvOverusePerMinute` is not a ranking key
  * — it's the viability gate: any positive value disqualifies the
  * candidate outright (an over-budget plan is physically unrealizable).
  *
@@ -124,6 +125,22 @@ export type FlowSolveMetrics = {
    * comparison key.
    */
   slackMagnitude: number;
+  /**
+   * Σ over capped **single-formula** facilities of `max(0, Σ ceil(fc_r) −
+   * cap)` — the number of PHYSICAL buildings the candidate would place
+   * over a facility cap through fragmentation (a fractional total that
+   * fits the cap but whose per-recipe ceilings exceed it). The LP's own
+   * facility-cap slack only sees the FRACTIONAL total, so a candidate
+   * that runs a 0.42-building sliver of an extra recipe on a capped
+   * single-formula facility looks free to it — but that sliver ceils to
+   * a whole extra building. Ranked right after `slackMagnitude` (a
+   * facility over-cap is an UNBUILDABLE hard limit) so the Metastorage
+   * selection never picks an import that tips a facility over its cap
+   * when a fitting choice (including no-import) exists. Its own
+   * comparison key (buildings, not items/min — cross-unit rule). Always
+   * 0 when no facility caps are set. See `.claude/rules/solver.md`.
+   */
+  facilityPlacementOveruse: number;
   /**
    * Σ TTV-budget overage across routes, in TTV/min. Positive ⟺ the LP
    * needed an import beyond a route's budget (only possible for

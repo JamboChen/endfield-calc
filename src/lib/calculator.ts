@@ -847,6 +847,10 @@ function buildProductionGraph(
  */
 const METASTORAGE_METRIC_TOLERANCE = {
   slackMagnitude: 1e-6,
+  // Building-scale: 0.5 (half a placement) — the value is an integer
+  // count of over-cap physical buildings, so 0.5 cleanly separates 0
+  // from 1 while absorbing float noise.
+  facilityPlacementOveruse: 0.5,
   // Watt-scale: 0.5 W (the warning-threshold family) — a sub-watt
   // residual shortfall must never outbid a real cost difference.
   powerShortfall: 0.5,
@@ -859,9 +863,16 @@ const METASTORAGE_METRIC_TOLERANCE = {
 /**
  * Lexicographic comparison of two candidate solves. Negative ⇒ `a` is
  * strictly better. Order: feasibility → total slack (soft-constraint
- * violations) → power-sustain shortfall → the LP's own lex objectives
- * → TTV used (prefer the cheaper-TTV candidate among otherwise-equal
- * plans).
+ * violations) → facility placement over-cap (unbuildable hard limit) →
+ * power-sustain shortfall → the LP's own lex objectives → TTV used
+ * (prefer the cheaper-TTV candidate among otherwise-equal plans).
+ *
+ * `facilityPlacementOveruse` ranks right after `slackMagnitude` because a
+ * building over a facility cap is UNBUILDABLE — the selection must never
+ * pick an import that fragments a capped single-formula facility over its
+ * cap (a cheaper-raw candidate that ceils a 0.42-building sliver into a
+ * 13th Forge) when a fitting choice exists. Enabling Metastorage can then
+ * only ever add supply options, never worsen the plan's cap verdict.
  *
  * `powerShortfall` is a SEPARATE key, not part of `slackMagnitude`:
  * watts and items/min are incommensurable, and folding them once let
@@ -881,6 +892,11 @@ function compareSolveMetrics(
   if (a.feasible !== b.feasible) return a.feasible ? -1 : 1;
   const keys = [
     "slackMagnitude",
+    // A facility placement over-cap is an UNBUILDABLE hard limit — it
+    // outranks everything below (an import that tips a capped
+    // single-formula facility over its cap via fragmentation must lose
+    // to any fitting choice, including no-import).
+    "facilityPlacementOveruse",
     "powerShortfall",
     "totalRawCost",
     "totalBuildingCount",
