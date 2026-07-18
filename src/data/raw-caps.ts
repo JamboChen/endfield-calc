@@ -32,7 +32,7 @@ export const defaultRawCapsByDomain: ReadonlyMap<
     DomainId.DOMAIN_2,
     new Map<ItemId, number>([
       [ItemId.ITEM_COPPER_ORE, 360], // 18×100%
-      [ItemId.ITEM_GAS_INERT, 40], // 2×50%
+      [ItemId.ITEM_GAS_INERT, 280], // 2×50%
       [ItemId.ITEM_GAS_XIRANITE, 280], // 14×50%
       [ItemId.ITEM_IRON_ORE, 120], // 6×100%
       [ItemId.ITEM_ORIGINIUM_ORE, 540], // 22×100% + 10×50%
