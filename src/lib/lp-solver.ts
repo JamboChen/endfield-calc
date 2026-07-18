@@ -184,6 +184,28 @@ const POWER_SLACK_PENALTY = 1e2;
  */
 const POWER_COST_FLOOR = 1e-4;
 
+/**
+ * Per-unit `rawCost` of a producible raw's vent/mine supply variable —
+ * the SAME coefficient (1) that `rawCostPerFacility` charges per unit of
+ * an ordinary raw consumed. Keeping it identical means a producible raw
+ * is priced exactly as it was before it gained a producer, so no
+ * downstream chain reroutes through it.
+ */
+const RAW_SUPPLY_COST_PER_UNIT = 1;
+
+/**
+ * Extra `rawCost` levied on each unit of a producible raw that a recipe
+ * CRAFTS (a recipe whose sole output is the producible raw — the
+ * transmuter "manufacture this gas" recipes, not byproduct emitters).
+ * Set equal to the vent's per-unit price so a craft always costs at
+ * least as much as mining the same unit: the LP therefore fills the
+ * capped vent first ("consume the raw before crafting it") and crafts
+ * only the OVERFLOW above the node cap. Byproduct producers (e.g. a
+ * dismantler emitting Inergen) are exempt — using a byproduct you are
+ * already making should stay cheaper than mining more.
+ */
+const PRODUCIBLE_RAW_CRAFT_SURCHARGE = RAW_SUPPLY_COST_PER_UNIT;
+
 export type LPItemConstraint = {
   /**
    * Strict equality: production - consumption = `rhs`. Use for items where
@@ -365,6 +387,19 @@ export type LPInput = {
    */
   rawCaps?: ReadonlyMap<ItemId, number>;
   /**
+   * Raws that ALSO have an active producer in this LP (the graph's
+   * `producibleRaws`). Each is a normal balance-constrained item — NOT
+   * in `rawMaterials` — fed by ONE non-negative vent/mine-supply
+   * variable `rawsupply_*` (`+1` on the item's balance row, `rawCost`
+   * coefficient 1/unit, 0 buildings/power). Its node cap (from `rawCaps`)
+   * moves onto that variable as a soft upper bound; the consumption-sum
+   * raw-cap row is skipped for these items to avoid double-capping. The
+   * LP then chooses vent-mine (this variable) vs. craft (the producer
+   * recipes) by the lex objective. **Optional**: absent/empty = no
+   * producible raws (today's behaviour). See `.claude/rules/solver.md`.
+   */
+  producibleRaws?: ReadonlySet<ItemId>;
+  /**
    * Per-facility upper bound on total fractional facility count, in
    * buildings. **Optional**: absent or empty means no caps enforced.
    * Facilities NOT in this map are unconstrained.
@@ -504,6 +539,16 @@ export type LPSolution = {
    */
   rawCapOveruse: Map<ItemId, number>;
   /**
+   * Per-item vent/mine draw (items/min) for `LPInput.producibleRaws` —
+   * the solved value of each `rawsupply_*` variable. This is the
+   * RAW-sourced portion of a producible raw's supply (the crafted
+   * portion lives in the producer recipes' `facilityCounts`). The
+   * calculator threads it onto the item node's `rawSupplyRate` so pickup
+   * sizing + `raw-over-cap` judge the vent draw, not total production.
+   * Empty when no producible-raw supply variables were emitted.
+   */
+  rawSupplyRates: Map<ItemId, number>;
+  /**
    * Per-source-region Metastorage import rates (items/min) for the
    * routes in `LPInput.metastorageImports`. Only entries above the
    * numerical clamp appear; the inner map carries the route's single
@@ -578,6 +623,32 @@ const rawCostPerFacility = (
 };
 
 /**
+ * Extra `rawCost` for crafting a producible raw (see
+ * `PRODUCIBLE_RAW_CRAFT_SURCHARGE`). Applies only when the producible raw
+ * is the recipe's SOLE output (the transmuter "manufacture this gas"
+ * recipes) — byproduct emitters are exempt. MUST be summed into a
+ * recipe's `rawCost` at BOTH the model-build (`buildVariableCoefficients`)
+ * and solution-extraction (`extractSolution`'s `totalRaw`) sites so the
+ * lex-cap anchoring stays coefficient-consistent.
+ */
+const producibleRawCraftSurcharge = (
+  recipe: Recipe,
+  producibleRaws: ReadonlySet<ItemId> | undefined,
+): number => {
+  if (
+    producibleRaws &&
+    recipe.outputs.length === 1 &&
+    producibleRaws.has(recipe.outputs[0].itemId)
+  ) {
+    return (
+      calcRate(recipe.outputs[0].amount, recipe.craftingTime) *
+      PRODUCIBLE_RAW_CRAFT_SURCHARGE
+    );
+  }
+  return 0;
+};
+
+/**
  * Build the LP variable's coefficient block for one recipe: per-item net
  * rate for each constraint, plus `rawCost` and `power` objective coefs.
  */
@@ -587,6 +658,7 @@ const buildVariableCoefficients = (
   rawMaterials: Set<ItemId>,
   costlessRaws: ReadonlySet<ItemId>,
   facilityMap: Map<FacilityId, Facility>,
+  producibleRaws: ReadonlySet<ItemId> | undefined,
 ): Record<string, number> => {
   const coefs: Record<string, number> = {};
 
@@ -603,7 +675,9 @@ const buildVariableCoefficients = (
       calcRate(inp.amount, recipe.craftingTime);
   }
 
-  coefs.rawCost = rawCostPerFacility(recipe, rawMaterials, costlessRaws);
+  coefs.rawCost =
+    rawCostPerFacility(recipe, rawMaterials, costlessRaws) +
+    producibleRawCraftSurcharge(recipe, producibleRaws);
   // buildingCount: 1 per fractional facility, no floor needed (LP variables
   // are already non-negative; minimisation drives unnecessary recipes to 0).
   coefs.buildingCount = 1;
@@ -649,6 +723,8 @@ const buildModel = (
   disposalDeficitSlackVarMap: Map<string, ItemId>;
   disposalSurplusSlackVarMap: Map<string, ItemId>;
   rawCapSlackVarMap: Map<string, ItemId>;
+  /** Producible-raw vent-supply var name → item (see `LPInput.producibleRaws`). */
+  rawSupplyVarMap: Map<string, ItemId>;
   importVarMap: Map<string, LPMetastorageImport>;
   ttvSlackVarMap: Map<string, DomainId>;
   /** `"power_slack"` when the power rows were emitted, else null. */
@@ -692,6 +768,7 @@ const buildModel = (
       input.rawMaterials,
       input.costlessRaws,
       input.facilityMap,
+      input.producibleRaws,
     );
     recipeIndexMap.set(varName, recipe.id);
   });
@@ -763,6 +840,10 @@ const buildModel = (
       // already filters these, but the LP itself shouldn't crash on
       // a bad input).
       if (!Number.isFinite(cap) || cap < 0) continue;
+      // Producible raws carry their cap on the `rawsupply_*` supply
+      // variable instead (built below) — their consumption is on a real
+      // balance row, so capping consumption here would double-count.
+      if (input.producibleRaws?.has(itemId)) continue;
       const constraintName = `rawcap_${capIdx}_${itemId}`;
       const slackName = `rawcap_slack_${capIdx}_${itemId}`;
       capIdx++;
@@ -803,6 +884,64 @@ const buildModel = (
             (variables[varName][constraintName] ?? 0) + consumption;
         }
       });
+    }
+  }
+
+  // Producible-raw vent/mine-supply variables (see `LPInput.producibleRaws`).
+  //
+  // A producible raw (Xiragen et al.) is a normal balanced item — it has
+  // a balance row and is NOT in `input.rawMaterials`, so its consumers
+  // are already excluded from consumer-side `rawCost`. Its vent/mine draw
+  // is ONE non-negative supply variable with `+1` on its balance row and
+  // `rawCost = 1`/unit (0 buildings/power — pumps fold post-hoc, exactly
+  // as raw pickups do today). Mirrors a Metastorage import, but bounded
+  // by the raw's node cap (moved off the consumption sum above) instead
+  // of a TTV budget. The lex objective then trades vent-mine (this var,
+  // 0 buildings) against craft (the producer recipes, >0 buildings): at
+  // equal `rawCost` pass 2 favours the vent; craft wins only when it is
+  // strictly cheaper on `rawCost` or the cap is exhausted.
+  const rawSupplyVarMap = new Map<string, ItemId>();
+  if (input.producibleRaws && input.producibleRaws.size > 0) {
+    let supplyIdx = 0;
+    for (const itemId of input.producibleRaws) {
+      const constraintName = itemConstraintNames.get(itemId);
+      // No balance row ⇒ item absent from the constraint map (defensive;
+      // a producible raw always has one since it's not in rawMaterials).
+      if (!constraintName) continue;
+      const idx = supplyIdx++;
+      const supplyName = `rawsupply_${idx}_${itemId}`;
+      rawSupplyVarMap.set(supplyName, itemId);
+      // rawCost 1/unit — the SAME per-unit cost consuming this raw
+      // carried before it became producible, so the downstream chain
+      // (recipes that consume the raw) is priced exactly as before and
+      // never reroutes through it. "Consume the vent before crafting"
+      // is enforced on the CRAFT side instead: `PRODUCIBLE_RAW_CRAFT_
+      // SURCHARGE` (see `buildVariableCoefficients`) makes a craft cost
+      // ≥ the vent's per-unit price, so the LP fills the capped vent
+      // first and only crafts the OVERFLOW above the cap.
+      const supplyCoefs: Record<string, number> = {
+        [constraintName]: 1,
+        rawCost: RAW_SUPPLY_COST_PER_UNIT,
+      };
+      // Node cap → soft upper bound on the supply variable. Overage folds
+      // into `rawCapOveruse` via the shared `rawCapSlackVarMap` (same
+      // reporting path as ordinary raw caps).
+      const cap = input.rawCaps?.get(itemId);
+      if (cap !== undefined && Number.isFinite(cap) && cap >= 0) {
+        const capName = `rawsupplycap_${idx}_${itemId}`;
+        const slackName = `rawcap_slack_supply_${idx}_${itemId}`;
+        constraints[capName] = { max: cap };
+        supplyCoefs[capName] = 1;
+        rawCapSlackVarMap.set(slackName, itemId);
+        variables[slackName] = {
+          [capName]: -1,
+          rawCost: SLACK_PENALTY,
+          buildingCount: SLACK_PENALTY,
+          power: SLACK_PENALTY,
+          ttvCost: SLACK_PENALTY,
+        };
+      }
+      variables[supplyName] = supplyCoefs;
     }
   }
 
@@ -1051,6 +1190,7 @@ const buildModel = (
     disposalDeficitSlackVarMap,
     disposalSurplusSlackVarMap,
     rawCapSlackVarMap,
+    rawSupplyVarMap,
     importVarMap,
     ttvSlackVarMap,
     powerSlackVarName,
@@ -1062,6 +1202,7 @@ type ExtractedSolution = {
   disposalDeficits: Map<ItemId, number>;
   disposalSurpluses: Map<ItemId, number>;
   rawCapOveruse: Map<ItemId, number>;
+  rawSupplyRates: Map<ItemId, number>;
   importRates: Map<DomainId, Map<ItemId, number>>;
   ttvUsedPerMinute: Map<DomainId, number>;
   ttvOveruse: Map<DomainId, number>;
@@ -1078,6 +1219,7 @@ const extractSolution = (
   disposalDeficitSlackVarMap: Map<string, ItemId>,
   disposalSurplusSlackVarMap: Map<string, ItemId>,
   rawCapSlackVarMap: Map<string, ItemId>,
+  rawSupplyVarMap: Map<string, ItemId>,
   importVarMap: Map<string, LPMetastorageImport>,
   ttvSlackVarMap: Map<string, DomainId>,
   powerSlackVarName: string | null,
@@ -1085,6 +1227,7 @@ const extractSolution = (
   facilityMap: Map<FacilityId, Facility>,
   rawMaterials: Set<ItemId>,
   costlessRaws: ReadonlySet<ItemId>,
+  producibleRaws: ReadonlySet<ItemId> | undefined,
 ): ExtractedSolution => {
   // Build O(1) RecipeId → Recipe lookup once instead of `recipes.find`
   // per variable.
@@ -1113,7 +1256,10 @@ const extractSolution = (
     }
     facilityCounts.set(recipeId, fc);
     const recipe = recipesById.get(recipeId)!;
-    totalRaw += rawCostPerFacility(recipe, rawMaterials, costlessRaws) * fc;
+    totalRaw +=
+      (rawCostPerFacility(recipe, rawMaterials, costlessRaws) +
+        producibleRawCraftSurcharge(recipe, producibleRaws)) *
+      fc;
     totalBuildings += fc;
     const facility = facilityMap.get(recipe.facilityId);
     totalPower += (facility?.powerConsumption ?? 0) * fc;
@@ -1142,6 +1288,22 @@ const extractSolution = (
     if (typeof v === "number" && v > LP_EPSILON) {
       rawCapOveruse.set(itemId, v);
     }
+  }
+
+  // Producible-raw vent/mine draw: the `rawsupply_*` variable values.
+  // Same FACILITY_COUNT_EPSILON clamp as recipe vars (degenerate-vertex
+  // artefacts → "no draw"). Each unit also contributes its `rawCost`
+  // (1/unit — costless raws never enter `producibleRaws`) to `totalRaw`
+  // so the metastorage candidate metrics reflect the true raw cost of a
+  // vent-sourced solution (the recipe loop above sums recipe rawCost only).
+  const rawSupplyRates = new Map<ItemId, number>();
+  for (const [varName, itemId] of rawSupplyVarMap.entries()) {
+    const v = rawResult[varName];
+    const rate =
+      typeof v === "number" && Math.abs(v) > FACILITY_COUNT_EPSILON ? v : 0;
+    if (rate <= 0) continue;
+    rawSupplyRates.set(itemId, (rawSupplyRates.get(itemId) ?? 0) + rate);
+    if (!costlessRaws.has(itemId)) totalRaw += rate;
   }
 
   // Metastorage import rates + per-source TTV totals. The same
@@ -1190,6 +1352,7 @@ const extractSolution = (
     disposalDeficits,
     disposalSurpluses,
     rawCapOveruse,
+    rawSupplyRates,
     importRates,
     ttvUsedPerMinute,
     ttvOveruse,
@@ -1245,6 +1408,7 @@ const finaliseSolution = (sol: ExtractedSolution): LPSolution => ({
   disposalDeficits: sol.disposalDeficits,
   disposalSurpluses: sol.disposalSurpluses,
   rawCapOveruse: sol.rawCapOveruse,
+  rawSupplyRates: sol.rawSupplyRates,
   importRates: sol.importRates,
   ttvUsedPerMinute: sol.ttvUsedPerMinute,
   ttvOveruse: sol.ttvOveruse,
@@ -1314,6 +1478,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       disposalDeficits: new Map(),
       disposalSurpluses: new Map(),
       rawCapOveruse: new Map(),
+      rawSupplyRates: new Map(),
       importRates: new Map(),
       ttvUsedPerMinute: new Map(),
       ttvOveruse: new Map(),
@@ -1360,6 +1525,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       disposalDeficitSlackVarMap,
       disposalSurplusSlackVarMap,
       rawCapSlackVarMap,
+      rawSupplyVarMap,
       importVarMap,
       ttvSlackVarMap,
       powerSlackVarName,
@@ -1451,6 +1617,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       disposalDeficitSlackVarMap,
       disposalSurplusSlackVarMap,
       rawCapSlackVarMap,
+      rawSupplyVarMap,
       importVarMap,
       ttvSlackVarMap,
       powerSlackVarName,
@@ -1458,6 +1625,7 @@ export const solveLP = async (input: LPInput): Promise<LPResult> => {
       input.facilityMap,
       input.rawMaterials,
       input.costlessRaws,
+      input.producibleRaws,
     );
     // Store the cap row-consistently (see `coefficientConsistentTotal`)
     // so any future pass capping on `power` admits this solution.

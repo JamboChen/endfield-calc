@@ -3049,6 +3049,13 @@ describe("Global LP recipe selection (lex objective regression pins)", () => {
         rawMaterials: ALL_RAWS,
         recipeOverrides: overrides,
         gasSustain: { drains: new Map(), vaporizerEnvs: new Map() },
+        // Producible raws OFF for the same reason as gas-sustain: making
+        // Xiragen craftable pulls its transmuter (Liquid Xiranite /
+        // Xiranite Powder) chain into the graph, which gives the pinned-
+        // out Effluent a legitimate byproduct escape and degrades the pin
+        // to "vacuously ineffective" — the deficit → invalid-SCC
+        // mechanism under test needs the deadlocked 1.2-shaped graph.
+        producibleRaws: new Set(),
       },
     );
 

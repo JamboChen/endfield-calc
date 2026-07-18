@@ -37,6 +37,16 @@ export type BipartiteGraph = {
 
   targets: Set<ItemId>;
   rawMaterials: Set<ItemId>;
+  /**
+   * Raws that ALSO have an active producer recipe under the current
+   * plan (subset of `@/data`'s `producibleRaws` policy set, restricted
+   * to those with ≥1 surviving producer). Disjoint from `rawMaterials`:
+   * these are NOT infinite leaves — the LP gives them a balance row plus
+   * a capped vent/mine-supply variable so it can choose vent-mine vs.
+   * craft. Their item nodes keep `isRawMaterial: true` (still vent-
+   * sourced for pickups/power). See `.claude/rules/solver.md`.
+   */
+  producibleRaws: Set<ItemId>;
 };
 
 export type SCCInfo = {
@@ -67,6 +77,15 @@ export type FlowData = {
   itemDemands: Map<ItemId, number>;
   recipeFacilityCounts: Map<RecipeId, number>;
   metastorageFlows: MetastorageFlow[];
+  /**
+   * Per-item vent/mine draw (items/min) for `producibleRaws` — the value
+   * of the LP's `rawsupply_*` variable. This is the RAW-sourced portion
+   * only (the recipe-produced portion lives in the producer recipes'
+   * facility counts). The calculator uses it to set the item node's
+   * `rawSupplyRate` so pickup-pump sizing + `raw-over-cap` judge the vent
+   * draw, not total production. Empty for plans with no producible raws.
+   */
+  rawSupplyRates: Map<ItemId, number>;
 };
 
 /**

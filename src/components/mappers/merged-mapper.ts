@@ -36,6 +36,20 @@ import { getRecipeOutputItemId, getRecipeInputItemId, getItemProducers, isRecipe
 import { assertFlowIntegrity } from "./flow-assertions";
 
 /**
+ * Vent/mine draw of a raw item node: a **producible raw** (Xiragen et al.)
+ * carries `rawSupplyRate` = the mined portion only (its total
+ * `productionRate` also includes the crafted portion), so pickup sizing
+ * must use it. Ordinary raws leave `rawSupplyRate` undefined ⇒ the full
+ * net `productionRate` is the draw.
+ */
+function rawDraw(node: {
+  productionRate: number;
+  rawSupplyRate?: number;
+}): number {
+  return node.rawSupplyRate ?? node.productionRate;
+}
+
+/**
  * Maps a ProductionDependencyGraph to React Flow nodes and edges in merged mode.
  */
 export function mapPlanToFlowMerged(
@@ -397,16 +411,15 @@ export function mapPlanToFlowMerged(
             sourceNode.itemId,
             sourceNode.item,
           );
+          const ventDraw = rawDraw(sourceNode);
           const pickupCount =
-            perFacilityRate > 0
-              ? sourceNode.productionRate / perFacilityRate
-              : 0;
+            perFacilityRate > 0 ? ventDraw / perFacilityRate : 0;
           flowNodes.push(
             createProductionFlowNode(
               rawMaterialNodeId,
               {
                 item: sourceNode.item,
-                targetRate: sourceNode.productionRate,
+                targetRate: ventDraw,
                 recipe: null,
                 facility: sourceFacility,
                 facilityCount: pickupCount,
@@ -687,16 +700,15 @@ export function mapPlanToFlowMerged(
           consumedItemNode.itemId,
           consumedItemNode.item,
         );
+        const ventDraw = rawDraw(consumedItemNode);
         const pickupCount =
-          perFacilityRate > 0
-            ? consumedItemNode.productionRate / perFacilityRate
-            : 0;
+          perFacilityRate > 0 ? ventDraw / perFacilityRate : 0;
         flowNodes.push(
           createProductionFlowNode(
             rawMaterialNodeId,
             {
               item: consumedItemNode.item,
-              targetRate: consumedItemNode.productionRate,
+              targetRate: ventDraw,
               recipe: null,
               facility: sourceFacility,
               facilityCount: pickupCount,
@@ -722,6 +734,113 @@ export function mapPlanToFlowMerged(
           ceilMode,
         ),
       );
+    }
+  });
+
+  // Producible-raw targets (Xiragen et al.): the normal target-sink loop
+  // above skips `isRawMaterial`, so render them here. The sink is fed by
+  // the vent pickup (mined portion, `rawSupplyRate`) plus — when the vent
+  // cap is exceeded — the transmuter producers that craft the overflow.
+  plan.nodes.forEach((node, nodeId) => {
+    if (node.type !== "item" || !node.isTarget) return;
+    if (node.rawSupplyRate === undefined) return; // not a producible raw
+    const targetSinkId = createTargetSinkId(node.itemId);
+    if (targetSinkNodes.some((n) => n.id === targetSinkId)) return;
+    const userTargetRate =
+      targetRates?.get(node.itemId) ?? node.productionRate;
+    targetSinkNodes.push(
+      createTargetSinkNode(
+        targetSinkId,
+        node.item,
+        userTargetRate,
+        items,
+        facilities,
+        undefined,
+        ceilMode,
+      ),
+    );
+
+    const ventPortion = Math.min(rawDraw(node), userTargetRate);
+    const craftPortion = Math.max(0, userTargetRate - ventPortion);
+
+    // Vent pickup → sink (the mined portion).
+    if (ventPortion > MIN_VISIBLE_RATE_PER_MIN) {
+      const rawMaterialNodeId = createRawMaterialId(node.itemId);
+      if (!flowNodes.find((n) => n.id === rawMaterialNodeId)) {
+        const cfg = rawMaterialSources.get(node.itemId);
+        const sourceFacility = cfg
+          ? (facilities.find((f) => f.id === cfg.sourceFacility) ?? null)
+          : null;
+        const perFacilityRate = getRawSourceRate(node.itemId, node.item);
+        const pickupCount =
+          perFacilityRate > 0 ? ventPortion / perFacilityRate : 0;
+        flowNodes.push(
+          createProductionFlowNode(
+            rawMaterialNodeId,
+            {
+              item: node.item,
+              targetRate: ventPortion,
+              recipe: null,
+              facility: sourceFacility,
+              facilityCount: pickupCount,
+              isRawMaterial: true,
+              isTarget: false,
+              dependencies: [],
+            },
+            items,
+            facilities,
+            ceilMode,
+            { isDirectTarget: false },
+          ),
+        );
+      }
+      flowEdges.push(
+        createEdge(
+          `e${edgeIdCounter++}`,
+          rawMaterialNodeId,
+          targetSinkId,
+          ventPortion,
+          node.item,
+          undefined,
+          ceilMode,
+        ),
+      );
+    }
+
+    // Transmuter producers → sink (the crafted overflow), allocated
+    // across producers by their Xiragen output share.
+    if (craftPortion > MIN_VISIBLE_RATE_PER_MIN) {
+      const producers = producersOf(nodeId);
+      let totalOut = 0;
+      const outByProducer = new Map<string, number>();
+      for (const p of producers) {
+        const pn = plan.nodes.get(p.id);
+        if (pn?.type !== "recipe") continue;
+        const out = pn.recipe.outputs.find((o) => o.itemId === node.itemId);
+        if (!out) continue;
+        const rate = calcRate(out.amount, pn.recipe.craftingTime) * pn.facilityCount;
+        if (rate <= 0) continue;
+        outByProducer.set(p.id, rate);
+        totalOut += rate;
+      }
+      if (totalOut > 0) {
+        for (const [producerId, rate] of outByProducer) {
+          const share = (rate / totalOut) * craftPortion;
+          if (share <= MIN_VISIBLE_RATE_PER_MIN) continue;
+          ensureProducerNode(producerId);
+          flowEdges.push(
+            createEdge(
+              `e${edgeIdCounter++}`,
+              producerId,
+              targetSinkId,
+              share,
+              node.item,
+              undefined,
+              ceilMode,
+            ),
+          );
+        }
+      }
     }
   });
 

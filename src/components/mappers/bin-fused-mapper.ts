@@ -60,6 +60,107 @@ import {
 import { assertFlowIntegrity } from "./flow-assertions";
 
 /**
+ * Vent/mine draw of a raw item node: a **producible raw** (Xiragen et al.)
+ * carries `rawSupplyRate` = the mined portion only (its total
+ * `productionRate` also includes the crafted portion), so pickup sizing
+ * must use it. Ordinary raws leave `rawSupplyRate` undefined ⇒ the full
+ * net `productionRate` is the draw.
+ */
+function rawDraw(node: {
+  productionRate: number;
+  rawSupplyRate?: number;
+}): number {
+  return node.rawSupplyRate ?? node.productionRate;
+}
+
+/**
+ * Emit a target sink for each **producible-raw target** (Xiragen et al.),
+ * fed by its vent pickup (the mined portion). The normal target-sink loop
+ * skips `isRawMaterial`, and a producible raw that is *purely* crafted
+ * (vent draw ≈ 0) has its transmuter bin rendered already, so this only
+ * fires when there is a mined portion to draw — guaranteeing the sink is
+ * never an isolated node. Shared by both bin-fused views. Emits last, so
+ * it need not thread the edge-id counter back out.
+ */
+function emitProducibleRawTargetSinks(
+  plan: ProductionDependencyGraph,
+  items: Item[],
+  facilities: Facility[],
+  targetRates: Map<ItemId, number> | undefined,
+  ceilMode: boolean,
+  flowNodes: FlowProductionNode[],
+  targetSinkNodes: FlowTargetNode[],
+  flowEdges: Edge[],
+  edgeIdCounter: number,
+): void {
+  let nextId = edgeIdCounter;
+  plan.nodes.forEach((node) => {
+    if (node.type !== "item" || !node.isTarget) return;
+    if (node.rawSupplyRate === undefined) return; // not a producible raw
+    const targetSinkId = createTargetSinkId(node.itemId);
+    if (targetSinkNodes.some((n) => n.id === targetSinkId)) return;
+    const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
+    const ventPortion = Math.min(rawDraw(node), userTargetRate);
+    // Only render when there's a mined portion feeding the sink; a purely
+    // crafted target is already visible via its transmuter bin.
+    if (ventPortion <= MIN_VISIBLE_RATE_PER_MIN) return;
+
+    targetSinkNodes.push(
+      createTargetSinkNode(
+        targetSinkId,
+        node.item,
+        userTargetRate,
+        items,
+        facilities,
+        undefined,
+        ceilMode,
+      ),
+    );
+
+    const rawMaterialNodeId = createRawMaterialId(node.itemId);
+    if (!flowNodes.find((n) => n.id === rawMaterialNodeId)) {
+      const cfg = rawMaterialSources.get(node.itemId);
+      const sourceFacility = cfg
+        ? (facilities.find((f) => f.id === cfg.sourceFacility) ?? null)
+        : null;
+      const perFacilityRate = getRawSourceRate(node.itemId, node.item);
+      const pickupCount =
+        perFacilityRate > 0 ? ventPortion / perFacilityRate : 0;
+      flowNodes.push(
+        createProductionFlowNode(
+          rawMaterialNodeId,
+          {
+            item: node.item,
+            targetRate: ventPortion,
+            recipe: null,
+            facility: sourceFacility,
+            facilityCount: pickupCount,
+            isRawMaterial: true,
+            isTarget: false,
+            dependencies: [],
+          },
+          items,
+          facilities,
+          ceilMode,
+          { isDirectTarget: false },
+        ),
+      );
+    }
+    flowEdges.push(
+      createEdge(
+        `e${nextId++}`,
+        rawMaterialNodeId,
+        targetSinkId,
+        ventPortion,
+        node.item,
+        undefined,
+        ceilMode,
+      ),
+    );
+  });
+}
+
+/**
  * Map a production plan's `bins` to React Flow nodes/edges with
  * one node per bin (bin-fused view). Suitable for merged Recipe View
  * when the "Show buildings" toggle is on (default).
@@ -429,7 +530,7 @@ export function mapPlanToFlowBinFused(
     // totals. The old fallback to `rawMaterialDemand` (gross consumer
     // sum) drifted from the side-panel value when a raw was also a
     // byproduct inside an SCC.
-    const totalDemand = node.productionRate;
+    const totalDemand = rawDraw(node);
     const cfg = rawMaterialSources.get(itemId);
     const sourceFacility = cfg
       ? (facilityById.get(cfg.sourceFacility) ?? null)
@@ -683,6 +784,18 @@ export function mapPlanToFlowBinFused(
       );
     }
   }
+
+  emitProducibleRawTargetSinks(
+    plan,
+    items,
+    facilities,
+    targetRates,
+    ceilMode,
+    flowNodes,
+    targetSinkNodes,
+    flowEdges,
+    edgeIdCounter,
+  );
 
   const allNodes: (
     | FlowProductionNode
@@ -1162,7 +1275,7 @@ export function mapPlanToFlowBinFusedSeparated(
     // Skip if byproduct producers fully satisfy demand. The
     // `node.productionRate` is the LP-computed net residual that must
     // be sourced externally.
-    const totalDemand = node.productionRate;
+    const totalDemand = rawDraw(node);
     if (totalDemand <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const item = itemById.get(itemId);
     if (!item) continue;
@@ -1469,7 +1582,7 @@ export function mapPlanToFlowBinFusedSeparated(
     }
     // Net pickup capacity to size the pickup-node grid; matches the
     // emission loop above which uses `node.productionRate` as totalDemand.
-    const totalDemand = node.productionRate;
+    const totalDemand = rawDraw(node);
     // Subtract MIN_VISIBLE_RATE_PER_MIN from totalDemand before ceiling
     // to avoid emitting an extra empty pickup node when totalDemand is
     // an exact multiple of sourceRate plus FP noise. The allocator
@@ -1517,6 +1630,18 @@ export function mapPlanToFlowBinFusedSeparated(
       );
     }
   }
+
+  emitProducibleRawTargetSinks(
+    plan,
+    items,
+    facilities,
+    targetRates,
+    ceilMode,
+    flowNodes,
+    targetSinkNodes,
+    flowEdges,
+    edgeIdCounter,
+  );
 
   const allNodes: (
     | FlowProductionNode

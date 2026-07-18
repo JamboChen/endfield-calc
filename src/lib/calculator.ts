@@ -20,6 +20,7 @@ import type {
   RecipeBinAllocation,
 } from "@/types";
 import type { MetastorageRouteConfig } from "@/types/metastorage";
+import { producibleRaws } from "@/data";
 import { calcRate } from "@/lib/utils";
 import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
 import {
@@ -607,27 +608,48 @@ function buildProductionGraph(
     graph.recipeOutputs.get(recipeId)?.forEach((id) => activeItemIds.add(id));
   });
 
+  // Recipe-produced rate of an item = Σ (output rate × fc) over active
+  // producers. Used by non-raw items and by producible raws (which also
+  // have producers). For a producible raw's self-feeding producer (the
+  // catalyst-folded transmuter that outputs Xiragen AND consumes it as a
+  // catalyst) this is the GROSS output — the catalyst draw is a separate
+  // consumption edge, netted on the LP balance row, not here.
+  const recipeProductionOf = (itemId: ItemId): number => {
+    let sum = 0;
+    graph.recipeOutputs.forEach((outputItems, recipeId) => {
+      if (!activeRecipeIds.has(recipeId)) return;
+      if (!outputItems.has(itemId)) return;
+      const recipe = maps.recipeMap.get(recipeId)!;
+      const facilityCount = flowData.recipeFacilityCounts.get(recipeId) || 0;
+      const output = recipe.outputs.find((o) => o.itemId === itemId);
+      if (output) {
+        sum += calcRate(output.amount, recipe.craftingTime) * facilityCount;
+      }
+    });
+    return sum;
+  };
+
   graph.itemNodes.forEach((itemNode, itemId) => {
     if (!activeItemIds.has(itemId)) return;
 
-    let productionRate = 0;
+    const isProducibleRaw =
+      itemNode.isRawMaterial && graph.producibleRaws.has(itemId);
 
-    if (itemNode.isRawMaterial) {
+    let productionRate: number;
+    let rawSupplyRate: number | undefined;
+
+    if (isProducibleRaw) {
+      // Hybrid supply: the capped vent/mine draw (LP `rawsupply_*` value)
+      // PLUS the crafted portion. `productionRate` is the TOTAL supply so
+      // the display shows all of it; `rawSupplyRate` isolates the vent
+      // draw so pickup-pump sizing + `raw-over-cap` judge only the mined
+      // portion (see `plan-helpers.ts`).
+      rawSupplyRate = flowData.rawSupplyRates.get(itemId) ?? 0;
+      productionRate = rawSupplyRate + recipeProductionOf(itemId);
+    } else if (itemNode.isRawMaterial) {
       productionRate = flowData.itemDemands.get(itemId) || 0;
     } else {
-      graph.recipeOutputs.forEach((outputItems, recipeId) => {
-        if (!activeRecipeIds.has(recipeId)) return;
-        if (outputItems.has(itemId)) {
-          const recipe = maps.recipeMap.get(recipeId)!;
-          const facilityCount =
-            flowData.recipeFacilityCounts.get(recipeId) || 0;
-          const output = recipe.outputs.find((o) => o.itemId === itemId);
-          if (output) {
-            productionRate +=
-              calcRate(output.amount, recipe.craftingTime) * facilityCount;
-          }
-        }
-      });
+      productionRate = recipeProductionOf(itemId);
     }
 
     nodes.set(itemId, {
@@ -637,6 +659,7 @@ function buildProductionGraph(
       productionRate,
       isRawMaterial: itemNode.isRawMaterial,
       isTarget: graph.targets.has(itemId),
+      ...(rawSupplyRate !== undefined ? { rawSupplyRate } : {}),
     });
   });
 
@@ -1378,6 +1401,17 @@ export interface CalculateProductionPlanOptions {
     vaporizerEnvs?: ReadonlyMap<number, VaporizerEnvConfig>;
     machinesPerVaporizer?: number;
   };
+  /**
+   * Raws that may ALSO be crafted by a recipe (Xiragen et al.). Defaults
+   * to `@/data`'s `producibleRaws` (every non-costless raw). Such a raw,
+   * where it has an active producer, gets a balance row + a capped
+   * vent/mine-supply LP variable instead of infinite-leaf treatment, so
+   * the LP mines the vent up to its cap and crafts only the overflow (see
+   * `.claude/rules/solver.md`). Tests may pass an empty set to restore
+   * the pre-1.4 "every raw is an infinite leaf" behaviour — e.g. to keep
+   * a deliberately-deadlocked pinned cycle from gaining a craft escape.
+   */
+  producibleRaws?: ReadonlySet<ItemId>;
 }
 
 export async function calculateProductionPlan(
@@ -1498,6 +1532,7 @@ export async function calculateProductionPlan(
     importableItems,
     powerFuels,
     vaporizeRecipesByEnv,
+    options.producibleRaws ?? producibleRaws,
   );
 
   // Power sustain: generation map for the LP row + the warning for the

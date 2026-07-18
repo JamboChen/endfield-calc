@@ -33,6 +33,13 @@ export type AddTargetDialogGridProps = {
    * `rawAvailabilityByDomain.get(currentDomain)`.
    */
   regionRawMaterials: ReadonlySet<ItemId>;
+  /**
+   * Producible raws with a real producing recipe (Xiragen et al.). These
+   * are admitted PAST the `regionRawMaterials` filter so a craftable raw
+   * can be requested as a production target — the LP mines its vent up to
+   * cap and crafts the overflow. App.tsx passes the roster-derived set.
+   */
+  producibleRawTargetIds: ReadonlySet<ItemId>;
   onBatchAddTargets: (targets: QueuedItem[]) => void;
 };
 
@@ -44,6 +51,7 @@ export default function AddTargetDialogGrid({
   items,
   existingTargetIds,
   regionRawMaterials,
+  producibleRawTargetIds,
   onBatchAddTargets,
 }: AddTargetDialogGridProps) {
   const { t } = useTranslation("dialog");
@@ -76,9 +84,13 @@ export default function AddTargetDialogGrid({
       (item) =>
         !existingSet.has(item.id) &&
         item.asTarget !== false &&
-        !regionRawMaterials.has(item.id),
+        // Region raws are hidden so users don't pick a raw as a target —
+        // EXCEPT producible raws (Xiragen et al.), which have a real
+        // producing recipe and are legitimate craft targets.
+        (!regionRawMaterials.has(item.id) ||
+          producibleRawTargetIds.has(item.id)),
     );
-  }, [items, existingTargetIds, regionRawMaterials]);
+  }, [items, existingTargetIds, regionRawMaterials, producibleRawTargetIds]);
 
   /* Pre-computed lowercase names to avoid repeated i18n lookups while typing */
   const searchIndex = useMemo(

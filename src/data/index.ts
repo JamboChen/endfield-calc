@@ -231,6 +231,32 @@ const costlessRaws: ReadonlySet<ItemId> = new Set(
     .map((item) => item.id),
 );
 
+/**
+ * Raw materials that MAY *additionally* be produced by a recipe when one
+ * is reachable under the current plan (today: Xiragen via the Solid-Gas
+ * Transmuting Unit, `LIQUID_TRANSMUTER_2_GAS_GAS_XIRANITE_1`). Such an
+ * item becomes a balance-constrained item fed by a capped vent/mine
+ * supply LP variable ALONGSIDE its producer recipes, so the LP picks the
+ * cheaper source (vent-mine vs. craft). See `.claude/rules/solver.md`.
+ *
+ * Curated as an **opt-out**: every raw EXCEPT `costlessRaws`. Costless
+ * raws (water, acid) are effectively infinite and free, so producing
+ * them never makes sense — they stay pure infinite-supply leaves. Every
+ * other raw is eligible; raws with no producing recipe (ores, sand,
+ * muck) are a harmless no-op — the graph builder keeps them as pure
+ * leaves because `availableProducersFor` returns nothing, so they never
+ * enter `graph.producibleRaws` and the LP treats them exactly as before.
+ *
+ * Region-independent TYPE classification (like `costlessRaws`); the calc
+ * layer decides per-plan whether a producer actually exists. Auto-extends
+ * with the game data: a new non-liquid raw that gains a recipe becomes
+ * producible automatically; a new liquid raw auto-joins `costlessRaws`
+ * and is therefore auto-excluded.
+ */
+const producibleRaws: ReadonlySet<ItemId> = new Set(
+  [...rawMaterialSources.keys()].filter((id) => !costlessRaws.has(id)),
+);
+
 const MAX_TARGETS = 12;
 
 // Items that are mandatory byproducts and must be disposed of (consumed by a disposal recipe).
@@ -411,6 +437,7 @@ export {
   rawMaterialSources,
   rawAvailabilityByDomain,
   costlessRaws,
+  producibleRaws,
   forcedDisposalItems,
   bootstrapFacilities,
   facilityRecipeVariants,

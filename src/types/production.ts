@@ -306,6 +306,17 @@ export type ProductionGraphNode =
       productionRate: number;
       isRawMaterial: boolean;
       isTarget: boolean;
+      /**
+       * Vent/mine-sourced portion of a **producible raw**'s supply
+       * (items/min) — the LP `rawsupply_*` variable value. Present only
+       * on producible-raw item nodes (Xiragen et al.); `productionRate`
+       * on those nodes is the TOTAL (vent draw + recipe output), so the
+       * recipe-produced portion is `productionRate - rawSupplyRate`.
+       * Consumers that size pickup pumps or judge `raw-over-cap` must
+       * read `rawSupplyRate` (fall back to `productionRate` when absent,
+       * i.e. for ordinary raws). Absent on every non-producible-raw node.
+       */
+      rawSupplyRate?: number;
     }
   | {
       type: "recipe";

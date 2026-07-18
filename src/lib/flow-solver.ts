@@ -137,6 +137,7 @@ export async function calculateFlows(
           itemDemands: new Map(targetRates),
           recipeFacilityCounts: new Map(),
           metastorageFlows: [],
+          rawSupplyRates: new Map(),
         },
         invalidSCCs: [],
         metrics: {
@@ -271,6 +272,10 @@ export async function calculateFlows(
     itemConstraints,
     rawMaterials,
     costlessRaws,
+    // Producible raws (Xiragen et al.) get a balance row + a capped
+    // vent/mine-supply variable instead of infinite-leaf treatment. The
+    // graph already resolved which raws have an active producer.
+    producibleRaws: graph.producibleRaws,
     rawCaps,
     facilityCaps,
     metastorageImports,
@@ -305,6 +310,7 @@ export async function calculateFlows(
         itemDemands: new Map(targetRates),
         recipeFacilityCounts: new Map(),
         metastorageFlows: [],
+        rawSupplyRates: new Map(),
       },
       invalidSCCs,
       metrics: {
@@ -477,6 +483,7 @@ export async function calculateFlows(
       itemDemands,
       recipeFacilityCounts: result.facilityCounts,
       metastorageFlows: buildMetastorageFlows(metastorageImports, result),
+      rawSupplyRates: result.rawSupplyRates,
     },
     invalidSCCs,
     metrics: buildSolveMetrics(result),

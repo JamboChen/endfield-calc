@@ -137,6 +137,18 @@ export function buildBipartiteGraph(
    * the vaporizer count via `LPInput.recipeMinRates`.
    */
   vaporizeRecipesByEnv?: ReadonlyMap<number, Recipe>,
+  /**
+   * Policy set of raws that MAY also be produced by a recipe (`@/data`'s
+   * `producibleRaws` — every raw except `costlessRaws`). A raw in this
+   * set that has ≥1 surviving producer under the current constraints is
+   * NOT short-circuited as an infinite leaf: it joins `graph.producibleRaws`
+   * and gets its producers added like a normal item, while keeping
+   * `isRawMaterial: true`. The downstream LP gives it a balance row + a
+   * capped vent/mine-supply variable. Producer-less members (ores, etc.)
+   * fall through to the normal raw-leaf handling. Absent = today's
+   * behaviour (no raw is producible).
+   */
+  producibleRaws?: ReadonlySet<ItemId>,
 ): BipartiteGraph {
   const graph: BipartiteGraph = {
     itemNodes: new Map(),
@@ -146,6 +158,7 @@ export function buildBipartiteGraph(
     recipeOutputs: new Map(),
     targets: new Set(targets.map((t) => t.itemId)),
     rawMaterials: new Set(),
+    producibleRaws: new Set(),
   };
 
   const visitedItems = new Set<ItemId>();
@@ -163,8 +176,30 @@ export function buildBipartiteGraph(
     graph.itemNodes.set(itemId, { itemId, item, isRawMaterial: isRaw });
 
     if (isRaw) {
-      graph.rawMaterials.add(itemId);
-      return;
+      // A producible raw (policy: non-costless raw) that has an actual
+      // producer under the current constraints becomes a balanced item
+      // fed by a capped vent/mine-supply LP variable — NOT an infinite
+      // leaf. It keeps `isRawMaterial: true` (still vent-sourced for
+      // pickups/power) but its producers are added below and it is
+      // recorded in `graph.producibleRaws` (disjoint from
+      // `graph.rawMaterials`). Producer-less producible raws (ores, sand,
+      // muck) and every non-producible raw fall through to the normal
+      // infinite-leaf handling.
+      const producibleProducers = producibleRaws?.has(itemId)
+        ? availableProducersFor(
+            itemId,
+            maps.recipeMap.values(),
+            recipeOverrides,
+            recipeConstraints,
+          )
+        : [];
+      if (producibleProducers.length === 0) {
+        graph.rawMaterials.add(itemId);
+        return;
+      }
+      graph.producibleRaws.add(itemId);
+      // fall through to add producers (recomputed once below — cheap,
+      // only reached for the ≤2 producible raws with active producers)
     }
 
     const producers = availableProducersFor(
