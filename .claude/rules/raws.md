@@ -33,7 +33,7 @@ The data layer is small and authoritative. `src/data/index.ts` exports these raw
 - Solid ore/sand → `unloader_1` (Depot Unloader, 0 W, 30/min belt capacity)
 - Most liquids → `pump_1` (Fluid Pump, 10 W, 60/min)
 - Acid → `pump_2` (Acid Resistant Pump Mk II, 20 W, 60/min)
-- Gases (1.4) → `gas_pump_1` (Gas Extractor, 0 W, 20/min — one unit per 3 s). Only Inergen (`item_gas_inert`) + Xiragen (`item_gas_xiranite`): the 3 Acridgen vents have no supporting extractor, so Acridgen is craft-only (Transmuting Unit from Liquid Acid). Wuling-only (`gas_pump_1.domains`); node-capped at max dev: Xiragen 280/min, Inergen 40/min.
+- Gases (1.4) → `gas_pump_1` (Gas Extractor, 0 W, 20/min — one unit per 3 s). Only Inergen (`item_gas_inert`) + Xiragen (`item_gas_xiranite`): the 3 Acridgen vents have no supporting extractor, so Acridgen is craft-only (Transmuting Unit from Liquid Acid). Wuling-only (`gas_pump_1.domains`); node-capped at max dev: Xiragen 280/min, Inergen 280/min (14 High-Purity vents; the game data lists only 2, so it's set manually in `raw-caps.ts`).
 
 Per-facility throughput defaults to transport capacity (30/min belt, 120/min pipe). Liquid pumps cap at 60/min — half the pipe capacity — so they REQUIRE `ratePerMinute: 60` in `rawMaterialSources` (lines 102-103). The pump's one-cycle-per-second rate in the game data is the source of truth for the 60/min rate.
 
