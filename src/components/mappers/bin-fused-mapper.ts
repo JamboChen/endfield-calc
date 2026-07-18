@@ -1499,11 +1499,13 @@ export function mapPlanToFlowBinFusedSeparated(
   for (const [itemId, consumers] of consumersByItem.entries()) {
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item" || !node.isRawMaterial) continue;
-    // `node.productionRate` is the LP-computed net external demand for
-    // raws (post-LP byproduct netting in `flow-solver.ts:calculateFlows`
-    // already subtracted byproduct supply). Skip the pickup entirely
-    // if byproduct fully covers it.
-    if (node.productionRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    // `rawDraw(node)` is the LP-computed net external VENT demand for raws
+    // (post-LP byproduct netting in `flow-solver.ts:calculateFlows`
+    // already subtracted byproduct supply; for producible raws it's the
+    // mined portion only). Skip the pickup entirely if byproduct/craft
+    // fully covers it — matching the emission loop's guard so a fully-
+    // crafted producible raw never references an un-emitted pickup node.
+    if (rawDraw(node) <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const item = itemById.get(itemId);
     if (!item) continue;
     const sourceRate = getRawSourceRate(itemId, item);

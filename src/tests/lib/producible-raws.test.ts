@@ -5,6 +5,7 @@ import {
   mapPlanToFlowBinFused,
   mapPlanToFlowBinFusedSeparated,
 } from "@/components/mappers/bin-fused-mapper";
+import { mergeItemNodes } from "@/hooks/useProductionTable";
 import { items, recipes, facilities, producibleRaws } from "@/data";
 import { ItemId, RecipeId } from "@/types/constants";
 import type { ItemId as ItemIdT, ProductionGraphNode } from "@/types";
@@ -238,5 +239,88 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
       expect(ventEdges(xiragenEdges).length).toBe(0);
       expect(craftEdges(xiragenEdges).length).toBeGreaterThan(0);
     }
+  });
+
+  test("raw-over-cap warning uses the vent draw, not total production", async () => {
+    // Above the cap the LP mines the vent to the cap and crafts the rest,
+    // so the vent draw (== cap) never exceeds it — no raw-over-cap fires.
+    const overCap = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 200 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps: new Map([[XIRAGEN, 120]]) },
+    );
+    expect(
+      overCap.warnings.some(
+        (w) => w.kind === "raw-over-cap" && w.itemId === XIRAGEN,
+      ),
+    ).toBe(false);
+    // Same for a fully-crafted target (vent draw 0 ≤ cap 0).
+    const allCraft = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps: new Map([[XIRAGEN, 0]]) },
+    );
+    expect(
+      allCraft.warnings.some(
+        (w) => w.kind === "raw-over-cap" && w.itemId === XIRAGEN,
+      ),
+    ).toBe(false);
+  });
+
+  test("table splits a producible raw into a crafted recipe row + a vent raw row", async () => {
+    // Over-cap: both a mined portion and a crafted portion exist.
+    const plan = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 200 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps: new Map([[XIRAGEN, 120]]) },
+    );
+    const rows = mergeItemNodes(plan).filter((r) => r.itemId === XIRAGEN);
+    const rawRows = rows.filter((r) => r.recipeId === null);
+    const recipeRows = rows.filter((r) => r.recipeId !== null);
+    // A single vent raw row (mined portion, isRawMaterial), sized ≤ cap...
+    expect(rawRows).toHaveLength(1);
+    expect(rawRows[0].isRawMaterial).toBe(true);
+    expect(rawRows[0].producerContribution).toBeGreaterThan(0);
+    expect(rawRows[0].producerContribution).toBeLessThanOrEqual(120 + 1);
+    // ...and transmuter row(s) for the crafted portion, NOT flagged raw.
+    expect(recipeRows.length).toBeGreaterThan(0);
+    expect(recipeRows.every((r) => r.isRawMaterial === false)).toBe(true);
+  });
+
+  test("table shows a fully-crafted producible raw as recipe rows only (no vent row)", async () => {
+    const plan = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps: new Map([[XIRAGEN, 0]]) },
+    );
+    const rows = mergeItemNodes(plan).filter((r) => r.itemId === XIRAGEN);
+    expect(rows.length).toBeGreaterThan(0);
+    // No raw/vent row (vent draw is 0); every row is a crafted recipe.
+    expect(rows.every((r) => r.recipeId !== null && !r.isRawMaterial)).toBe(
+      true,
+    );
+  });
+
+  test("table shows a vent-mined producible raw as one raw row", async () => {
+    const plan = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS },
+    );
+    const rows = mergeItemNodes(plan).filter((r) => r.itemId === XIRAGEN);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].recipeId).toBeNull();
+    expect(rows[0].isRawMaterial).toBe(true);
+    expect(rows[0].producerContribution).toBeCloseTo(60, 1);
   });
 });

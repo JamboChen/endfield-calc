@@ -878,8 +878,9 @@ export function useProductionPlan(
   // aggregates align with what the table/stats render. `plan.bins`
   // stays the same between `plan` and `displayPlan` (Phase 3 emits
   // bins only for positive-demand recipes), so the bin-walk is
-  // identical; the pickup-point fold uses `node.productionRate` on
-  // raw nodes which the filter preserves for raws.
+  // identical; the pickup-point fold uses `rawDraw(node)` (=
+  // `rawSupplyRate ?? productionRate` — the vent draw for producible
+  // raws) on raw nodes, which the filter preserves for raws.
   const aggregates = useMemo(
     () =>
       displayPlan

@@ -151,6 +151,15 @@ export function mergeItemNodes(
     const producers = producersByItem.get(node.itemId) ?? [];
     const imports = importsByItem.get(node.itemId) ?? [];
 
+    // Producible raws (Xiragen et al.) are dual-sourced: the vent draw
+    // (`rawSupplyRate`) renders as a raw row, the transmuter as a normal
+    // CRAFTED producer row (so its buildings/power show, not raw styling).
+    // `ventDraw` also covers ordinary raws — `rawSupplyRate` undefined ⇒
+    // full net `productionRate`.
+    const isProducibleRaw =
+      node.isRawMaterial && node.rawSupplyRate !== undefined;
+    const ventDraw = node.rawSupplyRate ?? node.productionRate;
+
     for (const metastorageImport of imports) {
       rows.push({
         itemId: node.itemId,
@@ -168,11 +177,13 @@ export function mergeItemNodes(
     if (producers.length === 0) {
       if (imports.length > 0) return; // import rows replace the empty row
       // Raw / chain-terminator / no-producer item. One row, no recipe.
+      // (A purely vent-mined producible raw lands here too — `ventDraw`
+      // equals its `productionRate`.)
       rows.push({
         itemId: node.itemId,
         recipeId: null,
         facilityCount: 0,
-        producerContribution: node.productionRate,
+        producerContribution: ventDraw,
         isRawMaterial: node.isRawMaterial,
         isTarget: node.isTarget,
         dependencies: new Set(),
@@ -190,9 +201,29 @@ export function mergeItemNodes(
         recipeId: producer.recipeId,
         facilityCount: producer.facilityCount,
         producerContribution: producer.contribution,
-        isRawMaterial: node.isRawMaterial,
+        // A producible raw's producers are CRAFTED recipes, not raw
+        // pickups — render them as normal recipe rows.
+        isRawMaterial: isProducibleRaw ? false : node.isRawMaterial,
         isTarget: node.isTarget,
         dependencies,
+        level: 0,
+      });
+    }
+
+    // Supplementary vent row when a producible raw is mined ALONGSIDE
+    // crafting (over-cap): the producer rows above are the crafted
+    // portion; this is the mined portion. Purely-crafted producible raws
+    // have `ventDraw ≈ 0` and skip this; purely-mined ones took the
+    // raw-row path above (no producers).
+    if (isProducibleRaw && ventDraw > MIN_VISIBLE_RATE_PER_MIN) {
+      rows.push({
+        itemId: node.itemId,
+        recipeId: null,
+        facilityCount: 0,
+        producerContribution: ventDraw,
+        isRawMaterial: true,
+        isTarget: node.isTarget,
+        dependencies: new Set(),
         level: 0,
       });
     }
