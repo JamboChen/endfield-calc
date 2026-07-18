@@ -207,12 +207,15 @@ function collectStats(
       // undefined ⇒ the full net `productionRate`. Keeps the raw-limits
       // "used/cap" bar (fed by `rawMaterialRequirements`) in agreement
       // with the calculator's `raw-over-cap` judge, which also uses the
-      // vent draw.
-      rawMaterials.set(
-        node.itemId,
-        (rawMaterials.get(node.itemId) || 0) +
-          (node.rawSupplyRate ?? node.productionRate),
-      );
+      // vent draw. A FULLY-crafted producible raw draws 0 from the vent —
+      // skip it so it doesn't show as a phantom "0/min" raw + pickup.
+      const ventDraw = node.rawSupplyRate ?? node.productionRate;
+      if (ventDraw > 0) {
+        rawMaterials.set(
+          node.itemId,
+          (rawMaterials.get(node.itemId) || 0) + ventDraw,
+        );
+      }
     } else if (node.productionRate > 0) {
       uniqueProductionSteps++;
     }
