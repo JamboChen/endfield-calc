@@ -74,93 +74,6 @@ function rawDraw(node: {
 }
 
 /**
- * Emit a target sink for each **producible-raw target** (Xiragen et al.),
- * fed by its vent pickup (the mined portion). The normal target-sink loop
- * skips `isRawMaterial`, and a producible raw that is *purely* crafted
- * (vent draw ≈ 0) has its transmuter bin rendered already, so this only
- * fires when there is a mined portion to draw — guaranteeing the sink is
- * never an isolated node. Shared by both bin-fused views. Emits last, so
- * it need not thread the edge-id counter back out.
- */
-function emitProducibleRawTargetSinks(
-  plan: ProductionDependencyGraph,
-  items: Item[],
-  facilities: Facility[],
-  targetRates: Map<ItemId, number> | undefined,
-  ceilMode: boolean,
-  flowNodes: FlowProductionNode[],
-  targetSinkNodes: FlowTargetNode[],
-  flowEdges: Edge[],
-  edgeIdCounter: number,
-): void {
-  let nextId = edgeIdCounter;
-  plan.nodes.forEach((node) => {
-    if (node.type !== "item" || !node.isTarget) return;
-    if (node.rawSupplyRate === undefined) return; // not a producible raw
-    const targetSinkId = createTargetSinkId(node.itemId);
-    if (targetSinkNodes.some((n) => n.id === targetSinkId)) return;
-    const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
-    const ventPortion = Math.min(rawDraw(node), userTargetRate);
-    // Only render when there's a mined portion feeding the sink; a purely
-    // crafted target is already visible via its transmuter bin.
-    if (ventPortion <= MIN_VISIBLE_RATE_PER_MIN) return;
-
-    targetSinkNodes.push(
-      createTargetSinkNode(
-        targetSinkId,
-        node.item,
-        userTargetRate,
-        items,
-        facilities,
-        undefined,
-        ceilMode,
-      ),
-    );
-
-    const rawMaterialNodeId = createRawMaterialId(node.itemId);
-    if (!flowNodes.find((n) => n.id === rawMaterialNodeId)) {
-      const cfg = rawMaterialSources.get(node.itemId);
-      const sourceFacility = cfg
-        ? (facilities.find((f) => f.id === cfg.sourceFacility) ?? null)
-        : null;
-      const perFacilityRate = getRawSourceRate(node.itemId, node.item);
-      const pickupCount =
-        perFacilityRate > 0 ? ventPortion / perFacilityRate : 0;
-      flowNodes.push(
-        createProductionFlowNode(
-          rawMaterialNodeId,
-          {
-            item: node.item,
-            targetRate: ventPortion,
-            recipe: null,
-            facility: sourceFacility,
-            facilityCount: pickupCount,
-            isRawMaterial: true,
-            isTarget: false,
-            dependencies: [],
-          },
-          items,
-          facilities,
-          ceilMode,
-          { isDirectTarget: false },
-        ),
-      );
-    }
-    flowEdges.push(
-      createEdge(
-        `e${nextId++}`,
-        rawMaterialNodeId,
-        targetSinkId,
-        ventPortion,
-        node.item,
-        undefined,
-        ceilMode,
-      ),
-    );
-  });
-}
-
-/**
  * Map a production plan's `bins` to React Flow nodes/edges with
  * one node per bin (bin-fused view). Suitable for merged Recipe View
  * when the "Show buildings" toggle is on (default).
@@ -282,6 +195,13 @@ export function mapPlanToFlowBinFused(
     if (bin.externalOutputs.length !== 1) continue;
     const outputItemId = bin.externalOutputs[0].itemId;
     if (!targetItemIds.has(outputItemId)) continue;
+    // Producible-raw targets (Xiragen et al.) are dual-sourced (vent +
+    // transmuter); their producer must NOT fold into the sink so the
+    // transmuter renders as a real node feeding the sink alongside the
+    // vent pickup — matching the merged + separated views.
+    const outFoldNode = plan.nodes.get(outputItemId);
+    if (outFoldNode?.type === "item" && outFoldNode.rawSupplyRate !== undefined)
+      continue;
     // Metastorage supplies this target too — the bin is NOT the sole
     // supply, so it stays a regular node (sink gets two real edges).
     if (importedItemIds.has(outputItemId)) continue;
@@ -365,7 +285,12 @@ export function mapPlanToFlowBinFused(
   // consumers, and internal use).
   plan.nodes.forEach((node, nodeId) => {
     if (node.type !== "item") return;
-    if (!node.isTarget || node.isRawMaterial) return;
+    // Producible-raw targets (`rawSupplyRate` set) ARE rendered: they're
+    // registered as normal consumers/sinks so the transmuter (a producer
+    // via `bin.externalOutputs`) feeds the crafted portion and the vent
+    // pickup residual feeds the mined portion. Only pure raws are skipped.
+    if (!node.isTarget || (node.isRawMaterial && node.rawSupplyRate === undefined))
+      return;
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
     if (userTargetRate <= MIN_VISIBLE_RATE_PER_MIN) return;
     const arr = consumersByItem.get(node.itemId) ?? [];
@@ -566,7 +491,12 @@ export function mapPlanToFlowBinFused(
   // Emit target sink nodes.
   plan.nodes.forEach((node, nodeId) => {
     if (node.type !== "item") return;
-    if (!node.isTarget || node.isRawMaterial) return;
+    // Producible-raw targets (`rawSupplyRate` set) ARE rendered: they're
+    // registered as normal consumers/sinks so the transmuter (a producer
+    // via `bin.externalOutputs`) feeds the crafted portion and the vent
+    // pickup residual feeds the mined portion. Only pure raws are skipped.
+    if (!node.isTarget || (node.isRawMaterial && node.rawSupplyRate === undefined))
+      return;
     const targetSinkId = createTargetSinkId(nodeId);
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
     // Mirror the consumer-registration guard above: zero-rate targets
@@ -747,7 +677,9 @@ export function mapPlanToFlowBinFused(
   for (const [itemId, consumers] of consumersByItem.entries()) {
     const node = plan.nodes.get(itemId);
     if (node?.type !== "item" || !node.isRawMaterial) continue;
-    if (node.productionRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    // Vent draw only — a producible raw that is entirely crafted
+    // (`rawSupplyRate ≈ 0`) emits no pickup; its transmuter covers demand.
+    if (rawDraw(node) <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const sourceItem = itemById.get(itemId);
     // Per-consumer allocation already assigned by greedy producer
     // distribution (byproducts).
@@ -784,18 +716,6 @@ export function mapPlanToFlowBinFused(
       );
     }
   }
-
-  emitProducibleRawTargetSinks(
-    plan,
-    items,
-    facilities,
-    targetRates,
-    ceilMode,
-    flowNodes,
-    targetSinkNodes,
-    flowEdges,
-    edgeIdCounter,
-  );
 
   const allNodes: (
     | FlowProductionNode
@@ -989,6 +909,13 @@ export function mapPlanToFlowBinFusedSeparated(
     if (Math.max(1, Math.ceil(bin.buildingCount)) !== 1) continue;
     const outputItemId = bin.externalOutputs[0].itemId;
     if (!targetItemIds.has(outputItemId)) continue;
+    // Producible-raw targets (Xiragen et al.) are dual-sourced (vent +
+    // transmuter); their producer must NOT fold into the sink so the
+    // transmuter renders as a real node feeding the sink alongside the
+    // vent pickup — matching the merged + separated views.
+    const outFoldNode = plan.nodes.get(outputItemId);
+    if (outFoldNode?.type === "item" && outFoldNode.rawSupplyRate !== undefined)
+      continue;
     // Metastorage supplies this target too — keep the bin's instances
     // so the sink gets real edges from both supplies.
     if (importedItemIds.has(outputItemId)) continue;
@@ -1113,7 +1040,12 @@ export function mapPlanToFlowBinFusedSeparated(
   // ordering note in `mapPlanToFlowBinFused` above.
   plan.nodes.forEach((node, nodeId) => {
     if (node.type !== "item") return;
-    if (!node.isTarget || node.isRawMaterial) return;
+    // Producible-raw targets (`rawSupplyRate` set) ARE rendered: they're
+    // registered as normal consumers/sinks so the transmuter (a producer
+    // via `bin.externalOutputs`) feeds the crafted portion and the vent
+    // pickup residual feeds the mined portion. Only pure raws are skipped.
+    if (!node.isTarget || (node.isRawMaterial && node.rawSupplyRate === undefined))
+      return;
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
     if (userTargetRate <= MIN_VISIBLE_RATE_PER_MIN) return;
     const arr = consumersByItem.get(node.itemId) ?? [];
@@ -1328,7 +1260,12 @@ export function mapPlanToFlowBinFusedSeparated(
   // Emit target sinks.
   plan.nodes.forEach((node, nodeId) => {
     if (node.type !== "item") return;
-    if (!node.isTarget || node.isRawMaterial) return;
+    // Producible-raw targets (`rawSupplyRate` set) ARE rendered: they're
+    // registered as normal consumers/sinks so the transmuter (a producer
+    // via `bin.externalOutputs`) feeds the crafted portion and the vent
+    // pickup residual feeds the mined portion. Only pure raws are skipped.
+    if (!node.isTarget || (node.isRawMaterial && node.rawSupplyRate === undefined))
+      return;
     const targetSinkId = createTargetSinkId(nodeId);
     const userTargetRate = targetRates?.get(node.itemId) ?? node.productionRate;
     // Mirror the consumer-registration guard: zero-rate targets have no
@@ -1630,18 +1567,6 @@ export function mapPlanToFlowBinFusedSeparated(
       );
     }
   }
-
-  emitProducibleRawTargetSinks(
-    plan,
-    items,
-    facilities,
-    targetRates,
-    ceilMode,
-    flowNodes,
-    targetSinkNodes,
-    flowEdges,
-    edgeIdCounter,
-  );
 
   const allNodes: (
     | FlowProductionNode

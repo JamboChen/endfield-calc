@@ -104,11 +104,43 @@ export function mapPlanToFlowMerged(
       imp,
     );
   }
+  // Vent pseudo-producer id → its producible-raw item node, so
+  // `ensureProducerNode` can materialise the pickup node on demand.
+  const ventProducerItem = new Map<
+    string,
+    Extract<ProductionGraphNode, { type: "item" }>
+  >();
   const producersOf = (itemId: string): { id: string; rate: number }[] => {
-    const out: { id: string; rate: number }[] = getItemProducers(
-      plan,
-      itemId,
-    ).map((p) => ({ id: p.recipeId, rate: p.rate }));
+    const itemNode = plan.nodes.get(itemId);
+    let out: { id: string; rate: number }[];
+    if (itemNode?.type === "item" && itemNode.rawSupplyRate !== undefined) {
+      // Producible raw (Xiragen et al.): dual-sourced. `getItemProducers`
+      // excludes raws, so scan its recipe producers directly AND add the
+      // vent as a pseudo-producer (rate = mined portion). The multi-
+      // producer greedy allocation then splits every consumer's demand
+      // between the transmuter (craft) and the vent pickup.
+      out = [];
+      for (const e of plan.edges) {
+        if (e.to !== itemId) continue;
+        const n = plan.nodes.get(e.from);
+        if (n?.type !== "recipe" || n.isDisposal) continue;
+        const o = n.recipe.outputs.find((oo) => oo.itemId === itemId);
+        const rate = o
+          ? calcRate(o.amount, n.recipe.craftingTime) * n.facilityCount
+          : 0;
+        if (rate > MIN_VISIBLE_RATE_PER_MIN) out.push({ id: e.from, rate });
+      }
+      if (itemNode.rawSupplyRate > MIN_VISIBLE_RATE_PER_MIN) {
+        const ventId = createRawMaterialId(itemId);
+        ventProducerItem.set(ventId, itemNode);
+        out.push({ id: ventId, rate: itemNode.rawSupplyRate });
+      }
+    } else {
+      out = getItemProducers(plan, itemId).map((p) => ({
+        id: p.recipeId,
+        rate: p.rate,
+      }));
+    }
     for (const imp of importsByItem.get(itemId) ?? []) {
       out.push({
         id: createMetastorageSourceId(imp.sourceDomain, imp.itemId),
@@ -147,7 +179,41 @@ export function mapPlanToFlowMerged(
   /** Emit the import node first when the edge's producer is the import source. */
   const ensureProducerNode = (producerId: string): void => {
     const imp = importByNodeId.get(producerId);
-    if (imp) ensureImportNode(imp);
+    if (imp) {
+      ensureImportNode(imp);
+      return;
+    }
+    // Vent pseudo-producer of a producible raw → materialise its pickup
+    // node (sized on the mined portion) if no consumer already emitted it.
+    const ventItem = ventProducerItem.get(producerId);
+    if (ventItem && !flowNodes.some((n) => n.id === producerId)) {
+      const cfg = rawMaterialSources.get(ventItem.itemId);
+      const sourceFacility = cfg
+        ? (facilities.find((f) => f.id === cfg.sourceFacility) ?? null)
+        : null;
+      const perFacilityRate = getRawSourceRate(ventItem.itemId, ventItem.item);
+      const ventDraw = ventItem.rawSupplyRate ?? 0;
+      const pickupCount = perFacilityRate > 0 ? ventDraw / perFacilityRate : 0;
+      flowNodes.push(
+        createProductionFlowNode(
+          producerId,
+          {
+            item: ventItem.item,
+            targetRate: ventDraw,
+            recipe: null,
+            facility: sourceFacility,
+            facilityCount: pickupCount,
+            isRawMaterial: true,
+            isTarget: false,
+            dependencies: [],
+          },
+          items,
+          facilities,
+          ceilMode,
+          { isDirectTarget: false },
+        ),
+      );
+    }
   };
   /**
    * Terminal-target recipes normally fold into the target sink (embed).
@@ -156,11 +222,18 @@ export function mapPlanToFlowMerged(
    * import source), which an embed cannot represent. Used by both the
    * recipe-emission skip and the input-edge redirect so they stay in
    * lockstep.
+   *
+   * Also disabled for a **producible raw** (Xiragen et al.): it has two
+   * producers (transmuter + vent), so its transmuter must render as a
+   * real node feeding the sink alongside the vent pickup, never an embed.
    */
   const isFoldedTerminalRecipe = (recipeNodeId: string): boolean => {
     if (!isRecipeTerminal(plan, recipeNodeId)) return false;
     const outputItemId = getRecipeOutputItemId(plan, recipeNodeId);
     if (outputItemId && importsByItem.has(outputItemId)) return false;
+    const outNode = outputItemId ? plan.nodes.get(outputItemId) : undefined;
+    if (outNode?.type === "item" && outNode.rawSupplyRate !== undefined)
+      return false;
     return true;
   };
 
@@ -265,9 +338,15 @@ export function mapPlanToFlowMerged(
       }
     });
 
-    // Also collect target sink consumers for multi-producer target items
+    // Also collect target sink consumers for multi-producer target items.
+    // Producible-raw targets qualify (transmuter + vent = 2 producers).
     plan.nodes.forEach((node, nodeId) => {
-      if (node.type !== "item" || !node.isTarget || node.isRawMaterial) return;
+      if (
+        node.type !== "item" ||
+        !node.isTarget ||
+        (node.isRawMaterial && node.rawSupplyRate === undefined)
+      )
+        return;
       const producers = producersOf(nodeId);
       if (producers.length <= 1) return;
 
@@ -452,7 +531,16 @@ export function mapPlanToFlowMerged(
 
   // Create target sink nodes
   plan.nodes.forEach((node, nodeId) => {
-    if (node.type === "item" && node.isTarget && !node.isRawMaterial) {
+    if (
+      node.type === "item" &&
+      node.isTarget &&
+      (!node.isRawMaterial || node.rawSupplyRate !== undefined)
+    ) {
+      // Producible-raw target: fed by the transmuter (craft) + vent
+      // pickup, split by the greedy allocation. Force its sink edges even
+      // when terminal (the vent pseudo-producer has no flow node yet, so
+      // `anyProducerHasFlowNode` can be false).
+      const isProducibleRawTarget = node.rawSupplyRate !== undefined;
       const targetNodeId = createTargetSinkId(node.itemId);
 
       // Find ALL producers of this target item (recipes + Metastorage)
@@ -508,7 +596,10 @@ export function mapPlanToFlowMerged(
       //   node replaces the embed for import-only targets)
       if (
         producers.length > 0 &&
-        (!isTerminalTarget || anyProducerHasFlowNode || hasImport)
+        (!isTerminalTarget ||
+          anyProducerHasFlowNode ||
+          hasImport ||
+          isProducibleRawTarget)
       ) {
         const greedy = greedyAllocations.get(nodeId);
 
@@ -734,113 +825,6 @@ export function mapPlanToFlowMerged(
           ceilMode,
         ),
       );
-    }
-  });
-
-  // Producible-raw targets (Xiragen et al.): the normal target-sink loop
-  // above skips `isRawMaterial`, so render them here. The sink is fed by
-  // the vent pickup (mined portion, `rawSupplyRate`) plus — when the vent
-  // cap is exceeded — the transmuter producers that craft the overflow.
-  plan.nodes.forEach((node, nodeId) => {
-    if (node.type !== "item" || !node.isTarget) return;
-    if (node.rawSupplyRate === undefined) return; // not a producible raw
-    const targetSinkId = createTargetSinkId(node.itemId);
-    if (targetSinkNodes.some((n) => n.id === targetSinkId)) return;
-    const userTargetRate =
-      targetRates?.get(node.itemId) ?? node.productionRate;
-    targetSinkNodes.push(
-      createTargetSinkNode(
-        targetSinkId,
-        node.item,
-        userTargetRate,
-        items,
-        facilities,
-        undefined,
-        ceilMode,
-      ),
-    );
-
-    const ventPortion = Math.min(rawDraw(node), userTargetRate);
-    const craftPortion = Math.max(0, userTargetRate - ventPortion);
-
-    // Vent pickup → sink (the mined portion).
-    if (ventPortion > MIN_VISIBLE_RATE_PER_MIN) {
-      const rawMaterialNodeId = createRawMaterialId(node.itemId);
-      if (!flowNodes.find((n) => n.id === rawMaterialNodeId)) {
-        const cfg = rawMaterialSources.get(node.itemId);
-        const sourceFacility = cfg
-          ? (facilities.find((f) => f.id === cfg.sourceFacility) ?? null)
-          : null;
-        const perFacilityRate = getRawSourceRate(node.itemId, node.item);
-        const pickupCount =
-          perFacilityRate > 0 ? ventPortion / perFacilityRate : 0;
-        flowNodes.push(
-          createProductionFlowNode(
-            rawMaterialNodeId,
-            {
-              item: node.item,
-              targetRate: ventPortion,
-              recipe: null,
-              facility: sourceFacility,
-              facilityCount: pickupCount,
-              isRawMaterial: true,
-              isTarget: false,
-              dependencies: [],
-            },
-            items,
-            facilities,
-            ceilMode,
-            { isDirectTarget: false },
-          ),
-        );
-      }
-      flowEdges.push(
-        createEdge(
-          `e${edgeIdCounter++}`,
-          rawMaterialNodeId,
-          targetSinkId,
-          ventPortion,
-          node.item,
-          undefined,
-          ceilMode,
-        ),
-      );
-    }
-
-    // Transmuter producers → sink (the crafted overflow), allocated
-    // across producers by their Xiragen output share.
-    if (craftPortion > MIN_VISIBLE_RATE_PER_MIN) {
-      const producers = producersOf(nodeId);
-      let totalOut = 0;
-      const outByProducer = new Map<string, number>();
-      for (const p of producers) {
-        const pn = plan.nodes.get(p.id);
-        if (pn?.type !== "recipe") continue;
-        const out = pn.recipe.outputs.find((o) => o.itemId === node.itemId);
-        if (!out) continue;
-        const rate = calcRate(out.amount, pn.recipe.craftingTime) * pn.facilityCount;
-        if (rate <= 0) continue;
-        outByProducer.set(p.id, rate);
-        totalOut += rate;
-      }
-      if (totalOut > 0) {
-        for (const [producerId, rate] of outByProducer) {
-          const share = (rate / totalOut) * craftPortion;
-          if (share <= MIN_VISIBLE_RATE_PER_MIN) continue;
-          ensureProducerNode(producerId);
-          flowEdges.push(
-            createEdge(
-              `e${edgeIdCounter++}`,
-              producerId,
-              targetSinkId,
-              share,
-              node.item,
-              undefined,
-              ceilMode,
-            ),
-          );
-        }
-      }
     }
   });
 

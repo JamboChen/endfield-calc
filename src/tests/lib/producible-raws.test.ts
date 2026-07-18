@@ -36,6 +36,45 @@ function itemNode(
   return n && n.type === "item" ? n : undefined;
 }
 
+/* ── Mapper conservation helpers ── */
+
+const SINK_ID = `target-sink-${XIRAGEN}`;
+type Edgeish = { source: string; target: string; data?: unknown };
+type FlowLike = { nodes: { id: string }[]; edges: Edgeish[] };
+
+/** Run all three mappers with an optional Xiragen target rate. */
+function mapAll(
+  plan: Awaited<ReturnType<typeof calculateProductionPlan>>,
+  xiragenTargetRate: number | undefined,
+): FlowLike[] {
+  const tr =
+    xiragenTargetRate === undefined
+      ? undefined
+      : new Map<ItemIdT, number>([[XIRAGEN, xiragenTargetRate]]);
+  return [
+    mapPlanToFlowBinFused(plan, items, recipes, facilities, tr),
+    mapPlanToFlowBinFusedSeparated(plan, items, recipes, facilities, tr),
+    mapPlanToFlowMerged(plan, items, facilities, tr),
+  ] as FlowLike[];
+}
+
+const edgeRate = (e: Edgeish): number =>
+  (e.data as { flowRate?: number } | undefined)?.flowRate ?? 0;
+const edgeItemId = (e: Edgeish): string | undefined =>
+  (e.data as { itemId?: string } | undefined)?.itemId;
+const sumRate = (edges: Edgeish[]): number =>
+  edges.reduce((s, e) => s + edgeRate(e), 0);
+const edgesInto = (flow: FlowLike, targetId: string): Edgeish[] =>
+  flow.edges.filter((e) => e.target === targetId);
+/** Vent-pickup edges: source is a Xiragen raw-material pickup node. */
+const ventEdges = (edges: Edgeish[]): Edgeish[] =>
+  edges.filter((e) => e.source.startsWith(`raw_${XIRAGEN}`));
+/** Producer (non-vent) edges — the transmuter's crafted output. */
+const craftEdges = (edges: Edgeish[]): Edgeish[] =>
+  edges.filter((e) => !e.source.startsWith("raw_"));
+const craftEdgesForItem = (edges: Edgeish[], itemId: string): Edgeish[] =>
+  edges.filter((e) => edgeItemId(e) === itemId && !e.source.startsWith("raw_"));
+
 describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
   test("policy set: opt-out of costless raws only", () => {
     expect(producibleRaws.has(XIRAGEN)).toBe(true);
@@ -118,9 +157,7 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
     expect(plan.nodes.has(TRANSMUTER_XIRAGEN)).toBe(false);
   });
 
-  test("mappers render a vent-mined Xiragen target (visible sink, no integrity violation)", async () => {
-    // assertFlowIntegrity throws in test mode, so a clean map is the
-    // assertion.
+  test("all mappers render a vent-mined Xiragen target as a conserved sink", async () => {
     const plan = await calculateProductionPlan(
       [{ itemId: XIRAGEN, rate: 60 }],
       items,
@@ -128,21 +165,39 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
       facilities,
       { rawMaterials: ALL_RAWS },
     );
-    const targetRates = new Map<ItemIdT, number>([[XIRAGEN, 60]]);
-    const flows = [
-      mapPlanToFlowBinFused(plan, items, recipes, facilities, targetRates),
-      mapPlanToFlowBinFusedSeparated(plan, items, recipes, facilities, targetRates),
-      mapPlanToFlowMerged(plan, items, facilities, targetRates),
-    ];
-    for (const flow of flows) {
-      // The Xiragen target must be visible: at least one node references
-      // it (a target sink and/or vent pickup).
-      const xiragenNodes = flow.nodes.filter((n) => n.id.includes(XIRAGEN));
-      expect(xiragenNodes.length).toBeGreaterThan(0);
+    // assertFlowIntegrity throws in test mode, so a clean map is itself an
+    // assertion; then check the sink is present + conserved + vent-fed.
+    for (const flow of mapAll(plan, 60)) {
+      const into = edgesInto(flow, SINK_ID);
+      expect(sumRate(into)).toBeCloseTo(60, 1);
+      // Vent-mined ⇒ every inbound edge comes from a vent pickup, none
+      // from a transmuter.
+      expect(ventEdges(into).length).toBeGreaterThan(0);
+      expect(craftEdges(into).length).toBe(0);
     }
   });
 
-  test("mappers render a crafted (zero-vent) Xiragen target without integrity violation", async () => {
+  test("all mappers split an over-cap Xiragen target across vent + transmuter", async () => {
+    const plan = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 200 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps: new Map([[XIRAGEN, 120]]) },
+    );
+    for (const flow of mapAll(plan, 200)) {
+      // Sink is conserved at the requested rate...
+      expect(sumRate(edgesInto(flow, SINK_ID))).toBeCloseTo(200, 1);
+      // ...and BOTH sources appear in the graph (vent up to cap + craft).
+      const ventTotal = sumRate(ventEdges(flow.edges));
+      const craftTotal = sumRate(craftEdgesForItem(flow.edges, XIRAGEN));
+      expect(ventTotal).toBeGreaterThan(0);
+      expect(ventTotal).toBeLessThanOrEqual(120 + 1);
+      expect(craftTotal).toBeGreaterThan(0);
+    }
+  });
+
+  test("all mappers render a zero-vent Xiragen target fed only by the transmuter", async () => {
     const plan = await calculateProductionPlan(
       [{ itemId: XIRAGEN, rate: 60 }],
       items,
@@ -150,15 +205,38 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
       facilities,
       { rawMaterials: ALL_RAWS, rawCaps: new Map([[XIRAGEN, 0]]) },
     );
-    const targetRates = new Map<ItemIdT, number>([[XIRAGEN, 60]]);
-    expect(() =>
-      mapPlanToFlowBinFused(plan, items, recipes, facilities, targetRates),
-    ).not.toThrow();
-    expect(() =>
-      mapPlanToFlowBinFusedSeparated(plan, items, recipes, facilities, targetRates),
-    ).not.toThrow();
-    expect(() =>
-      mapPlanToFlowMerged(plan, items, facilities, targetRates),
-    ).not.toThrow();
+    for (const flow of mapAll(plan, 60)) {
+      const into = edgesInto(flow, SINK_ID);
+      expect(sumRate(into)).toBeCloseTo(60, 1);
+      // No vent draw anywhere for this item — the sink is entirely crafted.
+      expect(ventEdges(flow.edges).length).toBe(0);
+      expect(craftEdges(into).length).toBeGreaterThan(0);
+    }
+  });
+
+  test("crafted Xiragen consumed downstream is drawn from the transmuter, not the vent", async () => {
+    // Xiragen as an INTERMEDIATE (consumed by the copper-jar filler) while
+    // the vent cap forces it to be crafted — the transmuter's output must
+    // feed the consumer instead of the flow silently attributing it to a
+    // (non-existent) vent pickup.
+    const JAR = ItemId.ITEM_GASJAR_COPPER_GAS_XIRANITE;
+    const plan = await calculateProductionPlan(
+      [{ itemId: JAR, rate: 30 }],
+      items,
+      recipes,
+      facilities,
+      { rawMaterials: ALL_RAWS, rawCaps: new Map([[XIRAGEN, 0]]) },
+    );
+    expect(producerFc(plan, XIRAGEN)).toBeGreaterThan(0);
+    for (const flow of mapAll(plan, undefined)) {
+      const xiragenEdges = flow.edges.filter(
+        (e) => edgeItemId(e) === XIRAGEN,
+      );
+      // Some Xiragen flows exist, none sourced from a vent pickup (cap 0),
+      // and at least one from a real producer (the transmuter).
+      expect(xiragenEdges.length).toBeGreaterThan(0);
+      expect(ventEdges(xiragenEdges).length).toBe(0);
+      expect(craftEdges(xiragenEdges).length).toBeGreaterThan(0);
+    }
   });
 });
