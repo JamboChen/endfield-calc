@@ -10,6 +10,7 @@
   "lockedItemHint": "{{name}}: bloqueado. Haz clic para abrir el plan del CAI y ver qué investigar.",
   "maxReached": "Máximo de objetivos alcanzado ({{max}})",
   "metastorageOnlyHint": "{{name}}: solo disponible aquí mediante Metaalmacenamiento.",
+  "metastorageUnlockableHint": "{{name}}: disponible mediante Metaalmacenamiento ahora, o investiga su plan del CAI para producirlo aquí.",
   "noIcon": "Ninguno",
   "noMatchingItems": "No se encontraron objetos coincidentes",
   "queueEmpty": "Haz clic en los objetos de arriba para agregarlos a la cola",

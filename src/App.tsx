@@ -365,6 +365,36 @@ function AppContent() {
     settings.aic.researched,
   ]);
 
+  // Of the Metastorage-only items, those that would ALSO become locally
+  // producible in the current region once an AIC plan is researched (a
+  // resolvable target gate exists). The picker badges these differently
+  // from pure imports: you can import one now, OR unlock local production.
+  // Subset of `metastorageOnlyItemIds`, so an item is never both.
+  const metastorageUnlockableIds = useMemo(() => {
+    const out = new Set<ItemId>();
+    for (const id of metastorageOnlyItemIds) {
+      const gate = regionTargetGates.get(id);
+      if (
+        gate &&
+        resolveGateAction(
+          gate,
+          settings.currentDomain,
+          settings.activeDomains,
+          settings.aic.researched,
+        )
+      ) {
+        out.add(id);
+      }
+    }
+    return out;
+  }, [
+    metastorageOnlyItemIds,
+    regionTargetGates,
+    settings.currentDomain,
+    settings.activeDomains,
+    settings.aic.researched,
+  ]);
+
   // Aggregated per-facility cap = sum over currently-active domains of
   // each (facility, domain) effective cap, PLUS one slot per enabled
   // structure with `solver.role === "instance"`. Threaded into the LP
@@ -732,6 +762,7 @@ function AppContent() {
         items={targetableItems}
         lockedItems={lockedTargetItems}
         metastorageOnlyIds={metastorageOnlyItemIds}
+        metastorageUnlockableIds={metastorageUnlockableIds}
         existingTargetIds={targets.map((t) => t.itemId)}
         regionRawMaterials={regionRawMaterials}
         producibleRawTargetIds={producibleRawTargetIds}

@@ -10,6 +10,7 @@
   "lockedItemHint": "{{name}}：未解锁。点击打开工业计划并查看需研究的项目。",
   "maxReached": "已达到最大目标数 ({{max}})",
   "metastorageOnlyHint": "{{name}}：本地区仅可通过超库存传输获得。",
+  "metastorageUnlockableHint": "{{name}}：目前可通过超库存传输获得；研究其工业计划即可在本地区生产。",
   "noIcon": "无",
   "noMatchingItems": "未找到匹配的物品",
   "queueEmpty": "点击上方物品将其加入队列",

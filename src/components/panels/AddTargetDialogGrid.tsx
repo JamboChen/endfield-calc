@@ -53,6 +53,12 @@ export type AddTargetDialogGridProps = {
    * the (still fully addable) available tiles.
    */
   metastorageOnlyIds: ReadonlySet<ItemId>;
+  /**
+   * Subset of `metastorageOnlyIds` that would ALSO become locally
+   * producible here once an AIC plan is researched. Badged in a distinct
+   * colour (import now, or unlock local production) vs. pure imports.
+   */
+  metastorageUnlockableIds: ReadonlySet<ItemId>;
   onBatchAddTargets: (targets: QueuedItem[]) => void;
   /** Navigate to Settings + flash the AIC techs that unlock this item. */
   onLockedItemClick: (itemId: ItemId) => void;
@@ -69,6 +75,7 @@ export default function AddTargetDialogGrid({
   producibleRawTargetIds,
   lockedItems,
   metastorageOnlyIds,
+  metastorageUnlockableIds,
   onBatchAddTargets,
   onLockedItemClick,
 }: AddTargetDialogGridProps) {
@@ -370,6 +377,7 @@ export default function AddTargetDialogGrid({
                   isQueued={queuedIds.has(item.id)}
                   isDisabled={remainingSlots <= 0 && !queuedIds.has(item.id)}
                   metastorageOnly={metastorageOnlyIds.has(item.id)}
+                  metastorageUnlockable={metastorageUnlockableIds.has(item.id)}
                   onToggle={toggleItem}
                   onDoubleClick={handleDoubleClick}
                 />
@@ -418,6 +426,11 @@ type ItemCellProps = {
   locked?: boolean;
   /** Available here only via a Metastorage import (no local production). */
   metastorageOnly?: boolean;
+  /**
+   * Metastorage-only AND locally unlockable: importable now, but an AIC
+   * plan would also make it producible here. Distinct badge colour + hint.
+   */
+  metastorageUnlockable?: boolean;
   onToggle: (itemId: ItemId) => void;
   onDoubleClick: (itemId: ItemId) => void;
   /** Called on click when `locked` — routes to Settings instead of queueing. */
@@ -430,6 +443,7 @@ const ItemCell = memo(function ItemCell({
   isDisabled,
   locked = false,
   metastorageOnly = false,
+  metastorageUnlockable = false,
   onToggle,
   onDoubleClick,
   onLockedClick,
@@ -445,13 +459,19 @@ const ItemCell = memo(function ItemCell({
       })
     : undefined;
 
-  const metastorageHint = metastorageOnly
-    ? t("metastorageOnlyHint", {
-        name: getItemName(item),
-        defaultValue:
-          "{{name}}: only available here via Metastorage Transfer.",
-      })
-    : undefined;
+  const metastorageHint = !metastorageOnly
+    ? undefined
+    : metastorageUnlockable
+      ? t("metastorageUnlockableHint", {
+          name: getItemName(item),
+          defaultValue:
+            "{{name}}: available via Metastorage Transfer now, or research its AIC plan to produce it here.",
+        })
+      : t("metastorageOnlyHint", {
+          name: getItemName(item),
+          defaultValue:
+            "{{name}}: only available here via Metastorage Transfer.",
+        });
 
   // Locked / metastorage-only tiles surface their hint on the button's title
   // (mouse tooltip) AND aria-label, so keyboard + screen-reader users get it,
@@ -508,12 +528,18 @@ const ItemCell = memo(function ItemCell({
         </div>
       )}
 
-      {/* Metastorage-only badge (top-LEFT to clear the queued-check slot;
-          an imported item can still be queued). The hint lives on the
-          button's title + aria-label (above), so hovering the icon falls
-          through to it and AT users get it too. */}
+      {/* Metastorage badge (top-LEFT to clear the queued-check slot; an
+          imported item can still be queued). Amber when the item is ALSO
+          locally unlockable via an AIC plan, cyan for a pure import. The
+          hint lives on the button's title + aria-label (above), so hovering
+          the icon falls through to it and AT users get it too. */}
       {metastorageOnly && (
-        <div className="absolute top-1 left-1 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center bg-cyan-500/85 shadow-sm">
+        <div
+          className={cn(
+            "absolute top-1 left-1 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center shadow-sm",
+            metastorageUnlockable ? "bg-amber-500/90" : "bg-cyan-500/85",
+          )}
+        >
           <Truck className="w-2.5 h-2.5 text-white" strokeWidth={2.5} />
         </div>
       )}

@@ -10,6 +10,7 @@
   "lockedItemHint": "{{name}}：未解放。クリックすると工業計画を開き、研究すべき項目を表示します。",
   "maxReached": "最大目標数に達しました ({{max}})",
   "metastorageOnlyHint": "{{name}}：この地域では無在庫転送でのみ入手可能です。",
+  "metastorageUnlockableHint": "{{name}}：現在は無在庫転送で入手可能。工業計画を研究すればこの地域で生産できます。",
   "noIcon": "なし",
   "noMatchingItems": "一致するアイテムが見つかりません",
   "queueEmpty": "上のアイテムをクリックしてキューに追加",
