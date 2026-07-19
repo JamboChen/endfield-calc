@@ -251,43 +251,62 @@ function AppContent() {
     return out;
   }, [metastorageRoutes]);
 
-  const { availableRecipes, reachableItems } = useMemo(() => {
-    // Intersect AIC-unlocked with region-permitted facilities so
-    // recipes whose host facility is locked to a region the player
-    // isn't currently building in drop from `availableRecipes`. See
-    // `computeAvailableFacilities` for the rule.
-    const availableFacilities = computeAvailableFacilities(
+  const { availableRecipes, reachableItems, metastorageOnlyItemIds } =
+    useMemo(() => {
+      // Intersect AIC-unlocked with region-permitted facilities so
+      // recipes whose host facility is locked to a region the player
+      // isn't currently building in drop from `availableRecipes`. See
+      // `computeAvailableFacilities` for the rule.
+      const availableFacilities = computeAvailableFacilities(
+        settings.aic.unlockedFacilities,
+        facilities,
+        settings.currentDomain,
+      );
+      const aicFiltered = computeRecipeAvailability(
+        recipes,
+        availableFacilities,
+        settings.aic.unlockedModes,
+      ).availableRecipes;
+      // Apply the structure-variant filter BEFORE reachability so any
+      // excluded variant can't leak into the reachable set or the LP. (With
+      // the toggle ON nothing is excluded — both variants are kept; see
+      // `computeVariantExclusions`.)
+      const variantFiltered = aicFiltered.filter(
+        (r) => !structureVariantExcluded.has(r.id),
+      );
+      const { runnableRecipes, reachableItems } = computeRecipeReachability(
+        variantFiltered,
+        regionRawMaterials,
+        bootstrapFacilities,
+        metastorageSeedItems,
+      );
+      // Second closure WITHOUT the Metastorage import seeds: items that
+      // fall out of reach when the imports are removed are available in
+      // this region ONLY via Metastorage Transfer (directly imported, or
+      // crafted locally from an imported input). The picker badges them.
+      const { reachableItems: reachableWithoutMetastorage } =
+        computeRecipeReachability(
+          variantFiltered,
+          regionRawMaterials,
+          bootstrapFacilities,
+        );
+      const metastorageOnlyItemIds = new Set<ItemId>();
+      for (const id of reachableItems) {
+        if (!reachableWithoutMetastorage.has(id)) metastorageOnlyItemIds.add(id);
+      }
+      return {
+        availableRecipes: runnableRecipes,
+        reachableItems,
+        metastorageOnlyItemIds,
+      };
+    }, [
       settings.aic.unlockedFacilities,
-      facilities,
-      settings.currentDomain,
-    );
-    const aicFiltered = computeRecipeAvailability(
-      recipes,
-      availableFacilities,
       settings.aic.unlockedModes,
-    ).availableRecipes;
-    // Apply the structure-variant filter BEFORE reachability so any
-    // excluded variant can't leak into the reachable set or the LP. (With
-    // the toggle ON nothing is excluded — both variants are kept; see
-    // `computeVariantExclusions`.)
-    const variantFiltered = aicFiltered.filter(
-      (r) => !structureVariantExcluded.has(r.id),
-    );
-    const { runnableRecipes, reachableItems } = computeRecipeReachability(
-      variantFiltered,
+      settings.currentDomain,
       regionRawMaterials,
-      bootstrapFacilities,
+      structureVariantExcluded,
       metastorageSeedItems,
-    );
-    return { availableRecipes: runnableRecipes, reachableItems };
-  }, [
-    settings.aic.unlockedFacilities,
-    settings.aic.unlockedModes,
-    settings.currentDomain,
-    regionRawMaterials,
-    structureVariantExcluded,
-    metastorageSeedItems,
-  ]);
+    ]);
 
   // Items the picker may show as targets: those reachable via the AIC-
   // and chain-filtered recipe set. Forced raws are in `reachableItems`
@@ -698,6 +717,7 @@ function AppContent() {
         onOpenChange={setDialogOpen}
         items={targetableItems}
         lockedItems={lockedTargetItems}
+        metastorageOnlyIds={metastorageOnlyItemIds}
         existingTargetIds={targets.map((t) => t.itemId)}
         regionRawMaterials={regionRawMaterials}
         producibleRawTargetIds={producibleRawTargetIds}

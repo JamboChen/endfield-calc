@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Search, X, Check, Lock } from "lucide-react";
+import { Search, X, Check, Lock, Truck } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import type { Item, ItemId } from "@/types";
@@ -47,6 +47,12 @@ export type AddTargetDialogGridProps = {
    * `onLockedItemClick` instead of queueing it.
    */
   lockedItems: Item[];
+  /**
+   * Items available in the current region ONLY via a Metastorage import
+   * route (no local production path). Badged with a transfer symbol on
+   * the (still fully addable) available tiles.
+   */
+  metastorageOnlyIds: ReadonlySet<ItemId>;
   onBatchAddTargets: (targets: QueuedItem[]) => void;
   /** Navigate to Settings + flash the AIC techs that unlock this item. */
   onLockedItemClick: (itemId: ItemId) => void;
@@ -62,6 +68,7 @@ export default function AddTargetDialogGrid({
   regionRawMaterials,
   producibleRawTargetIds,
   lockedItems,
+  metastorageOnlyIds,
   onBatchAddTargets,
   onLockedItemClick,
 }: AddTargetDialogGridProps) {
@@ -362,6 +369,7 @@ export default function AddTargetDialogGrid({
                   item={item}
                   isQueued={queuedIds.has(item.id)}
                   isDisabled={remainingSlots <= 0 && !queuedIds.has(item.id)}
+                  metastorageOnly={metastorageOnlyIds.has(item.id)}
                   onToggle={toggleItem}
                   onDoubleClick={handleDoubleClick}
                 />
@@ -408,6 +416,8 @@ type ItemCellProps = {
   isDisabled: boolean;
   /** Locked: producible here once its AIC plan is researched. */
   locked?: boolean;
+  /** Available here only via a Metastorage import (no local production). */
+  metastorageOnly?: boolean;
   onToggle: (itemId: ItemId) => void;
   onDoubleClick: (itemId: ItemId) => void;
   /** Called on click when `locked` — routes to Settings instead of queueing. */
@@ -419,6 +429,7 @@ const ItemCell = memo(function ItemCell({
   isQueued,
   isDisabled,
   locked = false,
+  metastorageOnly = false,
   onToggle,
   onDoubleClick,
   onLockedClick,
@@ -431,6 +442,14 @@ const ItemCell = memo(function ItemCell({
         name: getItemName(item),
         defaultValue:
           "{{name}}: locked. Click to open the AIC plan that unlocks it.",
+      })
+    : undefined;
+
+  const metastorageHint = metastorageOnly
+    ? t("metastorageOnlyHint", {
+        name: getItemName(item),
+        defaultValue:
+          "{{name}}: only available here via Metastorage Transfer.",
       })
     : undefined;
 
@@ -478,6 +497,18 @@ const ItemCell = memo(function ItemCell({
       {locked && (
         <div className="absolute top-1 right-1 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center bg-foreground/70 shadow-sm">
           <Lock className="w-2.5 h-2.5 text-background" strokeWidth={2.5} />
+        </div>
+      )}
+
+      {/* Metastorage-only badge (top-LEFT to clear the queued-check slot;
+          an imported item can still be queued). */}
+      {metastorageOnly && (
+        <div
+          className="absolute top-1 left-1 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center bg-cyan-500/85 shadow-sm"
+          title={metastorageHint}
+          aria-label={metastorageHint}
+        >
+          <Truck className="w-2.5 h-2.5 text-white" strokeWidth={2.5} />
         </div>
       )}
 

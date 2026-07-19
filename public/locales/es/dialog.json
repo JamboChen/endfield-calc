@@ -8,6 +8,7 @@
   "dialogDescription": "Busca y selecciona objetos para agregar como objetivos de producción",
   "hint": "Seleccionados: {{selected}}",
   "lockedItemHint": "{{name}}: bloqueado. Haz clic para abrir el plan del CAI que lo desbloquea.",
+  "metastorageOnlyHint": "{{name}}: solo disponible aquí mediante Metaalmacenamiento.",
   "maxReached": "Máximo de objetivos alcanzado ({{max}})",
   "noIcon": "Ninguno",
   "noMatchingItems": "No se encontraron objetos coincidentes",

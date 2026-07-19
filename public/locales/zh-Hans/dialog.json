@@ -8,6 +8,7 @@
   "dialogDescription": "搜索并选择要添加为生产目标的物品",
   "hint": "已选择：{{selected}}",
   "lockedItemHint": "{{name}}：未解锁。点击打开可解锁它的工业计划。",
+  "metastorageOnlyHint": "{{name}}：本地区仅可通过超库存传输获得。",
   "maxReached": "已达到最大目标数 ({{max}})",
   "noIcon": "无",
   "noMatchingItems": "未找到匹配的物品",

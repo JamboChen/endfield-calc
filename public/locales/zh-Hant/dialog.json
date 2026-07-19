@@ -8,6 +8,7 @@
   "dialogDescription": "搜尋並選擇要新增為生產目標的物品",
   "hint": "已選擇：{{selected}}",
   "lockedItemHint": "{{name}}：未解鎖。點擊開啟可解鎖它的工業計劃。",
+  "metastorageOnlyHint": "{{name}}：本地區僅可透過超庫存傳輸取得。",
   "maxReached": "已達到最大目標數 ({{max}})",
   "noIcon": "無",
   "noMatchingItems": "未找到匹配的物品",
