@@ -166,9 +166,9 @@ function AicPlanGroup({
     if (!focus || focus.domainId !== group.domainId) return;
     const techSet = new Set(focus.techIds);
     const toOpen: AicLayerId[] = [];
-    for (const [layerId, layerNodes] of nodesByLayer) {
-      if (layerNodes.some((n) => techSet.has(n.id))) {
-        toOpen.push(layerId as AicLayerId);
+    for (const layer of groupLayers) {
+      if (nodesByLayer.get(layer.id)?.some((n) => techSet.has(n.id))) {
+        toOpen.push(layer.id);
       }
     }
     if (toOpen.length > 0) {

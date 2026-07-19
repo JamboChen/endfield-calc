@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -512,6 +512,10 @@ function AppContent() {
   const [settingsFocus, setSettingsFocus] = useState<SettingsFocus | null>(
     null,
   );
+  // Monotonic counter for the focus `nonce` — guarantees a fresh value
+  // per click (Date.now() could collide within the same millisecond) so
+  // the navigation/flash effects always re-fire.
+  const focusNonceRef = useRef(0);
   const handleLockedTargetClick = useCallback(
     (itemId: ItemId) => {
       const gate = targetGates.get(itemId);
@@ -524,7 +528,7 @@ function AppContent() {
       );
       if (!action) return;
       setSettingsFocus({
-        nonce: Date.now(),
+        nonce: ++focusNonceRef.current,
         domainId: action.domainId,
         techIds: action.techIds,
       });

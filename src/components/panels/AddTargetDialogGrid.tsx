@@ -438,7 +438,7 @@ const ItemCell = memo(function ItemCell({
     <button
       onClick={(e) => {
         if (locked) {
-          onLockedClick?.(item.id);
+          if (e.detail === 1) onLockedClick?.(item.id);
           return;
         }
         if (e.detail === 1) onToggle(item.id);
