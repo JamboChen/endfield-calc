@@ -1,8 +1,9 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
+import { useSettingsFocus } from "@/contexts/settings-focus-context";
 import {
   items,
   metastorageSources,
@@ -153,6 +154,14 @@ export function RegionConfigTabs({
   // present for the current region.
   const [activeTab, setActiveTab] = useState("plan");
   const effectiveTab = resolveActiveTab(activeTab, availableTabs);
+
+  // A locked-target navigation always lands on the Plan tab (that's where
+  // the flashed tech nodes live), regardless of the user's prior tab.
+  const focus = useSettingsFocus();
+  useEffect(() => {
+    if (focus) setActiveTab("plan");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
 
   return (
     <Tabs value={effectiveTab} onValueChange={setActiveTab} className="gap-3">

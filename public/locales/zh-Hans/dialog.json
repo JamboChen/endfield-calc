@@ -7,7 +7,16 @@
   "defaultRate": "默认产量",
   "dialogDescription": "搜索并选择要添加为生产目标的物品",
   "hint": "已选择：{{selected}}",
+  "legend": {
+    "aria": "图标含义",
+    "import": "本地区仅可通过超库存传输获得。",
+    "importUnlockable": "目前可通过超库存传输获得；研究其工业计划即可在本地区生产。",
+    "locked": "未解锁：研究其工业计划即可在本地区生产。"
+  },
+  "lockedItemHint": "{{name}}：未解锁。点击打开工业计划并查看需研究的项目。",
   "maxReached": "已达到最大目标数 ({{max}})",
+  "metastorageOnlyHint": "{{name}}：本地区仅可通过超库存传输获得。",
+  "metastorageUnlockableHint": "{{name}}：目前可通过超库存传输获得；研究其工业计划即可在本地区生产。",
   "noIcon": "无",
   "noMatchingItems": "未找到匹配的物品",
   "queueEmpty": "点击上方物品将其加入队列",

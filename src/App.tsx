@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -20,11 +20,16 @@ import { ThemeProvider } from "./components/ui/theme-provider";
 import { useTheme } from "./components/ui/theme-context";
 import { DomainSettingsProvider } from "./contexts/DomainSettingsProvider";
 import { useDomainSettingsContext } from "./contexts/domain-settings-context";
+import type { SettingsFocus } from "./contexts/settings-focus-context";
 import {
   computeAvailableFacilities,
   computeRecipeAvailability,
 } from "./lib/aic-research-helpers";
 import { computeRecipeReachability } from "./lib/recipe-reachability";
+import {
+  computeTargetGatesForRegion,
+  resolveGateAction,
+} from "./lib/target-gate-helpers";
 import { computeVariantExclusions } from "./lib/variant-filter";
 import {
   bootstrapFacilities,
@@ -38,7 +43,7 @@ import {
 import { buildRawMaterialCaps } from "./lib/raw-limits-helpers";
 import { structureKey } from "./lib/settings-helpers";
 import { namespaceStorageKey } from "./lib/storage-namespace";
-import type { FacilityId, ItemId } from "./types";
+import type { FacilityId, Item, ItemId } from "./types";
 import { DomainId } from "./types/constants";
 import type { MetastorageRouteConfig } from "./types/metastorage";
 
@@ -248,43 +253,62 @@ function AppContent() {
     return out;
   }, [metastorageRoutes]);
 
-  const { availableRecipes, reachableItems } = useMemo(() => {
-    // Intersect AIC-unlocked with region-permitted facilities so
-    // recipes whose host facility is locked to a region the player
-    // isn't currently building in drop from `availableRecipes`. See
-    // `computeAvailableFacilities` for the rule.
-    const availableFacilities = computeAvailableFacilities(
+  const { availableRecipes, reachableItems, metastorageOnlyItemIds } =
+    useMemo(() => {
+      // Intersect AIC-unlocked with region-permitted facilities so
+      // recipes whose host facility is locked to a region the player
+      // isn't currently building in drop from `availableRecipes`. See
+      // `computeAvailableFacilities` for the rule.
+      const availableFacilities = computeAvailableFacilities(
+        settings.aic.unlockedFacilities,
+        facilities,
+        settings.currentDomain,
+      );
+      const aicFiltered = computeRecipeAvailability(
+        recipes,
+        availableFacilities,
+        settings.aic.unlockedModes,
+      ).availableRecipes;
+      // Apply the structure-variant filter BEFORE reachability so any
+      // excluded variant can't leak into the reachable set or the LP. (With
+      // the toggle ON nothing is excluded — both variants are kept; see
+      // `computeVariantExclusions`.)
+      const variantFiltered = aicFiltered.filter(
+        (r) => !structureVariantExcluded.has(r.id),
+      );
+      const { runnableRecipes, reachableItems } = computeRecipeReachability(
+        variantFiltered,
+        regionRawMaterials,
+        bootstrapFacilities,
+        metastorageSeedItems,
+      );
+      // Second closure WITHOUT the Metastorage import seeds: items that
+      // fall out of reach when the imports are removed are available in
+      // this region ONLY via Metastorage Transfer (directly imported, or
+      // crafted locally from an imported input). The picker badges them.
+      const { reachableItems: reachableWithoutMetastorage } =
+        computeRecipeReachability(
+          variantFiltered,
+          regionRawMaterials,
+          bootstrapFacilities,
+        );
+      const metastorageOnlyItemIds = new Set<ItemId>();
+      for (const id of reachableItems) {
+        if (!reachableWithoutMetastorage.has(id)) metastorageOnlyItemIds.add(id);
+      }
+      return {
+        availableRecipes: runnableRecipes,
+        reachableItems,
+        metastorageOnlyItemIds,
+      };
+    }, [
       settings.aic.unlockedFacilities,
-      facilities,
-      settings.currentDomain,
-    );
-    const aicFiltered = computeRecipeAvailability(
-      recipes,
-      availableFacilities,
       settings.aic.unlockedModes,
-    ).availableRecipes;
-    // Apply the structure-variant filter BEFORE reachability so any
-    // excluded variant can't leak into the reachable set or the LP. (With
-    // the toggle ON nothing is excluded — both variants are kept; see
-    // `computeVariantExclusions`.)
-    const variantFiltered = aicFiltered.filter(
-      (r) => !structureVariantExcluded.has(r.id),
-    );
-    const { runnableRecipes, reachableItems } = computeRecipeReachability(
-      variantFiltered,
+      settings.currentDomain,
       regionRawMaterials,
-      bootstrapFacilities,
+      structureVariantExcluded,
       metastorageSeedItems,
-    );
-    return { availableRecipes: runnableRecipes, reachableItems };
-  }, [
-    settings.aic.unlockedFacilities,
-    settings.aic.unlockedModes,
-    settings.currentDomain,
-    regionRawMaterials,
-    structureVariantExcluded,
-    metastorageSeedItems,
-  ]);
+    ]);
 
   // Items the picker may show as targets: those reachable via the AIC-
   // and chain-filtered recipe set. Forced raws are in `reachableItems`
@@ -297,6 +321,79 @@ function AppContent() {
       ),
     [reachableItems],
   );
+
+  // Per-region target-gate map (item → the AIC techs that gate it in the
+  // current factory region). Memoized on `currentDomain` ALONE: it's
+  // derived from the maximal-unlock reference set, so live research/roster
+  // changes never invalidate it — only a region switch does. Replaces the
+  // former build-time generated `targetGates` map.
+  const regionTargetGates = useMemo(
+    () => computeTargetGatesForRegion(settings.currentDomain),
+    [settings.currentDomain],
+  );
+
+  // Items the picker shows GREYED: producible in the current factory
+  // region but currently unreachable purely because an AIC plan is
+  // unresearched (`regionTargetGates` + a resolvable action against live
+  // state). Items that can't be made in this region at all have no gate
+  // action here and stay hidden. Clicking one navigates Settings to the
+  // earliest blocking plan region (see `handleLockedTargetClick`).
+  const lockedTargetItems = useMemo(() => {
+    const out: Item[] = [];
+    for (const item of items) {
+      if (item.asTarget === false) continue;
+      if (reachableItems.has(item.id)) continue;
+      const gate = regionTargetGates.get(item.id);
+      if (!gate) continue;
+      if (
+        resolveGateAction(
+          gate,
+          settings.currentDomain,
+          settings.activeDomains,
+          settings.aic.researched,
+        )
+      ) {
+        out.push(item);
+      }
+    }
+    return out;
+  }, [
+    regionTargetGates,
+    reachableItems,
+    settings.currentDomain,
+    settings.activeDomains,
+    settings.aic.researched,
+  ]);
+
+  // Of the Metastorage-only items, those that would ALSO become locally
+  // producible in the current region once an AIC plan is researched (a
+  // resolvable target gate exists). The picker badges these differently
+  // from pure imports: you can import one now, OR unlock local production.
+  // Subset of `metastorageOnlyItemIds`, so an item is never both.
+  const metastorageUnlockableIds = useMemo(() => {
+    const out = new Set<ItemId>();
+    for (const id of metastorageOnlyItemIds) {
+      const gate = regionTargetGates.get(id);
+      if (
+        gate &&
+        resolveGateAction(
+          gate,
+          settings.currentDomain,
+          settings.activeDomains,
+          settings.aic.researched,
+        )
+      ) {
+        out.add(id);
+      }
+    }
+    return out;
+  }, [
+    metastorageOnlyItemIds,
+    regionTargetGates,
+    settings.currentDomain,
+    settings.activeDomains,
+    settings.aic.researched,
+  ]);
 
   // Aggregated per-facility cap = sum over currently-active domains of
   // each (facility, domain) effective cap, PLUS one slot per enabled
@@ -468,6 +565,56 @@ function AppContent() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
 
+  // Settings-sheet focus request, set when a greyed (locked) target is
+  // clicked in the Add-Target picker: resolves the earliest blocking plan
+  // region for the current factory region, closes the picker, and opens
+  // Settings on that region with the required tech nodes flagged for
+  // flashing. The `nonce` re-fires the navigation/flash even when the
+  // same target is clicked twice.
+  const [settingsFocus, setSettingsFocus] = useState<SettingsFocus | null>(
+    null,
+  );
+  // Monotonic counter for the focus `nonce` — guarantees a fresh value
+  // per click (Date.now() could collide within the same millisecond) so
+  // the navigation/flash effects always re-fire.
+  const focusNonceRef = useRef(0);
+  const handleLockedTargetClick = useCallback(
+    (itemId: ItemId) => {
+      const gate = regionTargetGates.get(itemId);
+      if (!gate) return;
+      const action = resolveGateAction(
+        gate,
+        settings.currentDomain,
+        settings.activeDomains,
+        settings.aic.researched,
+      );
+      if (!action) return;
+      setSettingsFocus({
+        nonce: ++focusNonceRef.current,
+        domainId: action.domainId,
+        techIds: action.techIds,
+      });
+      setDialogOpen(false);
+      setSettingsOpen(true);
+    },
+    [
+      regionTargetGates,
+      settings.currentDomain,
+      settings.activeDomains,
+      settings.aic.researched,
+      setDialogOpen,
+    ],
+  );
+
+  // Clear the focus once the flash has played, so re-opening or
+  // re-visiting the region doesn't replay it. A fresh locked-item click
+  // sets a new focus (new nonce) and re-triggers.
+  useEffect(() => {
+    if (!settingsFocus) return;
+    const timer = setTimeout(() => setSettingsFocus(null), 2500);
+    return () => clearTimeout(timer);
+  }, [settingsFocus]);
+
   const handleLanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);
   };
@@ -613,13 +760,21 @@ function AppContent() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         items={targetableItems}
+        lockedItems={lockedTargetItems}
+        metastorageOnlyIds={metastorageOnlyItemIds}
+        metastorageUnlockableIds={metastorageUnlockableIds}
         existingTargetIds={targets.map((t) => t.itemId)}
         regionRawMaterials={regionRawMaterials}
         producibleRawTargetIds={producibleRawTargetIds}
         onBatchAddTargets={handleBatchAddTargets}
+        onLockedItemClick={handleLockedTargetClick}
       />
 
-      <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsSheet
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        focus={settingsFocus}
+      />
 
       <AppFooter />
     </div>

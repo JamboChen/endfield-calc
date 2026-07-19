@@ -7,9 +7,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Search, X, Check } from "lucide-react";
+import { Search, X, Check, Lock, Truck } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { InfoHint } from "@/components/InfoHint";
 import type { Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getItemName } from "@/lib/i18n-helpers";
@@ -40,8 +41,83 @@ export type AddTargetDialogGridProps = {
    * cap and crafts the overflow. App.tsx passes the roster-derived set.
    */
   producibleRawTargetIds: ReadonlySet<ItemId>;
+  /**
+   * Items producible in the current factory region but currently locked
+   * behind an unresearched AIC plan. Rendered GREYED after the available
+   * items (searchable + tier-filterable); clicking one calls
+   * `onLockedItemClick` instead of queueing it.
+   */
+  lockedItems: Item[];
+  /**
+   * Items available in the current region ONLY via a Metastorage import
+   * route (no local production path). Badged with a transfer symbol on
+   * the (still fully addable) available tiles.
+   */
+  metastorageOnlyIds: ReadonlySet<ItemId>;
+  /**
+   * Subset of `metastorageOnlyIds` that would ALSO become locally
+   * producible here once an AIC plan is researched. Badged in a distinct
+   * colour (import now, or unlock local production) vs. pure imports.
+   */
+  metastorageUnlockableIds: ReadonlySet<ItemId>;
   onBatchAddTargets: (targets: QueuedItem[]) => void;
+  /** Navigate to Settings + flash the AIC techs that unlock this item. */
+  onLockedItemClick: (itemId: ItemId) => void;
 };
+
+/* ── Provenance badge (shared by the tiles + the legend) ── */
+
+/** The picker's non-obvious tile badges, whose meaning the legend explains. */
+type ProvenanceKind = "locked" | "import" | "importUnlockable";
+
+/** Fixed legend order + the badge's colour/icon, one source of truth. */
+const PROVENANCE_KINDS: readonly ProvenanceKind[] = [
+  "locked",
+  "import",
+  "importUnlockable",
+];
+const PROVENANCE_BADGE: Record<
+  ProvenanceKind,
+  { bg: string; Icon: typeof Lock; iconClass: string }
+> = {
+  locked: { bg: "bg-foreground/70", Icon: Lock, iconClass: "text-background" },
+  import: { bg: "bg-cyan-500/85", Icon: Truck, iconClass: "text-white" },
+  importUnlockable: { bg: "bg-amber-500/90", Icon: Truck, iconClass: "text-white" },
+};
+
+/** English fallbacks for the legend labels (real strings live in `dialog`). */
+const LEGEND_FALLBACK: Record<ProvenanceKind, string> = {
+  locked: "Locked: research its AIC plan to make it here.",
+  import: "Only available via Metastorage Transfer.",
+  importUnlockable:
+    "Via Metastorage now, or research its AIC plan to make it here.",
+};
+
+/**
+ * The small round tile badge (lock / cyan truck / amber truck). Rendered
+ * both as an absolute overlay on a tile (positioning passed via
+ * `className`) and inline in the `InfoHint` legend, so the two never drift.
+ */
+function ProvenanceBadge({
+  kind,
+  className,
+}: {
+  kind: ProvenanceKind;
+  className?: string;
+}) {
+  const { bg, Icon, iconClass } = PROVENANCE_BADGE[kind];
+  return (
+    <span
+      className={cn(
+        "w-4.5 h-4.5 rounded-full flex items-center justify-center shadow-sm shrink-0",
+        bg,
+        className,
+      )}
+    >
+      <Icon className={cn("w-2.5 h-2.5", iconClass)} strokeWidth={2.5} />
+    </span>
+  );
+}
 
 /* ── Main Component ── */
 
@@ -52,7 +128,11 @@ export default function AddTargetDialogGrid({
   existingTargetIds,
   regionRawMaterials,
   producibleRawTargetIds,
+  lockedItems,
+  metastorageOnlyIds,
+  metastorageUnlockableIds,
   onBatchAddTargets,
+  onLockedItemClick,
 }: AddTargetDialogGridProps) {
   const { t } = useTranslation("dialog");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -92,41 +172,92 @@ export default function AddTargetDialogGrid({
     );
   }, [items, existingTargetIds, regionRawMaterials, producibleRawTargetIds]);
 
+  /* Locked (greyed) items, minus any already added as targets. */
+  const lockedPickable = useMemo(() => {
+    const existingSet = new Set<ItemId>(existingTargetIds);
+    return lockedItems.filter(
+      (item) => !existingSet.has(item.id) && item.asTarget !== false,
+    );
+  }, [lockedItems, existingTargetIds]);
+
+  // Which provenance badges actually occur in the current picker contents,
+  // computed from the UNFILTERED sets so the legend doesn't flicker while
+  // searching/filtering. The InfoHint legend shows only these (and is
+  // hidden entirely when none apply), in PROVENANCE_KINDS order.
+  const legendKinds = useMemo(() => {
+    let hasImport = false;
+    let hasImportUnlockable = false;
+    for (const item of availableItems) {
+      if (!metastorageOnlyIds.has(item.id)) continue;
+      if (metastorageUnlockableIds.has(item.id)) hasImportUnlockable = true;
+      else hasImport = true;
+      if (hasImport && hasImportUnlockable) break;
+    }
+    const present: Record<ProvenanceKind, boolean> = {
+      locked: lockedPickable.length > 0,
+      import: hasImport,
+      importUnlockable: hasImportUnlockable,
+    };
+    return PROVENANCE_KINDS.filter((k) => present[k]);
+  }, [
+    availableItems,
+    lockedPickable,
+    metastorageOnlyIds,
+    metastorageUnlockableIds,
+  ]);
+
   /* Pre-computed lowercase names to avoid repeated i18n lookups while typing */
   const searchIndex = useMemo(
     () =>
       new Map(
-        availableItems.map((item) => [
+        [...availableItems, ...lockedPickable].map((item) => [
           item.id,
           getItemName(item).toLowerCase(),
         ]),
       ),
-    [availableItems],
+    [availableItems, lockedPickable],
   );
 
-  const filteredItems = useMemo(() => {
-    let result = availableItems;
-    if (activeTier !== null) {
-      result = result.filter((item) => item.tier === activeTier);
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter((item) => {
-        const name = searchIndex.get(item.id) ?? "";
-        return name.includes(q) || item.id.toLowerCase().includes(q);
-      });
-    }
-    return result;
-  }, [availableItems, searchIndex, activeTier, searchQuery]);
+  const applyFilter = useCallback(
+    (source: Item[]) => {
+      let result = source;
+      if (activeTier !== null) {
+        result = result.filter((item) => item.tier === activeTier);
+      }
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        result = result.filter((item) => {
+          const name = searchIndex.get(item.id) ?? "";
+          return name.includes(q) || item.id.toLowerCase().includes(q);
+        });
+      }
+      return result;
+    },
+    [searchIndex, activeTier, searchQuery],
+  );
 
-  /* Tier counts for filter chips */
+  const filteredItems = useMemo(
+    () => applyFilter(availableItems),
+    [applyFilter, availableItems],
+  );
+
+  /* Locked items are rendered AFTER the available ones, still greyed. */
+  const filteredLocked = useMemo(
+    () => applyFilter(lockedPickable),
+    [applyFilter, lockedPickable],
+  );
+
+  /* Tier counts for filter chips — union of available + locked. */
   const tierCounts = useMemo(() => {
     const counts = new Map<number, number>();
     for (const item of availableItems) {
       counts.set(item.tier, (counts.get(item.tier) ?? 0) + 1);
     }
+    for (const item of lockedPickable) {
+      counts.set(item.tier, (counts.get(item.tier) ?? 0) + 1);
+    }
     return counts;
-  }, [availableItems]);
+  }, [availableItems, lockedPickable]);
 
   const uniqueTiers = useMemo(
     () => [...tierCounts.keys()].sort((a, b) => a - b),
@@ -203,7 +334,31 @@ export default function AddTargetDialogGrid({
       <DialogContent className="max-sm:inset-0 max-sm:max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-6xl sm:h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
         {/* ── Header ── */}
         <DialogHeader className="px-3 sm:px-5 pt-5 pb-0 shrink-0">
-          <DialogTitle className="tracking-tight">{t("title")}</DialogTitle>
+          <div className="flex items-center gap-1.5">
+            <DialogTitle className="tracking-tight">{t("title")}</DialogTitle>
+            {/* Badge legend — touch-reachable (InfoHint opens on tap), shown
+                only when the current contents actually carry such badges. */}
+            {legendKinds.length > 0 && (
+              <InfoHint
+                ariaLabel={t("legend.aria", {
+                  defaultValue: "What the badges mean",
+                })}
+              >
+                <ul className="space-y-1.5">
+                  {legendKinds.map((kind) => (
+                    <li key={kind} className="flex items-center gap-2">
+                      <ProvenanceBadge kind={kind} />
+                      <span>
+                        {t(`legend.${kind}`, {
+                          defaultValue: LEGEND_FALLBACK[kind],
+                        })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </InfoHint>
+            )}
+          </div>
           <DialogDescription className="sr-only">
             {t("dialogDescription")}
           </DialogDescription>
@@ -237,7 +392,9 @@ export default function AddTargetDialogGrid({
                 )}
               >
                 {t("tierAll")}
-                <span className="opacity-60">{availableItems.length}</span>
+                <span className="opacity-60">
+                  {availableItems.length + lockedPickable.length}
+                </span>
               </button>
 
               {uniqueTiers.map((tier) => {
@@ -302,7 +459,7 @@ export default function AddTargetDialogGrid({
 
         {/* ── Item grid ── */}
         <div className="flex-1 min-h-0 overflow-auto px-3 sm:px-5 py-4 [scrollbar-gutter:stable]">
-          {filteredItems.length === 0 ? (
+          {filteredItems.length === 0 && filteredLocked.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
               <img
                 src={`${import.meta.env.BASE_URL}images/no-results.png`}
@@ -311,7 +468,7 @@ export default function AddTargetDialogGrid({
                 draggable={false}
               />
               <p className="text-sm">
-                {availableItems.length === 0
+                {availableItems.length + lockedPickable.length === 0
                   ? t("allItemsAdded")
                   : t("noMatchingItems")}
               </p>
@@ -324,8 +481,24 @@ export default function AddTargetDialogGrid({
                   item={item}
                   isQueued={queuedIds.has(item.id)}
                   isDisabled={remainingSlots <= 0 && !queuedIds.has(item.id)}
+                  metastorageOnly={metastorageOnlyIds.has(item.id)}
+                  metastorageUnlockable={metastorageUnlockableIds.has(item.id)}
                   onToggle={toggleItem}
                   onDoubleClick={handleDoubleClick}
+                />
+              ))}
+              {/* Locked (greyed) items — producible here once their AIC
+                  plan is researched; click routes to Settings. */}
+              {filteredLocked.map((item) => (
+                <ItemCell
+                  key={item.id}
+                  item={item}
+                  isQueued={false}
+                  isDisabled={false}
+                  locked
+                  onToggle={toggleItem}
+                  onDoubleClick={handleDoubleClick}
+                  onLockedClick={onLockedItemClick}
                 />
               ))}
             </div>
@@ -354,27 +527,80 @@ type ItemCellProps = {
   item: Item;
   isQueued: boolean;
   isDisabled: boolean;
+  /** Locked: producible here once its AIC plan is researched. */
+  locked?: boolean;
+  /** Available here only via a Metastorage import (no local production). */
+  metastorageOnly?: boolean;
+  /**
+   * Metastorage-only AND locally unlockable: importable now, but an AIC
+   * plan would also make it producible here. Distinct badge colour + hint.
+   */
+  metastorageUnlockable?: boolean;
   onToggle: (itemId: ItemId) => void;
   onDoubleClick: (itemId: ItemId) => void;
+  /** Called on click when `locked` — routes to Settings instead of queueing. */
+  onLockedClick?: (itemId: ItemId) => void;
 };
 
 const ItemCell = memo(function ItemCell({
   item,
   isQueued,
   isDisabled,
+  locked = false,
+  metastorageOnly = false,
+  metastorageUnlockable = false,
   onToggle,
   onDoubleClick,
+  onLockedClick,
 }: ItemCellProps) {
   const tc = tierClasses(item.tier);
+  const { t } = useTranslation("dialog");
+
+  const lockedHint = locked
+    ? t("lockedItemHint", {
+        name: getItemName(item),
+        defaultValue:
+          "{{name}}: locked. Click to open the AIC plan and see what to research.",
+      })
+    : undefined;
+
+  const metastorageHint = !metastorageOnly
+    ? undefined
+    : metastorageUnlockable
+      ? t("metastorageUnlockableHint", {
+          name: getItemName(item),
+          defaultValue:
+            "{{name}}: available via Metastorage Transfer now, or research its AIC plan to produce it here.",
+        })
+      : t("metastorageOnlyHint", {
+          name: getItemName(item),
+          defaultValue:
+            "{{name}}: only available here via Metastorage Transfer.",
+        });
+
+  // Locked / metastorage-only tiles surface their hint on the button's title
+  // (mouse tooltip) AND aria-label, so keyboard + screen-reader users get it,
+  // not just hover (the badge icons are non-interactive). Plain tiles keep the
+  // item name as their title and derive their accessible name from the icon
+  // alt + label, as before. Both hints embed the item name and are mutually
+  // exclusive (an item is never both locked and import-only); locked wins.
+  const tileHint = lockedHint ?? metastorageHint;
 
   return (
     <button
       onClick={(e) => {
+        if (locked) {
+          if (e.detail === 1) onLockedClick?.(item.id);
+          return;
+        }
         if (e.detail === 1) onToggle(item.id);
       }}
-      onDoubleClick={() => onDoubleClick(item.id)}
+      onDoubleClick={() => {
+        if (!locked) onDoubleClick(item.id);
+      }}
       disabled={isDisabled}
-      title={getItemName(item)}
+      title={tileHint ?? getItemName(item)}
+      aria-label={tileHint}
       className={cn(
         "group relative aspect-square rounded-lg overflow-hidden border-l-2 border border-border transition-all duration-150 cursor-pointer",
         tc.border,
@@ -382,6 +608,10 @@ const ItemCell = memo(function ItemCell({
           ? cn("ring-2", tc.ring, tc.bg)
           : "hover:shadow-md hover:border-foreground/20 active:scale-[0.97]",
         isDisabled && !isQueued && "opacity-35 cursor-not-allowed",
+        // Locked: greyed + desaturated, but still clickable (routes to
+        // Settings). The lock badge disambiguates from a queued/disabled
+        // tile.
+        locked && "opacity-45 saturate-50 hover:opacity-70",
       )}
     >
       {/* Check badge */}
@@ -394,6 +624,23 @@ const ItemCell = memo(function ItemCell({
         >
           <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
         </div>
+      )}
+
+      {/* Lock badge */}
+      {locked && (
+        <ProvenanceBadge kind="locked" className="absolute top-1 right-1 z-20" />
+      )}
+
+      {/* Metastorage badge (top-LEFT to clear the queued-check slot; an
+          imported item can still be queued). Amber when the item is ALSO
+          locally unlockable via an AIC plan, cyan for a pure import. The
+          hint lives on the button's title + aria-label (above), so hovering
+          the icon falls through to it and AT users get it too. */}
+      {metastorageOnly && (
+        <ProvenanceBadge
+          kind={metastorageUnlockable ? "importUnlockable" : "import"}
+          className="absolute top-1 left-1 z-20"
+        />
       )}
 
       {/* Icon — fills the cell, z-0 keeps it behind the gradient scrim (z-10) */}

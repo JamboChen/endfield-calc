@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronsDownUp, ChevronsUpDown, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { useSettingsFocus } from "@/contexts/settings-focus-context";
 import { cn } from "@/lib/utils";
 import { AicLayerList } from "./AicLayer";
 import type {
@@ -156,6 +157,25 @@ function AicPlanGroup({
   const toggleAllLayers = () => {
     setOpenLayers(allLayersOpen ? new Set() : new Set(visibleLayerIds));
   };
+
+  // Auto-expand the layers holding the flashed techs when this group's
+  // region is the focus target, so the (Radix-unmounted) collapsed rows
+  // mount and can flash + scroll into view.
+  const focus = useSettingsFocus();
+  useEffect(() => {
+    if (!focus || focus.domainId !== group.domainId) return;
+    const techSet = new Set(focus.techIds);
+    const toOpen: AicLayerId[] = [];
+    for (const layer of groupLayers) {
+      if (nodesByLayer.get(layer.id)?.some((n) => techSet.has(n.id))) {
+        toOpen.push(layer.id);
+      }
+    }
+    if (toOpen.length > 0) {
+      setOpenLayers((prev) => new Set([...prev, ...toOpen]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
 
   return (
     <div className="space-y-2">

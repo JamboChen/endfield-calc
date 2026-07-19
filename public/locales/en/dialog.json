@@ -7,7 +7,16 @@
   "defaultRate": "Default Rate",
   "dialogDescription": "Search and select items to add as production targets",
   "hint": "Selected: {{selected}}",
+  "legend": {
+    "aria": "What the badges mean",
+    "import": "Only available via Metastorage Transfer.",
+    "importUnlockable": "Via Metastorage now, or research its AIC plan to make it here.",
+    "locked": "Locked: research its AIC plan to make it here."
+  },
+  "lockedItemHint": "{{name}}: locked. Click to open the AIC plan and see what to research.",
   "maxReached": "Maximum targets reached ({{max}})",
+  "metastorageOnlyHint": "{{name}}: only available here via Metastorage Transfer.",
+  "metastorageUnlockableHint": "{{name}}: available via Metastorage Transfer now, or research its AIC plan to produce it here.",
   "noIcon": "None",
   "noMatchingItems": "No items match your search",
   "queueEmpty": "Click items above to queue them for adding",
