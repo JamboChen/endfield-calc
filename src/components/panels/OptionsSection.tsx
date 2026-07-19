@@ -80,6 +80,7 @@ const OptionsSection = memo(function OptionsSection({
     setCurrentDomain,
     structures,
     metastorage,
+    isSharedView,
   } = useDomainSettingsContext();
   // Instance-unique control ids: LeftPanel and the portrait Plan tab
   // both stay mounted (orientation swap is CSS-only), so static ids
@@ -130,6 +131,7 @@ const OptionsSection = memo(function OptionsSection({
           activeDomains={activeDomains}
           currentDomain={currentDomain}
           onChange={setCurrentDomain}
+          disabled={isSharedView}
         />
 
         {regionStructureList.length > 0 && (

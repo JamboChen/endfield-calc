@@ -5,6 +5,10 @@ import {
   isCalcSuperseded,
 } from "@/lib/calc-client";
 import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
+import {
+  encodeSettingsSnapshot,
+  withShareBlob,
+} from "@/lib/plan-share-codec";
 import { useTargetOptimizer } from "@/hooks/useTargetOptimizer";
 import { items, recipes, facilities, powerFuels, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -21,6 +25,7 @@ import type {
   ProductionDependencyGraph,
 } from "@/types";
 import type { MetastorageRouteConfig } from "@/types/metastorage";
+import type { PersistedShape } from "@/hooks/useDomainSettings";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useProductionStats } from "./useProductionStats";
@@ -85,6 +90,15 @@ interface SavedPlan {
    * `parseHash` default.
    */
   machinesPerVaporizer?: number;
+  /**
+   * Optional. The sharer's domain/user settings snapshot (region, AIC
+   * research, facility/raw caps, structures, metastorage routes), so the
+   * saved plan reproduces exactly as authored. When absent (legacy
+   * saves), the plan loads against the opener's own settings. When
+   * present + different, opening enters read-only shared-view (same as a
+   * shared URL) — see `handleOpenPlan`.
+   */
+  settings?: PersistedShape;
 }
 
 /**
@@ -238,6 +252,7 @@ function serializeHash(
   binFusion: boolean,
   powerSustain: boolean,
   machinesPerVaporizer: number,
+  shareBlob: string,
 ): string {
   const params = new URLSearchParams();
 
@@ -284,7 +299,11 @@ function serializeHash(
     params.set("mpv", String(machinesPerVaporizer));
   }
 
-  return params.toString();
+  const base = params.toString();
+  // The settings blob rides along only when there's an actual plan to
+  // share; an empty app keeps a clean, hash-less URL. See
+  // `plan-share-codec.ts`.
+  return base ? withShareBlob(base, shareBlob) : "";
 }
 
 
@@ -417,6 +436,7 @@ function formatPlanWarning(
 export function useProductionPlan(
   availableRecipes: readonly Recipe[],
   regionRawMaterials: ReadonlySet<ItemId>,
+  settingsShape: PersistedShape,
   facilityCaps?: ReadonlyMap<FacilityId, number>,
   rawMaterialCaps?: ReadonlyMap<ItemId, number>,
   metastorageRoutes?: readonly MetastorageRouteConfig[],
@@ -446,6 +466,16 @@ export function useProductionPlan(
     setMachinesPerVaporizerState(sanitizeMachinesPerVaporizer(value));
   }, []);
 
+  // The viewer's settings, compressed into the `s=` hash blob. Memoized
+  // on `settingsShape` identity (stable unless a setting changes) so the
+  // URL-sync effect below doesn't re-encode on every target edit. In
+  // shared-view this is the frozen sharer snapshot, so the link keeps
+  // reproducing the sharer's plan even as the viewer explores targets.
+  const shareBlob = useMemo(
+    () => encodeSettingsSnapshot(settingsShape),
+    [settingsShape],
+  );
+
   useEffect(() => {
     const hash = serializeHash(
       targets,
@@ -455,12 +485,13 @@ export function useProductionPlan(
       binFusion,
       powerSustain,
       machinesPerVaporizer,
+      shareBlob,
     );
     const newUrl = hash
       ? `${window.location.pathname}${window.location.search}#${hash}`
       : window.location.pathname + window.location.search;
     history.replaceState(null, "", newUrl);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer, shareBlob]);
 
   // The calculation engine (HiGHS WASM inside the calc worker, with a
   // main-thread fallback — see `calc-client.ts`) initialises async.
@@ -1262,6 +1293,10 @@ export function useProductionPlan(
       ...(machinesPerVaporizer !== DEFAULT_MACHINES_PER_VAPORIZER
         ? { machinesPerVaporizer }
         : {}),
+      // Embed the current domain/user settings so the saved plan
+      // reproduces exactly as authored (region, AIC, caps, structures,
+      // metastorage) — the file-side twin of the shared URL's `s=` blob.
+      settings: settingsShape,
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -1273,7 +1308,7 @@ export function useProductionPlan(
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer, settingsShape]);
 
   const handleOpenPlan = useCallback(() => {
     if (!fileInputRef.current) {
@@ -1288,6 +1323,49 @@ export function useProductionPlan(
           try {
             const data = JSON.parse(ev.target?.result as string) as SavedPlan;
             if (data.version !== "1") return;
+            // A settings snapshot travels with the plan → reproduce it
+            // exactly by re-entering through the URL, which the provider
+            // resolves into read-only shared-view at mount (identical to
+            // a shared link, and only when it differs from the opener's
+            // own settings). Reload so the seed applies synchronously
+            // with no auto-prune flash. Legacy files (no `settings`)
+            // fall through to the direct in-place load below.
+            if (data.settings) {
+              const settingsBlob = encodeSettingsSnapshot(data.settings);
+              const base = serializeHash(
+                data.targets.map((t) =>
+                  t.locked === true
+                    ? { itemId: t.itemId as ItemId, rate: t.rate, locked: true }
+                    : { itemId: t.itemId as ItemId, rate: t.rate },
+                ),
+                new Map(
+                  Object.entries(data.recipeOverrides).map(([k, v]) => [
+                    k as ItemId,
+                    v as RecipeId,
+                  ]),
+                ),
+                new Set(data.manualRawMaterials as ItemId[]),
+                data.ceilMode,
+                data.binFusion ?? true,
+                data.powerSustain ?? false,
+                sanitizeMachinesPerVaporizer(
+                  data.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
+                ),
+                settingsBlob,
+              );
+              // `serializeHash` drops the settings blob when there are no
+              // plan fields (keeps a live URL clean). For a file re-entry
+              // that must NOT lose the sharer's settings, keep the blob
+              // even with zero targets so shared-view still triggers.
+              const planHash = base || withShareBlob("", settingsBlob);
+              history.replaceState(
+                null,
+                "",
+                `${window.location.pathname}${window.location.search}#${planHash}`,
+              );
+              window.location.reload();
+              return;
+            }
             // Whole-array replacement: any remembered "last edited"
             // index now points into a different plan. Clear it and
             // disarm auto-fit until the user edits — loading an

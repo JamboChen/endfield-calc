@@ -15,6 +15,7 @@ import {
   type SettingsFocus,
 } from "@/contexts/settings-focus-context";
 import { previewActivationDelta } from "@/lib/aic-cascade";
+import { getDomainName } from "@/lib/i18n-helpers";
 import { resolveEditingDomain } from "@/lib/settings-helpers";
 import type { AicGroupId, AicLayerId, AicTechId } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
@@ -41,7 +42,8 @@ export function SettingsSheet({
 }: SettingsSheetProps) {
   const { t } = useTranslation(["settings", "aic", "domain"]);
 
-  const { activeDomains, currentDomain, aic } = useDomainSettingsContext();
+  const { activeDomains, currentDomain, aic, isSharedView } =
+    useDomainSettingsContext();
 
   // Local "Configuring" context — decoupled from the factory region.
   const [editingDomain, setEditingDomain] = useState<DomainId>(currentDomain);
@@ -182,6 +184,25 @@ export function SettingsSheet({
               })}
             </SheetDescription>
           </SheetHeader>
+
+          {isSharedView && (
+            <div className="px-5 py-2.5 border-b border-primary/20 bg-primary/10 text-xs">
+              <span className="font-medium text-foreground">
+                {t("sharedPlan.title", {
+                  ns: "app",
+                  defaultValue: "Viewing a shared plan",
+                })}
+              </span>{" "}
+              <span className="text-muted-foreground">
+                {t("sharedPlan.description", {
+                  ns: "app",
+                  region: getDomainName(currentDomain),
+                  defaultValue:
+                    "Showing the sharer's settings for {{region}}. Read-only; your own settings stay unchanged.",
+                })}
+              </span>
+            </div>
+          )}
 
           <div className="px-4 py-3 border-b border-border/60">
             <RegionNavMenu

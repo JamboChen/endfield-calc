@@ -15,6 +15,7 @@ import PortraitDrawer from "./components/panels/PortraitDrawer";
 import ProductionViewTabs from "./components/production/ProductionViewTabs";
 import AddTargetDialogGrid from "./components/panels/AddTargetDialogGrid";
 import AppFooter from "./components/layout/AppFooter";
+import { SharedPlanBanner } from "./components/layout/SharedPlanBanner";
 import { SettingsSheet } from "./components/settings/SettingsSheet";
 import { ThemeProvider } from "./components/ui/theme-provider";
 import { useTheme } from "./components/ui/theme-context";
@@ -518,6 +519,7 @@ function AppContent() {
   } = useProductionPlan(
     availableRecipes,
     regionRawMaterials,
+    settings.currentShape,
     facilityCaps,
     rawMaterialCaps,
     metastorageRoutes,
@@ -627,6 +629,8 @@ function AppContent() {
         onOpenPlan={handleOpenPlan}
         onOpenSettings={handleOpenSettings}
       />
+
+      <SharedPlanBanner />
 
       <div className="flex-1 flex gap-4 min-h-0">
         <div className={isPortrait ? "hidden" : "contents"}>

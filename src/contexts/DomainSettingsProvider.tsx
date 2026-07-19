@@ -19,6 +19,17 @@
  * so passing it directly to the provider is fine — re-broadcasts only
  * happen when a relevant slice actually changes.
  *
+ * # Shared-plan view
+ *
+ * At mount the provider resolves whether the URL carries a shared
+ * settings snapshot (`s=` blob) that differs from the viewer's own
+ * settings. When it does, it seeds `useDomainSettings` from that
+ * snapshot in read-only mode (`resolveSharedInit`) so the plan is
+ * computed exactly as the sharer intended, without ever overwriting the
+ * viewer's localStorage. Identical settings (the sharer reloading their
+ * own link, or two default users) fall through to normal editable mode
+ * — see `plan-share-codec.ts`.
+ *
  * # Onboarding dialog
  *
  * The provider also renders `<AicOnboardingDialog />` as a sibling of
@@ -26,22 +37,52 @@
  * `endfield-calc:onboarding-v1` localStorage flag on mount and shows
  * itself only when absent. Co-locating it here keeps the "first-visit
  * AIC choice" UI bound to the same module that owns the per-domain
- * state it mutates.
+ * state it mutates. It is suppressed while viewing a shared plan (its
+ * bulk-apply would mutate the read-only snapshot).
  */
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
-import { useDomainSettings } from "@/hooks/useDomainSettings";
+import {
+  DEFAULT_PERSISTED_SHAPE,
+  loadPersistedShape,
+  useDomainSettings,
+  type SharedPlanInit,
+} from "@/hooks/useDomainSettings";
+import {
+  decodeSettingsSnapshot,
+  readShareBlobFromHash,
+  shapesEqual,
+} from "@/lib/plan-share-codec";
 import { AicOnboardingDialog } from "@/components/onboarding/AicOnboardingDialog";
 
 import { DomainSettingsContext } from "./domain-settings-context";
 
+/**
+ * Resolve the shared-plan seed from the URL at mount. Returns a
+ * `SharedPlanInit` ONLY when the link carries a settings snapshot that
+ * differs from the viewer's own settings; identical settings (or no
+ * `s=` blob / a corrupt one) return `undefined` → normal editable mode.
+ */
+function resolveSharedInit(): SharedPlanInit | undefined {
+  if (typeof window === "undefined") return undefined;
+  const blob = readShareBlobFromHash(window.location.hash);
+  if (!blob) return undefined;
+  const snapshot = decodeSettingsSnapshot(blob);
+  if (!snapshot) return undefined;
+  const own = loadPersistedShape() ?? DEFAULT_PERSISTED_SHAPE;
+  return shapesEqual(snapshot, own) ? undefined : { shape: snapshot };
+}
+
 export function DomainSettingsProvider({ children }: { children: ReactNode }) {
-  const value = useDomainSettings();
+  // Lazy: resolve the shared-view seed exactly once, from the original
+  // URL, before `useProductionPlan`'s write-effect can rewrite the hash.
+  const [sharedInit] = useState(resolveSharedInit);
+  const value = useDomainSettings(sharedInit);
   return (
     <DomainSettingsContext.Provider value={value}>
       {children}
-      <AicOnboardingDialog />
+      {!value.isSharedView && <AicOnboardingDialog />}
     </DomainSettingsContext.Provider>
   );
 }
