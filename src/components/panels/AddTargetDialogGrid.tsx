@@ -453,15 +453,13 @@ const ItemCell = memo(function ItemCell({
       })
     : undefined;
 
-  // One accessible name for the whole tile so the locked / metastorage-only
-  // hint reaches keyboard + screen-reader users, not just mouse hover (the
-  // badge icons are non-interactive). Both hint strings already embed the
-  // item name.
-  const accessibleName = locked
-    ? lockedHint
-    : metastorageOnly
-      ? metastorageHint
-      : getItemName(item);
+  // Locked / metastorage-only tiles surface their hint on the button's title
+  // (mouse tooltip) AND aria-label, so keyboard + screen-reader users get it,
+  // not just hover (the badge icons are non-interactive). Plain tiles keep the
+  // item name as their title and derive their accessible name from the icon
+  // alt + label, as before. Both hints embed the item name and are mutually
+  // exclusive (an item is never both locked and import-only); locked wins.
+  const tileHint = lockedHint ?? metastorageHint;
 
   return (
     <button
@@ -476,8 +474,8 @@ const ItemCell = memo(function ItemCell({
         if (!locked) onDoubleClick(item.id);
       }}
       disabled={isDisabled}
-      title={accessibleName}
-      aria-label={accessibleName}
+      title={tileHint ?? getItemName(item)}
+      aria-label={tileHint}
       className={cn(
         "group relative aspect-square rounded-lg overflow-hidden border-l-2 border border-border transition-all duration-150 cursor-pointer",
         tc.border,

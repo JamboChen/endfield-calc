@@ -7,7 +7,7 @@
   "defaultRate": "預設產量",
   "dialogDescription": "搜尋並選擇要新增為生產目標的物品",
   "hint": "已選擇：{{selected}}",
-  "lockedItemHint": "{{name}}：未解鎖。點擊開啟工業計劃並檢視需研究的內容。",
+  "lockedItemHint": "{{name}}：未解鎖。點擊開啟工業計劃並檢視需研究的項目。",
   "maxReached": "已達到最大目標數 ({{max}})",
   "metastorageOnlyHint": "{{name}}：本地區僅可透過超庫存傳輸取得。",
   "noIcon": "無",

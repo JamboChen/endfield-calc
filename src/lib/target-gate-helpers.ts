@@ -129,6 +129,32 @@ const MODE_TECH_BY_KEY: ReadonlyMap<string, AicTechId> = (() => {
   return m;
 })();
 
+// Derivation reference sets — state-independent (module constants only), so
+// they're built once at import rather than per `computeTargetGatesForRegion`
+// call.
+
+/** Every region id (maximal roster). */
+const ALL_DOMAINS: ReadonlySet<DomainId> = new Set(domains.map((d) => d.id));
+/** Region id → sortId, for earliest-first ordering. */
+const DOMAIN_SORT_ID: ReadonlyMap<DomainId, number> = new Map(
+  domains.map((d) => [d.id, d.sortId]),
+);
+/** Every AIC tech id (the maximal-unlock reference). */
+const ALL_TECHS: ReadonlySet<AicTechId> = new Set(aicNodes.map((n) => n.id));
+/** Always-unlocked techs (the game-default floor a user can't uncheck below). */
+const DEFAULT_TECHS: ReadonlySet<AicTechId> = new Set(
+  aicNodes.filter((n) => n.alreadyUnlocked).map((n) => n.id),
+);
+/** Items produced by ≥1 recipe (pure raws are never targets). */
+const PRODUCED_ITEMS: ReadonlySet<ItemId> = new Set(
+  recipes.flatMap((r) => r.outputs.map((o) => o.itemId)),
+);
+
+/** Order two regions earliest-first by `sortId`. */
+function bySortId(a: DomainId, b: DomainId): number {
+  return (DOMAIN_SORT_ID.get(a) ?? 0) - (DOMAIN_SORT_ID.get(b) ?? 0);
+}
+
 /**
  * Reachability fixpoint that additionally records each item's first
  * justifying recipe. Mirrors `computeRecipeReachability` (bootstrap pass +
@@ -228,32 +254,17 @@ function collectTechClosure(techId: AicTechId, out: Set<AicTechId>): void {
 export function computeTargetGatesForRegion(
   factoryDomain: DomainId,
 ): Map<ItemId, TargetGate> {
-  const allDomains = new Set<DomainId>(domains.map((d) => d.id));
-  const domainSortId = new Map<DomainId, number>(
-    domains.map((d) => [d.id, d.sortId]),
-  );
-  const bySortId = (a: DomainId, b: DomainId) =>
-    (domainSortId.get(a) ?? 0) - (domainSortId.get(b) ?? 0);
-
-  const allTechs = new Set<AicTechId>(aicNodes.map((n) => n.id));
-  const defaultTechs = new Set<AicTechId>(
-    aicNodes.filter((n) => n.alreadyUnlocked).map((n) => n.id),
-  );
-
-  const producedItems = new Set<ItemId>();
-  for (const r of recipes) for (const o of r.outputs) producedItems.add(o.itemId);
-
   // Maximal producibility here (everything researched, whole roster active)
   // vs. the bare-minimum default (only game-granted techs; a user can't
   // uncheck below this). Items reachable at the minimum are never lockable.
-  const max = reachableInFactory(factoryDomain, allTechs, allDomains);
-  const def = reachableInFactory(factoryDomain, defaultTechs, allDomains);
+  const max = reachableInFactory(factoryDomain, ALL_TECHS, ALL_DOMAINS);
+  const def = reachableInFactory(factoryDomain, DEFAULT_TECHS, ALL_DOMAINS);
 
   const gates = new Map<ItemId, TargetGate>();
 
   for (const item of items) {
     if (item.asTarget === false) continue;
-    if (!producedItems.has(item.id)) continue; // pure raw: not a target
+    if (!PRODUCED_ITEMS.has(item.id)) continue; // pure raw: not a target
     if (!max.reachable.has(item.id)) continue; // not makeable here
     if (def.reachable.has(item.id)) continue; // default-producible → never locked
 
