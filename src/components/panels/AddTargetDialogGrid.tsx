@@ -441,7 +441,7 @@ const ItemCell = memo(function ItemCell({
     ? t("lockedItemHint", {
         name: getItemName(item),
         defaultValue:
-          "{{name}}: locked. Click to open the AIC plan that unlocks it.",
+          "{{name}}: locked. Click to open the AIC plan and see what to research.",
       })
     : undefined;
 
@@ -452,6 +452,16 @@ const ItemCell = memo(function ItemCell({
           "{{name}}: only available here via Metastorage Transfer.",
       })
     : undefined;
+
+  // One accessible name for the whole tile so the locked / metastorage-only
+  // hint reaches keyboard + screen-reader users, not just mouse hover (the
+  // badge icons are non-interactive). Both hint strings already embed the
+  // item name.
+  const accessibleName = locked
+    ? lockedHint
+    : metastorageOnly
+      ? metastorageHint
+      : getItemName(item);
 
   return (
     <button
@@ -466,8 +476,8 @@ const ItemCell = memo(function ItemCell({
         if (!locked) onDoubleClick(item.id);
       }}
       disabled={isDisabled}
-      title={locked ? lockedHint : getItemName(item)}
-      aria-label={lockedHint}
+      title={accessibleName}
+      aria-label={accessibleName}
       className={cn(
         "group relative aspect-square rounded-lg overflow-hidden border-l-2 border border-border transition-all duration-150 cursor-pointer",
         tc.border,
@@ -501,13 +511,11 @@ const ItemCell = memo(function ItemCell({
       )}
 
       {/* Metastorage-only badge (top-LEFT to clear the queued-check slot;
-          an imported item can still be queued). */}
+          an imported item can still be queued). The hint lives on the
+          button's title + aria-label (above), so hovering the icon falls
+          through to it and AT users get it too. */}
       {metastorageOnly && (
-        <div
-          className="absolute top-1 left-1 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center bg-cyan-500/85 shadow-sm"
-          title={metastorageHint}
-          aria-label={metastorageHint}
-        >
+        <div className="absolute top-1 left-1 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center bg-cyan-500/85 shadow-sm">
           <Truck className="w-2.5 h-2.5 text-white" strokeWidth={2.5} />
         </div>
       )}
