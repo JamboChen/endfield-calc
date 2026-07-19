@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Search, X, Check, Lock, Truck } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { InfoHint } from "@/components/InfoHint";
 import type { Item, ItemId } from "@/types";
 import { useTranslation } from "react-i18next";
 import { getItemName } from "@/lib/i18n-helpers";
@@ -63,6 +64,60 @@ export type AddTargetDialogGridProps = {
   /** Navigate to Settings + flash the AIC techs that unlock this item. */
   onLockedItemClick: (itemId: ItemId) => void;
 };
+
+/* ── Provenance badge (shared by the tiles + the legend) ── */
+
+/** The picker's non-obvious tile badges, whose meaning the legend explains. */
+type ProvenanceKind = "locked" | "import" | "importUnlockable";
+
+/** Fixed legend order + the badge's colour/icon, one source of truth. */
+const PROVENANCE_KINDS: readonly ProvenanceKind[] = [
+  "locked",
+  "import",
+  "importUnlockable",
+];
+const PROVENANCE_BADGE: Record<
+  ProvenanceKind,
+  { bg: string; Icon: typeof Lock; iconClass: string }
+> = {
+  locked: { bg: "bg-foreground/70", Icon: Lock, iconClass: "text-background" },
+  import: { bg: "bg-cyan-500/85", Icon: Truck, iconClass: "text-white" },
+  importUnlockable: { bg: "bg-amber-500/90", Icon: Truck, iconClass: "text-white" },
+};
+
+/** English fallbacks for the legend labels (real strings live in `dialog`). */
+const LEGEND_FALLBACK: Record<ProvenanceKind, string> = {
+  locked: "Locked: research its AIC plan to make it here.",
+  import: "Only available via Metastorage Transfer.",
+  importUnlockable:
+    "Via Metastorage now, or research its AIC plan to make it here.",
+};
+
+/**
+ * The small round tile badge (lock / cyan truck / amber truck). Rendered
+ * both as an absolute overlay on a tile (positioning passed via
+ * `className`) and inline in the `InfoHint` legend, so the two never drift.
+ */
+function ProvenanceBadge({
+  kind,
+  className,
+}: {
+  kind: ProvenanceKind;
+  className?: string;
+}) {
+  const { bg, Icon, iconClass } = PROVENANCE_BADGE[kind];
+  return (
+    <span
+      className={cn(
+        "w-4.5 h-4.5 rounded-full flex items-center justify-center shadow-sm shrink-0",
+        bg,
+        className,
+      )}
+    >
+      <Icon className={cn("w-2.5 h-2.5", iconClass)} strokeWidth={2.5} />
+    </span>
+  );
+}
 
 /* ── Main Component ── */
 
@@ -124,6 +179,32 @@ export default function AddTargetDialogGrid({
       (item) => !existingSet.has(item.id) && item.asTarget !== false,
     );
   }, [lockedItems, existingTargetIds]);
+
+  // Which provenance badges actually occur in the current picker contents,
+  // computed from the UNFILTERED sets so the legend doesn't flicker while
+  // searching/filtering. The InfoHint legend shows only these (and is
+  // hidden entirely when none apply), in PROVENANCE_KINDS order.
+  const legendKinds = useMemo(() => {
+    let hasImport = false;
+    let hasImportUnlockable = false;
+    for (const item of availableItems) {
+      if (!metastorageOnlyIds.has(item.id)) continue;
+      if (metastorageUnlockableIds.has(item.id)) hasImportUnlockable = true;
+      else hasImport = true;
+      if (hasImport && hasImportUnlockable) break;
+    }
+    const present: Record<ProvenanceKind, boolean> = {
+      locked: lockedPickable.length > 0,
+      import: hasImport,
+      importUnlockable: hasImportUnlockable,
+    };
+    return PROVENANCE_KINDS.filter((k) => present[k]);
+  }, [
+    availableItems,
+    lockedPickable,
+    metastorageOnlyIds,
+    metastorageUnlockableIds,
+  ]);
 
   /* Pre-computed lowercase names to avoid repeated i18n lookups while typing */
   const searchIndex = useMemo(
@@ -253,7 +334,31 @@ export default function AddTargetDialogGrid({
       <DialogContent className="max-sm:inset-0 max-sm:max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-6xl sm:h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
         {/* ── Header ── */}
         <DialogHeader className="px-3 sm:px-5 pt-5 pb-0 shrink-0">
-          <DialogTitle className="tracking-tight">{t("title")}</DialogTitle>
+          <div className="flex items-center gap-1.5">
+            <DialogTitle className="tracking-tight">{t("title")}</DialogTitle>
+            {/* Badge legend — touch-reachable (InfoHint opens on tap), shown
+                only when the current contents actually carry such badges. */}
+            {legendKinds.length > 0 && (
+              <InfoHint
+                ariaLabel={t("legend.aria", {
+                  defaultValue: "What the badges mean",
+                })}
+              >
+                <ul className="space-y-1.5">
+                  {legendKinds.map((kind) => (
+                    <li key={kind} className="flex items-center gap-2">
+                      <ProvenanceBadge kind={kind} />
+                      <span>
+                        {t(`legend.${kind}`, {
+                          defaultValue: LEGEND_FALLBACK[kind],
+                        })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </InfoHint>
+            )}
+          </div>
           <DialogDescription className="sr-only">
             {t("dialogDescription")}
           </DialogDescription>
@@ -523,9 +628,7 @@ const ItemCell = memo(function ItemCell({
 
       {/* Lock badge */}
       {locked && (
-        <div className="absolute top-1 right-1 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center bg-foreground/70 shadow-sm">
-          <Lock className="w-2.5 h-2.5 text-background" strokeWidth={2.5} />
-        </div>
+        <ProvenanceBadge kind="locked" className="absolute top-1 right-1 z-20" />
       )}
 
       {/* Metastorage badge (top-LEFT to clear the queued-check slot; an
@@ -534,14 +637,10 @@ const ItemCell = memo(function ItemCell({
           hint lives on the button's title + aria-label (above), so hovering
           the icon falls through to it and AT users get it too. */}
       {metastorageOnly && (
-        <div
-          className={cn(
-            "absolute top-1 left-1 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center shadow-sm",
-            metastorageUnlockable ? "bg-amber-500/90" : "bg-cyan-500/85",
-          )}
-        >
-          <Truck className="w-2.5 h-2.5 text-white" strokeWidth={2.5} />
-        </div>
+        <ProvenanceBadge
+          kind={metastorageUnlockable ? "importUnlockable" : "import"}
+          className="absolute top-1 left-1 z-20"
+        />
       )}
 
       {/* Icon — fills the cell, z-0 keeps it behind the gradient scrim (z-10) */}

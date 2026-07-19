@@ -7,6 +7,12 @@
   "defaultRate": "Tasa predeterminada",
   "dialogDescription": "Busca y selecciona objetos para agregar como objetivos de producción",
   "hint": "Seleccionados: {{selected}}",
+  "legend": {
+    "aria": "Qué significan los iconos",
+    "import": "Solo disponible mediante Metaalmacenamiento.",
+    "importUnlockable": "Disponible mediante Metaalmacenamiento ahora, o investiga su plan del CAI para producirlo aquí.",
+    "locked": "Bloqueado: investiga su plan del CAI para producirlo aquí."
+  },
   "lockedItemHint": "{{name}}: bloqueado. Haz clic para abrir el plan del CAI y ver qué investigar.",
   "maxReached": "Máximo de objetivos alcanzado ({{max}})",
   "metastorageOnlyHint": "{{name}}: solo disponible aquí mediante Metaalmacenamiento.",
