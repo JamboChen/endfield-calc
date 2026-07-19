@@ -244,45 +244,12 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
       };
     }
 
-    // Catalyst self-loop (a 1.4 transmuter feeding its own always-on
-    // upkeep, output item == catalyst): a distinct fuchsia dashed loop
-    // (`--flow-catalyst`) that lands on the node's top "catalyst" handle.
-    // It's upkeep, not a regular production belt, so it doesn't animate
-    // like flow lines. Tagged only for genuine catalyst self-loops by the
-    // mappers (see `isCatalystSelfLoop`).
-    const isSelf = data.direction === "self";
-
-    if (isSelf) {
-      return {
-        ...edge,
-        type: "simplebezier",
-        animated: false,
-        style: {
-          strokeWidth: 1.5,
-          stroke: "var(--flow-catalyst)",
-          strokeDasharray: "4 3",
-          opacity: 0.8,
-        },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: "var(--flow-catalyst)",
-          width: 16,
-          height: 16,
-        },
-        labelBgPadding: [6, 3] as [number, number],
-        labelBgBorderRadius: 4,
-        labelBgStyle: {
-          fill: "var(--card)",
-          fillOpacity: 0.9,
-        },
-        labelStyle: {
-          fontSize: 11,
-          fill: "var(--flow-catalyst)",
-          color: "var(--flow-catalyst)",
-          fontStyle: "italic",
-        },
-      };
-    }
+    // Catalyst self-loops (`direction: "self"`) intentionally fall through
+    // to the normal styling below: the connection keeps the item-transported
+    // colour like any other edge. The only thing "self" changes is the
+    // target handle (`createEdge` routes it to the top "catalyst" port);
+    // the catalyst upkeep is surfaced on the node card, not by recolouring
+    // the edge.
 
     // Detect backward edge based on actual node positions
     // If source X > target X, it's a backward edge (goes right to left)

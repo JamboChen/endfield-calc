@@ -343,7 +343,6 @@ export default function CustomProductionNode({
               id="catalyst"
               isConnectable={false}
               className="w-3! h-3!"
-              style={{ backgroundColor: "var(--flow-catalyst)" }}
             />
           )}
           <CardContent className="p-2.5 text-xs">
@@ -455,15 +454,15 @@ export default function CustomProductionNode({
               * drained item is this node's own output, its self-loop edge
               * lands on the top "catalyst" handle. */}
             {catalyst && catalystItem && (
-              <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-dashed border-fuchsia-500/40">
-                <FlaskConical className="h-3 w-3 text-fuchsia-600 dark:text-fuchsia-400 shrink-0" />
-                <span className="text-[10px] text-fuchsia-700 dark:text-fuchsia-300 shrink-0">
+              <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-dashed border-muted-foreground/25">
+                <FlaskConical className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+                <span className="text-[10px] text-muted-foreground/70 shrink-0">
                   {t("tree.catalyst", { defaultValue: "Catalyst" })}
                 </span>
                 <div className="flex items-center gap-1 flex-wrap min-w-0">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="opacity-70 hover:opacity-100 transition-opacity cursor-help">
+                      <div className="opacity-60 hover:opacity-100 transition-opacity cursor-help">
                         <ItemIcon item={catalystItem} size="sm" />
                       </div>
                     </TooltipTrigger>
