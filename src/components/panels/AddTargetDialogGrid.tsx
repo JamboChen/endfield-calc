@@ -426,6 +426,14 @@ const ItemCell = memo(function ItemCell({
   const tc = tierClasses(item.tier);
   const { t } = useTranslation("dialog");
 
+  const lockedHint = locked
+    ? t("lockedItemHint", {
+        name: getItemName(item),
+        defaultValue:
+          "{{name}}: locked. Click to open the AIC plan that unlocks it.",
+      })
+    : undefined;
+
   return (
     <button
       onClick={(e) => {
@@ -439,22 +447,8 @@ const ItemCell = memo(function ItemCell({
         if (!locked) onDoubleClick(item.id);
       }}
       disabled={isDisabled}
-      title={
-        locked
-          ? t("lockedItemHint", {
-              name: getItemName(item),
-              defaultValue: `${getItemName(item)} — locked; click to unlock its AIC plan`,
-            })
-          : getItemName(item)
-      }
-      aria-label={
-        locked
-          ? t("lockedItemHint", {
-              name: getItemName(item),
-              defaultValue: `${getItemName(item)} — locked; click to unlock its AIC plan`,
-            })
-          : undefined
-      }
+      title={locked ? lockedHint : getItemName(item)}
+      aria-label={lockedHint}
       className={cn(
         "group relative aspect-square rounded-lg overflow-hidden border-l-2 border border-border transition-all duration-150 cursor-pointer",
         tc.border,

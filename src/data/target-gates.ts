@@ -1,4 +1,4 @@
-// AUTO-GENERATED — do not hand-edit. Run `bun run extract:target-gates` to regenerate.
+// AUTO-GENERATED — do not hand-edit. Run `pnpm run extract:target-gates` to regenerate.
 //
 // Derived from committed src/data (recipes, facilities, items, region raws,
 // AIC plans) by `computeTargetGates` — no game-data dir required. See

@@ -7,6 +7,7 @@
   "defaultRate": "Default Rate",
   "dialogDescription": "Search and select items to add as production targets",
   "hint": "Selected: {{selected}}",
+  "lockedItemHint": "{{name}}: locked. Click to open the AIC plan that unlocks it.",
   "maxReached": "Maximum targets reached ({{max}})",
   "noIcon": "None",
   "noMatchingItems": "No items match your search",
