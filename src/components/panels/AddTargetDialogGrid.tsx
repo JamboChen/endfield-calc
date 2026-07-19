@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Search, X, Check } from "lucide-react";
+import { Search, X, Check, Lock } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import type { Item, ItemId } from "@/types";
@@ -40,7 +40,16 @@ export type AddTargetDialogGridProps = {
    * cap and crafts the overflow. App.tsx passes the roster-derived set.
    */
   producibleRawTargetIds: ReadonlySet<ItemId>;
+  /**
+   * Items producible in the current factory region but currently locked
+   * behind an unresearched AIC plan. Rendered GREYED after the available
+   * items (searchable + tier-filterable); clicking one calls
+   * `onLockedItemClick` instead of queueing it.
+   */
+  lockedItems: Item[];
   onBatchAddTargets: (targets: QueuedItem[]) => void;
+  /** Navigate to Settings + flash the AIC techs that unlock this item. */
+  onLockedItemClick: (itemId: ItemId) => void;
 };
 
 /* ── Main Component ── */
@@ -52,7 +61,9 @@ export default function AddTargetDialogGrid({
   existingTargetIds,
   regionRawMaterials,
   producibleRawTargetIds,
+  lockedItems,
   onBatchAddTargets,
+  onLockedItemClick,
 }: AddTargetDialogGridProps) {
   const { t } = useTranslation("dialog");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -92,41 +103,66 @@ export default function AddTargetDialogGrid({
     );
   }, [items, existingTargetIds, regionRawMaterials, producibleRawTargetIds]);
 
+  /* Locked (greyed) items, minus any already added as targets. */
+  const lockedPickable = useMemo(() => {
+    const existingSet = new Set<ItemId>(existingTargetIds);
+    return lockedItems.filter(
+      (item) => !existingSet.has(item.id) && item.asTarget !== false,
+    );
+  }, [lockedItems, existingTargetIds]);
+
   /* Pre-computed lowercase names to avoid repeated i18n lookups while typing */
   const searchIndex = useMemo(
     () =>
       new Map(
-        availableItems.map((item) => [
+        [...availableItems, ...lockedPickable].map((item) => [
           item.id,
           getItemName(item).toLowerCase(),
         ]),
       ),
-    [availableItems],
+    [availableItems, lockedPickable],
   );
 
-  const filteredItems = useMemo(() => {
-    let result = availableItems;
-    if (activeTier !== null) {
-      result = result.filter((item) => item.tier === activeTier);
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter((item) => {
-        const name = searchIndex.get(item.id) ?? "";
-        return name.includes(q) || item.id.toLowerCase().includes(q);
-      });
-    }
-    return result;
-  }, [availableItems, searchIndex, activeTier, searchQuery]);
+  const applyFilter = useCallback(
+    (source: Item[]) => {
+      let result = source;
+      if (activeTier !== null) {
+        result = result.filter((item) => item.tier === activeTier);
+      }
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        result = result.filter((item) => {
+          const name = searchIndex.get(item.id) ?? "";
+          return name.includes(q) || item.id.toLowerCase().includes(q);
+        });
+      }
+      return result;
+    },
+    [searchIndex, activeTier, searchQuery],
+  );
 
-  /* Tier counts for filter chips */
+  const filteredItems = useMemo(
+    () => applyFilter(availableItems),
+    [applyFilter, availableItems],
+  );
+
+  /* Locked items are rendered AFTER the available ones, still greyed. */
+  const filteredLocked = useMemo(
+    () => applyFilter(lockedPickable),
+    [applyFilter, lockedPickable],
+  );
+
+  /* Tier counts for filter chips — union of available + locked. */
   const tierCounts = useMemo(() => {
     const counts = new Map<number, number>();
     for (const item of availableItems) {
       counts.set(item.tier, (counts.get(item.tier) ?? 0) + 1);
     }
+    for (const item of lockedPickable) {
+      counts.set(item.tier, (counts.get(item.tier) ?? 0) + 1);
+    }
     return counts;
-  }, [availableItems]);
+  }, [availableItems, lockedPickable]);
 
   const uniqueTiers = useMemo(
     () => [...tierCounts.keys()].sort((a, b) => a - b),
@@ -237,7 +273,9 @@ export default function AddTargetDialogGrid({
                 )}
               >
                 {t("tierAll")}
-                <span className="opacity-60">{availableItems.length}</span>
+                <span className="opacity-60">
+                  {availableItems.length + lockedPickable.length}
+                </span>
               </button>
 
               {uniqueTiers.map((tier) => {
@@ -302,7 +340,7 @@ export default function AddTargetDialogGrid({
 
         {/* ── Item grid ── */}
         <div className="flex-1 min-h-0 overflow-auto px-3 sm:px-5 py-4 [scrollbar-gutter:stable]">
-          {filteredItems.length === 0 ? (
+          {filteredItems.length === 0 && filteredLocked.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
               <img
                 src={`${import.meta.env.BASE_URL}images/no-results.png`}
@@ -311,7 +349,7 @@ export default function AddTargetDialogGrid({
                 draggable={false}
               />
               <p className="text-sm">
-                {availableItems.length === 0
+                {availableItems.length + lockedPickable.length === 0
                   ? t("allItemsAdded")
                   : t("noMatchingItems")}
               </p>
@@ -326,6 +364,20 @@ export default function AddTargetDialogGrid({
                   isDisabled={remainingSlots <= 0 && !queuedIds.has(item.id)}
                   onToggle={toggleItem}
                   onDoubleClick={handleDoubleClick}
+                />
+              ))}
+              {/* Locked (greyed) items — producible here once their AIC
+                  plan is researched; click routes to Settings. */}
+              {filteredLocked.map((item) => (
+                <ItemCell
+                  key={item.id}
+                  item={item}
+                  isQueued={false}
+                  isDisabled={false}
+                  locked
+                  onToggle={toggleItem}
+                  onDoubleClick={handleDoubleClick}
+                  onLockedClick={onLockedItemClick}
                 />
               ))}
             </div>
@@ -354,27 +406,55 @@ type ItemCellProps = {
   item: Item;
   isQueued: boolean;
   isDisabled: boolean;
+  /** Locked: producible here once its AIC plan is researched. */
+  locked?: boolean;
   onToggle: (itemId: ItemId) => void;
   onDoubleClick: (itemId: ItemId) => void;
+  /** Called on click when `locked` — routes to Settings instead of queueing. */
+  onLockedClick?: (itemId: ItemId) => void;
 };
 
 const ItemCell = memo(function ItemCell({
   item,
   isQueued,
   isDisabled,
+  locked = false,
   onToggle,
   onDoubleClick,
+  onLockedClick,
 }: ItemCellProps) {
   const tc = tierClasses(item.tier);
+  const { t } = useTranslation("dialog");
 
   return (
     <button
       onClick={(e) => {
+        if (locked) {
+          onLockedClick?.(item.id);
+          return;
+        }
         if (e.detail === 1) onToggle(item.id);
       }}
-      onDoubleClick={() => onDoubleClick(item.id)}
+      onDoubleClick={() => {
+        if (!locked) onDoubleClick(item.id);
+      }}
       disabled={isDisabled}
-      title={getItemName(item)}
+      title={
+        locked
+          ? t("lockedItemHint", {
+              name: getItemName(item),
+              defaultValue: `${getItemName(item)} — locked; click to unlock its AIC plan`,
+            })
+          : getItemName(item)
+      }
+      aria-label={
+        locked
+          ? t("lockedItemHint", {
+              name: getItemName(item),
+              defaultValue: `${getItemName(item)} — locked; click to unlock its AIC plan`,
+            })
+          : undefined
+      }
       className={cn(
         "group relative aspect-square rounded-lg overflow-hidden border-l-2 border border-border transition-all duration-150 cursor-pointer",
         tc.border,
@@ -382,6 +462,10 @@ const ItemCell = memo(function ItemCell({
           ? cn("ring-2", tc.ring, tc.bg)
           : "hover:shadow-md hover:border-foreground/20 active:scale-[0.97]",
         isDisabled && !isQueued && "opacity-35 cursor-not-allowed",
+        // Locked: greyed + desaturated, but still clickable (routes to
+        // Settings). The lock badge disambiguates from a queued/disabled
+        // tile.
+        locked && "opacity-45 saturate-50 hover:opacity-70",
       )}
     >
       {/* Check badge */}
@@ -393,6 +477,13 @@ const ItemCell = memo(function ItemCell({
           )}
         >
           <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
+        </div>
+      )}
+
+      {/* Lock badge */}
+      {locked && (
+        <div className="absolute top-1 right-1 z-20 w-4.5 h-4.5 rounded-full flex items-center justify-center bg-foreground/70 shadow-sm">
+          <Lock className="w-2.5 h-2.5 text-background" strokeWidth={2.5} />
         </div>
       )}
 

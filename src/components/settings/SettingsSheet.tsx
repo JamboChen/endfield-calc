@@ -10,6 +10,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
+import {
+  SettingsFocusContext,
+  type SettingsFocus,
+} from "@/contexts/settings-focus-context";
 import { previewActivationDelta } from "@/lib/aic-cascade";
 import { resolveEditingDomain } from "@/lib/settings-helpers";
 import type { AicGroupId, AicLayerId, AicTechId } from "@/types/aic";
@@ -21,9 +25,20 @@ import { RegionNavMenu } from "./RegionNavMenu";
 interface SettingsSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Navigation + flash request from a locked Add-Target click. When its
+   * `nonce` changes the sheet switches `editingDomain` to `focus.domainId`
+   * and broadcasts it (via `SettingsFocusContext`) so the Plan tab opens
+   * and the required tech nodes flash.
+   */
+  focus?: SettingsFocus | null;
 }
 
-export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
+export function SettingsSheet({
+  open,
+  onOpenChange,
+  focus = null,
+}: SettingsSheetProps) {
   const { t } = useTranslation(["settings", "aic", "domain"]);
 
   const { activeDomains, currentDomain, aic } = useDomainSettingsContext();
@@ -41,6 +56,17 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     if (open && !prevOpen.current) setEditingDomain(currentDomain);
     prevOpen.current = open;
   }, [open, currentDomain]);
+
+  // Navigate to the focused plan region. Declared AFTER the open-sync
+  // effect so that when a locked-item click opens the sheet (both effects
+  // fire on the same commit) this one wins, landing on `focus.domainId`
+  // instead of the factory region. Keyed on `nonce` so re-clicking the
+  // same target re-navigates.
+  useEffect(() => {
+    if (!focus) return;
+    setEditingDomain(focus.domainId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
 
   // Guard against the edited region being deactivated mid-session: fall
   // back to the factory region (always active by the hook's invariant).
@@ -143,35 +169,37 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
         side="right"
         className="w-full md:max-w-2xl lg:max-w-3xl max-w-[92vw] p-0 gap-0 flex flex-col"
       >
-        <SheetHeader className="px-5 pt-5 pb-4 border-b">
-          <SheetTitle className="text-lg">
-            {t("title", { ns: "settings", defaultValue: "Settings" })}
-          </SheetTitle>
-          <SheetDescription className="text-xs">
-            {t("intro", {
-              ns: "settings",
-              defaultValue:
-                "Configure each region's AIC research plan, facility limits, and raw-material rates. Pick a region to configure below; the switches add or remove regions from your roster.",
-            })}
-          </SheetDescription>
-        </SheetHeader>
+        <SettingsFocusContext.Provider value={focus}>
+          <SheetHeader className="px-5 pt-5 pb-4 border-b">
+            <SheetTitle className="text-lg">
+              {t("title", { ns: "settings", defaultValue: "Settings" })}
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              {t("intro", {
+                ns: "settings",
+                defaultValue:
+                  "Configure each region's AIC research plan, facility limits, and raw-material rates. Pick a region to configure below; the switches add or remove regions from your roster.",
+              })}
+            </SheetDescription>
+          </SheetHeader>
 
-        <div className="px-4 py-3 border-b border-border/60">
-          <RegionNavMenu
-            editingDomain={editing}
-            onEditingDomainChange={setEditingDomain}
-          />
-        </div>
+          <div className="px-4 py-3 border-b border-border/60">
+            <RegionNavMenu
+              editingDomain={editing}
+              onEditingDomainChange={setEditingDomain}
+            />
+          </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
-          <RegionConfigTabs
-            editingDomain={editing}
-            onToggleNode={handleToggleNode}
-            onActivateLayer={handleActivateLayer}
-            onActivateGroup={handleActivateGroup}
-            onResetGroup={handleResetGroup}
-          />
-        </div>
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            <RegionConfigTabs
+              editingDomain={editing}
+              onToggleNode={handleToggleNode}
+              onActivateLayer={handleActivateLayer}
+              onActivateGroup={handleActivateGroup}
+              onResetGroup={handleResetGroup}
+            />
+          </div>
+        </SettingsFocusContext.Provider>
       </SheetContent>
     </Sheet>
   );

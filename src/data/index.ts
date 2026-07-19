@@ -448,3 +448,4 @@ export { defaultRawCapsByDomain } from "./raw-caps";
 export { regionStructures } from "./region-subsystems";
 export { metastorageExports, metastorageSources } from "./metastorage";
 export { powerFuels } from "./power";
+export { targetGates } from "./target-gates";

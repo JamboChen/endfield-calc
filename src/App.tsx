@@ -20,11 +20,13 @@ import { ThemeProvider } from "./components/ui/theme-provider";
 import { useTheme } from "./components/ui/theme-context";
 import { DomainSettingsProvider } from "./contexts/DomainSettingsProvider";
 import { useDomainSettingsContext } from "./contexts/domain-settings-context";
+import type { SettingsFocus } from "./contexts/settings-focus-context";
 import {
   computeAvailableFacilities,
   computeRecipeAvailability,
 } from "./lib/aic-research-helpers";
 import { computeRecipeReachability } from "./lib/recipe-reachability";
+import { resolveGateAction } from "./lib/target-gate-helpers";
 import { computeVariantExclusions } from "./lib/variant-filter";
 import {
   bootstrapFacilities,
@@ -34,11 +36,12 @@ import {
   producibleRaws,
   rawAvailabilityByDomain,
   regionStructures,
+  targetGates,
 } from "./data";
 import { buildRawMaterialCaps } from "./lib/raw-limits-helpers";
 import { structureKey } from "./lib/settings-helpers";
 import { namespaceStorageKey } from "./lib/storage-namespace";
-import type { FacilityId, ItemId } from "./types";
+import type { FacilityId, Item, ItemId } from "./types";
 import { DomainId } from "./types/constants";
 import type { MetastorageRouteConfig } from "./types/metastorage";
 
@@ -298,6 +301,38 @@ function AppContent() {
     [reachableItems],
   );
 
+  // Items the picker shows GREYED: producible in the current factory
+  // region but currently unreachable purely because an AIC plan is
+  // unresearched (`targetGates` + a resolvable action against live
+  // state). Items that can't be made in this region at all have no gate
+  // action here and stay hidden. Clicking one navigates Settings to the
+  // earliest blocking plan region (see `handleLockedTargetClick`).
+  const lockedTargetItems = useMemo(() => {
+    const out: Item[] = [];
+    for (const item of items) {
+      if (item.asTarget === false) continue;
+      if (reachableItems.has(item.id)) continue;
+      const gate = targetGates.get(item.id);
+      if (!gate) continue;
+      if (
+        resolveGateAction(
+          gate,
+          settings.currentDomain,
+          settings.activeDomains,
+          settings.aic.researched,
+        )
+      ) {
+        out.push(item);
+      }
+    }
+    return out;
+  }, [
+    reachableItems,
+    settings.currentDomain,
+    settings.activeDomains,
+    settings.aic.researched,
+  ]);
+
   // Aggregated per-facility cap = sum over currently-active domains of
   // each (facility, domain) effective cap, PLUS one slot per enabled
   // structure with `solver.role === "instance"`. Threaded into the LP
@@ -468,6 +503,42 @@ function AppContent() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
 
+  // Settings-sheet focus request, set when a greyed (locked) target is
+  // clicked in the Add-Target picker: resolves the earliest blocking plan
+  // region for the current factory region, closes the picker, and opens
+  // Settings on that region with the required tech nodes flagged for
+  // flashing. The `nonce` re-fires the navigation/flash even when the
+  // same target is clicked twice.
+  const [settingsFocus, setSettingsFocus] = useState<SettingsFocus | null>(
+    null,
+  );
+  const handleLockedTargetClick = useCallback(
+    (itemId: ItemId) => {
+      const gate = targetGates.get(itemId);
+      if (!gate) return;
+      const action = resolveGateAction(
+        gate,
+        settings.currentDomain,
+        settings.activeDomains,
+        settings.aic.researched,
+      );
+      if (!action) return;
+      setSettingsFocus({
+        nonce: Date.now(),
+        domainId: action.domainId,
+        techIds: action.techIds,
+      });
+      setDialogOpen(false);
+      setSettingsOpen(true);
+    },
+    [
+      settings.currentDomain,
+      settings.activeDomains,
+      settings.aic.researched,
+      setDialogOpen,
+    ],
+  );
+
   const handleLanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);
   };
@@ -613,13 +684,19 @@ function AppContent() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         items={targetableItems}
+        lockedItems={lockedTargetItems}
         existingTargetIds={targets.map((t) => t.itemId)}
         regionRawMaterials={regionRawMaterials}
         producibleRawTargetIds={producibleRawTargetIds}
         onBatchAddTargets={handleBatchAddTargets}
+        onLockedItemClick={handleLockedTargetClick}
       />
 
-      <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsSheet
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        focus={settingsFocus}
+      />
 
       <AppFooter />
     </div>
