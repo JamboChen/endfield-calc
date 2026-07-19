@@ -28,11 +28,10 @@ pnpm run extract:structures  # Refresh src/data/region-subsystems.ts + public/lo
 pnpm run extract:aic         # Refresh src/data/aic-plans.ts + public/locales/{lang}/{aic,domain}.json
 pnpm run extract:raw-caps    # Refresh src/data/raw-caps.ts (per-region max mining output, derived from the game data)
 pnpm run extract:item-colors # Refresh src/data/item-colors.ts from public/images/items/*.png — STANDALONE, not in extract:all (icons are manually curated); re-run when icons change
-pnpm run extract:target-gates # Refresh src/data/target-gates.ts (per-factory-region AIC-tech gates for the Add-Target picker's greyed items) — STANDALONE, not in extract:all; derived from committed src/data, re-run after recipes/facilities/aic/raw-caps change (guard test enforces freshness)
 pnpm run extract:icons       # Sync missing item/facility icons from the game's icon assets — STANDALONE; run extract:ids first, then extract:item-colors after
 ```
 
-Game-data refresh: point the extractor at your local game data (it falls back to a built-in default if unset). Note: the extraction toolchain is **intentionally untracked** (gitignored — it stays out of the repo), so the `extract:*` commands only work on a machine that has the private toolchain; every file stamped AUTO-GENERATED can only be regenerated there. `extract:item-colors` and `extract:target-gates` are the exceptions: they read committed inputs (icons / `src/data`), need no data dir, and are therefore not part of `extract:all`.
+Game-data refresh: point the extractor at your local game data (it falls back to a built-in default if unset). Note: the extraction toolchain is **intentionally untracked** (gitignored — it stays out of the repo), so the `extract:*` commands only work on a machine that has the private toolchain; every file stamped AUTO-GENERATED can only be regenerated there. `extract:item-colors` is the exception: it reads committed icons, needs no data dir, and is therefore not part of `extract:all`.
 
 ## Cardinal rules (always apply)
 

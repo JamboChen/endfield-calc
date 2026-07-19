@@ -11,17 +11,16 @@
  * dimension (reachability is per-`currentDomain`, and activating a region
  * in the roster does not bring its raws into another region's factory).
  *
- * The map is generated ahead of time by `scripts/extract-target-gates.ts`
- * (a valid unlocking set derived from committed `src/data` — no game-data
- * dir), emitted to `src/data/target-gates.ts`. At runtime
- * `resolveGateAction` (`src/lib/target-gate-helpers.ts`) reads the entry
- * for the current factory region and returns the earliest plan-region
- * with unresearched techs, which drives the settings-sheet navigation +
- * flash.
+ * The map is derived at runtime, per factory region, by
+ * `computeTargetGatesForRegion` (`src/lib/target-gate-helpers.ts`) from
+ * committed `src/data` — no game-data dir. The App layer memoizes it on
+ * `currentDomain`; `resolveGateAction` then reads the entry for the
+ * current factory region and returns the earliest plan-region with
+ * unresearched techs, which drives the settings-sheet navigation + flash.
  *
  * "A valid unlocking set", not a provably minimal one: the derivation
- * follows the shallowest-discovered producer chain per factory region
- * (see `computeTargetGates`).
+ * follows the shallowest-discovered producer chain in the factory region
+ * (see `computeTargetGatesForRegion`).
  */
 import type { AicTechId } from "./aic";
 import type { DomainId } from "./domain";

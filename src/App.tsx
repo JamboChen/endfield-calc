@@ -26,7 +26,10 @@ import {
   computeRecipeAvailability,
 } from "./lib/aic-research-helpers";
 import { computeRecipeReachability } from "./lib/recipe-reachability";
-import { resolveGateAction } from "./lib/target-gate-helpers";
+import {
+  computeTargetGatesForRegion,
+  resolveGateAction,
+} from "./lib/target-gate-helpers";
 import { computeVariantExclusions } from "./lib/variant-filter";
 import {
   bootstrapFacilities,
@@ -36,7 +39,6 @@ import {
   producibleRaws,
   rawAvailabilityByDomain,
   regionStructures,
-  targetGates,
 } from "./data";
 import { buildRawMaterialCaps } from "./lib/raw-limits-helpers";
 import { structureKey } from "./lib/settings-helpers";
@@ -320,9 +322,19 @@ function AppContent() {
     [reachableItems],
   );
 
+  // Per-region target-gate map (item → the AIC techs that gate it in the
+  // current factory region). Memoized on `currentDomain` ALONE: it's
+  // derived from the maximal-unlock reference set, so live research/roster
+  // changes never invalidate it — only a region switch does. Replaces the
+  // former build-time generated `targetGates` map.
+  const regionTargetGates = useMemo(
+    () => computeTargetGatesForRegion(settings.currentDomain),
+    [settings.currentDomain],
+  );
+
   // Items the picker shows GREYED: producible in the current factory
   // region but currently unreachable purely because an AIC plan is
-  // unresearched (`targetGates` + a resolvable action against live
+  // unresearched (`regionTargetGates` + a resolvable action against live
   // state). Items that can't be made in this region at all have no gate
   // action here and stay hidden. Clicking one navigates Settings to the
   // earliest blocking plan region (see `handleLockedTargetClick`).
@@ -331,7 +343,7 @@ function AppContent() {
     for (const item of items) {
       if (item.asTarget === false) continue;
       if (reachableItems.has(item.id)) continue;
-      const gate = targetGates.get(item.id);
+      const gate = regionTargetGates.get(item.id);
       if (!gate) continue;
       if (
         resolveGateAction(
@@ -346,6 +358,7 @@ function AppContent() {
     }
     return out;
   }, [
+    regionTargetGates,
     reachableItems,
     settings.currentDomain,
     settings.activeDomains,
@@ -537,7 +550,7 @@ function AppContent() {
   const focusNonceRef = useRef(0);
   const handleLockedTargetClick = useCallback(
     (itemId: ItemId) => {
-      const gate = targetGates.get(itemId);
+      const gate = regionTargetGates.get(itemId);
       if (!gate) return;
       const action = resolveGateAction(
         gate,
@@ -555,6 +568,7 @@ function AppContent() {
       setSettingsOpen(true);
     },
     [
+      regionTargetGates,
       settings.currentDomain,
       settings.activeDomains,
       settings.aic.researched,

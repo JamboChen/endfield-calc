@@ -1,17 +1,19 @@
 /**
  * Target-gate derivation + runtime resolution.
  *
- * `computeTargetGates` is the ahead-of-time derivation: for each factory
+ * `computeTargetGatesForRegion` is the derivation: for a given factory
  * region and each item producible there when fully unlocked but NOT with
  * the bare-minimum (game-default) research, it records a valid set of AIC
  * techs to research, grouped by the plan region that contains them and
- * ordered earliest-first. It reads only committed `src/data` — no
- * game-data dir — so `scripts/extract-target-gates.ts` can emit
- * `src/data/target-gates.ts` and a guard test can recompute + compare
- * (drift protection).
+ * ordered earliest-first. It depends only on the factory region + the
+ * committed `src/data` (never on live research/roster), so the App layer
+ * memoizes it on `currentDomain` alone and recomputes only on a region
+ * switch. This runtime-per-region derivation replaced an ahead-of-time
+ * generated map: the data it reads is already in the bundle, so
+ * serializing the result bought nothing but a drift-guard burden.
  *
- * `resolveGateAction` is the runtime read: given a precomputed gate + the
- * current factory region + live research/roster state, it returns the
+ * `resolveGateAction` is the per-interaction read: given a region's gate +
+ * the current factory region + live research/roster state, it returns the
  * earliest plan region that still has unresearched techs — the region to
  * open in Settings + the tech nodes to flash. Pure; no data imports.
  *
@@ -24,7 +26,7 @@
  * here (they're hidden, not greyed). There is deliberately no
  * region-activation / factory-switch dimension.
  *
- * During each factory region's maximal-unlock reachability fixpoint we
+ * During the factory region's maximal-unlock reachability fixpoint we
  * record every item's first justifying recipe (grounded in that region's
  * raws → acyclic → the backward walk terminates). The walk stops at items
  * already producible with default research (they need no unlock), yielding
@@ -214,26 +216,24 @@ function collectTechClosure(techId: AicTechId, out: Set<AicTechId>): void {
 }
 
 /**
- * Derive the target-gate map: item → per-factory-region AIC-tech
- * requirements. See the module JSDoc for the model. Returns `warnings`
- * for future-proofing (a plan-region ending up inactive-only would make
- * an item silently unresolvable — impossible with today's data where the
- * needed regions are always the pinned home region or the factory region
- * itself, but flagged if a data change breaks the assumption).
+ * Derive the target-gate map for ONE factory region: item → the AIC-tech
+ * requirements that gate it there, grouped by plan region and ordered
+ * earliest-first. See the module JSDoc for the model.
+ *
+ * Pure and state-independent (uses the maximal-unlock and game-default
+ * reference sets, never live research), so the App layer memoizes it on
+ * `currentDomain` alone. Each emitted gate carries a single `factories`
+ * entry (this region), preserving the `resolveGateAction` contract.
  */
-export function computeTargetGates(): {
-  gates: Map<ItemId, TargetGate>;
-  warnings: string[];
-} {
-  const warnings: string[] = [];
+export function computeTargetGatesForRegion(
+  factoryDomain: DomainId,
+): Map<ItemId, TargetGate> {
   const allDomains = new Set<DomainId>(domains.map((d) => d.id));
-  const pinnedDomains = new Set<DomainId>(
-    domains.filter((d) => d.isPinned).map((d) => d.id),
-  );
   const domainSortId = new Map<DomainId, number>(
     domains.map((d) => [d.id, d.sortId]),
   );
-  const factoryOrder = [...domains].sort((a, b) => a.sortId - b.sortId);
+  const bySortId = (a: DomainId, b: DomainId) =>
+    (domainSortId.get(a) ?? 0) - (domainSortId.get(b) ?? 0);
 
   const allTechs = new Set<AicTechId>(aicNodes.map((n) => n.id));
   const defaultTechs = new Set<AicTechId>(
@@ -243,106 +243,66 @@ export function computeTargetGates(): {
   const producedItems = new Set<ItemId>();
   for (const r of recipes) for (const o of r.outputs) producedItems.add(o.itemId);
 
-  // Per-item accumulator: factoryDomain → (planRegion → techs).
-  const perItem = new Map<
-    ItemId,
-    Map<DomainId, Map<DomainId, Set<AicTechId>>>
-  >();
+  // Maximal producibility here (everything researched, whole roster active)
+  // vs. the bare-minimum default (only game-granted techs; a user can't
+  // uncheck below this). Items reachable at the minimum are never lockable.
+  const max = reachableInFactory(factoryDomain, allTechs, allDomains);
+  const def = reachableInFactory(factoryDomain, defaultTechs, allDomains);
 
-  for (const factory of factoryOrder) {
-    const R = factory.id;
-    // Maximal producibility in R (everything researched, whole roster
-    // active) vs. the bare-minimum default (only game-granted techs; a
-    // user can't uncheck below this). Items reachable at the minimum are
-    // never lockable in R.
-    const max = reachableInFactory(R, allTechs, allDomains);
-    const def = reachableInFactory(R, defaultTechs, allDomains);
-
-    for (const item of items) {
-      if (item.asTarget === false) continue;
-      if (!producedItems.has(item.id)) continue; // pure raw: not a target
-      if (!max.reachable.has(item.id)) continue; // not makeable in R
-      if (def.reachable.has(item.id)) continue; // default-producible → never locked
-
-      const techsByPlanRegion = new Map<DomainId, Set<AicTechId>>();
-      const visited = new Set<ItemId>();
-
-      const addTech = (techId: AicTechId) => {
-        const closed = new Set<AicTechId>();
-        collectTechClosure(techId, closed);
-        for (const t of closed) {
-          const dom = GROUP_DOMAIN.get(NODE_BY_ID.get(t)!.groupId);
-          if (!dom) continue;
-          let bucket = techsByPlanRegion.get(dom);
-          if (!bucket) {
-            bucket = new Set();
-            techsByPlanRegion.set(dom, bucket);
-          }
-          bucket.add(t);
-        }
-      };
-
-      const walk = (itemId: ItemId) => {
-        if (visited.has(itemId)) return;
-        visited.add(itemId);
-        if (def.reachable.has(itemId)) return; // default-producible → no unlock
-        const just = max.justifier.get(itemId);
-        if (!just) return; // grounded as a (factory-region) raw seed
-        const facTechs = UNLOCK_TECHS_BY_FACILITY.get(just.facilityId) ?? [];
-        for (const t of facTechs) addTech(t);
-        const mode = RECIPE_MODE_BY_ID.get(just.id) ?? "normal";
-        if (mode !== "normal") {
-          const modeTech = MODE_TECH_BY_KEY.get(
-            `${just.facilityId}\u0000${mode}`,
-          );
-          if (modeTech) addTech(modeTech);
-        }
-        for (const inp of just.inputs) walk(inp.itemId);
-      };
-
-      walk(item.id);
-      if (techsByPlanRegion.size === 0) continue; // defensive
-
-      // A plan region that is neither pinned nor the factory region can't
-      // be guaranteed active at runtime → flag (never happens today).
-      for (const planDom of techsByPlanRegion.keys()) {
-        if (!pinnedDomains.has(planDom) && planDom !== R) {
-          warnings.push(
-            `${item.id} @ factory ${R}: needs techs from non-pinned, non-factory ` +
-              `region ${planDom}; it may be unresolvable when ${planDom} is inactive.`,
-          );
-        }
-      }
-
-      let byFactory = perItem.get(item.id);
-      if (!byFactory) {
-        byFactory = new Map();
-        perItem.set(item.id, byFactory);
-      }
-      byFactory.set(R, techsByPlanRegion);
-    }
-  }
-
-  // Assemble the emitted shape, everything sorted deterministically.
-  const bySortId = (a: DomainId, b: DomainId) =>
-    (domainSortId.get(a) ?? 0) - (domainSortId.get(b) ?? 0);
   const gates = new Map<ItemId, TargetGate>();
-  for (const [itemId, byFactory] of perItem) {
-    const factories: TargetGateFactory[] = [...byFactory.entries()]
+
+  for (const item of items) {
+    if (item.asTarget === false) continue;
+    if (!producedItems.has(item.id)) continue; // pure raw: not a target
+    if (!max.reachable.has(item.id)) continue; // not makeable here
+    if (def.reachable.has(item.id)) continue; // default-producible → never locked
+
+    const techsByPlanRegion = new Map<DomainId, Set<AicTechId>>();
+    const visited = new Set<ItemId>();
+
+    const addTech = (techId: AicTechId) => {
+      const closed = new Set<AicTechId>();
+      collectTechClosure(techId, closed);
+      for (const t of closed) {
+        const dom = GROUP_DOMAIN.get(NODE_BY_ID.get(t)!.groupId);
+        if (!dom) continue;
+        let bucket = techsByPlanRegion.get(dom);
+        if (!bucket) {
+          bucket = new Set();
+          techsByPlanRegion.set(dom, bucket);
+        }
+        bucket.add(t);
+      }
+    };
+
+    const walk = (itemId: ItemId) => {
+      if (visited.has(itemId)) return;
+      visited.add(itemId);
+      if (def.reachable.has(itemId)) return; // default-producible → no unlock
+      const just = max.justifier.get(itemId);
+      if (!just) return; // grounded as a (factory-region) raw seed
+      const facTechs = UNLOCK_TECHS_BY_FACILITY.get(just.facilityId) ?? [];
+      for (const t of facTechs) addTech(t);
+      const mode = RECIPE_MODE_BY_ID.get(just.id) ?? "normal";
+      if (mode !== "normal") {
+        const modeTech = MODE_TECH_BY_KEY.get(`${just.facilityId}\u0000${mode}`);
+        if (modeTech) addTech(modeTech);
+      }
+      for (const inp of just.inputs) walk(inp.itemId);
+    };
+
+    walk(item.id);
+    if (techsByPlanRegion.size === 0) continue; // defensive
+
+    const planRegions: TargetGatePlanRegion[] = [...techsByPlanRegion.entries()]
       .sort(([a], [b]) => bySortId(a, b))
-      .map(([factoryDomainId, techsByPlanRegion]) => {
-        const planRegions: TargetGatePlanRegion[] = [
-          ...techsByPlanRegion.entries(),
-        ]
-          .sort(([a], [b]) => bySortId(a, b))
-          .map(([domainId, techs]) => ({
-            domainId,
-            techIds: [...techs].sort(),
-          }));
-        return { factoryDomainId, planRegions };
-      });
-    gates.set(itemId, { factories });
+      .map(([domainId, techs]) => ({ domainId, techIds: [...techs].sort() }));
+
+    const factories: TargetGateFactory[] = [
+      { factoryDomainId: factoryDomain, planRegions },
+    ];
+    gates.set(item.id, { factories });
   }
 
-  return { gates, warnings };
+  return gates;
 }
