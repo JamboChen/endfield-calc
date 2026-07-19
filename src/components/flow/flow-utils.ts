@@ -2,6 +2,7 @@ import type {
   EdgeDirection,
   ProductionNode,
   Item,
+  ItemId,
   Facility,
   FacilityId,
   Recipe,
@@ -19,6 +20,7 @@ import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
 import { getTransportLabel, getInternalFlowLabel } from "@/lib/i18n-helpers";
 import { itemIconColors } from "@/data/item-colors";
+import { facilitySustainDrains } from "@/data/gas-sustain";
 
 /**
  * Creates a standardized edge for React Flow with optional pre-computed direction.
@@ -71,6 +73,10 @@ export function createEdge(
     source,
     target,
     sourceHandle: item?.id,
+    // Catalyst self-loops (producer feeds its own upkeep) land on the
+    // dedicated top "catalyst" handle so they read as upkeep, not a
+    // tangled side loop.
+    targetHandle: direction === "self" ? "catalyst" : undefined,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
     label: `${flowRate.toFixed(2)} /min\n${labelTransport}`,
     // Non-selecting: edge clicks drive hover-emphasis + click-to-fit in
@@ -238,6 +244,46 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
       };
     }
 
+    // Catalyst self-loop (a 1.4 transmuter feeding its own always-on
+    // upkeep, output item == catalyst): a distinct fuchsia dashed loop
+    // (`--flow-catalyst`) that lands on the node's top "catalyst" handle.
+    // It's upkeep, not a regular production belt, so it doesn't animate
+    // like flow lines. Tagged only for genuine catalyst self-loops by the
+    // mappers (see `isCatalystSelfLoop`).
+    const isSelf = data.direction === "self";
+
+    if (isSelf) {
+      return {
+        ...edge,
+        type: "simplebezier",
+        animated: false,
+        style: {
+          strokeWidth: 1.5,
+          stroke: "var(--flow-catalyst)",
+          strokeDasharray: "4 3",
+          opacity: 0.8,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: "var(--flow-catalyst)",
+          width: 16,
+          height: 16,
+        },
+        labelBgPadding: [6, 3] as [number, number],
+        labelBgBorderRadius: 4,
+        labelBgStyle: {
+          fill: "var(--card)",
+          fillOpacity: 0.9,
+        },
+        labelStyle: {
+          fontSize: 11,
+          fill: "var(--flow-catalyst)",
+          color: "var(--flow-catalyst)",
+          fontStyle: "italic",
+        },
+      };
+    }
+
     // Detect backward edge based on actual node positions
     // If source X > target X, it's a backward edge (goes right to left)
     const sourcePos = nodePositions.get(edge.source);
@@ -276,6 +322,55 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
 }
 
 /**
+ * The always-on catalyst upkeep for a recipe's facility (1.4 transmuter
+ * `facilitySustainDrains`), or `undefined` for non-drain facilities. The
+ * calculator folds this drain into `recipe.inputs`; surfacing it on the
+ * flow node lets the card + edge layer render it legibly.
+ */
+function catalystDrainFor(
+  recipe: ProductionNode["recipe"],
+): { itemId: ItemId; ratePerMinute: number } | undefined {
+  if (!recipe) return undefined;
+  return facilitySustainDrains.get(recipe.facilityId);
+}
+
+/**
+ * Map every production flow node that carries a catalyst upkeep to its
+ * drained item id. Consumed by `isCatalystSelfLoop` so a self-loop is
+ * tagged `"self"` (top "catalyst" handle + upkeep styling) ONLY when the
+ * looped item is genuinely that node's catalyst — not any topological
+ * producer==consumer edge. Base game data has no non-catalyst self-loops
+ * today, but this keeps the coupling robust if that ever changes.
+ */
+export function buildCatalystItemByNode(
+  nodes: readonly FlowProductionNode[],
+): Map<string, ItemId> {
+  const map = new Map<string, ItemId>();
+  for (const n of nodes) {
+    const cat = n.data.productionNode.catalyst;
+    if (cat) map.set(n.id, cat.itemId);
+  }
+  return map;
+}
+
+/**
+ * True when an allocated edge is a catalyst self-loop: producer and
+ * consumer are the same node AND the flowing item is that node's catalyst
+ * (from `buildCatalystItemByNode`). Such edges re-home to the top
+ * "catalyst" handle; every other self-loop stays a normal edge.
+ */
+export function isCatalystSelfLoop(
+  producerId: string,
+  consumerId: string,
+  itemId: ItemId,
+  catalystItemByNode: ReadonlyMap<string, ItemId>,
+): boolean {
+  return (
+    producerId === consumerId && catalystItemByNode.get(consumerId) === itemId
+  );
+}
+
+/**
  * Helper: Creates production flow node.
  * Shared between separated and merged mappers to ensure visual consistency.
  */
@@ -293,11 +388,15 @@ export function createProductionFlowNode(
     directTargetRate?: number;
   } = {},
 ): FlowProductionNode {
+  // Surface transmuter catalyst upkeep (folded into `recipe.inputs` by the
+  // calculator) so the card can show it like an internal item and the edge
+  // layer can re-home the self-loop to the top "catalyst" handle.
+  const catalyst = node.catalyst ?? catalystDrainFor(node.recipe);
   return {
     id: nodeId,
     type: "productionNode",
     data: {
-      productionNode: node,
+      productionNode: catalyst ? { ...node, catalyst } : node,
       items,
       facilities,
       facilityIndex: options.facilityIndex,

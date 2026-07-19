@@ -108,6 +108,8 @@
     "gasEnvCreates": "Creates",
     "gasEnvBuffs": "Buffs",
     "gasEnvBuffsDetail": "Buffed machines (representative split):",
-    "gasEnvDescription": "Burning {{rate}} {{item}} per minute to project a gaseous environment. Machines running the buffed formulas must sit fully inside the aura."
+    "gasEnvDescription": "Burning {{rate}} {{item}} per minute to project a gaseous environment. Machines running the buffed formulas must sit fully inside the aura.",
+    "catalyst": "Catalyst",
+    "catalystItemTooltip": "{{rate}}/min catalyst upkeep, drained even when idle"
   }
 }

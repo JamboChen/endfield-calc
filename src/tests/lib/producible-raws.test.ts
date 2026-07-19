@@ -13,6 +13,9 @@ import { ALL_RAWS } from "./utils";
 
 const XIRAGEN = ItemId.ITEM_GAS_XIRANITE;
 const TRANSMUTER_XIRAGEN = RecipeId.LIQUID_TRANSMUTER_2_GAS_GAS_XIRANITE_1;
+// transmuter_1's Xiragen recipe: catalyst is Liquid Xiranite (a SEPARATE
+// input), so it never self-loops — the foil to TRANSMUTER_XIRAGEN.
+const TRANSMUTER_1_XIRAGEN = RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_XIRANITE_1;
 
 /** Sum of active facility counts of every recipe producing `itemId`. */
 function producerFc(
@@ -212,6 +215,117 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
       // No vent draw anywhere for this item — the sink is entirely crafted.
       expect(ventEdges(flow.edges).length).toBe(0);
       expect(craftEdges(into).length).toBeGreaterThan(0);
+    }
+  });
+
+  test("zero-vent Xiragen: transmuter node carries catalyst + a self-loop to the top handle", async () => {
+    // Solid-Gas Transmuting Unit (transmuter_2) self-consumes 6/min Xiragen
+    // per building as an always-on catalyst. Its catalyst IS its own output,
+    // so with the vent capped at 0 the catalyst is self-produced and its
+    // edge is a self-loop the display surfaces as upkeep: the node exposes
+    // `catalyst`, and the edge is tagged "self" + re-homed to the top
+    // "catalyst" handle. (Pinned because the unpinned LP prefers
+    // transmuter_1, whose catalyst is a separate Liquid Xiranite input.)
+    const plan = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+      {
+        rawMaterials: ALL_RAWS,
+        rawCaps: new Map([[XIRAGEN, 0]]),
+        recipeOverrides: new Map([[XIRAGEN, TRANSMUTER_XIRAGEN]]),
+      },
+    );
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map<ItemIdT, number>([[XIRAGEN, 60]]),
+    );
+
+    // The transmuter node exposes its catalyst upkeep (Xiragen, 6/min/bldg).
+    const transmuterNode = flow.nodes.find(
+      (n) =>
+        (n.data as { productionNode?: { recipe?: { id?: string } } })
+          .productionNode?.recipe?.id === TRANSMUTER_XIRAGEN,
+    );
+    expect(transmuterNode).toBeDefined();
+    const catalyst = (
+      transmuterNode!.data as {
+        productionNode: {
+          catalyst?: { itemId: string; ratePerMinute: number };
+        };
+      }
+    ).productionNode.catalyst;
+    expect(catalyst).toBeDefined();
+    expect(catalyst!.itemId).toBe(XIRAGEN);
+    expect(catalyst!.ratePerMinute).toBe(6);
+
+    // The catalyst self-loop is tagged "self" and lands on the top handle.
+    const selfLoops = flow.edges.filter(
+      (e) => e.source === e.target && edgeItemId(e) === XIRAGEN,
+    );
+    expect(selfLoops.length).toBeGreaterThan(0);
+    for (const e of selfLoops) {
+      expect((e.data as { direction?: string }).direction).toBe("self");
+      expect((e as { targetHandle?: string | null }).targetHandle).toBe(
+        "catalyst",
+      );
+    }
+  });
+
+  test("zero-vent Xiragen (transmuter_1): catalyst row present, but NO self-loop when the catalyst is a separate item", async () => {
+    // transmuter_1's catalyst is Liquid Xiranite (a SEPARATE input), not its
+    // Gas Xiranite output. So the node still surfaces catalyst upkeep, but
+    // there is NO self-loop edge and nothing targets the top handle. Locks
+    // the semantic: "self" is tagged only for genuine catalyst self-feeds,
+    // never for any producer==consumer edge.
+    const plan = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+      {
+        rawMaterials: ALL_RAWS,
+        rawCaps: new Map([[XIRAGEN, 0]]),
+        recipeOverrides: new Map([[XIRAGEN, TRANSMUTER_1_XIRAGEN]]),
+      },
+    );
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map<ItemIdT, number>([[XIRAGEN, 60]]),
+    );
+
+    const transmuterNode = flow.nodes.find(
+      (n) =>
+        (n.data as { productionNode?: { recipe?: { id?: string } } })
+          .productionNode?.recipe?.id === TRANSMUTER_1_XIRAGEN,
+    );
+    expect(transmuterNode).toBeDefined();
+    const catalyst = (
+      transmuterNode!.data as {
+        productionNode: {
+          catalyst?: { itemId: string; ratePerMinute: number };
+        };
+      }
+    ).productionNode.catalyst;
+    // Catalyst metadata is present (the row still shows), and it is NOT the
+    // node's own output — so no self-loop.
+    expect(catalyst).toBeDefined();
+    expect(catalyst!.itemId).toBe(ItemId.ITEM_LIQUID_XIRANITE);
+    expect(catalyst!.itemId).not.toBe(XIRAGEN);
+
+    // No edge is tagged "self" nor re-homed to the top "catalyst" handle.
+    for (const e of flow.edges) {
+      expect((e.data as { direction?: string }).direction).not.toBe("self");
+      expect((e as { targetHandle?: string | null }).targetHandle).not.toBe(
+        "catalyst",
+      );
     }
   });
 

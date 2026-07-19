@@ -285,6 +285,18 @@ export type ProductionNode = {
    * `isRawMaterial` stays false). Absent on every other node kind.
    */
   metastorageImport?: PlanMetastorageImport;
+
+  /**
+   * Always-on catalyst upkeep for this node's facility (1.4 transmuter
+   * `facilitySustainDrains`). The building drains `ratePerMinute` of
+   * `itemId` per WHOLE building even when idle; the calculator folds it
+   * into `recipe.inputs`, but display surfaces read it from here so the
+   * upkeep is legible (an icon row on the card, like internal items;
+   * a self-loop edge to the top "catalyst" handle when the drained item
+   * is the recipe's own output). Total upkeep = `ratePerMinute ×
+   * ceil(facilityCount)`. Absent on non-transmuter nodes.
+   */
+  catalyst?: { itemId: ItemId; ratePerMinute: number };
 };
 
 /**

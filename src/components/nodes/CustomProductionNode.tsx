@@ -1,6 +1,6 @@
 import { Handle, type NodeProps, type Node, Position } from "@xyflow/react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Zap, Star, ArrowDownToLine, Boxes, Repeat, AlertTriangle, Truck } from "lucide-react";
+import { Zap, Star, ArrowDownToLine, Boxes, Repeat, AlertTriangle, Truck, FlaskConical } from "lucide-react";
 import { FacilityIcon } from "@/components/FacilityIcon";
 import {
   Tooltip,
@@ -90,6 +90,24 @@ export default function CustomProductionNode({
   const byproducts = computeNodeByproducts(node, items);
 
   const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item.id)];
+
+  // Transmuter catalyst upkeep (1.4 gas-sustain): the drained item plus the
+  // whole-building total (`rate × ceil(buildings)`, always-on even when
+  // idle). Rendered as a muted fuchsia row like the internal-items row, with
+  // the precise rate in the tooltip; when the drained item is this node's
+  // own output, its self-loop edge lands on the top "catalyst" handle.
+  const catalyst = node.catalyst;
+  const catalystItem = catalyst ? getItemById(items, catalyst.itemId) : undefined;
+  const catalystTotal = catalyst
+    ? catalyst.ratePerMinute * Math.max(1, Math.ceil(node.facilityCount))
+    : 0;
+  // The node self-feeds its catalyst when the drained item is one of its
+  // own outputs (transmuter_2 Xiragen; transmuter_1 gas→liquid xiranite) —
+  // only then does a self-loop edge exist and land on the top handle.
+  // Transmuters whose catalyst is a separate input (transmuter_1 gas
+  // recipes) still show the row, but get no top handle (no self-loop).
+  const isSelfFedCatalyst =
+    !!catalyst && outputHandleIds.includes(catalyst.itemId);
 
   // Metastorage import source payload (set only on import source nodes
   // emitted by the mappers; `recipe`/`facility` are null on those).
@@ -314,6 +332,20 @@ export default function CustomProductionNode({
             isConnectable={false}
             className="w-3! h-3!"
           />
+          {/* Dedicated top handle for the catalyst self-loop, rendered only
+            * when the node self-feeds its catalyst (drained item is one of
+            * its outputs) so the handle exists exactly when the self-loop
+            * edge targets it. */}
+          {isSelfFedCatalyst && (
+            <Handle
+              type="target"
+              position={Position.Top}
+              id="catalyst"
+              isConnectable={false}
+              className="w-3! h-3!"
+              style={{ backgroundColor: "var(--flow-catalyst)" }}
+            />
+          )}
           <CardContent className="p-2.5 text-xs">
             {/* === Zone 1: Production outputs === */}
 
@@ -410,6 +442,42 @@ export default function CustomProductionNode({
                       </Tooltip>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* === Zone 1.6: Catalyst upkeep ===
+              * 1.4 transmuters drain an always-on catalyst (`ratePerMinute`
+              * per WHOLE building, even when idle) that the calculator folds
+              * into `recipe.inputs`. Surface it the same muted way as the
+              * internal-items row so the extra draw is legible; the precise
+              * whole-building total lives in the icon tooltip. When the
+              * drained item is this node's own output, its self-loop edge
+              * lands on the top "catalyst" handle. */}
+            {catalyst && catalystItem && (
+              <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-dashed border-fuchsia-500/40">
+                <FlaskConical className="h-3 w-3 text-fuchsia-600 dark:text-fuchsia-400 shrink-0" />
+                <span className="text-[10px] text-fuchsia-700 dark:text-fuchsia-300 shrink-0">
+                  {t("tree.catalyst", { defaultValue: "Catalyst" })}
+                </span>
+                <div className="flex items-center gap-1 flex-wrap min-w-0">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="opacity-70 hover:opacity-100 transition-opacity cursor-help">
+                        <ItemIcon item={catalystItem} size="sm" />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p className="text-xs">
+                        {getItemName(catalystItem)}:{" "}
+                        {t("tree.catalystItemTooltip", {
+                          rate: formatNumber(catalystTotal),
+                          defaultValue:
+                            "{{rate}}/min catalyst upkeep, drained even when idle",
+                        })}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             )}

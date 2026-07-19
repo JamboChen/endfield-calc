@@ -43,6 +43,8 @@ import {
   createEnvSinkNode,
   envBuffedMachines,
   partitionBuffedBuildings,
+  buildCatalystItemByNode,
+  isCatalystSelfLoop,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -646,12 +648,24 @@ export function mapPlanToFlowBinFused(
     ...targetSinkNodes.map((n) => n.id),
     ...disposalSinkNodes.map((n) => n.id),
   ]);
+  const catalystItemByNode = buildCatalystItemByNode(flowNodes);
   for (const [itemId, edges] of allocated.entries()) {
     const sourceItem = itemById.get(itemId);
     for (const edge of edges) {
       if (edge.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       if (!emittedNodeIds.has(edge.producerId)) continue;
       if (!emittedNodeIds.has(edge.consumerId)) continue;
+      // A transmuter feeding its own catalyst upkeep is a self-loop on the
+      // catalyst item — tag it "self" so it re-homes to the top handle and
+      // gets the upkeep styling. Any other self-loop stays a normal edge.
+      const direction = isCatalystSelfLoop(
+        edge.producerId,
+        edge.consumerId,
+        itemId,
+        catalystItemByNode,
+      )
+        ? "self"
+        : undefined;
       flowEdges.push(
         createEdge(
           `e${edgeIdCounter++}`,
@@ -659,7 +673,7 @@ export function mapPlanToFlowBinFused(
           edge.consumerId,
           edge.rate,
           sourceItem,
-          undefined,
+          direction,
           ceilMode,
         ),
       );
@@ -1452,6 +1466,7 @@ export function mapPlanToFlowBinFusedSeparated(
     ...targetSinkNodes.map((n) => n.id),
     ...disposalSinkNodes.map((n) => n.id),
   ]);
+  const catalystItemByNode = buildCatalystItemByNode(flowNodes);
 
   // Bin → consumer edges (per-building, one per allocation entry).
   // Edges between building-instances of bins that participate in the
@@ -1464,9 +1479,19 @@ export function mapPlanToFlowBinFusedSeparated(
       if (edge.rate <= MIN_VISIBLE_RATE_PER_MIN) continue;
       if (!emittedNodeIds.has(edge.producerId)) continue;
       if (!emittedNodeIds.has(edge.consumerId)) continue;
-      const direction = isCycleEdge(edge.producerId, edge.consumerId)
-        ? "backward"
-        : undefined;
+      // Catalyst self-loop (upkeep) takes precedence over the cycle tag,
+      // re-homing to the top handle; other self-loops fall through to the
+      // normal cycle/forward classification.
+      const direction = isCatalystSelfLoop(
+        edge.producerId,
+        edge.consumerId,
+        itemId,
+        catalystItemByNode,
+      )
+        ? "self"
+        : isCycleEdge(edge.producerId, edge.consumerId)
+          ? "backward"
+          : undefined;
       flowEdges.push(
         createEdge(
           `e${edgeIdCounter++}`,
