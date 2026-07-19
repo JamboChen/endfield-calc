@@ -23,6 +23,8 @@ import {
   createPowerSinkNode,
   createEnvSinkNode,
   envBuffedMachines,
+  buildCatalystIntakeByNode,
+  routeCatalystIntakeToTopHandle,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -827,6 +829,16 @@ export function mapPlanToFlowMerged(
       );
     }
   });
+
+  // Re-home the catalyst portion of each transmuter's intake to its top
+  // "catalyst" handle (crafted / vent / import / self-loop alike).
+  routeCatalystIntakeToTopHandle(
+    flowEdges,
+    buildCatalystIntakeByNode(flowNodes),
+    new Map(items.map((i) => [i.id, i] as const)),
+    ceilMode,
+    () => `e${edgeIdCounter++}`,
+  );
 
   const allNodes = [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes] as (
     | FlowProductionNode

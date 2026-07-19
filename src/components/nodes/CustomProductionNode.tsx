@@ -101,13 +101,6 @@ export default function CustomProductionNode({
   const catalystTotal = catalyst
     ? catalyst.ratePerMinute * Math.max(1, Math.ceil(node.facilityCount))
     : 0;
-  // The node self-feeds its catalyst when the drained item is one of its
-  // own outputs (transmuter_2 Xiragen; transmuter_1 gas→liquid xiranite) —
-  // only then does a self-loop edge exist and land on the top handle.
-  // Transmuters whose catalyst is a separate input (transmuter_1 gas
-  // recipes) still show the row, but get no top handle (no self-loop).
-  const isSelfFedCatalyst =
-    !!catalyst && outputHandleIds.includes(catalyst.itemId);
 
   // Metastorage import source payload (set only on import source nodes
   // emitted by the mappers; `recipe`/`facility` are null on those).
@@ -332,11 +325,11 @@ export default function CustomProductionNode({
             isConnectable={false}
             className="w-3! h-3!"
           />
-          {/* Dedicated top handle for the catalyst self-loop, rendered only
-            * when the node self-feeds its catalyst (drained item is one of
-            * its outputs) so the handle exists exactly when the self-loop
-            * edge targets it. */}
-          {isSelfFedCatalyst && (
+          {/* Dedicated top handle for catalyst intake. The mapper re-homes
+            * the catalyst portion of this node's intake here (crafted,
+            * vent-mined, imported, or self-loop), so every transmuter node
+            * shows it. */}
+          {catalyst && (
             <Handle
               type="target"
               position={Position.Top}
