@@ -26,6 +26,8 @@ interface AicPlanContentProps {
   onActivateLayer: (layerId: string) => void;
   onActivateGroup: (groupId: AicGroupId) => void;
   onResetGroup: (groupId: AicGroupId) => void;
+  /** Read-only shared-view: node ids whose researched state differs from own. */
+  changedNodes?: ReadonlySet<AicTechId>;
 }
 
 /**
@@ -46,6 +48,7 @@ export function AicPlanContent({
   onActivateLayer,
   onActivateGroup,
   onResetGroup,
+  changedNodes,
 }: AicPlanContentProps) {
   return (
     <div className="space-y-3">
@@ -61,6 +64,7 @@ export function AicPlanContent({
           onActivateLayer={onActivateLayer}
           onActivateGroup={onActivateGroup}
           onResetGroup={onResetGroup}
+          changedNodes={changedNodes}
         />
       ))}
     </div>
@@ -77,6 +81,7 @@ interface AicPlanGroupProps {
   onActivateLayer: (layerId: string) => void;
   onActivateGroup: (groupId: AicGroupId) => void;
   onResetGroup: (groupId: AicGroupId) => void;
+  changedNodes?: ReadonlySet<AicTechId>;
 }
 
 function AicPlanGroup({
@@ -89,8 +94,13 @@ function AicPlanGroup({
   onActivateLayer,
   onActivateGroup,
   onResetGroup,
+  changedNodes,
 }: AicPlanGroupProps) {
   const { t } = useTranslation(["aic", "settings"]);
+  // `changedNodes` is threaded only in read-only shared-view (undefined
+  // in normal mode) — its presence freezes the group edit actions while
+  // leaving expand/collapse navigation usable.
+  const readOnly = changedNodes !== undefined;
 
   const groupLayers = useMemo(
     () => layers.filter((l) => l.groupId === group.id),
@@ -230,7 +240,7 @@ function AicPlanGroup({
             )}
           </Button>
         )}
-        {!allDone && (
+        {!allDone && !readOnly && (
           <Button
             type="button"
             variant="ghost"
@@ -249,7 +259,7 @@ function AicPlanGroup({
             <Check className="size-4" />
           </Button>
         )}
-        {!isAtDefaults && (
+        {!isAtDefaults && !readOnly && (
           <Button
             type="button"
             variant="ghost"
@@ -277,6 +287,7 @@ function AicPlanGroup({
         onLayerOpenChange={handleLayerOpenChange}
         onToggleNode={onToggleNode}
         onActivateLayer={onActivateLayer}
+        changedNodes={changedNodes}
       />
     </div>
   );

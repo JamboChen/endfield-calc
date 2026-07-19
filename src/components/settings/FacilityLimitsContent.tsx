@@ -12,7 +12,7 @@ import type { AicNode, AicTechId, FacilityBaseCap } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
 import type { FacilityId } from "@/types";
 
-import { SettingsCard, settingsRowClass } from "./SettingsCard";
+import { SettingsCard, settingsRowClass, sharedChangedRowClass } from "./SettingsCard";
 
 interface FacilityLimitsContentProps {
   /**
@@ -37,6 +37,10 @@ interface FacilityLimitsContentProps {
   onActivateRaiseNodes: (ids: readonly AicTechId[]) => void;
   /** Bulk-deactivate cap-raises for a facility — the "Reset to base" path. */
   onDeactivateRaiseNodes: (ids: readonly AicTechId[]) => void;
+  /** Read-only shared-view: cap-override keys that differ from the viewer's own. */
+  changedCaps?: ReadonlySet<string>;
+  /** Read-only shared-view: cap-raise node ids that differ from the viewer's own. */
+  changedNodes?: ReadonlySet<AicTechId>;
 }
 
 function capKey(facilityId: FacilityId, domainId: DomainId): string {
@@ -76,6 +80,8 @@ export function FacilityLimitsContent({
   onSetCapOverride,
   onActivateRaiseNodes,
   onDeactivateRaiseNodes,
+  changedCaps,
+  changedNodes,
 }: FacilityLimitsContentProps) {
   const { t } = useTranslation(["facility", "settings", "aic"]);
 
@@ -192,6 +198,8 @@ export function FacilityLimitsContent({
             onSetCapOverride={onSetCapOverride}
             onActivateRaiseNodes={onActivateRaiseNodes}
             onDeactivateRaiseNodes={onDeactivateRaiseNodes}
+            changedCaps={changedCaps}
+            changedNodes={changedNodes}
           />
         );
       })}
@@ -214,6 +222,8 @@ interface CapTargetRowProps {
   ) => void;
   onActivateRaiseNodes: (ids: readonly AicTechId[]) => void;
   onDeactivateRaiseNodes: (ids: readonly AicTechId[]) => void;
+  changedCaps?: ReadonlySet<string>;
+  changedNodes?: ReadonlySet<AicTechId>;
 }
 
 function CapTargetRow({
@@ -227,6 +237,8 @@ function CapTargetRow({
   onSetCapOverride,
   onActivateRaiseNodes,
   onDeactivateRaiseNodes,
+  changedCaps,
+  changedNodes,
 }: CapTargetRowProps) {
   const { t } = useTranslation(["facility", "settings", "aic"]);
 
@@ -238,6 +250,14 @@ function CapTargetRow({
   const overrideKey = capKey(target.facilityId, target.domainId);
   const overrideValue = capOverrides.get(overrideKey);
   const hasOverride = overrideValue !== undefined;
+
+  // Read-only shared-view accents: the override differs, and/or any of
+  // this facility's cap-raise nodes differ. The card-level flag stays
+  // visible while the card is collapsed.
+  const overrideChanged = changedCaps?.has(overrideKey) ?? false;
+  const cardChanged =
+    overrideChanged ||
+    target.raiseNodes.some((n) => changedNodes?.has(n.id) ?? false);
   const effective =
     effectiveCaps.get(target.facilityId)?.get(target.domainId) ?? 0;
 
@@ -362,6 +382,7 @@ function CapTargetRow({
       title={facilityName}
       badge={effectiveBadge}
       actions={actions}
+      className={cn(cardChanged && "border-primary/60 bg-primary/5")}
     >
       <div className="space-y-1">
         {hasRaises && (
@@ -384,6 +405,8 @@ function CapTargetRow({
                     // Faded when prereqs aren't researched yet — a "level"
                     // hint, not a block: clicking still cascades them in.
                     isLocked && "opacity-55",
+                    (changedNodes?.has(node.id) ?? false) &&
+                      sharedChangedRowClass,
                   )}
                 >
                   <Checkbox
@@ -412,6 +435,7 @@ function CapTargetRow({
           className={cn(
             "flex items-center gap-2 px-2",
             hasRaises && "pt-2 border-t border-border/40",
+            overrideChanged && sharedChangedRowClass,
           )}
         >
           <label

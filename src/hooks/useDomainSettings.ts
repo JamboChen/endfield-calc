@@ -154,9 +154,11 @@ import { parseRawLimitKey, rawLimitKey } from "@/lib/raw-limits-helpers";
 import {
   cascadeStructureChain,
   deriveStructuresEnabledFromDisabled,
+  diffSettings,
   initialStructuresEnabled,
   structureKey,
   structuresDisabledFromEnabled,
+  type SharedSettingsDiff,
 } from "@/lib/settings-helpers";
 import { namespaceStorageKey } from "@/lib/storage-namespace";
 import type {
@@ -918,6 +920,12 @@ export interface DomainSettingsValue {
   readonly currentShape: PersistedShape;
 
   /**
+   * In shared-view: which settings differ from the viewer's own, so the
+   * Settings UI can accent exactly those rows. `null` in normal mode.
+   */
+  readonly sharedDiff: SharedSettingsDiff | null;
+
+  /**
    * Adopt the shared plan's settings as the viewer's own (writes
    * localStorage, leaves shared-view). Destructive — confirm first.
    */
@@ -1217,6 +1225,37 @@ export function useDomainSettings(
     setMetastorageRouteModes(own.metastorageRouteModes);
     setReadOnly(false);
   }, []);
+
+  // Per-setting diff of the shared snapshot (the live read-only atoms)
+  // vs the viewer's OWN localStorage settings. `null` in normal mode.
+  // Drives the read-only shared-view accents so the opener can see
+  // exactly which settings the sharer changed. localStorage isn't
+  // written in shared-view, so `own` is stable across the session.
+  const sharedDiff = useMemo<SharedSettingsDiff | null>(() => {
+    if (!readOnly) return null;
+    const own = composeStateFromShape(loadPersistedShape());
+    return diffSettings(
+      {
+        inactiveDomains,
+        researched,
+        capOverrides,
+        currentDomain,
+        rawLimitOverrides,
+        structuresEnabled,
+        metastorageRouteModes,
+      },
+      own,
+    );
+  }, [
+    readOnly,
+    inactiveDomains,
+    researched,
+    capOverrides,
+    currentDomain,
+    rawLimitOverrides,
+    structuresEnabled,
+    metastorageRouteModes,
+  ]);
 
   // Derived: AIC selectors (domain-aware where applicable).
   const unlockedFacilities = useMemo(
@@ -1625,6 +1664,7 @@ export function useDomainSettings(
     metastorage,
     isSharedView: readOnly,
     currentShape,
+    sharedDiff,
     importSharedPlan,
     exitSharedPlan,
   };

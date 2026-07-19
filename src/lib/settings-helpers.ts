@@ -295,6 +295,86 @@ export function structuresDisabledFromEnabled(
 }
 
 /**
+ * Per-category "this setting differs" flags for the read-only shared
+ * plan view. Populated only while viewing someone else's plan; each set
+ * holds the row keys whose value differs from the viewer's OWN settings,
+ * so the Settings UI can accent exactly those rows. See
+ * `useDomainSettings.sharedDiff`.
+ */
+export interface SharedSettingsDiff {
+  /** The selected factory region differs. */
+  readonly currentDomainChanged: boolean;
+  /** Domains whose active/inactive state differs. */
+  readonly domainActivation: ReadonlySet<DomainId>;
+  /** AIC nodes whose researched state differs (keyed by node id). */
+  readonly researched: ReadonlySet<AicTechId>;
+  /** Cap overrides that differ (keyed by `capKey`). */
+  readonly capOverrides: ReadonlySet<string>;
+  /** Raw-material limits that differ (keyed by `rawLimitKey`). */
+  readonly rawLimits: ReadonlySet<string>;
+  /** Structures whose enabled state differs (keyed by `structureKey`). */
+  readonly structures: ReadonlySet<string>;
+  /** Metastorage sources whose route mode differs (keyed by source domain). */
+  readonly routes: ReadonlySet<DomainId>;
+}
+
+/** One side of the diff — the plan-relevant composed settings atoms. */
+export interface DiffableSettings {
+  readonly inactiveDomains: ReadonlySet<DomainId>;
+  readonly researched: ReadonlySet<AicTechId>;
+  readonly capOverrides: ReadonlyMap<string, number>;
+  readonly currentDomain: DomainId;
+  readonly rawLimitOverrides: ReadonlyMap<string, number>;
+  readonly structuresEnabled: ReadonlySet<string>;
+  readonly metastorageRouteModes: ReadonlyMap<DomainId, "disabled" | DomainId>;
+}
+
+function symmetricSetDiff<T>(a: ReadonlySet<T>, b: ReadonlySet<T>): Set<T> {
+  const out = new Set<T>();
+  for (const x of a) if (!b.has(x)) out.add(x);
+  for (const x of b) if (!a.has(x)) out.add(x);
+  return out;
+}
+
+/** Keys whose value differs, or that exist on exactly one side. */
+function mapValueDiff<K, V>(a: ReadonlyMap<K, V>, b: ReadonlyMap<K, V>): Set<K> {
+  const out = new Set<K>();
+  for (const [k, v] of a) if (b.get(k) !== v) out.add(k);
+  for (const k of b.keys()) if (!a.has(k)) out.add(k);
+  return out;
+}
+
+/**
+ * Compute the per-category settings diff between a shared plan's snapshot
+ * (`shared`) and the viewer's own settings (`own`). Pure; drives the
+ * read-only shared-view accents. Symmetric — a setting customized on
+ * EITHER side is flagged (the point is to surface every divergence).
+ */
+export function diffSettings(
+  shared: DiffableSettings,
+  own: DiffableSettings,
+): SharedSettingsDiff {
+  return {
+    currentDomainChanged: shared.currentDomain !== own.currentDomain,
+    domainActivation: symmetricSetDiff(
+      shared.inactiveDomains,
+      own.inactiveDomains,
+    ),
+    researched: symmetricSetDiff(shared.researched, own.researched),
+    capOverrides: mapValueDiff(shared.capOverrides, own.capOverrides),
+    rawLimits: mapValueDiff(shared.rawLimitOverrides, own.rawLimitOverrides),
+    structures: symmetricSetDiff(
+      shared.structuresEnabled,
+      own.structuresEnabled,
+    ),
+    routes: mapValueDiff(
+      shared.metastorageRouteModes,
+      own.metastorageRouteModes,
+    ),
+  };
+}
+
+/**
  * Keep the requested tab if it is still available for the region,
  * otherwise fall back to the first available tab. Pure + deterministic
  * so the variable-tab fallback (a region may lack Limits/Structures) is

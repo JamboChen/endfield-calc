@@ -24,6 +24,8 @@ interface AicLayerProps {
   onOpenChange: (open: boolean) => void;
   onToggle: (id: AicTechId) => void;
   onActivateLayer: () => void;
+  /** Read-only shared-view: node ids whose researched state differs from own. */
+  changedNodes?: ReadonlySet<AicTechId>;
 }
 
 function AicLayerSection({
@@ -34,8 +36,12 @@ function AicLayerSection({
   onOpenChange,
   onToggle,
   onActivateLayer,
+  changedNodes,
 }: AicLayerProps) {
   const { t } = useTranslation(["aic", "settings"]);
+  // `changedNodes` is threaded only in read-only shared-view (undefined
+  // in normal mode), so its presence is the read-only signal.
+  const readOnly = changedNodes !== undefined;
 
   // Count facility-unlock + mode-unlock nodes only — cap-raises live in the
   // Facility-limits section, so they shouldn't double up the layer count.
@@ -80,7 +86,7 @@ function AicLayerSection({
       title={layerName}
       badge={badge}
       actions={
-        allDone ? undefined : (
+        allDone || readOnly ? undefined : (
           <Button
             type="button"
             variant="ghost"
@@ -108,6 +114,8 @@ function AicLayerSection({
             node={node}
             researched={researched}
             onToggle={onToggle}
+            changed={changedNodes?.has(node.id) ?? false}
+            readOnly={readOnly}
           />
         ))}
       </div>
@@ -124,6 +132,8 @@ interface AicLayerListProps {
   onLayerOpenChange: (layerId: AicLayerId, open: boolean) => void;
   onToggleNode: (id: AicTechId) => void;
   onActivateLayer: (layerId: string) => void;
+  /** Read-only shared-view: node ids whose researched state differs from own. */
+  changedNodes?: ReadonlySet<AicTechId>;
 }
 
 /**
@@ -137,6 +147,7 @@ export function AicLayerList({
   onLayerOpenChange,
   onToggleNode,
   onActivateLayer,
+  changedNodes,
 }: AicLayerListProps) {
   const ordered = useMemo(
     () => [...layers].sort((a, b) => a.order - b.order),
@@ -157,6 +168,7 @@ export function AicLayerList({
             onOpenChange={(o) => onLayerOpenChange(layer.id, o)}
             onToggle={onToggleNode}
             onActivateLayer={() => onActivateLayer(layer.id)}
+            changedNodes={changedNodes}
           />
         );
       })}

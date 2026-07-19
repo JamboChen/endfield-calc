@@ -46,8 +46,14 @@ export function RegionNavMenu({
   onEditingDomainChange,
 }: RegionNavMenuProps) {
   const { t } = useTranslation(["settings", "domain"]);
-  const { domains, activeDomains, currentDomain, toggleDomain } =
+  const { domains, activeDomains, currentDomain, toggleDomain, sharedDiff } =
     useDomainSettingsContext();
+  // Read-only shared-view: viewing other regions stays allowed, but the
+  // activation switches are frozen (they'd mutate the shared snapshot).
+  const readOnly = sharedDiff !== null;
+  const domainChanged = (id: DomainId): boolean =>
+    (sharedDiff?.domainActivation.has(id) ?? false) ||
+    (id === currentDomain && (sharedDiff?.currentDomainChanged ?? false));
 
   const { activeList, inactiveList } = useMemo(() => {
     const sorted = [...domains].sort((a, b) => a.sortId - b.sortId);
@@ -143,6 +149,8 @@ export function RegionNavMenu({
               isFactory={d.id === currentDomain}
               onSelect={() => onEditingDomainChange(d.id)}
               onToggle={() => handleToggle(d)}
+              disabled={readOnly}
+              changed={domainChanged(d.id)}
             />
           ))}
 
@@ -164,6 +172,8 @@ export function RegionNavMenu({
                   isFactory={false}
                   onSelect={() => onEditingDomainChange(d.id)}
                   onToggle={() => handleToggle(d)}
+                  disabled={readOnly}
+                  changed={domainChanged(d.id)}
                 />
               ))}
             </>
@@ -181,6 +191,10 @@ interface RegionRowProps {
   isFactory: boolean;
   onSelect: () => void;
   onToggle: () => void;
+  /** Read-only shared-view: freeze the activation switch. */
+  disabled?: boolean;
+  /** Read-only shared-view: this region's activation/selection differs. */
+  changed?: boolean;
 }
 
 function RegionRow({
@@ -190,6 +204,8 @@ function RegionRow({
   isFactory,
   onSelect,
   onToggle,
+  disabled = false,
+  changed = false,
 }: RegionRowProps) {
   const { t } = useTranslation(["settings", "domain"]);
   const name = t(`domains.${domain.id}.name`, {
@@ -207,6 +223,7 @@ function RegionRow({
           // Reserve room for the activation switch (non-pinned only).
           !domain.isPinned && "pr-12",
           !isActive && "opacity-70",
+          changed && "border-l-2 border-primary",
         )}
       >
         <span
@@ -239,6 +256,7 @@ function RegionRow({
           <Switch
             checked={isActive}
             onCheckedChange={onToggle}
+            disabled={disabled}
             aria-label={
               isActive
                 ? t("aic.domain.toggleDeactivate", {

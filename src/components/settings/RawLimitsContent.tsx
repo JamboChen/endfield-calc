@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import type { Item, ItemId } from "@/types";
 import type { DomainId } from "@/types/domain";
 
-import { SettingsCard, settingsRowClass } from "./SettingsCard";
+import { SettingsCard, settingsRowClass, sharedChangedRowClass } from "./SettingsCard";
 
 // Module-scope item index. `items` is a static module import, so the
 // Map can be built once at module load rather than every render.
@@ -37,6 +37,11 @@ interface RawLimitsContentProps {
     domainId: DomainId,
     value: number | null,
   ) => void;
+  /**
+   * Read-only shared-view: raw-limit keys whose value differs from the
+   * viewer's own, accented so the divergence is visible.
+   */
+  changedRaws?: ReadonlySet<string>;
 }
 
 /**
@@ -62,6 +67,7 @@ export function RawLimitsContent({
   regionRawMaterials,
   overrides,
   onSetLimit,
+  changedRaws,
 }: RawLimitsContentProps) {
   const { t } = useTranslation(["item", "settings"]);
 
@@ -138,6 +144,7 @@ export function RawLimitsContent({
               value={overrides.get(rawLimitKey(item.id, domainId))}
               defaultCap={defaultCaps?.get(item.id)}
               onSetLimit={onSetLimit}
+              changed={changedRaws?.has(rawLimitKey(item.id, domainId)) ?? false}
             />
           ))}
         </div>
@@ -162,6 +169,8 @@ interface RawLimitRowProps {
     domainId: DomainId,
     value: number | null,
   ) => void;
+  /** Read-only shared-view: this limit differs from the viewer's own. */
+  changed?: boolean;
 }
 
 function RawLimitRow({
@@ -170,6 +179,7 @@ function RawLimitRow({
   value,
   defaultCap,
   onSetLimit,
+  changed = false,
 }: RawLimitRowProps) {
   const { t } = useTranslation(["item", "settings"]);
   const itemName = t(item.id, { ns: "item", defaultValue: item.id });
@@ -218,6 +228,7 @@ function RawLimitRow({
         hasOverride
           ? "bg-muted/30"
           : "hover:bg-muted/20 transition-colors",
+        changed && sharedChangedRowClass,
       )}
     >
       {item.iconUrl && (
