@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -538,6 +538,15 @@ function AppContent() {
       setDialogOpen,
     ],
   );
+
+  // Clear the focus once the flash has played, so re-opening or
+  // re-visiting the region doesn't replay it. A fresh locked-item click
+  // sets a new focus (new nonce) and re-triggers.
+  useEffect(() => {
+    if (!settingsFocus) return;
+    const timer = setTimeout(() => setSettingsFocus(null), 2500);
+    return () => clearTimeout(timer);
+  }, [settingsFocus]);
 
   const handleLanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);

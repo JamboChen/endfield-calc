@@ -297,11 +297,33 @@
     from { opacity: 0; transform: translateY(6px) scale(0.96); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
   }
+
+  /* AIC tech flash — applied to a node row when the Settings sheet is
+     navigated from a locked Add-Target click. Two pulses, then removed. */
+  .animate-flash-highlight {
+    animation: flashHighlight 0.9s ease-in-out 2;
+    border-radius: var(--radius-md);
+  }
+  @keyframes flashHighlight {
+    0%, 100% { background-color: transparent; box-shadow: none; }
+    50% {
+      background-color: color-mix(in oklab, var(--primary) 20%, transparent);
+      box-shadow: inset 0 0 0 2px var(--primary);
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pill-enter,
   .target-card-enter {
     animation: none;
+  }
+  /* No pulsing for reduced motion — hold a static highlight for the
+     duration the class is applied instead. */
+  .animate-flash-highlight {
+    animation: none;
+    background-color: color-mix(in oklab, var(--primary) 16%, transparent);
+    box-shadow: inset 0 0 0 2px var(--primary);
+    border-radius: var(--radius-md);
   }
 }

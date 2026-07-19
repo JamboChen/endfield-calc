@@ -1,7 +1,8 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Lock, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { useSettingsFocus } from "@/contexts/settings-focus-context";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Popover,
@@ -36,6 +37,10 @@ interface AicNodeRowProps {
 const RECIPES_BY_ID = new Map(recipes.map((r) => [r.id, r]));
 const ITEMS_BY_ID = new Map(items.map((i) => [i.id, i]));
 
+// Flash window when a node is targeted by a locked-item navigation. Just
+// past the CSS animation (0.9s × 2) so the class outlives the pulses.
+const FLASH_DURATION_MS = 1900;
+
 /**
  * Resolve the icon URL for a recipe's primary product. `outputs[0]` is
  * the calculator-wide convention for "primary output" (see lp-solver.ts,
@@ -57,6 +62,25 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
   const prereqsMet = node.preNodes.every((p: AicTechId) => researched.has(p));
   const isLocked = !prereqsMet && !isResearched;
   const isImmutable = node.alreadyUnlocked;
+
+  // Flash this row (and scroll the first target into view) when a locked
+  // Add-Target click navigated here and named this node. Keyed on the
+  // focus `nonce` so re-clicking the same target re-fires; the local
+  // `flashing` state (not the persisted focus) drives the class, so
+  // clearing focus mid-window doesn't cut the flash short.
+  const focus = useSettingsFocus();
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [flashing, setFlashing] = useState(false);
+  useEffect(() => {
+    if (!focus || !focus.techIds.includes(node.id)) return;
+    setFlashing(true);
+    if (focus.techIds[0] === node.id) {
+      rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    const timer = setTimeout(() => setFlashing(false), FLASH_DURATION_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
 
   // Tech name from i18n (used as tooltip subtitle for facility/mode unlocks
   // and as the primary label for cap-raise rows in Facility Limits).
@@ -187,6 +211,7 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
 
   return (
     <div
+      ref={rowRef}
       className={cn(
         "group/aicrow transition-colors",
         settingsRowClass,
@@ -194,6 +219,7 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
           ? "opacity-55"
           : "hover:bg-accent/60 dark:hover:bg-accent/40",
         isImmutable && "opacity-70",
+        flashing && "animate-flash-highlight",
       )}
     >
       <Checkbox

@@ -9,7 +9,7 @@
  * `react-refresh/only-export-components`, mirroring
  * `domain-settings-context.ts`.
  */
-import { createContext } from "react";
+import { createContext, useContext } from "react";
 
 import type { AicTechId } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
@@ -27,3 +27,8 @@ export interface SettingsFocus {
 }
 
 export const SettingsFocusContext = createContext<SettingsFocus | null>(null);
+
+/** Read the active settings-focus request, or `null` when there is none. */
+export function useSettingsFocus(): SettingsFocus | null {
+  return useContext(SettingsFocusContext);
+}
