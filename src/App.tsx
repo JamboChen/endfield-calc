@@ -31,6 +31,7 @@ import {
   defaultRawCapsByDomain,
   metastorageExports,
   metastorageSources,
+  producibleRaws,
   rawAvailabilityByDomain,
   regionStructures,
 } from "./data";
@@ -40,6 +41,20 @@ import { namespaceStorageKey } from "./lib/storage-namespace";
 import type { FacilityId, ItemId } from "./types";
 import { DomainId } from "./types/constants";
 import type { MetastorageRouteConfig } from "./types/metastorage";
+
+/**
+ * Producible raws that actually have a producing recipe in the roster
+ * (Xiragen, Inergen — NOT the producer-less ores/sand/muck). Only these
+ * are worth surfacing as pickable targets: a raw with no recipe would
+ * just mine itself. Static (roster is a module constant), so computed
+ * once at load. The Add-Target picker admits these past its region-raw
+ * filter so a craftable raw can be requested as a production target.
+ */
+const producibleRawTargetIds: ReadonlySet<ItemId> = new Set(
+  [...producibleRaws].filter((id) =>
+    recipes.some((r) => r.outputs.some((o) => o.itemId === id)),
+  ),
+);
 
 /**
  * Theme-aware Sonner toast portal. Lives inside ThemeProvider so it can
@@ -600,6 +615,7 @@ function AppContent() {
         items={targetableItems}
         existingTargetIds={targets.map((t) => t.itemId)}
         regionRawMaterials={regionRawMaterials}
+        producibleRawTargetIds={producibleRawTargetIds}
         onBatchAddTargets={handleBatchAddTargets}
       />
 

@@ -252,7 +252,12 @@ export function aggregateBinTotals(
   for (const node of plan.nodes.values()) {
     if (node.type !== "item") continue;
     if (!node.isRawMaterial) continue;
-    if (node.productionRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
+    // Producible raws (Xiragen et al.) carry BOTH a vent/mine draw and a
+    // crafted portion; `productionRate` is the total, but pumps only pick
+    // up the mined portion — `rawSupplyRate`. Ordinary raws leave
+    // `rawSupplyRate` undefined ⇒ fall back to `productionRate`.
+    const drawRate = node.rawSupplyRate ?? node.productionRate;
+    if (drawRate <= MIN_VISIBLE_RATE_PER_MIN) continue;
     const cfg = rawMaterialSources.get(node.itemId);
     if (!cfg) continue;
     const facility = facilityById.get(cfg.sourceFacility);
@@ -260,7 +265,7 @@ export function aggregateBinTotals(
     const item = itemById.get(node.itemId);
     const perFacilityRate = getRawSourceRate(node.itemId, item);
     if (perFacilityRate <= 0) continue;
-    const fractionalPickups = node.productionRate / perFacilityRate;
+    const fractionalPickups = drawRate / perFacilityRate;
     const effectivePickups = ceilMode
       ? Math.ceil(fractionalPickups)
       : fractionalPickups;
@@ -373,9 +378,14 @@ export function computeLimitViolations(
     for (const node of plan.nodes.values()) {
       if (node.type !== "item") continue;
       if (node.isRawMaterial || ctx.manualRawMaterials?.has(node.itemId)) {
+        // Producible raws (Xiragen et al.): only the vent/mine draw
+        // (`rawSupplyRate`) is bounded by the node cap — the crafted
+        // portion of `productionRate` isn't mined. Ordinary raws leave
+        // `rawSupplyRate` undefined ⇒ fall back to `productionRate`.
+        const drawRate = node.rawSupplyRate ?? node.productionRate;
         rawRequirements.set(
           node.itemId,
-          (rawRequirements.get(node.itemId) ?? 0) + node.productionRate,
+          (rawRequirements.get(node.itemId) ?? 0) + drawRate,
         );
       }
     }

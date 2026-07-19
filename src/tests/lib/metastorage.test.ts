@@ -28,6 +28,7 @@ import {
 } from "@/data";
 import type {
   Facility,
+  Item,
   ProductionDependencyGraph,
   Recipe,
 } from "@/types";
@@ -335,6 +336,82 @@ describe("calculateProductionPlan metastorage auto-selection", () => {
     expect(recipeCounts(withRoute)).toEqual(recipeCounts(base));
     expect(withRoute.metastorageImports).toHaveLength(0);
     expect(withRoute.warnings).toHaveLength(0);
+  });
+
+  test("import is rejected when it would fragment a capped facility over its cap", async () => {
+    // A capped single-formula facility (cap 2) runs the target recipe +
+    // the `m` producer, fitting at 2 physical buildings. A cheaper import
+    // (`imp`) would let the LP run a budget-limited SLIVER of an
+    // alternative `m` producer on the SAME facility — a 0.25-building bin
+    // that ceils to a whole 3rd building, over the cap of 2. The LP's
+    // fractional cap slack can't see that (fractional total 1.0 ≤ 2), and
+    // the import is strictly cheaper on rawCost — so without the
+    // `facilityPlacementOveruse` selection key the auto-selector would
+    // pick `imp` and silently push the plan over-cap. Enabling Metastorage
+    // must only ever ADD supply options, never worsen the cap verdict.
+    const it = (id: string): Item => ({ id: id as ItemId, tier: 1 });
+    const testItems = [it("t_frag"), it("m_frag"), it("rawx_frag"), it("imp_frag")];
+    const testRecipes = [
+      makeRecipe(
+        "make_t_frag",
+        [{ itemId: "m_frag" as ItemId, amount: 1 }],
+        [{ itemId: "t_frag" as ItemId, amount: 1 }],
+      ),
+      makeRecipe(
+        "make_m_x_frag",
+        [{ itemId: "rawx_frag" as ItemId, amount: 1 }],
+        [{ itemId: "m_frag" as ItemId, amount: 1 }],
+      ),
+      makeRecipe(
+        "make_m_imp_frag",
+        [{ itemId: "imp_frag" as ItemId, amount: 1 }],
+        [{ itemId: "m_frag" as ItemId, amount: 1 }],
+      ),
+    ];
+    const opts = {
+      rawMaterials: new Set<ItemId>(["rawx_frag" as ItemId]),
+      facilityCaps: new Map<FacilityId, number>([[FAC.id, 2]]),
+    };
+    const target = [{ itemId: "t_frag" as ItemId, rate: 15 }];
+
+    // Baseline (no route): fits at 2 placements.
+    const base = await calculateProductionPlan(
+      target,
+      testItems,
+      testRecipes,
+      [FAC],
+      opts,
+    );
+    expect(base.warnings.some((w) => w.kind === "facility-over-cap")).toBe(
+      false,
+    );
+
+    // With the cheaper import available, the selector must reject it.
+    const withRoute = await calculateProductionPlan(
+      target,
+      testItems,
+      testRecipes,
+      [FAC],
+      {
+        ...opts,
+        metastorageRoutes: [
+          {
+            sourceDomain: DomainId.DOMAIN_1,
+            ttvBudgetPerMinute: 7.5,
+            cycleSeconds: 3600,
+            itemCosts: new Map<ItemId, number>([["imp_frag" as ItemId, 1]]),
+          },
+        ],
+      },
+    );
+    expect(
+      withRoute.metastorageImports.some(
+        (i) => i.itemId === ("imp_frag" as ItemId),
+      ),
+    ).toBe(false);
+    expect(withRoute.warnings.some((w) => w.kind === "facility-over-cap")).toBe(
+      false,
+    );
   });
 
   test("import-only target within budget: feasible without raw promotion", async () => {

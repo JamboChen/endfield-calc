@@ -59,9 +59,19 @@ Bin external rates scale with per-recipe active slot counts, not `shape.netOutpu
 
 ## Raw byproducts route as edges
 
-`mapPlanToFlowBinFused` (Recipe View bf=1) and `mapPlanToFlowBinFusedSeparated` (Facility View): the greedy producer→consumer allocator treats raw byproduct producers (e.g. Liquid Purifier's water output) as valid producers. The pickup node absorbs only the LP-computed NET external demand (`node.productionRate`, post-LP netting in `calculateFlows`).
+`mapPlanToFlowBinFused` (Recipe View bf=1) and `mapPlanToFlowBinFusedSeparated` (Facility View): the greedy producer→consumer allocator treats raw byproduct producers (e.g. Liquid Purifier's water output) as valid producers. The pickup node absorbs only the LP-computed NET external demand (`rawDraw(node)` = `node.rawSupplyRate ?? node.productionRate` — post-LP netting in `calculateFlows`; the `rawSupplyRate` branch is the producible-raw vent draw, see below).
 
-The legacy `mapPlanToFlowMerged` (bf=0) still uses the pickup-only model — pickup card shows NET demand but edges sum to gross consumer demand. Documented limitation; do not "fix" without rewriting the merged-view edge layer.
+The legacy `mapPlanToFlowMerged` (bf=0) still uses the pickup-only model for ORDINARY raws — pickup card shows NET demand but edges sum to gross consumer demand. Documented limitation; do not "fix" without rewriting the merged-view edge layer. (Producible raws are the exception — they route through `producersOf` there too, see below.)
+
+## Producible-raw targets + intermediates (vent + craft)
+
+A **producible raw** (Xiragen et al. — item node carries `rawSupplyRate`) is dual-sourced: a capped vent pickup PLUS its transmuter recipe. All three mappers render it through the SAME multi-producer allocation as Metastorage imports, so vent and craft split correctly at every consumer/sink. The signal everywhere is `node.rawSupplyRate !== undefined`.
+
+- **`rawDraw(node)`** (module helper in both mapper files) = `rawSupplyRate ?? productionRate`. Every raw-pickup sizing/emission site uses it so the vent pickup covers only the MINED portion; the crafted portion flows from the transmuter.
+- **Bin-fused (both paths)**: the transmuter is already a producer (`bin.externalOutputs`). Producible-raw targets are NOT skipped in consumer-registration or sink-emission (`node.isRawMaterial && rawSupplyRate === undefined` is the pure-raw skip), so the sink is a normal consumer — transmuter allocates craft, the pickup-residual loop feeds the vent portion (`emittedNodeIds` includes `targetSinkNodes`, which is what lets the residual reach the sink).
+- **Merged (bf=0)**: `producersOf` returns the recipe producers (scanned directly, bypassing `getItemProducers`' raw-guard) PLUS a vent pseudo-producer `{ id: createRawMaterialId(itemId), rate: rawSupplyRate }`; `ensureProducerNode` materialises that pickup node on demand. Terminal producible-raw targets force their sink edges (`isProducibleRawTarget` in the sink-edge condition) since the vent has no flow node yet.
+- **Singleton-terminal folding is DISABLED for producible-raw targets** in all three paths (`isFoldedTerminalRecipe` in merged; the `rawSupplyRate !== undefined` bail in both bin-fused detection loops) — an embed can only represent ONE supply, but a producible raw has two.
+- Pins/guards: never emit a pickup for a zero-vent producible raw (`rawDraw ≤ MIN`), else a 0-rate orphan pickup trips `assertFlowIntegrity`. Conservation is pinned per-mapper in `producible-raws.test.ts` (vent-mined / over-cap / zero-vent / crafted-intermediate).
 
 ## Metastorage import sources
 

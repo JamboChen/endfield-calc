@@ -37,6 +37,16 @@ export type BipartiteGraph = {
 
   targets: Set<ItemId>;
   rawMaterials: Set<ItemId>;
+  /**
+   * Raws that ALSO have an active producer recipe under the current
+   * plan (subset of `@/data`'s `producibleRaws` policy set, restricted
+   * to those with ≥1 surviving producer). Disjoint from `rawMaterials`:
+   * these are NOT infinite leaves — the LP gives them a balance row plus
+   * a capped vent/mine-supply variable so it can choose vent-mine vs.
+   * craft. Their item nodes keep `isRawMaterial: true` (still vent-
+   * sourced for pickups/power). See `.claude/rules/solver.md`.
+   */
+  producibleRaws: Set<ItemId>;
 };
 
 export type SCCInfo = {
@@ -67,14 +77,24 @@ export type FlowData = {
   itemDemands: Map<ItemId, number>;
   recipeFacilityCounts: Map<RecipeId, number>;
   metastorageFlows: MetastorageFlow[];
+  /**
+   * Per-item vent/mine draw (items/min) for `producibleRaws` — the value
+   * of the LP's `rawsupply_*` variable. This is the RAW-sourced portion
+   * only (the recipe-produced portion lives in the producer recipes'
+   * facility counts). The calculator uses it to set the item node's
+   * `rawSupplyRate` so pickup-pump sizing + `raw-over-cap` judge the vent
+   * draw, not total production. Empty for plans with no producible raws.
+   */
+  rawSupplyRates: Map<ItemId, number>;
 };
 
 /**
  * LP-solution quality metrics surfaced by `calculateFlows` for the
  * Metastorage candidate enumeration in `calculator.ts`. Compared
- * lexicographically: `feasible` → `slackMagnitude` → `powerShortfall`
- * → `totalRawCost` → `totalBuildingCount` → `totalPower` →
- * `totalTtvUsedPerMinute`. `ttvOverusePerMinute` is not a ranking key
+ * lexicographically: `feasible` → `slackMagnitude` →
+ * `facilityPlacementOveruse` → `powerShortfall` → `totalRawCost` →
+ * `totalBuildingCount` → `totalPower` → `totalTtvUsedPerMinute`.
+ * `ttvOverusePerMinute` is not a ranking key
  * — it's the viability gate: any positive value disqualifies the
  * candidate outright (an over-budget plan is physically unrealizable).
  *
@@ -105,6 +125,22 @@ export type FlowSolveMetrics = {
    * comparison key.
    */
   slackMagnitude: number;
+  /**
+   * Σ over capped **single-formula** facilities of `max(0, Σ ceil(fc_r) −
+   * cap)` — the number of PHYSICAL buildings the candidate would place
+   * over a facility cap through fragmentation (a fractional total that
+   * fits the cap but whose per-recipe ceilings exceed it). The LP's own
+   * facility-cap slack only sees the FRACTIONAL total, so a candidate
+   * that runs a 0.42-building sliver of an extra recipe on a capped
+   * single-formula facility looks free to it — but that sliver ceils to
+   * a whole extra building. Ranked right after `slackMagnitude` (a
+   * facility over-cap is an UNBUILDABLE hard limit) so the Metastorage
+   * selection never picks an import that tips a facility over its cap
+   * when a fitting choice (including no-import) exists. Its own
+   * comparison key (buildings, not items/min — cross-unit rule). Always
+   * 0 when no facility caps are set. See `.claude/rules/solver.md`.
+   */
+  facilityPlacementOveruse: number;
   /**
    * Σ TTV-budget overage across routes, in TTV/min. Positive ⟺ the LP
    * needed an import beyond a route's budget (only possible for
