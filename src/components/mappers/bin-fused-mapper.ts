@@ -87,13 +87,19 @@ const EFFECTIVE_COUNT_EPS = 1e-9;
 /**
  * Effective (fractional) building count of a bin — the packer's
  * per-variant utilisation scale `u_v`. `rateDirection` is
- * max-normalised in Phase 3, so the busiest recipe's slot allocation
- * equals `u_v` exactly; recover it as the max per-recipe slot count
- * allocated to this bin. Singleton bins carry it directly as their
- * fractional `buildingCount`; grouped bins get an INTEGER
- * `buildingCount` from the ILP (placed buildings), so the activity
- * scale must be read from `plan.recipeBinAllocations`. Falls back to
- * `bin.buildingCount` when no allocation references the bin
+ * max-normalised in Phase 3, so in the common case the busiest
+ * recipe's slot allocation equals `u_v`; recover it as the max
+ * per-recipe slot count allocated to this bin. When the packer splits
+ * a physical recipe's utilisation across equivalence-class demand ids
+ * (`mapPhysicalToDemandIds`), each demand id carries only its share,
+ * so the recovered value may UNDER-estimate `u_v` — that only softens
+ * the front-load (full buildings below true nominal rate); Σ instance
+ * rates ≡ bin external rates holds for ANY value in (0, N] because
+ * the load profile always sums to it. Singleton bins carry it
+ * directly as their fractional `buildingCount`; grouped bins get an
+ * INTEGER `buildingCount` from the ILP (placed buildings), so the
+ * activity scale must be read from `plan.recipeBinAllocations`. Falls
+ * back to `bin.buildingCount` when no allocation references the bin
  * (defensive), and clamps to `buildingCount` against FP drift.
  */
 function effectiveBuildingCount(
@@ -110,6 +116,39 @@ function effectiveBuildingCount(
   }
   if (maxSlots <= 0) return bin.buildingCount;
   return Math.min(maxSlots, bin.buildingCount);
+}
+
+/**
+ * Front-loaded load profile for `N` placed buildings at effective
+ * (fractional) count `E ≤ N`: the first ⌊E⌋ buildings at full load
+ * (1.0), the rest sharing the remainder evenly — a single partial
+ * building when `N === ⌈E⌉` (the common case; lex pass 1 minimises
+ * buildings). Two guards:
+ *
+ *   - `E ≈ N` → every building at `E / N` (≈ 1; even split, exact
+ *     conservation).
+ *   - near-integer `E < N` (defensive; the ILP normally places
+ *     `⌈E⌉` buildings) → the decrement spreads the remainder over TWO
+ *     tail buildings instead of leaving a zero-load instance, which
+ *     would emit a node with no edges and trip the isolated-node
+ *     integrity check.
+ *
+ * Invariant: the returned loads sum to `E` exactly (± FP), each in
+ * (0, 1] — per-building rates derived as `rate/E × load` therefore
+ * reconstruct the bin totals for any `E`.
+ */
+export function frontLoadedProfile(E: number, N: number): number[] {
+  if (E >= N - EFFECTIVE_COUNT_EPS) {
+    return new Array<number>(N).fill(E / N);
+  }
+  let fullCount = Math.min(Math.floor(E), N - 1);
+  if (E - fullCount <= EFFECTIVE_COUNT_EPS) {
+    fullCount = Math.max(0, fullCount - 1);
+  }
+  const tailLoad = (E - fullCount) / (N - fullCount);
+  const loads = new Array<number>(N).fill(tailLoad);
+  loads.fill(1, 0, fullCount);
+  return loads;
 }
 
 /**
@@ -1057,20 +1096,33 @@ export function mapPlanToFlowBinFusedSeparated(
       rate: io.rate / E,
       isLiquid: io.isLiquid,
     }));
-    // Load profile: `fullCount` buildings at 1.0, the rest sharing the
-    // remainder evenly — a single partial building when N === ⌈E⌉ (the
-    // common case; lex pass 1 minimises buildings). The decrement guard
-    // keeps every instance above zero load: a zero-rate instance would
-    // emit a node with no edges and trip the isolated-node integrity
-    // check.
-    let fullCount =
-      E >= N - EFFECTIVE_COUNT_EPS ? N : Math.min(Math.floor(E), N - 1);
-    if (fullCount < N && E - fullCount <= EFFECTIVE_COUNT_EPS) {
-      fullCount = Math.max(0, fullCount - 1);
+    // Load profile (see `frontLoadedProfile`): full buildings first,
+    // remainder on the tail, near-integer/near-N guards inside.
+    const loads = frontLoadedProfile(E, N);
+    // Fold a sub-visible tail into the previous building: a load so
+    // small that EVERY IO rate falls under MIN_VISIBLE_RATE_PER_MIN
+    // (e.g. fc = k + 1e-5) produces an instance whose producer/consumer
+    // entries are all filtered below — an emitted node with no edges,
+    // tripping the isolated-node integrity check. A flat catalyst
+    // drain keeps the instance connected regardless (its upkeep edge
+    // is load-independent), so those never fold. The fold adds ≤ the
+    // sub-visible rate to the previous building — invisible at display
+    // precision, and Σ loads (conservation) is preserved exactly.
+    const maxFullIoRate = Math.max(
+      0,
+      ...perBuildingInputsFull.map((io) => io.rate),
+      ...perBuildingOutputsFull.map((io) => io.rate),
+    );
+    while (
+      loads.length >= 2 &&
+      catalystPerInstance <= MIN_VISIBLE_RATE_PER_MIN &&
+      maxFullIoRate * loads[loads.length - 1] <= MIN_VISIBLE_RATE_PER_MIN
+    ) {
+      const tail = loads.pop()!;
+      loads[loads.length - 1] += tail;
     }
-    const tailLoad = fullCount < N ? (E - fullCount) / (N - fullCount) : 1;
-    for (let i = 0; i < N; i++) {
-      const loadFraction = i < fullCount ? 1 : tailLoad;
+    for (let i = 0; i < loads.length; i++) {
+      const loadFraction = loads[i];
       const inputs = perBuildingInputsFull.map((io) => ({
         itemId: io.itemId,
         rate:

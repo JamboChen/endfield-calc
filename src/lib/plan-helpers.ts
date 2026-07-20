@@ -838,6 +838,15 @@ export function getItemProducers(
  * @returns remainingByProducer — leftover production per producer (for
  *   disposal). Contains EVERY producer id, drained ones at 0.
  */
+/**
+ * Producer-count cap for the 0b pair peel's O(C·P²) scan. Above it the
+ * pair peel is skipped (0a and the greedy still run — correctness is
+ * unaffected, only fewer exact pairs get isolated). 64 producers ≈
+ * 4k pair probes per consumer, comfortably instant; real Facility View
+ * plans top out in the tens of instances per item.
+ */
+const PAIR_PEEL_MAX_PRODUCERS = 64;
+
 export function computeTransportAllocation(
   producers: { id: string; rate: number }[],
   consumers: { id: string; rate: number }[],
@@ -867,7 +876,10 @@ export function computeTransportAllocation(
   const totalSupply = producers.reduce((s, p) => s + p.rate, 0);
   const totalDemand = consumers.reduce((s, c) => s + c.rate, 0);
   if (totalSupply >= totalDemand - MIN_VISIBLE_RATE_PER_MIN) {
-    // 0a: 1↔1 exact peel.
+    // 0a: 1↔1 exact peel. Producers are scanned in the caller's
+    // registration order (Map insertion order) — 0b's captured array
+    // below MUST keep the same ordering so the two phases' tie-breaks
+    // stay mutually stable.
     for (let ci = 0; ci < consumers.length; ci++) {
       const demand = consumers[ci].rate;
       if (demand <= MIN_VISIBLE_RATE_PER_MIN) continue;
@@ -882,9 +894,14 @@ export function computeTransportAllocation(
         }
       }
     }
-    // 0b: 2↔1 pair peel. Producer counts per item are small (per-bin /
-    // per-building instances), so the quadratic pair scan is cheap.
-    const producerIds = [...remaining.keys()];
+    // 0b: 2↔1 pair peel — O(C·P²). Per-building instance counts reach
+    // the tens on large plans (35+ furnace instances), which is still
+    // cheap, but the quadratic scan is capped so a pathological
+    // many-hundreds-of-instances item degrades to the plain greedy
+    // (correct, just fewer peeled pairs) instead of stalling the
+    // mapper on the main thread.
+    const producerIds =
+      producers.length <= PAIR_PEEL_MAX_PRODUCERS ? [...remaining.keys()] : [];
     for (let ci = 0; ci < consumers.length; ci++) {
       if (peeled[ci]) continue;
       const demand = consumers[ci].rate;
