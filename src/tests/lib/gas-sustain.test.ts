@@ -302,21 +302,22 @@ describe("gas sustain: transmuter catalyst", () => {
 
   test("separated Facility View: flat 6/min catalyst per PLACED building, ingredient load-proportional", async () => {
     // Mirrors the real Xiragen case: the catalyst item is ALSO a base
-    // ingredient (1/min per building) on top of the 6/min drain. Target
+    // ingredient (4/min per building) on top of the 6/min drain. Target
     // 2.4 nuggets → fc 2.4 → 3 placed buildings (loads 1, 1, 0.4).
     // Each building's top "catalyst" edge must read the flat drain (6 —
     // even the partial one, which idles at 6), NOT the folded
     // per-fractional-building 6·k_r = 7.5 / 3.0 the load-proportional
     // split used to produce; the left ingredient edge scales with load
-    // (1, 1, 0.4).
+    // (4, 4, 1.6).
     //
-    // NOTE: the ingredient boundary is read from the BASE roster
-    // (`catalystIngredientRate` → `@/data/recipes`) keyed by recipe id,
-    // so this synthetic clone must keep the REAL recipe's catalyst-item
-    // input amount (liquid xiranite × 1 per craft at recipes.ts:2052).
+    // The ingredient amount (4) deliberately DIVERGES from the real
+    // roster recipe sharing this id (1 at recipes.ts:2052): the
+    // ingredient/upkeep boundary comes from the plan's catalyst
+    // contract, never from a base-roster lookup — synthetic fixtures
+    // need no alignment with real data.
     const mergedIngredientRecipe: Recipe = {
       id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_XIRANITE_1,
-      inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 }],
+      inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 4 }],
       outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
       facilityId: FacilityId.TRANSMUTER_1,
       craftingTime: 60, // 1/min per facility
@@ -340,7 +341,8 @@ describe("gas sustain: transmuter catalyst", () => {
       { rawMaterials: RAWS, gasSustain: { drains, vaporizerEnvs: new Map() } },
     );
     expect(plan.lpStatus).toBe("ok");
-    // Sanity: folded intake = ingredient 1×2.4 + catalyst 6×ceil(2.4).
+    // Sanity: folded intake = ingredient 4×2.4 + catalyst 6×ceil(2.4),
+    // and the plan's catalyst contract carries that exact decomposition.
     const trans = getRecipeNode(plan, mergedIngredientRecipe.id);
     expect(trans.facilityCount).toBeCloseTo(2.4, 3);
     const foldedIntake = trans.recipe.inputs.find(
@@ -349,7 +351,12 @@ describe("gas sustain: transmuter catalyst", () => {
     expect(
       calcRate(foldedIntake.amount, trans.recipe.craftingTime) *
         trans.facilityCount,
-    ).toBeCloseTo(2.4 + 18, 3);
+    ).toBeCloseTo(9.6 + 18, 3);
+    expect(trans.catalyst).toBeDefined();
+    expect(trans.catalyst!.itemId).toBe(ItemId.ITEM_LIQUID_XIRANITE);
+    expect(trans.catalyst!.ratePerMinute).toBeCloseTo(6, 3);
+    expect(trans.catalyst!.upkeepPerMin).toBeCloseTo(18, 3);
+    expect(trans.catalyst!.ingredientPerMin).toBeCloseTo(9.6, 3);
 
     // `assertFlowIntegrity` throws in test mode — reaching the
     // assertions below proves integrity.
@@ -381,7 +388,7 @@ describe("gas sustain: transmuter catalyst", () => {
       }
       return sum;
     };
-    const expectedIngredient = [1, 1, 0.4];
+    const expectedIngredient = [4, 4, 1.6];
     instances.forEach((inst, i) => {
       expect(intakeOf(inst.id, "catalyst")).toBeCloseTo(6, 3);
       expect(intakeOf(inst.id, "left")).toBeCloseTo(expectedIngredient[i], 3);

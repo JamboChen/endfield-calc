@@ -14,6 +14,7 @@ import type {
   InvalidCycleInfo,
   PlanLpStatus,
   PlanWarning,
+  CatalystUpkeep,
   ProductionDependencyGraph,
   ProductionGraphNode,
   Bin,
@@ -31,6 +32,7 @@ import {
 import {
   aggregateBinTotals,
   computeLimitViolations,
+  placedBuildings,
 } from "@/lib/plan-helpers";
 import { computeRecipeReachability } from "@/lib/recipe-reachability";
 import { computeVariantExclusions } from "@/lib/variant-filter";
@@ -586,6 +588,7 @@ function buildProductionGraph(
   lpStatus: PlanLpStatus = "ok",
   powerGenerationByRecipe?: ReadonlyMap<RecipeId, number>,
   envByVaporizeRecipe?: ReadonlyMap<RecipeId, number>,
+  catalystByRecipe?: ReadonlyMap<RecipeId, CatalystUpkeep>,
 ): ProductionDependencyGraph {
   const nodes = new Map<string, ProductionGraphNode>();
   const edges: Array<{ from: string; to: string }> = [];
@@ -738,6 +741,10 @@ function buildProductionGraph(
       // for every other recipe. Env sinks are also `isDisposal` (zero
       // outputs) — consumers check this BEFORE powerGeneration.
       envSupport: envByVaporizeRecipe?.get(recipeId),
+      // Catalyst contract (1.4 transmuters): the authoritative
+      // ingredient/upkeep decomposition of the folded catalyst intake.
+      // Undefined for every non-drain recipe.
+      catalyst: catalystByRecipe?.get(recipeId),
       binId,
       binSisterRecipeIds: sisters,
       prefillCandidates: recipePrefill.get(recipeId) ?? [],
@@ -1397,11 +1404,10 @@ function setCatalystScale(
  * Per-recipe idle-drain scales `k_r = ceil(fc_r) / fc_r` from the
  * CURRENT plan's active recipe nodes, so recipe `r` is charged
  * `ratePerMinute × ceil(fc_r)` — the whole buildings it physically
- * occupies. `Math.max(1, Math.ceil(fc))` is deliberately IDENTICAL to
- * the per-bin ceil in `aggregateBinTotals` (plan-helpers.ts) and the
- * node card's catalyst total (`CustomProductionNode.tsx`), so
+ * occupies. Uses the shared `placedBuildings` ceil (plan-helpers.ts),
+ * the same semantics as the per-bin ceil in `aggregateBinTotals`, so
  * `Σ ratePerMinute × ceil(fc_r) ≡ ratePerMinute × physicalPerFacility`
- * and the rendered edge equals the popup by construction.
+ * by construction.
  *
  * The map is rebuilt FRESH on every call: a folded recipe absent from
  * the plan (fc_r = 0) gets no entry, so `setCatalystScale`'s `?? 1`
@@ -1436,7 +1442,7 @@ function computeCatalystScales(
       }
       continue;
     }
-    const ceilR = Math.max(1, Math.ceil(fc));
+    const ceilR = placedBuildings(fc);
     scales.set(node.recipe.id, Math.max(1, ceilR / fc));
   }
   return scales;
@@ -1859,6 +1865,28 @@ export async function calculateProductionPlan(
       maps.recipeMap,
       graph.rawMaterials,
     );
+    // Catalyst contract (the plan-level channel display code consumes,
+    // mirroring `powerGeneration` / `envSupport`): decompose each active
+    // folded clone's catalyst intake into genuine ingredient vs charged
+    // upkeep. Read from the SAME clone objects the flows were solved
+    // with, at the same moment — exact by construction for synthetic
+    // recipes, region recipes, and unconverged keep-last plans alike
+    // (the keep-last path restores clone amounts before returning, so a
+    // kept plan's contract always matches its own flows).
+    const catalystByRecipe = new Map<RecipeId, CatalystUpkeep>();
+    for (const f of foldedCatalysts) {
+      const fc = flowData.recipeFacilityCounts.get(f.recipe.id) ?? 0;
+      if (!(fc > 0)) continue;
+      const upkeepPerCraft = f.catalystInput.amount - f.originalInputAmount;
+      catalystByRecipe.set(f.recipe.id, {
+        itemId: f.catalystItemId,
+        ratePerMinute: calcRate(f.basePerCraft, f.recipe.craftingTime),
+        upkeepPerMin: calcRate(upkeepPerCraft, f.recipe.craftingTime) * fc,
+        ingredientPerMin:
+          calcRate(f.originalInputAmount, f.recipe.craftingTime) * fc,
+      });
+    }
+
     const builtPlan = buildProductionGraph(
       graph,
       flowData,
@@ -1880,6 +1908,7 @@ export async function calculateProductionPlan(
       lpStatus,
       powerGenerationByRecipe,
       envByVaporizeRecipe.size > 0 ? envByVaporizeRecipe : undefined,
+      catalystByRecipe.size > 0 ? catalystByRecipe : undefined,
     );
     // Limit-violation verdict (facility caps + raw caps) — emitted by
     // the calculator so EVERY consumer (optimizer probes, the hook's
@@ -2037,7 +2066,7 @@ export async function calculateProductionPlan(
           }
           envBuildings.set(
             env,
-            (envBuildings.get(env) ?? 0) + Math.ceil(node.facilityCount),
+            (envBuildings.get(env) ?? 0) + placedBuildings(node.facilityCount),
           );
         }
         for (const [env, buildings] of envBuildings) {

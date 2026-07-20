@@ -27,6 +27,7 @@ import type {
   ProductionDependencyGraph,
   Bin,
   BinId,
+  CatalystUpkeep,
   FlowProductionNode,
   FlowTargetNode,
   FlowDisposalNode,
@@ -44,9 +45,7 @@ import {
   envBuffedMachines,
   partitionBuffedBuildings,
   buildCatalystIntakeByNode,
-  catalystIngredientRate,
   routeCatalystIntakeToTopHandle,
-  type CatalystIntake,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -55,12 +54,12 @@ import {
 } from "@/lib/node-keys";
 import { calcRate, getRawSourceRate } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
-import { facilitySustainDrains } from "@/data/gas-sustain";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import {
   buildBinActivitySums,
   computeTransportAllocation,
   pickBinHeadlineOutput,
+  placedBuildings,
 } from "@/lib/plan-helpers";
 import { assertFlowIntegrity } from "./flow-assertions";
 
@@ -76,6 +75,20 @@ function rawDraw(node: {
   rawSupplyRate?: number;
 }): number {
   return node.rawSupplyRate ?? node.productionRate;
+}
+
+/**
+ * Catalyst contract of a drain bin: the plan node of its sole recipe.
+ * Drain facilities are single-formula, so drain bins are always
+ * singletons (grouped bins return `undefined`).
+ */
+function binCatalyst(
+  plan: ProductionDependencyGraph,
+  bin: Bin,
+): CatalystUpkeep | undefined {
+  if (bin.recipeIds.length !== 1) return undefined;
+  const node = plan.nodes.get(bin.recipeIds[0]);
+  return node?.type === "recipe" ? node.catalyst : undefined;
 }
 
 /**
@@ -423,6 +436,10 @@ export function mapPlanToFlowBinFused(
           // reference so the Prefill chip can render when they're in a
           // cycle (e.g. moss planter/seedcollector singletons).
           bin,
+          // Catalyst contract off the headline recipe's plan node. Drain
+          // facilities are single-formula, so a drain bin is always a
+          // singleton whose scope equals the recipe's — copy as-is.
+          catalyst: binCatalyst(plan, bin),
           // bf=1 chip: the bin's full union of prefill items. Mirrors
           // `bin.prefillCandidates` so `CustomProductionNode` can read
           // `node.prefillCandidates` uniformly across both mapper paths.
@@ -895,6 +912,8 @@ export function mapPlanToFlowBinFusedSeparated(
     perBuildingInputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }>;
     perBuildingOutputs: Array<{ itemId: ItemId; rate: number; isLiquid: boolean }>;
     isPartialLoad: boolean;
+    /** Catalyst contract re-scaled to THIS one building (drain bins only). */
+    catalyst?: CatalystUpkeep;
   };
 
   // Classify bins: production (recipes with outputs) vs disposal
@@ -921,7 +940,7 @@ export function mapPlanToFlowBinFusedSeparated(
   for (const bin of productionBins) {
     if (bin.recipeIds.length !== 1) continue;
     if (bin.externalOutputs.length !== 1) continue;
-    if (Math.max(1, Math.ceil(bin.buildingCount)) !== 1) continue;
+    if (placedBuildings(bin.buildingCount) !== 1) continue;
     const outputItemId = bin.externalOutputs[0].itemId;
     if (!targetItemIds.has(outputItemId)) continue;
     // Producible-raw targets (Xiragen et al.) are dual-sourced (vent +
@@ -957,46 +976,29 @@ export function mapPlanToFlowBinFusedSeparated(
   // Build per-bin instance count and per-instance rates. Singleton-
   // terminal bins are excluded from instance emission entirely — their
   // single building's data is rendered via the target sink's embed.
-  //
-  // Catalyst intake (`routeCatalystIntakeToTopHandle`) is built here
-  // per instance — NOT via the generic `buildCatalystIntakeByNode`,
-  // whose `facilityCount`-scaled boundary is wrong for per-building
-  // nodes (they embed `facilityCount: 1` even at partial load).
   const productionInstances: BinInstance[] = [];
-  const instanceCatalystIntake = new Map<string, CatalystIntake>();
   for (const bin of productionBins) {
     if (singletonTerminalBinIds.has(bin.id)) continue;
-    const N = Math.max(1, Math.ceil(bin.buildingCount));
+    const N = placedBuildings(bin.buildingCount);
     // Per-building rates: load-proportional split, with the last
     // instance partial-load for singletons with fractional
     // facilityCount (grouped bins have integer buildingCount after
     // Phase 3 ILP, so every instance is full-load).
     //
     // EXCEPTION — the folded transmuter catalyst: each PLACED building
-    // drains it flat (`ratePerMinute`, even when idle / partial-load),
-    // so the drain item's folded portion splits `catalystTotal / N`
-    // per instance while its genuine-ingredient portion stays
-    // load-proportional. Dividing the bin's ACTUAL folded total (not a
-    // hardcoded rate) keeps Σ instance rates ≡ the bin's external rate
+    // drains it flat (even when idle / partial-load), so the drain
+    // item's upkeep portion splits `upkeepPerMin / N` per instance
+    // while its genuine-ingredient portion stays load-proportional.
+    // Both figures come from the plan's catalyst contract
+    // (`ProductionGraphNode.catalyst`) — the authoritative
+    // decomposition, so Σ instance rates ≡ the bin's external rate
     // even on an unconverged keep-last plan; on a converged plan
-    // `catalystTotal / N` = the drain rate exactly. Drain facilities
-    // are single-formula, so drain bins are always singletons.
-    const drain = facilitySustainDrains.get(bin.facilityId);
-    const drainRecipe = drain ? recipeById.get(bin.recipeIds[0]) : undefined;
-    let catalystPerInstance = 0;
-    let catalystIngredientPerBuilding = 0;
-    if (drain && drainRecipe) {
-      const io = bin.externalInputs.find((x) => x.itemId === drain.itemId);
-      if (io) {
-        catalystIngredientPerBuilding = catalystIngredientRate(
-          drainRecipe,
-          drain.itemId,
-        );
-        const ingredientTotal =
-          catalystIngredientPerBuilding * bin.buildingCount;
-        catalystPerInstance = Math.max(0, io.rate - ingredientTotal) / N;
-      }
-    }
+    // `upkeepPerMin / N` = the drain rate exactly.
+    const catalyst = binCatalyst(plan, bin);
+    const catalystPerInstance = catalyst ? catalyst.upkeepPerMin / N : 0;
+    const catalystIngredientPerBuilding = catalyst
+      ? catalyst.ingredientPerMin / bin.buildingCount
+      : 0;
     const fullLoadFraction = Math.min(1, bin.buildingCount / N);
     const perBuildingInputsAvg = bin.externalInputs.map((io) => ({
       itemId: io.itemId,
@@ -1018,7 +1020,7 @@ export function mapPlanToFlowBinFusedSeparated(
       const inputs = perBuildingInputsAvg.map((io) => ({
         itemId: io.itemId,
         rate:
-          catalystPerInstance > 0 && io.itemId === drain!.itemId
+          catalystPerInstance > 0 && io.itemId === catalyst!.itemId
             ? catalystIngredientPerBuilding * loadFraction +
               catalystPerInstance
             : (io.rate / fullLoadFraction) * loadFraction,
@@ -1029,12 +1031,6 @@ export function mapPlanToFlowBinFusedSeparated(
         rate: (io.rate / fullLoadFraction) * loadFraction,
         isLiquid: io.isLiquid,
       }));
-      if (catalystPerInstance > 0) {
-        instanceCatalystIntake.set(buildingInstanceId(bin.id, i), {
-          itemId: drain!.itemId,
-          ingredientRate: catalystIngredientPerBuilding * loadFraction,
-        });
-      }
       productionInstances.push({
         bin,
         instanceIdx: i,
@@ -1042,6 +1038,18 @@ export function mapPlanToFlowBinFusedSeparated(
         perBuildingInputs: inputs,
         perBuildingOutputs: outputs,
         isPartialLoad: loadFraction < 0.999,
+        // Contract re-scaled to ONE building: flat upkeep share, load-
+        // scaled ingredient. The card popup and the generic
+        // `buildCatalystIntakeByNode` both read this — per-building
+        // edge ≡ popup ≡ plan by construction.
+        catalyst: catalyst
+          ? {
+              itemId: catalyst.itemId,
+              ratePerMinute: catalyst.ratePerMinute,
+              upkeepPerMin: catalystPerInstance,
+              ingredientPerMin: catalystIngredientPerBuilding * loadFraction,
+            }
+          : undefined,
       });
     }
   }
@@ -1216,6 +1224,10 @@ export function mapPlanToFlowBinFusedSeparated(
           // reference so the Prefill chip can render when they're in a
           // cycle (e.g. moss planter/seedcollector singletons).
           bin: inst.bin,
+          // Per-building catalyst contract (flat upkeep share, load-
+          // scaled ingredient) — the card and the intake router read
+          // this node-scoped figure directly.
+          catalyst: inst.catalyst,
           // Facility View chip: per-building, but the prefill obligation
           // is per-bin (seeding one building's inner inventory is what
           // the player must do — they pick whichever instance). Mirror
@@ -1628,14 +1640,13 @@ export function mapPlanToFlowBinFusedSeparated(
   }
 
   // Re-home the catalyst portion of each building's intake to its top
-  // "catalyst" handle (per-building, source-agnostic). The intake map
-  // was built alongside the instances: flat `catalystTotal / N` per
-  // building, ingredient boundary scaled by each instance's ACTUAL
-  // load fraction (the embedded `facilityCount: 1` would overstate the
-  // partial building's ingredient share).
+  // "catalyst" handle (per-building, source-agnostic). Every instance
+  // node embeds its own per-building contract (flat upkeep share,
+  // load-scaled ingredient), so the generic intake builder is exact
+  // here too.
   routeCatalystIntakeToTopHandle(
     flowEdges,
-    instanceCatalystIntake,
+    buildCatalystIntakeByNode(flowNodes),
     itemById,
     ceilMode,
     () => `e${edgeIdCounter++}`,

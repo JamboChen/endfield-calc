@@ -91,16 +91,17 @@ export default function CustomProductionNode({
 
   const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item.id)];
 
-  // Transmuter catalyst upkeep (1.4 gas-sustain): the drained item plus the
-  // whole-building total (`rate × ceil(buildings)`, always-on even when
-  // idle). Rendered as a muted fuchsia row like the internal-items row, with
-  // the precise rate in the tooltip; when the drained item is this node's
-  // own output, its self-loop edge lands on the top "catalyst" handle.
+  // Transmuter catalyst upkeep (1.4 gas-sustain): the drained item plus
+  // the charged whole-building upkeep, read STRAIGHT off the node's
+  // catalyst contract (already scaled to this node's granularity by the
+  // emitting mapper — recipe / bin / single building). Rendered as a
+  // muted fuchsia row like the internal-items row, with the precise
+  // rate in the tooltip; when the drained item is this node's own
+  // output, its self-loop edge lands on the top "catalyst" handle.
+  // Card ≡ edges ≡ plan by construction — never re-derived from fc.
   const catalyst = node.catalyst;
   const catalystItem = catalyst ? getItemById(items, catalyst.itemId) : undefined;
-  const catalystTotal = catalyst
-    ? catalyst.ratePerMinute * Math.max(1, Math.ceil(node.facilityCount))
-    : 0;
+  const catalystTotal = catalyst ? catalyst.upkeepPerMin : 0;
 
   // Metastorage import source payload (set only on import source nodes
   // emitted by the mappers; `recipe`/`facility` are null on those).

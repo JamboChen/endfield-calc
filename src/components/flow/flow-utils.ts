@@ -17,11 +17,9 @@ import type {
   EnvCoveredBuilding,
 } from "@/types";
 import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
-import { getTransportCount, getTransportCountWithFacilities, formatCount, calcRate } from "@/lib/utils";
+import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
 import { getTransportLabel, getInternalFlowLabel } from "@/lib/i18n-helpers";
 import { itemIconColors } from "@/data/item-colors";
-import { facilitySustainDrains } from "@/data/gas-sustain";
-import { recipes as baseRecipes } from "@/data/recipes";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 
 /**
@@ -303,78 +301,33 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
 }
 
 /**
- * The always-on catalyst upkeep for a recipe's facility (1.4 transmuter
- * `facilitySustainDrains`), or `undefined` for non-drain facilities. The
- * calculator folds this drain into `recipe.inputs`; surfacing it on the
- * flow node lets the card + edge layer render it legibly.
- */
-function catalystDrainFor(
-  recipe: ProductionNode["recipe"],
-): { itemId: ItemId; ratePerMinute: number } | undefined {
-  if (!recipe) return undefined;
-  return facilitySustainDrains.get(recipe.facilityId);
-}
-
-/**
  * A catalyst node's intake descriptor: the drained item, and the per-minute
  * amount of that item the node consumes as a base INGREDIENT (`0` when the
  * catalyst is a separate/pure catalyst). Everything in the item's intake
  * ABOVE the ingredient portion is catalyst upkeep and re-homes to the top
- * handle. Splitting on the ingredient side keeps it independent of the
- * calculator's per-recipe idle-drain scaling `k_r = ceil(fc_r)/fc_r` —
- * whatever scale the sustain loop settled on, the upkeep portion is simply
- * the remainder above the base-recipe ingredient amount.
+ * handle.
  */
 export interface CatalystIntake {
   itemId: ItemId;
   ingredientRate: number;
 }
 
-/** Base (UNFOLDED) recipes, keyed by id — the calculator folds the catalyst
- *  into `recipe.inputs`, so the genuine ingredient amount of the catalyst
- *  item is read from here, not the plan's folded clone. */
-const baseRecipeById = new Map(baseRecipes.map((r) => [r.id, r] as const));
-
 /**
- * Per-ONE-building base-ingredient rate of `catalystItemId` for a recipe:
- * the genuine (unfolded) consumption of the catalyst item as an ordinary
- * ingredient, `0` for a pure/separate catalyst. Folded clones share the
- * base recipe's id, so the lookup works with plan recipes. Callers scale
- * by their building count / load fraction.
- */
-export function catalystIngredientRate(
-  recipe: { id: RecipeId; craftingTime: number },
-  catalystItemId: ItemId,
-): number {
-  const baseInput =
-    baseRecipeById
-      .get(recipe.id)
-      ?.inputs.find((i) => i.itemId === catalystItemId)?.amount ?? 0;
-  return calcRate(baseInput, recipe.craftingTime);
-}
-
-/**
- * Map every production flow node that carries a catalyst upkeep to its
- * `{ itemId, ingredientRate }` intake. `ingredientRate` is the node's genuine
- * consumption of the catalyst item as a base ingredient (`0` for a
- * pure/separate catalyst), scaled by the node's embedded `facilityCount` —
- * correct for the merged mapper (true fractional fc) and the fused bin
- * mapper (singleton drain bins embed `bin.buildingCount` / mean activity,
- * both the true fc). The SEPARATED per-building mapper builds its own map
- * instead: its instances embed `facilityCount: 1` even at partial load, so
- * it must scale by each instance's load fraction.
+ * Map every production flow node that carries a catalyst contract to its
+ * `{ itemId, ingredientRate }` intake — read STRAIGHT off the node's
+ * embedded `CatalystUpkeep` (the plan's authoritative decomposition,
+ * scaled by the emitting mapper to the node's own granularity). No game
+ * data or base-roster lookups: the mapper output is a pure function of
+ * the plan.
  */
 export function buildCatalystIntakeByNode(
   nodes: readonly { id: string; data: { productionNode?: ProductionNode } }[],
 ): Map<string, CatalystIntake> {
   const map = new Map<string, CatalystIntake>();
   for (const n of nodes) {
-    const pn = n.data.productionNode;
-    const cat = pn?.catalyst;
-    if (!cat || !pn?.recipe) continue;
-    const ingredientRate =
-      catalystIngredientRate(pn.recipe, cat.itemId) * pn.facilityCount;
-    map.set(n.id, { itemId: cat.itemId, ingredientRate });
+    const cat = n.data.productionNode?.catalyst;
+    if (!cat) continue;
+    map.set(n.id, { itemId: cat.itemId, ingredientRate: cat.ingredientPerMin });
   }
   return map;
 }
@@ -482,15 +435,11 @@ export function createProductionFlowNode(
     directTargetRate?: number;
   } = {},
 ): FlowProductionNode {
-  // Surface transmuter catalyst upkeep (folded into `recipe.inputs` by the
-  // calculator) so the card can show it like an internal item and the edge
-  // layer can re-home the self-loop to the top "catalyst" handle.
-  const catalyst = node.catalyst ?? catalystDrainFor(node.recipe);
   return {
     id: nodeId,
     type: "productionNode",
     data: {
-      productionNode: catalyst ? { ...node, catalyst } : node,
+      productionNode: node,
       items,
       facilities,
       facilityIndex: options.facilityIndex,

@@ -287,16 +287,39 @@ export type ProductionNode = {
   metastorageImport?: PlanMetastorageImport;
 
   /**
-   * Always-on catalyst upkeep for this node's facility (1.4 transmuter
-   * `facilitySustainDrains`). The building drains `ratePerMinute` of
-   * `itemId` per WHOLE building even when idle; the calculator folds it
-   * into `recipe.inputs`, but display surfaces read it from here so the
-   * upkeep is legible (an icon row on the card, like internal items;
-   * a self-loop edge to the top "catalyst" handle when the drained item
-   * is the recipe's own output). Total upkeep = `ratePerMinute ×
-   * ceil(facilityCount)`. Absent on non-transmuter nodes.
+   * Always-on catalyst upkeep for this display node, scaled to ITS
+   * granularity by the emitting mapper (whole recipe in Recipe View,
+   * singleton bin in fused Facility View, ONE building in separated
+   * Facility View). Copied from the plan's authoritative
+   * `ProductionGraphNode.catalyst` contract — display surfaces render
+   * these numbers directly and never re-derive them from game data.
+   * Absent on non-drain-facility nodes.
    */
-  catalyst?: { itemId: ItemId; ratePerMinute: number };
+  catalyst?: CatalystUpkeep;
+};
+
+/**
+ * The catalyst contract of a drain-facility recipe (1.4 transmuter
+ * `facilitySustainDrains`): the authoritative decomposition of the
+ * folded catalyst intake, computed by the calculator at plan assembly
+ * from its own folding bookkeeping — the ONLY source display code may
+ * use (no base-roster or drains-table lookups downstream).
+ *
+ * Invariant: the node's total intake of `itemId` (as solved by the LP
+ * on the folded recipe) = `ingredientPerMin + upkeepPerMin`, exact by
+ * construction even for synthetic recipes and unconverged keep-last
+ * plans. On a converged plan `upkeepPerMin = ratePerMinute ×
+ * max(1, ceil(facilityCount))` (each PLACED building drains flat, even
+ * when idle / partial-load).
+ */
+export type CatalystUpkeep = {
+  itemId: ItemId;
+  /** Drain per PLACED building (items/min), even when idle. */
+  ratePerMinute: number;
+  /** Charged upkeep at this node's scope (items/min): folded − ingredient. */
+  upkeepPerMin: number;
+  /** Genuine base-ingredient consumption of the same item (items/min). */
+  ingredientPerMin: number;
 };
 
 /**
@@ -361,6 +384,15 @@ export type ProductionGraphNode =
        * whose `recipe.gasEnv === envSupport`.
        */
       envSupport?: number;
+      /**
+       * Catalyst contract of a drain-facility recipe (1.4 transmuter):
+       * the authoritative ingredient/upkeep decomposition of the folded
+       * catalyst intake, computed at plan assembly from the
+       * calculator's own folding bookkeeping. Present only on active
+       * catalyst-folded recipe nodes; mirrors the `powerGeneration` /
+       * `envSupport` out-of-band channels. See `CatalystUpkeep`.
+       */
+      catalyst?: CatalystUpkeep;
       /**
        * Bin id this recipe is hosted in (Phase 3). Set for all recipes
        * after Phase 3 runs; mappers use it to annotate group

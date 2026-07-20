@@ -281,6 +281,9 @@ export function mapPlanToFlowMerged(
               dependencies: [],
               binId: node.binId,
               binSisterRecipeIds: node.binSisterRecipeIds,
+              // Catalyst contract straight off the plan node (recipe
+              // scope = this node's scope in Recipe View).
+              catalyst: node.catalyst,
               // bf=0 chip: this recipe's specific prefill items (not the
               // bin's full union). Empty for recipes that don't sit on
               // a stuck 2-cycle, which is most of them. See
