@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vitest/config";
+import { configDefaults, defineConfig, type Plugin } from "vitest/config";
 import path from "path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -93,6 +93,10 @@ export default defineConfig({
     // Pre-load HiGHS WASM once per worker so solver call sites can run
     // synchronously inside tests. See `src/tests/setup.ts`.
     setupFiles: ["./src/tests/setup.ts"],
+    // Git worktrees live inside the repo (see AGENTS guidance); their
+    // tests belong to OTHER branches and must not run against this
+    // tree's `@`-aliased src.
+    exclude: [...configDefaults.exclude, "**/.worktrees/**"],
   },
 });
 
