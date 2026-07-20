@@ -177,6 +177,27 @@ export default function CustomProductionNode({
       ) : node.recipe ? (
         <>
           <RecipeIOFull recipe={node.recipe} getItemById={(id) => getItemById(items, id)} />
+          {catalyst && catalystItem && (
+            <div className="mt-2 pt-2 border-t">
+              <div className="flex items-center gap-1.5">
+                <FlaskConical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="font-semibold">
+                  {t("tree.catalyst", { defaultValue: "Catalyst" })}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-1 text-muted-foreground">
+                <ItemIcon item={catalystItem} size="sm" />
+                <span>{getItemName(catalystItem)}</span>
+              </div>
+              <div className="text-muted-foreground mt-0.5">
+                {t("tree.catalystItemTooltip", {
+                  rate: formatNumber(catalystTotal),
+                  defaultValue:
+                    "{{rate}}/min catalyst upkeep, drained even when idle",
+                })}
+              </div>
+            </div>
+          )}
           {facility && (
             <div className="mt-2 pt-2 border-t">
               <div className="text-muted-foreground">
@@ -443,9 +464,8 @@ export default function CustomProductionNode({
               * per WHOLE building, even when idle) that the calculator folds
               * into `recipe.inputs`. Surface it the same muted way as the
               * internal-items row so the extra draw is legible; the precise
-              * whole-building total lives in the icon tooltip. When the
-              * drained item is this node's own output, its self-loop edge
-              * lands on the top "catalyst" handle. */}
+              * upkeep rate lives in the node's hover popup. The catalyst
+              * portion of the intake routes to the top "catalyst" handle. */}
             {catalyst && catalystItem && (
               <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-dashed border-muted-foreground/25">
                 <FlaskConical className="h-3 w-3 text-muted-foreground/60 shrink-0" />
@@ -460,14 +480,7 @@ export default function CustomProductionNode({
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="top">
-                      <p className="text-xs">
-                        {getItemName(catalystItem)}:{" "}
-                        {t("tree.catalystItemTooltip", {
-                          rate: formatNumber(catalystTotal),
-                          defaultValue:
-                            "{{rate}}/min catalyst upkeep, drained even when idle",
-                        })}
-                      </p>
+                      <p className="text-xs">{getItemName(catalystItem)}</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>
