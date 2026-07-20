@@ -8,8 +8,8 @@
  * passed to `calculateProductionPlan`) with hand-computable numbers:
  *
  *   - transmuter: ore → nugget, 1/min per facility, drains 6 catalyst
- *     per minute per WHOLE building (even idle — the k = ceil(N)/N
- *     scale is the mechanism under test)
+ *     per minute per WHOLE building (even idle — the per-recipe
+ *     k_r = ceil(fc_r)/fc_r scale is the mechanism under test)
  *   - grinder: ore → catalyst, 6/min per facility
  *   - oven: ore → powder, 1/min per facility, gasEnv 1 (needs an inert
  *     Gaseous Environment)
@@ -100,6 +100,14 @@ const catalystRecipe: Recipe = {
   facilityId: FacilityId.GRINDER_1,
   craftingTime: 60, // 6/min per facility
 };
+// Second formula on the SAME drain facility (per-recipe k_r attribution).
+const transRecipe2: Recipe = {
+  id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_COPPER_1,
+  inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
+  outputs: [{ itemId: ItemId.ITEM_IRON_POWDER, amount: 1 }],
+  facilityId: FacilityId.TRANSMUTER_1,
+  craftingTime: 60, // 1/min per facility
+};
 const envRecipe: Recipe = {
   id: RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_2,
   inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
@@ -143,6 +151,16 @@ const getRecipeNode = (plan: ProductionDependencyGraph, id: RecipeId) => {
     throw new Error(`Recipe node not found: ${id}`);
   }
   return node;
+};
+
+/** Per-minute catalyst charged to a folded recipe node: folded input
+ *  amount × craft rate × fractional facility count. */
+const chargedCatalystPerMin = (node: ReturnType<typeof getRecipeNode>) => {
+  const input = node.recipe.inputs.find(
+    (i) => i.itemId === ItemId.ITEM_LIQUID_XIRANITE,
+  );
+  if (!input) throw new Error("catalyst input missing");
+  return calcRate(input.amount, node.recipe.craftingTime) * node.facilityCount;
 };
 
 // ── Transmuter catalyst ──────────────────────────────────────────────────────
@@ -197,6 +215,210 @@ describe("gas sustain: transmuter catalyst", () => {
     expect(catalystInput!.amount).toBeCloseTo(6, 3);
     const grinderNode = getRecipeNode(plan, catalystRecipe.id);
     expect(grinderNode.facilityCount).toBeCloseTo(2, 3);
+  });
+
+  test("two formulas sharing the facility: catalyst = rate × ceil(fc_r) PER RECIPE", async () => {
+    // nugget 2.4 → fc 2.4 (k_r = 3/2.4 = 1.25 → 18/min) and powder 2.0
+    // → fc 2.0 (k_r = 1 → 12/min). The old facility-wide k = 5/4.4 ≈
+    // 1.136 charged 16.36 / 13.64 — right in total, physically wrong
+    // per recipe (2.4 fc occupies 3 whole buildings needing 6 each).
+    const plan = await calculateProductionPlan(
+      [
+        { itemId: ItemId.ITEM_IRON_NUGGET, rate: 2.4 },
+        { itemId: ItemId.ITEM_IRON_POWDER, rate: 2.0 },
+      ],
+      testItems,
+      [transRecipe, transRecipe2, catalystRecipe],
+      testFacilities,
+      { rawMaterials: RAWS, gasSustain: { drains, vaporizerEnvs: new Map() } },
+    );
+
+    expect(plan.lpStatus).toBe("ok");
+    const n1 = getRecipeNode(plan, transRecipe.id);
+    const n2 = getRecipeNode(plan, transRecipe2.id);
+    expect(n1.facilityCount).toBeCloseTo(2.4, 3);
+    expect(n2.facilityCount).toBeCloseTo(2.0, 3);
+
+    // Per-recipe attribution: 6 × ceil(fc_r) each — the popup number.
+    expect(chargedCatalystPerMin(n1)).toBeCloseTo(18, 3);
+    expect(chargedCatalystPerMin(n2)).toBeCloseTo(12, 3);
+
+    // Total invariance: Σ = 6 × physical placements (3 + 2 = 5) — the
+    // same 30/min the facility-wide k produced, so upstream supply is
+    // untouched: grinder 30/6 = 5, ore = 2.4 + 2.0 + 5 = 9.4.
+    const agg = aggregateBinTotals(plan, testFacilities, testItems, {
+      ceilMode: true,
+    });
+    expect(agg.physicalPerFacility.get(FacilityId.TRANSMUTER_1)).toBe(5);
+    expect(chargedCatalystPerMin(n1) + chargedCatalystPerMin(n2)).toBeCloseTo(
+      30,
+      3,
+    );
+    expect(getRecipeNode(plan, catalystRecipe.id).facilityCount).toBeCloseTo(
+      5,
+      3,
+    );
+    const ore = plan.nodes.get(ItemId.ITEM_IRON_ORE);
+    if (!ore || ore.type !== "item") throw new Error("ore node missing");
+    expect(ore.productionRate).toBeCloseTo(9.4, 3);
+  });
+
+  test("near-integer fc with an alternative producer: converges, never under-charges", async () => {
+    // Engineered near-tie at the integer boundary: the alternative
+    // nugget recipe burns 2 ore/nugget on a non-drain facility; the
+    // transmuter burns 1 ore + ~1 ore worth of catalyst per nugget
+    // (k_r markup on top), so k_r repricing across the fc = 3 boundary
+    // can flip slivers between producers. Whatever mix the loop (cap 8
+    // + raise-only reconcile) settles on, the returned plan's charge
+    // must cover the transmuter recipe's own whole buildings.
+    const altNugget: Recipe = {
+      id: RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1,
+      inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 2 }],
+      outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
+      facilityId: FacilityId.XIRANITE_OVEN_1,
+      craftingTime: 60, // 1/min per facility, no gasEnv
+    };
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 3.05 }],
+      testItems,
+      [transRecipe, altNugget, catalystRecipe],
+      testFacilities,
+      { rawMaterials: RAWS, gasSustain: { drains, vaporizerEnvs: new Map() } },
+    );
+
+    expect(plan.lpStatus).toBe("ok");
+    const nugget = plan.nodes.get(ItemId.ITEM_IRON_NUGGET);
+    if (!nugget || nugget.type !== "item") throw new Error("nugget missing");
+    expect(nugget.productionRate).toBeCloseTo(3.05, 3);
+
+    const trans = plan.nodes.get(transRecipe.id);
+    if (trans && trans.type === "recipe" && trans.facilityCount > 0) {
+      // Small slack mirrors the loop's relative SUSTAIN_SCALE_TOLERANCE.
+      const owed =
+        6 * Math.max(1, Math.ceil(trans.facilityCount)) * (1 - 2e-3);
+      expect(chargedCatalystPerMin(trans)).toBeGreaterThanOrEqual(owed);
+    }
+  });
+
+  test("separated Facility View: flat 6/min catalyst per PLACED building, ingredient load-proportional", async () => {
+    // Mirrors the real Xiragen case: the catalyst item is ALSO a base
+    // ingredient (1/min per building) on top of the 6/min drain. Target
+    // 2.4 nuggets → fc 2.4 → 3 placed buildings (loads 1, 1, 0.4).
+    // Each building's top "catalyst" edge must read the flat drain (6 —
+    // even the partial one, which idles at 6), NOT the folded
+    // per-fractional-building 6·k_r = 7.5 / 3.0 the load-proportional
+    // split used to produce; the left ingredient edge scales with load
+    // (1, 1, 0.4).
+    //
+    // NOTE: the ingredient boundary is read from the BASE roster
+    // (`catalystIngredientRate` → `@/data/recipes`) keyed by recipe id,
+    // so this synthetic clone must keep the REAL recipe's catalyst-item
+    // input amount (liquid xiranite × 1 per craft at recipes.ts:2052).
+    const mergedIngredientRecipe: Recipe = {
+      id: RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_XIRANITE_1,
+      inputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE, amount: 1 }],
+      outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
+      facilityId: FacilityId.TRANSMUTER_1,
+      craftingTime: 60, // 1/min per facility
+    };
+    // Downstream consumer so the transmuter is an INTERMEDIATE node in
+    // every view (target-producing singleton bins fold into the target
+    // sink in the fused view, which has no catalyst handle).
+    const downstreamRecipe: Recipe = {
+      id: RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1,
+      inputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
+      outputs: [{ itemId: ItemId.ITEM_IRON_POWDER, amount: 1 }],
+      facilityId: FacilityId.XIRANITE_OVEN_1,
+      craftingTime: 60, // 1/min per facility, no gasEnv
+    };
+    const recipes = [mergedIngredientRecipe, downstreamRecipe, catalystRecipe];
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_POWDER, rate: 2.4 }],
+      testItems,
+      recipes,
+      testFacilities,
+      { rawMaterials: RAWS, gasSustain: { drains, vaporizerEnvs: new Map() } },
+    );
+    expect(plan.lpStatus).toBe("ok");
+    // Sanity: folded intake = ingredient 1×2.4 + catalyst 6×ceil(2.4).
+    const trans = getRecipeNode(plan, mergedIngredientRecipe.id);
+    expect(trans.facilityCount).toBeCloseTo(2.4, 3);
+    const foldedIntake = trans.recipe.inputs.find(
+      (i) => i.itemId === ItemId.ITEM_LIQUID_XIRANITE,
+    )!;
+    expect(
+      calcRate(foldedIntake.amount, trans.recipe.craftingTime) *
+        trans.facilityCount,
+    ).toBeCloseTo(2.4 + 18, 3);
+
+    // `assertFlowIntegrity` throws in test mode — reaching the
+    // assertions below proves integrity.
+    const separated = mapPlanToFlowBinFusedSeparated(
+      plan,
+      testItems,
+      recipes,
+      testFacilities,
+      new Map(),
+      false,
+    );
+    type EdgeData = { flowRate?: number; itemId?: string };
+    const instances = separated.nodes
+      .filter((n) => {
+        const pn = (n.data as { productionNode?: { facility?: { id: string } } })
+          .productionNode;
+        return n.type === "productionNode" && pn?.facility?.id === FacilityId.TRANSMUTER_1;
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+    expect(instances).toHaveLength(3);
+    const intakeOf = (nodeId: string, handle: "catalyst" | "left") => {
+      let sum = 0;
+      for (const e of separated.edges) {
+        if (e.target !== nodeId) continue;
+        const d = e.data as EdgeData | undefined;
+        if (d?.itemId !== ItemId.ITEM_LIQUID_XIRANITE) continue;
+        const isCatalyst = e.targetHandle === "catalyst";
+        if ((handle === "catalyst") === isCatalyst) sum += d?.flowRate ?? 0;
+      }
+      return sum;
+    };
+    const expectedIngredient = [1, 1, 0.4];
+    instances.forEach((inst, i) => {
+      expect(intakeOf(inst.id, "catalyst")).toBeCloseTo(6, 3);
+      expect(intakeOf(inst.id, "left")).toBeCloseTo(expectedIngredient[i], 3);
+    });
+    // The partial-load building is the last instance and still drains 6.
+    expect(
+      (instances[2].data as { isPartialLoad?: boolean }).isPartialLoad,
+    ).toBe(true);
+
+    // View parity: fused + merged aggregate catalyst-handle totals are
+    // unchanged by the per-instance map (18 = 6 × 3 placements each).
+    const catalystHandleTotal = (edges: typeof separated.edges) =>
+      edges.reduce((s, e) => {
+        const d = e.data as EdgeData | undefined;
+        return e.targetHandle === "catalyst" &&
+          d?.itemId === ItemId.ITEM_LIQUID_XIRANITE
+          ? s + (d?.flowRate ?? 0)
+          : s;
+      }, 0);
+    expect(catalystHandleTotal(separated.edges)).toBeCloseTo(18, 3);
+    const fused = mapPlanToFlowBinFused(
+      plan,
+      testItems,
+      recipes,
+      testFacilities,
+      new Map(),
+      false,
+    );
+    expect(catalystHandleTotal(fused.edges)).toBeCloseTo(18, 3);
+    const merged = mapPlanToFlowMerged(
+      plan,
+      testItems,
+      testFacilities,
+      new Map(),
+      false,
+    );
+    expect(catalystHandleTotal(merged.edges)).toBeCloseTo(18, 3);
   });
 
   test("empty drains disable folding entirely", async () => {
@@ -481,8 +703,9 @@ describe("gas sustain: real 1.4 data", () => {
     const vapInert = getRecipeNode(plan, RecipeId.VAPORIZE_ITEM_GAS_INERT);
     expect(vapInert.facilityCount).toBeGreaterThanOrEqual(1);
 
-    // Catalyst exactness: total Liquid Xiranite drained by transmuter_1
-    // recipes equals 6/min × its PLACED building count.
+    // Catalyst exactness, PER RECIPE: each transmuter_1 recipe drains
+    // 6/min × ceil(its own fc) — covers the self-feed formula too —
+    // and the sum therefore equals 6/min × the PLACED building count.
     const agg = aggregateBinTotals(plan, realFacilities, realItems, {
       ceilMode: true,
     });
@@ -492,13 +715,19 @@ describe("gas sustain: real 1.4 data", () => {
     for (const node of plan.nodes.values()) {
       if (node.type !== "recipe") continue;
       if (node.recipe.facilityId !== FacilityId.TRANSMUTER_1) continue;
+      if (!(node.facilityCount > 0)) continue;
       const catalystInput = node.recipe.inputs.find(
         (i) => i.itemId === ItemId.ITEM_LIQUID_XIRANITE,
       );
       if (!catalystInput) continue;
-      drained +=
+      const drainedR =
         calcRate(catalystInput.amount, node.recipe.craftingTime) *
         node.facilityCount;
+      expect(drainedR).toBeCloseTo(
+        6 * Math.max(1, Math.ceil(node.facilityCount)),
+        1,
+      );
+      drained += drainedR;
     }
     expect(drained).toBeCloseTo(6 * placed, 2);
   });

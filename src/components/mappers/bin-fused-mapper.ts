@@ -44,7 +44,9 @@ import {
   envBuffedMachines,
   partitionBuffedBuildings,
   buildCatalystIntakeByNode,
+  catalystIngredientRate,
   routeCatalystIntakeToTopHandle,
+  type CatalystIntake,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -53,6 +55,7 @@ import {
 } from "@/lib/node-keys";
 import { calcRate, getRawSourceRate } from "@/lib/utils";
 import { rawMaterialSources } from "@/data";
+import { facilitySustainDrains } from "@/data/gas-sustain";
 import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 import {
   buildBinActivitySums,
@@ -954,14 +957,46 @@ export function mapPlanToFlowBinFusedSeparated(
   // Build per-bin instance count and per-instance rates. Singleton-
   // terminal bins are excluded from instance emission entirely — their
   // single building's data is rendered via the target sink's embed.
+  //
+  // Catalyst intake (`routeCatalystIntakeToTopHandle`) is built here
+  // per instance — NOT via the generic `buildCatalystIntakeByNode`,
+  // whose `facilityCount`-scaled boundary is wrong for per-building
+  // nodes (they embed `facilityCount: 1` even at partial load).
   const productionInstances: BinInstance[] = [];
+  const instanceCatalystIntake = new Map<string, CatalystIntake>();
   for (const bin of productionBins) {
     if (singletonTerminalBinIds.has(bin.id)) continue;
     const N = Math.max(1, Math.ceil(bin.buildingCount));
-    // Per-building rates: total bin rate ÷ N. For integer buildingCount
-    // (always true for grouped bins after Phase 3 ILP), this is exact.
-    // For singletons with fractional facilityCount, the last instance is
-    // partial-load (consistent with existing Facility View behaviour).
+    // Per-building rates: load-proportional split, with the last
+    // instance partial-load for singletons with fractional
+    // facilityCount (grouped bins have integer buildingCount after
+    // Phase 3 ILP, so every instance is full-load).
+    //
+    // EXCEPTION — the folded transmuter catalyst: each PLACED building
+    // drains it flat (`ratePerMinute`, even when idle / partial-load),
+    // so the drain item's folded portion splits `catalystTotal / N`
+    // per instance while its genuine-ingredient portion stays
+    // load-proportional. Dividing the bin's ACTUAL folded total (not a
+    // hardcoded rate) keeps Σ instance rates ≡ the bin's external rate
+    // even on an unconverged keep-last plan; on a converged plan
+    // `catalystTotal / N` = the drain rate exactly. Drain facilities
+    // are single-formula, so drain bins are always singletons.
+    const drain = facilitySustainDrains.get(bin.facilityId);
+    const drainRecipe = drain ? recipeById.get(bin.recipeIds[0]) : undefined;
+    let catalystPerInstance = 0;
+    let catalystIngredientPerBuilding = 0;
+    if (drain && drainRecipe) {
+      const io = bin.externalInputs.find((x) => x.itemId === drain.itemId);
+      if (io) {
+        catalystIngredientPerBuilding = catalystIngredientRate(
+          drainRecipe,
+          drain.itemId,
+        );
+        const ingredientTotal =
+          catalystIngredientPerBuilding * bin.buildingCount;
+        catalystPerInstance = Math.max(0, io.rate - ingredientTotal) / N;
+      }
+    }
     const fullLoadFraction = Math.min(1, bin.buildingCount / N);
     const perBuildingInputsAvg = bin.externalInputs.map((io) => ({
       itemId: io.itemId,
@@ -982,7 +1017,11 @@ export function mapPlanToFlowBinFusedSeparated(
         : 1;
       const inputs = perBuildingInputsAvg.map((io) => ({
         itemId: io.itemId,
-        rate: (io.rate / fullLoadFraction) * loadFraction,
+        rate:
+          catalystPerInstance > 0 && io.itemId === drain!.itemId
+            ? catalystIngredientPerBuilding * loadFraction +
+              catalystPerInstance
+            : (io.rate / fullLoadFraction) * loadFraction,
         isLiquid: io.isLiquid,
       }));
       const outputs = perBuildingOutputsAvg.map((io) => ({
@@ -990,6 +1029,12 @@ export function mapPlanToFlowBinFusedSeparated(
         rate: (io.rate / fullLoadFraction) * loadFraction,
         isLiquid: io.isLiquid,
       }));
+      if (catalystPerInstance > 0) {
+        instanceCatalystIntake.set(buildingInstanceId(bin.id, i), {
+          itemId: drain!.itemId,
+          ingredientRate: catalystIngredientPerBuilding * loadFraction,
+        });
+      }
       productionInstances.push({
         bin,
         instanceIdx: i,
@@ -1583,10 +1628,14 @@ export function mapPlanToFlowBinFusedSeparated(
   }
 
   // Re-home the catalyst portion of each building's intake to its top
-  // "catalyst" handle (per-building, source-agnostic).
+  // "catalyst" handle (per-building, source-agnostic). The intake map
+  // was built alongside the instances: flat `catalystTotal / N` per
+  // building, ingredient boundary scaled by each instance's ACTUAL
+  // load fraction (the embedded `facilityCount: 1` would overstate the
+  // partial building's ingredient share).
   routeCatalystIntakeToTopHandle(
     flowEdges,
-    buildCatalystIntakeByNode(flowNodes),
+    instanceCatalystIntake,
     itemById,
     ceilMode,
     () => `e${edgeIdCounter++}`,
