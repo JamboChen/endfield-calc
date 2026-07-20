@@ -785,7 +785,29 @@ export function getItemProducers(
  *
  * Consumers are processed in REGISTRATION ORDER — callers register target
  * sinks before disposal sinks so targets get first claim (see
- * .claude/rules/mappers.md). For each consumer, the tiers:
+ * .claude/rules/mappers.md).
+ *
+ * **Phase 0 — exact-component peeling** (only when the item is BALANCED,
+ * `Σ supply ≥ Σ demand − ε`; under-supplied items skip peeling entirely so
+ * registration-order priority decides who starves, exactly as before):
+ *
+ *   0a. 1↔1 peel: a consumer whose demand matches one producer's supply
+ *       (within MIN_VISIBLE_RATE_PER_MIN) takes it whole — ONE edge —
+ *       and both retire. Order-INDEPENDENT: a late-registered consumer
+ *       keeps its exact match even when earlier consumers would
+ *       otherwise split that producer (the Facility View fragment
+ *       cascade: 28.8-demand consumers tier-3-split virgin 30/min
+ *       producers that exactly matched later 30-demand consumers,
+ *       which then hoovered 3+ leftover fragments each).
+ *   0b. 2↔1 pair peel: a consumer whose demand matches the SUM of two
+ *       producers' supplies takes both whole — TWO edges — and all
+ *       three retire ("one full crucible fills 30, another tops up 6").
+ *
+ * Peeling never increases total edge count (each peeled component costs
+ * at most its share of the spanning-tree bound) and maximally decouples
+ * the graph — peeled producers can no longer be nibbled.
+ *
+ * **Phase 1 — greedy**, for the residual. For each consumer, the tiers:
  *
  *   1. Exact-fit: a producer whose available output matches the remaining
  *      demand (within MIN_VISIBLE_RATE_PER_MIN) is taken whole. Prevents
@@ -838,7 +860,65 @@ export function computeTransportAllocation(
         Math.abs(demand - value) <= MIN_VISIBLE_RATE_PER_MIN,
     );
 
+  // Phase 0: exact-component peeling — only when supply covers demand
+  // (an under-supplied item must starve in registration order, so no
+  // consumer may jump the queue via an exact match).
+  const peeled = new Array<boolean>(consumers.length).fill(false);
+  const totalSupply = producers.reduce((s, p) => s + p.rate, 0);
+  const totalDemand = consumers.reduce((s, c) => s + c.rate, 0);
+  if (totalSupply >= totalDemand - MIN_VISIBLE_RATE_PER_MIN) {
+    // 0a: 1↔1 exact peel.
+    for (let ci = 0; ci < consumers.length; ci++) {
+      const demand = consumers[ci].rate;
+      if (demand <= MIN_VISIBLE_RATE_PER_MIN) continue;
+      for (const [id, avail] of remaining) {
+        if (avail <= MIN_VISIBLE_RATE_PER_MIN) continue;
+        if (Math.abs(avail - demand) <= MIN_VISIBLE_RATE_PER_MIN) {
+          edges.push({ producerId: id, consumerId: consumers[ci].id, rate: avail });
+          remaining.set(id, 0);
+          peeled[ci] = true;
+          pending[ci] = 0;
+          break;
+        }
+      }
+    }
+    // 0b: 2↔1 pair peel. Producer counts per item are small (per-bin /
+    // per-building instances), so the quadratic pair scan is cheap.
+    const producerIds = [...remaining.keys()];
+    for (let ci = 0; ci < consumers.length; ci++) {
+      if (peeled[ci]) continue;
+      const demand = consumers[ci].rate;
+      if (demand <= MIN_VISIBLE_RATE_PER_MIN) continue;
+      outer: for (let a = 0; a < producerIds.length; a++) {
+        const availA = remaining.get(producerIds[a])!;
+        if (availA <= MIN_VISIBLE_RATE_PER_MIN) continue;
+        for (let b = a + 1; b < producerIds.length; b++) {
+          const availB = remaining.get(producerIds[b])!;
+          if (availB <= MIN_VISIBLE_RATE_PER_MIN) continue;
+          if (Math.abs(availA + availB - demand) <= MIN_VISIBLE_RATE_PER_MIN) {
+            edges.push({
+              producerId: producerIds[a],
+              consumerId: consumers[ci].id,
+              rate: availA,
+            });
+            edges.push({
+              producerId: producerIds[b],
+              consumerId: consumers[ci].id,
+              rate: availB,
+            });
+            remaining.set(producerIds[a], 0);
+            remaining.set(producerIds[b], 0);
+            peeled[ci] = true;
+            pending[ci] = 0;
+            break outer;
+          }
+        }
+      }
+    }
+  }
+
   for (let ci = 0; ci < consumers.length; ci++) {
+    if (peeled[ci]) continue;
     const consumer = consumers[ci];
     pending[ci] = 0; // no longer pending — being processed now
     let need = consumer.rate;

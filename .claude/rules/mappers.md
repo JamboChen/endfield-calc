@@ -51,7 +51,9 @@ Signature is `(demandRate, perFacilityRate)` — NOT `(demandRate, item)`. The c
 
 `computeTransportAllocation` (`src/lib/plan-helpers.ts`) is the **single source of truth** for producer→consumer edge decomposition — merged-mapper, both bin-fused paths, AND the Facility-View raw-pickup edges all route through it (issue #91 + follow-up: a fourth sequential-carving copy in the pickup path daisy-chained 1.2/28.8 fragment edges across whole pickup rows).
 
-Tiers per consumer, in registration order: exact-fit → whole-fit (skipping producers whose supply matches a still-PENDING consumer demand — reserved as that consumer's future exact-fit) → best-fit split (preferring splits whose remainder matches a pending demand) → reserved whole-fit as last resort. The pending-demand reservation is what prevents fragment daisy-chains; tests pin it in `plan-helpers.test.ts` ("pump pickups" / "whole-fit skips fragments") and `flow-integrity.test.ts` ("exactly one pump").
+**Phase 0 — exact-component peeling**, gated on balance (`Σ supply ≥ Σ demand − ε`; under-supplied items skip it so registration-order starvation priority is untouched): (0a) a consumer matching one producer's supply takes it whole — order-INDEPENDENT, so a late-registered exact consumer keeps its virgin producer even when earlier consumers would tier-3-split it (the Facility View 24+4+2 fragment cascade); (0b) a consumer matching the SUM of two producers takes both whole. Peeling never exceeds the spanning-tree edge bound.
+
+**Phase 1 — greedy tiers** per remaining consumer, in registration order: exact-fit → whole-fit (skipping producers whose supply matches a still-PENDING consumer demand — reserved as that consumer's future exact-fit) → best-fit split (preferring splits whose remainder matches a pending demand) → reserved whole-fit as last resort. The pending-demand reservation is what prevents fragment daisy-chains; tests pin it in `plan-helpers.test.ts` ("pump pickups" / "whole-fit skips fragments" / "phase 0a/0b peel") and `flow-integrity.test.ts` ("exactly one pump").
 
 ## Active-rate bin I/O
 
