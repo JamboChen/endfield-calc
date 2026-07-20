@@ -246,6 +246,40 @@ function alignTwoEnds(nodes: Node[]): Node[] {
 const GREEDY_SWITCH_MAX_NODES = 400;
 
 /**
+ * Above this node count, model-order tie-breaking and NETWORK_SIMPLEX
+ * node placement are dropped (BRANDES_KOEPF default placement instead).
+ * NETWORK_SIMPLEX placement is the big straightness win — measured on
+ * the benchmark Facility View plans (straight-line metrics over node
+ * centers; React Flow draws point-to-point beziers, so these track
+ * visible clutter):
+ *
+ *   - 425 nodes / 593 edges: total edge length 1.13M → 0.63M px
+ *     (−45%), crossings 1485 → 1412
+ *   - 250 nodes / 348 edges: length 497k → 379k px (−24%), crossings
+ *     821 → 821
+ *
+ * but its LP grows superlinearly: ~4.5s at 425 nodes, ~26s at 940
+ * nodes (vs ~3s BK), which is too slow even off the main thread.
+ * Model-order tie-breaking (`considerModelOrder`) keeps same-bank
+ * sibling buildings near emission order (bank interleave −23% on the
+ * 425-node benchmark) and is cheap, but measured slightly NEGATIVE at
+ * 940 nodes (+5% crossings), so it shares the gate.
+ *
+ * REJECTED EXPERIMENT — do not reintroduce blindly: a post-pass that
+ * reordered each column's y-slots to make same-bank buildings fully
+ * contiguous ("bank gathering") was measured and dropped. It can only
+ * lengthen edges (it drags nodes away from their placement-optimized
+ * slots), and the cost was steep: +53% total edge length and +109%
+ * crossings on the 250-node benchmark — users read that as MORE
+ * long-distance connections, the exact complaint this tuning
+ * addresses. If full bank-as-block grouping is ever wanted, the sound
+ * route is compound-node layout (`elk.hierarchyHandling:
+ * INCLUDE_CHILDREN`), where the engine optimizes edges AROUND the
+ * groups instead of position surgery after the fact.
+ */
+const PLACEMENT_TUNING_MAX_NODES = 600;
+
+/**
  * Lays out React Flow elements using the ELK algorithm.
  * ELK provides better handling of hierarchy and complex cycles than Dagre.
  * Uses static node dimensions for consistent and immediate layout.
@@ -289,6 +323,19 @@ export const getLayoutedElements = async (
             "elk.layered.crossingMinimization.greedySwitch.type": "TWO_SIDED",
             "elk.layered.crossingMinimization.greedySwitch.activationThreshold":
               "0",
+          }
+        : {}),
+      // Straightness + sibling-order tuning, gated by size (see
+      // PLACEMENT_TUNING_MAX_NODES for the measured numbers):
+      // NETWORK_SIMPLEX placement makes `favorStraightEdges` above
+      // actually bite (it is a network-simplex-placement option) and
+      // nearly halves total edge length; considerModelOrder biases the
+      // layer sweeps toward mapper emission order, keeping same-bank
+      // sibling buildings near each other.
+      ...(nodes.length <= PLACEMENT_TUNING_MAX_NODES
+        ? {
+            "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+            "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
           }
         : {}),
       "org.eclipse.elk.padding": "[top=40,left=40,bottom=40,right=40]",
