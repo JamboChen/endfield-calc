@@ -27,7 +27,7 @@ Phase 3 emits `plan.bins: Bin[]` + `plan.recipeBinAllocations: Map<RecipeId, Rec
 
 `bin-fused-mapper.ts` has two entry points:
 - `mapPlanToFlowBinFused` (line 59) — Recipe View, one node per bin.
-- `mapPlanToFlowBinFusedSeparated` (line 636) — Facility View, one node per ceiled building.
+- `mapPlanToFlowBinFusedSeparated` (line 636) — Facility View, one node per ceiled building. Per-building rates are **front-loaded**: `effectiveBuildingCount` recovers the packer's per-variant utilisation scale `u_v` (max per-recipe slot allocation on the bin — `rateDirection` is max-normalised), the first `⌊E⌋` buildings run at full load, the tail carries the remainder. Grouped bins scale their formula mix **uniformly** per building (never per-formula independent front-loading — internal items balance inside each building's own inner inventory). Full load per building is port-safe: Phase 3 only enumerates variants port-feasible at full utilisation. Catalyst exception: upkeep stays flat `/ N` per PLACED building; only the ingredient portion scales with load.
 
 Both call `assertFlowIntegrity` (lines 619, 1332) before returning.
 

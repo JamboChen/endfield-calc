@@ -78,6 +78,41 @@ function rawDraw(node: {
 }
 
 /**
+ * FP cushion for building-count comparisons (counts, not rates — the
+ * rate threshold `MIN_VISIBLE_RATE_PER_MIN` does not apply). Sized to
+ * the packer's lex tolerances (1e-9).
+ */
+const EFFECTIVE_COUNT_EPS = 1e-9;
+
+/**
+ * Effective (fractional) building count of a bin — the packer's
+ * per-variant utilisation scale `u_v`. `rateDirection` is
+ * max-normalised in Phase 3, so the busiest recipe's slot allocation
+ * equals `u_v` exactly; recover it as the max per-recipe slot count
+ * allocated to this bin. Singleton bins carry it directly as their
+ * fractional `buildingCount`; grouped bins get an INTEGER
+ * `buildingCount` from the ILP (placed buildings), so the activity
+ * scale must be read from `plan.recipeBinAllocations`. Falls back to
+ * `bin.buildingCount` when no allocation references the bin
+ * (defensive), and clamps to `buildingCount` against FP drift.
+ */
+function effectiveBuildingCount(
+  plan: ProductionDependencyGraph,
+  bin: Bin,
+): number {
+  let maxSlots = 0;
+  for (const recipeId of bin.recipeIds) {
+    const slots =
+      plan.recipeBinAllocations
+        .get(recipeId)
+        ?.perBin.find((pb) => pb.binId === bin.id)?.slots ?? 0;
+    if (slots > maxSlots) maxSlots = slots;
+  }
+  if (maxSlots <= 0) return bin.buildingCount;
+  return Math.min(maxSlots, bin.buildingCount);
+}
+
+/**
  * Catalyst contract of a drain bin: the plan node of its sole recipe.
  * Drain facilities are single-formula, so drain bins are always
  * singletons (grouped bins return `undefined`).
@@ -980,10 +1015,21 @@ export function mapPlanToFlowBinFusedSeparated(
   for (const bin of productionBins) {
     if (singletonTerminalBinIds.has(bin.id)) continue;
     const N = placedBuildings(bin.buildingCount);
-    // Per-building rates: load-proportional split, with the last
-    // instance partial-load for singletons with fractional
-    // facilityCount (grouped bins have integer buildingCount after
-    // Phase 3 ILP, so every instance is full-load).
+    // Per-building rates: front-loaded uniform-mix split. The bin's
+    // activity scale E ("effective building count", fractional, ≤ N)
+    // comes from `effectiveBuildingCount`; the first ⌊E⌋ buildings run
+    // the bin's whole formula mix at FULL load and the remainder lands
+    // on the tail building. Full producers/consumers then exact-fit
+    // each other in `computeTransportAllocation` instead of cascading
+    // fragment edges (the 29.54-vs-30 incommensurability).
+    //
+    // Grouped bins MUST scale the mix uniformly per building — never
+    // front-load formulas independently. Internal items balance inside
+    // each building's OWN inner inventory (they never cross buildings),
+    // which holds only when every building runs the formulas in the
+    // bin's own ratio. Full load per building is port-safe: Phase 3
+    // enumerates only variants that are port-feasible at full
+    // utilisation.
     //
     // EXCEPTION — the folded transmuter catalyst: each PLACED building
     // drains it flat (even when idle / partial-load), so the drain
@@ -994,41 +1040,49 @@ export function mapPlanToFlowBinFusedSeparated(
     // decomposition, so Σ instance rates ≡ the bin's external rate
     // even on an unconverged keep-last plan; on a converged plan
     // `upkeepPerMin / N` = the drain rate exactly.
+    const E = effectiveBuildingCount(plan, bin);
     const catalyst = binCatalyst(plan, bin);
     const catalystPerInstance = catalyst ? catalyst.upkeepPerMin / N : 0;
     const catalystIngredientPerBuilding = catalyst
-      ? catalyst.ingredientPerMin / bin.buildingCount
+      ? catalyst.ingredientPerMin / E
       : 0;
-    const fullLoadFraction = Math.min(1, bin.buildingCount / N);
-    const perBuildingInputsAvg = bin.externalInputs.map((io) => ({
+    // Full-load per-building rates at the bin's formula mix.
+    const perBuildingInputsFull = bin.externalInputs.map((io) => ({
       itemId: io.itemId,
-      rate: (io.rate / bin.buildingCount) * fullLoadFraction,
+      rate: io.rate / E,
       isLiquid: io.isLiquid,
     }));
-    const perBuildingOutputsAvg = bin.externalOutputs.map((io) => ({
+    const perBuildingOutputsFull = bin.externalOutputs.map((io) => ({
       itemId: io.itemId,
-      rate: (io.rate / bin.buildingCount) * fullLoadFraction,
+      rate: io.rate / E,
       isLiquid: io.isLiquid,
     }));
+    // Load profile: `fullCount` buildings at 1.0, the rest sharing the
+    // remainder evenly — a single partial building when N === ⌈E⌉ (the
+    // common case; lex pass 1 minimises buildings). The decrement guard
+    // keeps every instance above zero load: a zero-rate instance would
+    // emit a node with no edges and trip the isolated-node integrity
+    // check.
+    let fullCount =
+      E >= N - EFFECTIVE_COUNT_EPS ? N : Math.min(Math.floor(E), N - 1);
+    if (fullCount < N && E - fullCount <= EFFECTIVE_COUNT_EPS) {
+      fullCount = Math.max(0, fullCount - 1);
+    }
+    const tailLoad = fullCount < N ? (E - fullCount) / (N - fullCount) : 1;
     for (let i = 0; i < N; i++) {
-      // For fractional buildingCount, only the last instance may be
-      // partial-load. Distribute the partial fraction to the last index.
-      const isLastFractional = i === N - 1 && bin.buildingCount < N;
-      const loadFraction = isLastFractional
-        ? bin.buildingCount - (N - 1)
-        : 1;
-      const inputs = perBuildingInputsAvg.map((io) => ({
+      const loadFraction = i < fullCount ? 1 : tailLoad;
+      const inputs = perBuildingInputsFull.map((io) => ({
         itemId: io.itemId,
         rate:
           catalystPerInstance > 0 && io.itemId === catalyst!.itemId
             ? catalystIngredientPerBuilding * loadFraction +
               catalystPerInstance
-            : (io.rate / fullLoadFraction) * loadFraction,
+            : io.rate * loadFraction,
         isLiquid: io.isLiquid,
       }));
-      const outputs = perBuildingOutputsAvg.map((io) => ({
+      const outputs = perBuildingOutputsFull.map((io) => ({
         itemId: io.itemId,
-        rate: (io.rate / fullLoadFraction) * loadFraction,
+        rate: io.rate * loadFraction,
         isLiquid: io.isLiquid,
       }));
       productionInstances.push({
