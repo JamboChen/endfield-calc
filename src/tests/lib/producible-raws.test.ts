@@ -13,6 +13,9 @@ import { ALL_RAWS } from "./utils";
 
 const XIRAGEN = ItemId.ITEM_GAS_XIRANITE;
 const TRANSMUTER_XIRAGEN = RecipeId.LIQUID_TRANSMUTER_2_GAS_GAS_XIRANITE_1;
+// transmuter_1's Xiragen recipe: catalyst is Liquid Xiranite (a SEPARATE
+// input), so it never self-loops — the foil to TRANSMUTER_XIRAGEN.
+const TRANSMUTER_1_XIRAGEN = RecipeId.LIQUID_TRANSMUTER_1_GAS_GAS_XIRANITE_1;
 
 /** Sum of active facility counts of every recipe producing `itemId`. */
 function producerFc(
@@ -213,6 +216,143 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
       expect(ventEdges(flow.edges).length).toBe(0);
       expect(craftEdges(into).length).toBeGreaterThan(0);
     }
+  });
+
+  test("zero-vent Xiragen (transmuter_2): the pure catalyst self-loop is re-homed to the top handle", async () => {
+    // Solid-Gas Transmuting Unit (transmuter_2) self-consumes Xiragen as its
+    // catalyst, and Xiragen is its own output — so with the vent capped at 0
+    // the catalyst is a self-loop. It's PURE catalyst (Xiragen is not an
+    // ingredient; Xiranite Powder is), so the whole self-loop re-homes to the
+    // top "catalyst" handle while the ingredient stays on the left.
+    const plan = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+      {
+        rawMaterials: ALL_RAWS,
+        rawCaps: new Map([[XIRAGEN, 0]]),
+        recipeOverrides: new Map([[XIRAGEN, TRANSMUTER_XIRAGEN]]),
+      },
+    );
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map<ItemIdT, number>([[XIRAGEN, 60]]),
+    );
+
+    // The transmuter node exposes its catalyst upkeep (Xiragen, 6/min/bldg).
+    const transmuterNode = flow.nodes.find(
+      (n) =>
+        (n.data as { productionNode?: { recipe?: { id?: string } } })
+          .productionNode?.recipe?.id === TRANSMUTER_XIRAGEN,
+    );
+    expect(transmuterNode).toBeDefined();
+    const catalyst = (
+      transmuterNode!.data as {
+        productionNode: {
+          catalyst?: { itemId: string; ratePerMinute: number };
+        };
+      }
+    ).productionNode.catalyst;
+    expect(catalyst).toBeDefined();
+    expect(catalyst!.itemId).toBe(XIRAGEN);
+    expect(catalyst!.ratePerMinute).toBe(6);
+
+    // The Xiragen self-loop lands on the top "catalyst" handle (plain
+    // item-coloured edge now, just re-homed — no special direction).
+    const selfLoops = flow.edges.filter(
+      (e) => e.source === e.target && edgeItemId(e) === XIRAGEN,
+    );
+    expect(selfLoops.length).toBeGreaterThan(0);
+    for (const e of selfLoops) {
+      expect((e as { targetHandle?: string | null }).targetHandle).toBe(
+        "catalyst",
+      );
+    }
+    // The Xiranite Powder ingredient stays on the default (left) handle.
+    const powderIntake = flow.edges.filter(
+      (e) =>
+        e.target === transmuterNode!.id &&
+        edgeItemId(e) === ItemId.ITEM_XIRANITE_POWDER,
+    );
+    expect(powderIntake.length).toBeGreaterThan(0);
+    for (const e of powderIntake) {
+      expect((e as { targetHandle?: string | null }).targetHandle).not.toBe(
+        "catalyst",
+      );
+    }
+  });
+
+  test("zero-vent Xiragen (transmuter_1): the merged Liquid Xiranite intake splits into catalyst (top) + ingredient (left)", async () => {
+    // transmuter_1's catalyst is Liquid Xiranite, which is ALSO its recipe
+    // ingredient (merged). So the Liquid Xiranite intake SPLITS: the catalyst
+    // portion (rate × ceil(buildings)) re-homes to the top handle, the
+    // ingredient portion stays on the left — two edges, same item, summing to
+    // the full intake. This is the lossless-split path.
+    const plan = await calculateProductionPlan(
+      [{ itemId: XIRAGEN, rate: 60 }],
+      items,
+      recipes,
+      facilities,
+      {
+        rawMaterials: ALL_RAWS,
+        rawCaps: new Map([[XIRAGEN, 0]]),
+        recipeOverrides: new Map([[XIRAGEN, TRANSMUTER_1_XIRAGEN]]),
+      },
+    );
+    const flow = mapPlanToFlowBinFused(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map<ItemIdT, number>([[XIRAGEN, 60]]),
+    );
+
+    const transmuterNode = flow.nodes.find(
+      (n) =>
+        (n.data as { productionNode?: { recipe?: { id?: string } } })
+          .productionNode?.recipe?.id === TRANSMUTER_1_XIRAGEN,
+    );
+    expect(transmuterNode).toBeDefined();
+    const pn = (
+      transmuterNode!.data as {
+        productionNode: {
+          catalyst?: {
+            itemId: string;
+            ratePerMinute: number;
+            upkeepPerMin: number;
+          };
+          facilityCount: number;
+        };
+      }
+    ).productionNode;
+    expect(pn.catalyst?.itemId).toBe(ItemId.ITEM_LIQUID_XIRANITE);
+
+    const LX = ItemId.ITEM_LIQUID_XIRANITE;
+    const intake = flow.edges.filter(
+      (e) => e.target === transmuterNode!.id && edgeItemId(e) === LX,
+    );
+    const topEdges = intake.filter(
+      (e) => (e as { targetHandle?: string | null }).targetHandle === "catalyst",
+    );
+    const leftEdges = intake.filter(
+      (e) => (e as { targetHandle?: string | null }).targetHandle !== "catalyst",
+    );
+    // Both portions of the same item are present.
+    expect(topEdges.length).toBeGreaterThan(0);
+    expect(leftEdges.length).toBeGreaterThan(0);
+    // Top total == the plan's catalyst contract (`upkeepPerMin`, the
+    // figure the card renders) — which on a converged plan equals
+    // rate × ceil(buildings).
+    expect(sumRate(topEdges)).toBeCloseTo(pn.catalyst!.upkeepPerMin, 1);
+    expect(pn.catalyst!.upkeepPerMin).toBeCloseTo(
+      pn.catalyst!.ratePerMinute * Math.max(1, Math.ceil(pn.facilityCount)),
+      1,
+    );
+    expect(sumRate(leftEdges)).toBeGreaterThan(0);
   });
 
   test("crafted Xiragen consumed downstream is drawn from the transmuter, not the vent", async () => {

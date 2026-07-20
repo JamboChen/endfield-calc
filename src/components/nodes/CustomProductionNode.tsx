@@ -1,6 +1,6 @@
 import { Handle, type NodeProps, type Node, Position } from "@xyflow/react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Zap, Star, ArrowDownToLine, Boxes, Repeat, AlertTriangle, Truck } from "lucide-react";
+import { Zap, Star, ArrowDownToLine, Boxes, Repeat, AlertTriangle, Truck, FlaskConical } from "lucide-react";
 import { FacilityIcon } from "@/components/FacilityIcon";
 import {
   Tooltip,
@@ -91,6 +91,18 @@ export default function CustomProductionNode({
 
   const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item.id)];
 
+  // Transmuter catalyst upkeep (1.4 gas-sustain): the drained item plus
+  // the charged whole-building upkeep, read STRAIGHT off the node's
+  // catalyst contract (already scaled to this node's granularity by the
+  // emitting mapper — recipe / bin / single building). Rendered as a
+  // muted fuchsia row like the internal-items row, with the precise
+  // rate in the tooltip; when the drained item is this node's own
+  // output, its self-loop edge lands on the top "catalyst" handle.
+  // Card ≡ edges ≡ plan by construction — never re-derived from fc.
+  const catalyst = node.catalyst;
+  const catalystItem = catalyst ? getItemById(items, catalyst.itemId) : undefined;
+  const catalystTotal = catalyst ? catalyst.upkeepPerMin : 0;
+
   // Metastorage import source payload (set only on import source nodes
   // emitted by the mappers; `recipe`/`facility` are null on those).
   const metastorageImport = node.metastorageImport;
@@ -166,6 +178,27 @@ export default function CustomProductionNode({
       ) : node.recipe ? (
         <>
           <RecipeIOFull recipe={node.recipe} getItemById={(id) => getItemById(items, id)} />
+          {catalyst && catalystItem && (
+            <div className="mt-2 pt-2 border-t">
+              <div className="flex items-center gap-1.5">
+                <FlaskConical className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="font-semibold">
+                  {t("tree.catalyst", { defaultValue: "Catalyst" })}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-1 text-muted-foreground">
+                <ItemIcon item={catalystItem} size="sm" />
+                <span>{getItemName(catalystItem)}</span>
+              </div>
+              <div className="text-muted-foreground mt-0.5">
+                {t("tree.catalystItemTooltip", {
+                  rate: formatNumber(catalystTotal),
+                  defaultValue:
+                    "{{rate}}/min catalyst upkeep, drained even when idle",
+                })}
+              </div>
+            </div>
+          )}
           {facility && (
             <div className="mt-2 pt-2 border-t">
               <div className="text-muted-foreground">
@@ -314,6 +347,19 @@ export default function CustomProductionNode({
             isConnectable={false}
             className="w-3! h-3!"
           />
+          {/* Dedicated top handle for catalyst intake. The mapper re-homes
+            * the catalyst portion of this node's intake here (crafted,
+            * vent-mined, imported, or self-loop), so every transmuter node
+            * shows it. */}
+          {catalyst && (
+            <Handle
+              type="target"
+              position={Position.Top}
+              id="catalyst"
+              isConnectable={false}
+              className="w-3! h-3!"
+            />
+          )}
           <CardContent className="p-2.5 text-xs">
             {/* === Zone 1: Production outputs === */}
 
@@ -410,6 +456,34 @@ export default function CustomProductionNode({
                       </Tooltip>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* === Zone 1.6: Catalyst upkeep ===
+              * 1.4 transmuters drain an always-on catalyst (`ratePerMinute`
+              * per WHOLE building, even when idle) that the calculator folds
+              * into `recipe.inputs`. Surface it the same muted way as the
+              * internal-items row so the extra draw is legible; the precise
+              * upkeep rate lives in the node's hover popup. The catalyst
+              * portion of the intake routes to the top "catalyst" handle. */}
+            {catalyst && catalystItem && (
+              <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-dashed border-muted-foreground/25">
+                <FlaskConical className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+                <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                  {t("tree.catalyst", { defaultValue: "Catalyst" })}
+                </span>
+                <div className="flex items-center gap-1 flex-wrap min-w-0">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="opacity-60 hover:opacity-100 transition-opacity cursor-help">
+                        <ItemIcon item={catalystItem} size="sm" />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p className="text-xs">{getItemName(catalystItem)}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             )}

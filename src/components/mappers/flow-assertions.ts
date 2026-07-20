@@ -28,6 +28,12 @@ const isTestMode = (): boolean => {
  *   4. **Incomplete bin annotations**: production nodes carrying a
  *      non-empty `binSisterRecipeIds` but no `binId` (the two fields
  *      belong together).
+ *   5. **Catalyst contract**: every production node carrying a
+ *      `catalyst` contract must receive its charged upkeep on the top
+ *      "catalyst" handle — Σ top-handle in-edges ≈ `upkeepPerMin`
+ *      (small absolute slack for sub-visible dropped edges). Polices
+ *      the whole fold → plan contract → mapper split pipeline in
+ *      every view.
  */
 function findFlowIntegrityIssues(
   mapperName: string,
@@ -107,6 +113,48 @@ function findFlowIntegrityIssues(
   if (incompleteBinAnnotations.length > 0) {
     issues.push(
       `[${mapperName}] ${incompleteBinAnnotations.length} node(s) with sister recipe IDs but no binId: ${JSON.stringify(incompleteBinAnnotations)}`,
+    );
+  }
+
+  // Catalyst-contract invariant: the plan's authoritative upkeep must
+  // arrive on the top handle of the node it belongs to. Slack absorbs
+  // sub-MIN_VISIBLE dropped edges + float noise while still catching
+  // real attribution bugs (which show up at whole-fraction-of-a-drain
+  // scale, e.g. 7.38 vs 6). The relative component keeps many-producer
+  // intakes (each fragment individually droppable below MIN_VISIBLE)
+  // from tripping a hard test-mode throw on legitimate output.
+  const CATALYST_TOLERANCE_ABS = 0.05;
+  const CATALYST_TOLERANCE_REL = 0.01;
+  const topInByNode = new Map<string, number>();
+  for (const edge of edges) {
+    if (edge.targetHandle !== "catalyst") continue;
+    const rate =
+      (edge.data as { flowRate?: number } | undefined)?.flowRate ?? 0;
+    topInByNode.set(edge.target, (topInByNode.get(edge.target) ?? 0) + rate);
+  }
+  const catalystViolations: string[] = [];
+  for (const node of nodes) {
+    if (node.type !== "productionNode") continue;
+    const cat = (
+      node.data as
+        | { productionNode?: { catalyst?: { upkeepPerMin: number } } }
+        | undefined
+    )?.productionNode?.catalyst;
+    if (!cat || cat.upkeepPerMin <= CATALYST_TOLERANCE_ABS) continue;
+    const tolerance = Math.max(
+      CATALYST_TOLERANCE_ABS,
+      CATALYST_TOLERANCE_REL * cat.upkeepPerMin,
+    );
+    const got = topInByNode.get(node.id) ?? 0;
+    if (Math.abs(got - cat.upkeepPerMin) > tolerance) {
+      catalystViolations.push(
+        `${node.id}: top-handle ${got.toFixed(3)} ≠ upkeep ${cat.upkeepPerMin.toFixed(3)}`,
+      );
+    }
+  }
+  if (catalystViolations.length > 0) {
+    issues.push(
+      `[${mapperName}] ${catalystViolations.length} node(s) violate the catalyst upkeep contract: ${JSON.stringify(catalystViolations)}`,
     );
   }
 

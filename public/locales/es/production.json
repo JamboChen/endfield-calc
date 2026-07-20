@@ -108,6 +108,8 @@
     "gasEnvCreates": "Crea",
     "gasEnvBuffs": "Mejora",
     "gasEnvBuffsDetail": "Instalaciones mejoradas (reparto representativo):",
-    "gasEnvDescription": "Consume {{rate}} {{item}} por minuto para proyectar un entorno gaseoso. Las instalaciones con las fórmulas mejoradas deben caber por completo dentro del área."
+    "gasEnvDescription": "Consume {{rate}} {{item}} por minuto para proyectar un entorno gaseoso. Las instalaciones con las fórmulas mejoradas deben caber por completo dentro del área.",
+    "catalyst": "Catalizador",
+    "catalystItemTooltip": "Consume {{rate}} de catalizador por minuto, incluso inactivo"
   }
 }

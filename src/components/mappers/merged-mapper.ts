@@ -23,6 +23,8 @@ import {
   createPowerSinkNode,
   createEnvSinkNode,
   envBuffedMachines,
+  buildCatalystIntakeByNode,
+  routeCatalystIntakeToTopHandle,
 } from "../flow/flow-utils";
 import {
   createMetastorageSourceId,
@@ -279,6 +281,9 @@ export function mapPlanToFlowMerged(
               dependencies: [],
               binId: node.binId,
               binSisterRecipeIds: node.binSisterRecipeIds,
+              // Catalyst contract straight off the plan node (recipe
+              // scope = this node's scope in Recipe View).
+              catalyst: node.catalyst,
               // bf=0 chip: this recipe's specific prefill items (not the
               // bin's full union). Empty for recipes that don't sit on
               // a stuck 2-cycle, which is most of them. See
@@ -827,6 +832,16 @@ export function mapPlanToFlowMerged(
       );
     }
   });
+
+  // Re-home the catalyst portion of each transmuter's intake to its top
+  // "catalyst" handle (crafted / vent / import / self-loop alike).
+  routeCatalystIntakeToTopHandle(
+    flowEdges,
+    buildCatalystIntakeByNode(flowNodes),
+    new Map(items.map((i) => [i.id, i] as const)),
+    ceilMode,
+    () => `e${edgeIdCounter++}`,
+  );
 
   const allNodes = [...flowNodes, ...targetSinkNodes, ...disposalSinkNodes] as (
     | FlowProductionNode

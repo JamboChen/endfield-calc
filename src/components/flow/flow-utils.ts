@@ -2,6 +2,7 @@ import type {
   EdgeDirection,
   ProductionNode,
   Item,
+  ItemId,
   Facility,
   FacilityId,
   Recipe,
@@ -19,6 +20,7 @@ import { MarkerType, type Edge, type Node, Position } from "@xyflow/react";
 import { getTransportCount, getTransportCountWithFacilities, formatCount } from "@/lib/utils";
 import { getTransportLabel, getInternalFlowLabel } from "@/lib/i18n-helpers";
 import { itemIconColors } from "@/data/item-colors";
+import { MIN_VISIBLE_RATE_PER_MIN } from "@/lib/flow-thresholds";
 
 /**
  * Creates a standardized edge for React Flow with optional pre-computed direction.
@@ -31,16 +33,19 @@ import { itemIconColors } from "@/data/item-colors";
  * @param direction Optional pre-computed direction (from markEdgeDirections)
  * @param ceilMode Whether to round up transport counts
  */
-export function createEdge(
-  id: string,
-  source: string,
-  target: string,
+/**
+ * The two-line edge label (`"<rate> /min\n<transport>"`). Extracted from
+ * `createEdge` so the catalyst split (`routeCatalystIntakeToTopHandle`) can
+ * relabel a cloned fragment with its carved rate without rebuilding the
+ * whole edge — keeping the split lossless (type/direction/marker survive).
+ */
+function buildEdgeLabel(
   flowRate: number,
-  item?: Item,
-  direction?: EdgeDirection,
-  ceilMode = false,
+  item: Item | undefined,
+  ceilMode: boolean,
+  direction: EdgeDirection | undefined,
   sourceFacilityCount?: number,
-): Edge {
+): string {
   const throughputCount = getTransportCount(flowRate, item, ceilMode);
   const throughputStr = formatCount(throughputCount, ceilMode);
   const transportLabel = getTransportLabel(item);
@@ -66,13 +71,26 @@ export function createEdge(
   const labelTransport =
     direction === "internal" ? getInternalFlowLabel() : transportStr;
 
+  return `${flowRate.toFixed(2)} /min\n${labelTransport}`;
+}
+
+export function createEdge(
+  id: string,
+  source: string,
+  target: string,
+  flowRate: number,
+  item?: Item,
+  direction?: EdgeDirection,
+  ceilMode = false,
+  sourceFacilityCount?: number,
+): Edge {
   return {
     id,
     source,
     target,
     sourceHandle: item?.id,
     type: direction === "backward" ? "backwardEdge" : "simplebezier",
-    label: `${flowRate.toFixed(2)} /min\n${labelTransport}`,
+    label: buildEdgeLabel(flowRate, item, ceilMode, direction, sourceFacilityCount),
     // Non-selecting: edge clicks drive hover-emphasis + click-to-fit in
     // the tree; letting them enter React Flow's selection would clear
     // the node selection and drop an active pin.
@@ -238,6 +256,13 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
       };
     }
 
+    // Catalyst self-loops (`direction: "self"`) intentionally fall through
+    // to the normal styling below: the connection keeps the item-transported
+    // colour like any other edge. The only thing "self" changes is the
+    // target handle (`createEdge` routes it to the top "catalyst" port);
+    // the catalyst upkeep is surfaced on the node card, not by recolouring
+    // the edge.
+
     // Detect backward edge based on actual node positions
     // If source X > target X, it's a backward edge (goes right to left)
     const sourcePos = nodePositions.get(edge.source);
@@ -273,6 +298,123 @@ export function applyEdgeStyling(edges: Edge[], nodes: Node[]): Edge[] {
       },
     };
   });
+}
+
+/**
+ * A catalyst node's intake descriptor: the drained item, and the per-minute
+ * amount of that item the node consumes as a base INGREDIENT (`0` when the
+ * catalyst is a separate/pure catalyst). Everything in the item's intake
+ * ABOVE the ingredient portion is catalyst upkeep and re-homes to the top
+ * handle.
+ */
+export interface CatalystIntake {
+  itemId: ItemId;
+  ingredientRate: number;
+}
+
+/**
+ * Map every production flow node that carries a catalyst contract to its
+ * `{ itemId, ingredientRate }` intake — read STRAIGHT off the node's
+ * embedded `CatalystUpkeep` (the plan's authoritative decomposition,
+ * scaled by the emitting mapper to the node's own granularity). No game
+ * data or base-roster lookups: the mapper output is a pure function of
+ * the plan.
+ */
+export function buildCatalystIntakeByNode(
+  nodes: readonly { id: string; data: { productionNode?: ProductionNode } }[],
+): Map<string, CatalystIntake> {
+  const map = new Map<string, CatalystIntake>();
+  for (const n of nodes) {
+    const cat = n.data.productionNode?.catalyst;
+    if (!cat) continue;
+    map.set(n.id, { itemId: cat.itemId, ingredientRate: cat.ingredientPerMin });
+  }
+  return map;
+}
+
+/**
+ * Re-home catalyst intake to the top "catalyst" handle. For every catalyst
+ * node, the edges delivering its catalyst item are gathered; the catalyst
+ * portion (`total − ingredientRate`) is routed to the top handle, any
+ * ingredient portion of the same item stays on the default (left) handle.
+ *
+ * - Pure catalyst (a separate item, or a self-loop): `ingredientRate == 0`,
+ *   so every such edge is simply retagged — LOSSLESS, only `targetHandle`
+ *   changes.
+ * - Merged (the catalyst item is also a base ingredient): the boundary edge
+ *   is split into a left remainder (ingredient) + a cloned top fragment
+ *   (catalyst). The clone spreads the original edge, so `type`, `direction`
+ *   (incl. `"backward"` cycle tags), and marker survive; only the rate and
+ *   its label are recomputed.
+ *
+ * Source-agnostic: runs after ALL edges are emitted, so it catches catalyst
+ * arriving via crafted producers, vent pickups, metastorage imports, or a
+ * self-loop uniformly.
+ */
+export function routeCatalystIntakeToTopHandle(
+  edges: Edge[],
+  catalystIntakeByNode: ReadonlyMap<string, CatalystIntake>,
+  itemById: ReadonlyMap<ItemId, Item>,
+  ceilMode: boolean,
+  nextEdgeId: () => string,
+): void {
+  if (catalystIntakeByNode.size === 0) return;
+  const edgeRate = (e: Edge): number =>
+    (e.data as { flowRate?: number } | undefined)?.flowRate ?? 0;
+
+  // One pass: bucket each catalyst node's catalyst-item edges.
+  const byNode = new Map<string, Edge[]>();
+  for (const e of edges) {
+    const intake = catalystIntakeByNode.get(e.target);
+    if (!intake) continue;
+    if ((e.data as { itemId?: string } | undefined)?.itemId !== intake.itemId) {
+      continue;
+    }
+    const bucket = byNode.get(e.target);
+    if (bucket) bucket.push(e);
+    else byNode.set(e.target, [e]);
+  }
+
+  for (const [nodeId, cEdges] of byNode) {
+    const { itemId, ingredientRate } = catalystIntakeByNode.get(nodeId)!;
+    const total = cEdges.reduce((s, e) => s + edgeRate(e), 0);
+    let remainingTop = total - ingredientRate;
+    if (remainingTop <= MIN_VISIBLE_RATE_PER_MIN) continue; // no catalyst here
+
+    // Pure catalyst (this item is not also a base ingredient): retag all.
+    if (ingredientRate <= MIN_VISIBLE_RATE_PER_MIN) {
+      for (const e of cEdges) e.targetHandle = "catalyst";
+      continue;
+    }
+
+    // Merged: carve the catalyst portion off the front to the top handle,
+    // leaving the ingredient portion on the default (left) handle.
+    const item = itemById.get(itemId);
+    for (const e of cEdges) {
+      if (remainingTop <= MIN_VISIBLE_RATE_PER_MIN) break;
+      const rate = edgeRate(e);
+      const dir = (e.data as { direction?: EdgeDirection } | undefined)
+        ?.direction;
+      if (rate <= remainingTop + MIN_VISIBLE_RATE_PER_MIN) {
+        e.targetHandle = "catalyst";
+        remainingTop -= rate;
+        continue;
+      }
+      // Boundary edge: lossless split (ingredient stays, catalyst clones).
+      const topRate = remainingTop;
+      const leftRate = rate - topRate;
+      edges.push({
+        ...e,
+        id: nextEdgeId(),
+        targetHandle: "catalyst",
+        label: buildEdgeLabel(topRate, item, ceilMode, dir),
+        data: { ...e.data, flowRate: topRate },
+      });
+      e.label = buildEdgeLabel(leftRate, item, ceilMode, dir);
+      (e.data as { flowRate?: number }).flowRate = leftRate;
+      remainingTop = 0;
+    }
+  }
 }
 
 /**

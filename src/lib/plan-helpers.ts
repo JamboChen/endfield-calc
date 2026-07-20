@@ -28,6 +28,17 @@ import { mapPlacedFacilities, rawMaterialSources } from "@/data";
 export const PUMP_CATEGORIES: ReadonlySet<number> = new Set([25, 26, 41]);
 
 /**
+ * Physical placements occupied by a fractional building count: any
+ * positive activity occupies at least one whole building. THE ceil
+ * semantics shared by the aggregator, the calculator's sustain loop
+ * (`computeCatalystScales`, vaporizer env counts), and the separated
+ * Facility-View mapper — one definition, so per-recipe/per-bin ceils
+ * can never drift apart (no epsilon variants).
+ */
+export const placedBuildings = (fractionalCount: number): number =>
+  Math.max(1, Math.ceil(fractionalCount));
+
+/**
  * Bin-level plan aggregates derived from `plan.bins`. Single
  * source of truth for "how many physical buildings", "how much power",
  * and "what's the per-facility breakdown" — consumed by both
@@ -205,7 +216,7 @@ export function aggregateBinTotals(
   for (const bin of plan.bins) {
     const facility = facilityById.get(bin.facilityId);
     if (!facility) continue;
-    const ceiledBuildings = Math.max(1, Math.ceil(bin.buildingCount));
+    const ceiledBuildings = placedBuildings(bin.buildingCount);
     const recipeCount = Math.max(1, bin.recipeIds.length);
     const sumActivities = sumByBin.get(bin.id) ?? bin.buildingCount;
     const meanActivity = sumActivities / recipeCount;
