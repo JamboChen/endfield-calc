@@ -2193,11 +2193,16 @@ export async function calculateProductionPlan(
     // returned plan's charged catalyst never under-covers its own
     // ceiled building counts. Only reachable via the iteration-cap /
     // affordability-stop / failed-re-solve exits — on the converged
-    // path block 2 just verified there is nothing to raise. Raises
-    // only, never re-lowers (conservative = slight over-supply, never
-    // under), ONE extra re-solve; not a hard invariant (this re-solve
-    // can shift fc_r again — accepted), and a failed re-solve keeps
-    // the previous plan under the same keep-last contract.
+    // path block 2 just verified there is nothing to raise. (That
+    // no-op claim is load-bearing: it holds because `plan`'s fc_r
+    // cannot drift between its assembly and this check — both read
+    // the same solved `fr` — so `computeCatalystScales(plan)` matches
+    // `appliedScales` within SUSTAIN_SCALE_TOLERANCE whenever the loop
+    // exited via `!changed`.) Raises only, never re-lowers
+    // (conservative = slight over-supply, never under), ONE extra
+    // re-solve; not a hard invariant (this re-solve can shift fc_r
+    // again — accepted), and a failed re-solve keeps the previous plan
+    // under the same keep-last contract.
     if (hasDrainFacilities) {
       const needed = computeCatalystScales(plan, foldedIds, maps.facilityMap);
       const reconciled = new Map(appliedScales);

@@ -120,8 +120,11 @@ function findFlowIntegrityIssues(
   // arrive on the top handle of the node it belongs to. Slack absorbs
   // sub-MIN_VISIBLE dropped edges + float noise while still catching
   // real attribution bugs (which show up at whole-fraction-of-a-drain
-  // scale, e.g. 7.38 vs 6).
-  const CATALYST_TOLERANCE = 0.05;
+  // scale, e.g. 7.38 vs 6). The relative component keeps many-producer
+  // intakes (each fragment individually droppable below MIN_VISIBLE)
+  // from tripping a hard test-mode throw on legitimate output.
+  const CATALYST_TOLERANCE_ABS = 0.05;
+  const CATALYST_TOLERANCE_REL = 0.01;
   const topInByNode = new Map<string, number>();
   for (const edge of edges) {
     if (edge.targetHandle !== "catalyst") continue;
@@ -137,9 +140,13 @@ function findFlowIntegrityIssues(
         | { productionNode?: { catalyst?: { upkeepPerMin: number } } }
         | undefined
     )?.productionNode?.catalyst;
-    if (!cat || cat.upkeepPerMin <= CATALYST_TOLERANCE) continue;
+    if (!cat || cat.upkeepPerMin <= CATALYST_TOLERANCE_ABS) continue;
+    const tolerance = Math.max(
+      CATALYST_TOLERANCE_ABS,
+      CATALYST_TOLERANCE_REL * cat.upkeepPerMin,
+    );
     const got = topInByNode.get(node.id) ?? 0;
-    if (Math.abs(got - cat.upkeepPerMin) > CATALYST_TOLERANCE) {
+    if (Math.abs(got - cat.upkeepPerMin) > tolerance) {
       catalystViolations.push(
         `${node.id}: top-handle ${got.toFixed(3)} ≠ upkeep ${cat.upkeepPerMin.toFixed(3)}`,
       );

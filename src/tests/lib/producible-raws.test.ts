@@ -320,7 +320,11 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
     const pn = (
       transmuterNode!.data as {
         productionNode: {
-          catalyst?: { itemId: string; ratePerMinute: number };
+          catalyst?: {
+            itemId: string;
+            ratePerMinute: number;
+            upkeepPerMin: number;
+          };
           facilityCount: number;
         };
       }
@@ -340,11 +344,14 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
     // Both portions of the same item are present.
     expect(topEdges.length).toBeGreaterThan(0);
     expect(leftEdges.length).toBeGreaterThan(0);
-    // Top total == the card's catalyst figure (rate × ceil(buildings)); the
-    // rest stays as ingredient on the left.
-    const expectedCatalyst =
-      pn.catalyst!.ratePerMinute * Math.max(1, Math.ceil(pn.facilityCount));
-    expect(sumRate(topEdges)).toBeCloseTo(expectedCatalyst, 1);
+    // Top total == the plan's catalyst contract (`upkeepPerMin`, the
+    // figure the card renders) — which on a converged plan equals
+    // rate × ceil(buildings).
+    expect(sumRate(topEdges)).toBeCloseTo(pn.catalyst!.upkeepPerMin, 1);
+    expect(pn.catalyst!.upkeepPerMin).toBeCloseTo(
+      pn.catalyst!.ratePerMinute * Math.max(1, Math.ceil(pn.facilityCount)),
+      1,
+    );
     expect(sumRate(leftEdges)).toBeGreaterThan(0);
   });
 

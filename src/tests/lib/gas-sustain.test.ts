@@ -264,16 +264,19 @@ describe("gas sustain: transmuter catalyst", () => {
   });
 
   test("near-integer fc with an alternative producer: converges, never under-charges", async () => {
-    // Engineered near-tie at the integer boundary: the alternative
-    // nugget recipe burns 2 ore/nugget on a non-drain facility; the
-    // transmuter burns 1 ore + ~1 ore worth of catalyst per nugget
-    // (k_r markup on top), so k_r repricing across the fc = 3 boundary
-    // can flip slivers between producers. Whatever mix the loop (cap 8
-    // + raise-only reconcile) settles on, the returned plan's charge
-    // must cover the transmuter recipe's own whole buildings.
+    // Near-integer boundary with a live (but strictly worse)
+    // alternative: the alt burns 3 ore/nugget; the transmuter burns
+    // 1 ore + ~1.31 ore worth of catalyst per nugget at fc 3.05
+    // (k_r = 4/3.05 markup included), so the LP keeps the whole load
+    // on the transmuter while the k_r feedback re-prices it every
+    // pass. The returned plan's charge must cover the transmuter's own
+    // whole buildings: 6 × ceil(3.05) = 24, not the fractional 18.3.
+    // (A 2-ore alt ties at k = 1 and the lex buildingCount objective
+    // fully offloads — the transmuter never runs and the test would
+    // assert nothing; 3 ore keeps the boundary genuinely exercised.)
     const altNugget: Recipe = {
       id: RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1,
-      inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 2 }],
+      inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 3 }],
       outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
       facilityId: FacilityId.XIRANITE_OVEN_1,
       craftingTime: 60, // 1/min per facility, no gasEnv
@@ -291,13 +294,15 @@ describe("gas sustain: transmuter catalyst", () => {
     if (!nugget || nugget.type !== "item") throw new Error("nugget missing");
     expect(nugget.productionRate).toBeCloseTo(3.05, 3);
 
-    const trans = plan.nodes.get(transRecipe.id);
-    if (trans && trans.type === "recipe" && trans.facilityCount > 0) {
-      // Small slack mirrors the loop's relative SUSTAIN_SCALE_TOLERANCE.
-      const owed =
-        6 * Math.max(1, Math.ceil(trans.facilityCount)) * (1 - 2e-3);
-      expect(chargedCatalystPerMin(trans)).toBeGreaterThanOrEqual(owed);
-    }
+    // The transmuter must actually be selected (cheaper per nugget than
+    // the 2-ore alternative even with the catalyst markup) — without
+    // this the under-charge assertion below would pass vacuously if
+    // solver economics ever drift toward full offload.
+    const trans = getRecipeNode(plan, transRecipe.id);
+    expect(trans.facilityCount).toBeGreaterThan(0);
+    // Small slack mirrors the loop's relative SUSTAIN_SCALE_TOLERANCE.
+    const owed = 6 * Math.max(1, Math.ceil(trans.facilityCount)) * (1 - 2e-3);
+    expect(chargedCatalystPerMin(trans)).toBeGreaterThanOrEqual(owed);
   });
 
   test("separated Facility View: flat 6/min catalyst per PLACED building, ingredient load-proportional", async () => {
