@@ -93,9 +93,9 @@ export default defineConfig({
     // Pre-load HiGHS WASM once per worker so solver call sites can run
     // synchronously inside tests. See `src/tests/setup.ts`.
     setupFiles: ["./src/tests/setup.ts"],
-    // Git worktrees live inside the repo (see AGENTS guidance); their
-    // tests belong to OTHER branches and must not run against this
-    // tree's `@`-aliased src.
+    // A git worktree checked out inside the repo would otherwise have
+    // its tests (from OTHER branches) discovered here and run against
+    // this tree's `@`-aliased src — exclude them.
     exclude: [...configDefaults.exclude, "**/.worktrees/**"],
   },
 });
