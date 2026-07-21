@@ -120,7 +120,7 @@ const RESTORE_OVERLAY_MIN_NODES = 100;
  */
 type PendingCameraAction =
   | { type: "viewport"; viewport: Viewport }
-  | { type: "fit"; nodes: Node[] };
+  | { type: "fit"; nodes: Node[]; animate: boolean };
 
 function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation("production");
@@ -414,7 +414,7 @@ export default function ProductionDependencyTree({
   // getLayoutedElements) instead of fitView() so there's no race
   // against the store receiving the new nodes. Limits/padding match
   // the fitViewOptions on the ReactFlow element.
-  const fitToNodes = useCallback((layoutedNodes: Node[]) => {
+  const fitToNodes = useCallback((layoutedNodes: Node[], animate: boolean) => {
     const pane = containerRef.current?.getBoundingClientRect();
     if (!pane || !rfInstance.current || layoutedNodes.length === 0) return;
     // Local bounds fold instead of xyflow's `getNodesBounds`:
@@ -449,7 +449,13 @@ export default function ProductionDependencyTree({
       1.5,
       0.2,
     );
-    rfInstance.current.setViewport(viewport, { duration: 300 });
+    // Mode switches glide (deliberate 300ms); mount restores apply
+    // instantly — an animation FROM the default camera would itself
+    // read as a layout shift.
+    rfInstance.current.setViewport(
+      viewport,
+      animate ? { duration: 300 } : undefined,
+    );
   }, []);
 
   // Consume the parked camera action in the SAME painted frame as the
@@ -465,30 +471,42 @@ export default function ProductionDependencyTree({
     if (action.type === "viewport") {
       rfInstance.current.setViewport(action.viewport);
     } else {
-      fitToNodes(action.nodes);
+      fitToNodes(action.nodes, action.animate);
     }
   }, [nodes, fitToNodes]);
 
-  // Disable ReactFlow's deferred initial fitView when THIS mount will
-  // restore a snapshotted camera — the deferred fit fires once nodes
-  // arrive and would overwrite the restore. Evaluated once, at mount.
-  const skipInitialFitRef = useRef<boolean | null>(null);
-  if (skipInitialFitRef.current === null) {
-    skipInitialFitRef.current = !!(
-      plan &&
-      plan.nodes.size > 0 &&
-      getCachedLayout({
-        plan,
-        items,
-        recipes,
-        facilities,
-        targetRates,
-        visualizationMode,
-        twoEndAlignment,
-        ceilMode,
-        binFusion,
-      })?.viewport
-    );
+  // Cache entry THIS mount will restore (tab-flip remount), captured
+  // once at first render. Two jobs:
+  //   - `defaultViewport`: a snapshotted camera initializes ReactFlow
+  //     AT the restored viewport from frame one — a post-hoc
+  //     `setViewport` correction raced RF's `onInit` against the
+  //     transition's nodes commit, painting the graph at the default
+  //     camera for a few frames before jumping (the Table → Tree
+  //     "layout shift").
+  //   - `fitView` suppression: whenever ANY entry restores at mount, we
+  //     own the camera (stored viewport, or a parked instant fit for
+  //     viewport-less prefetched entries) — RF's deferred initial fit
+  //     would land late, after node measurement, as a visible jump. The
+  //     prop stays on only for a true first-ever mount with nothing
+  //     cached, where it is the only fit available.
+  const mountRestoreRef = useRef<{ viewport?: Viewport } | null | undefined>(
+    undefined,
+  );
+  if (mountRestoreRef.current === undefined) {
+    mountRestoreRef.current =
+      plan && plan.nodes.size > 0
+        ? (getCachedLayout({
+            plan,
+            items,
+            recipes,
+            facilities,
+            targetRates,
+            visualizationMode,
+            twoEndAlignment,
+            ceilMode,
+            binFusion,
+          }) ?? null)
+        : null;
   }
 
   useEffect(() => {
@@ -547,6 +565,13 @@ export default function ProductionDependencyTree({
     }
     lastComboRef.current = inputs;
 
+    // Canvas currently empty (fresh mount / tab-flip remount / after an
+    // empty plan) — the incoming graph must bring its own camera, and
+    // `modeChanged` can't cover it (there is no previous mode). Checked
+    // against the LIVE canvas, not a first-run flag: effect re-runs for
+    // the same combo before the nodes commit (StrictMode double-invoke,
+    // dep identity churn) must park the same action again, not null it.
+    const canvasEmpty = liveViewRef.current.nodes.length === 0;
     const modeChanged =
       lastLayoutModeRef.current !== null &&
       lastLayoutModeRef.current !== visualizationMode;
@@ -581,13 +606,16 @@ export default function ProductionDependencyTree({
         setShowLayoutOverlay(false);
       });
       // Park the camera change for the swap's commit (atomic with the
-      // new graph — never applied against the outgoing one).
+      // new graph — never applied against the outgoing one). On a fresh
+      // mount the snapshotted viewport is already live via
+      // `defaultViewport` — re-parking it is an idempotent no-op.
       pendingCameraRef.current = cached.viewport
         ? // Camera exactly as the user left this view.
           { type: "viewport", viewport: cached.viewport }
-        : modeChanged
-          ? // Prefetched entry (no stored camera) — standard mode re-fit.
-            { type: "fit", nodes: cached.nodes }
+        : modeChanged || canvasEmpty
+          ? // Prefetched entry (no stored camera): mode re-fit glides,
+            // an empty-canvas restore snaps (no visible pre-fit camera).
+            { type: "fit", nodes: cached.nodes, animate: modeChanged }
           : null;
       // No finish() here: the timer is already cleared and the overlay
       // hide rides the transition so it lifts exactly with the graph.
@@ -624,8 +652,11 @@ export default function ProductionDependencyTree({
           // Transition for the same reason as the cache-hit restore:
           // the giant commit must not freeze whatever the user is
           // doing when the layout finally lands.
-          pendingCameraRef.current = modeChanged
-            ? { type: "fit", nodes: result.nodes }
+          // Same empty-canvas rule as the hit path: a graph landing on
+          // a bare canvas brings its own camera (RF's own fitView may
+          // be suppressed on instances mounted with a restore).
+          pendingCameraRef.current = modeChanged || canvasEmpty
+            ? { type: "fit", nodes: result.nodes, animate: modeChanged }
             : null;
           startTransition(() => {
             setNodes(result.nodes as FlowProductionNode[]);
@@ -901,7 +932,7 @@ export default function ProductionDependencyTree({
               if (action.type === "viewport") {
                 instance.setViewport(action.viewport);
               } else {
-                fitToNodes(action.nodes);
+                fitToNodes(action.nodes, action.animate);
               }
             }
             setLowZoom(instance.getZoom() < LABEL_FADE_ZOOM);
@@ -917,10 +948,11 @@ export default function ProductionDependencyTree({
           onSelectionChange={onSelectionChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          // ReactFlow's deferred initial fit fires when nodes first
-          // arrive — it must yield to a restored snapshot camera on
-          // tab-flip remounts (see skipInitialFitRef).
-          fitView={!skipInitialFitRef.current}
+          // Mount restores own the camera (see mountRestoreRef):
+          // initialize AT the snapshotted viewport and suppress RF's
+          // deferred initial fit whenever any entry restores.
+          defaultViewport={mountRestoreRef.current?.viewport}
+          fitView={!mountRestoreRef.current}
           fitViewOptions={{
             padding: 0.2,
             minZoom: 0.1,
