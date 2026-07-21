@@ -110,6 +110,6 @@
     "gasEnvBuffsDetail": "受增益设备（示意分配）：",
     "gasEnvDescription": "每分钟消耗{{rate}}个{{item}}以生成气体环境。运行受增益配方的设备须完全位于范围内。",
     "catalyst": "催化剂",
-    "catalystItemTooltip": "每分钟消耗{{rate}}个催化剂以维持运转，闲置时也会消耗。"
+    "catalystItemTooltip": "运转时每分钟消耗{{rate}}个催化剂，多余的供给会被浪费。"
   }
 }

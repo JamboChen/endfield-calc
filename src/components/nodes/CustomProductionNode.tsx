@@ -92,7 +92,7 @@ export default function CustomProductionNode({
   const outputHandleIds = [node.item.id, ...byproducts.map((b) => b.item.id)];
 
   // Transmuter catalyst upkeep (1.4 gas-sustain): the drained item plus
-  // the charged whole-building upkeep, read STRAIGHT off the node's
+  // the charged load-proportional fuel upkeep, read STRAIGHT off the node's
   // catalyst contract (already scaled to this node's granularity by the
   // emitting mapper — recipe / bin / single building). Rendered as a
   // muted fuchsia row like the internal-items row, with the precise
@@ -194,7 +194,7 @@ export default function CustomProductionNode({
                 {t("tree.catalystItemTooltip", {
                   rate: formatNumber(catalystTotal),
                   defaultValue:
-                    "{{rate}}/min catalyst upkeep, drained even when idle",
+                    "{{rate}}/min catalyst consumed while operating. Excess intake is wasted.",
                 })}
               </div>
             </div>
@@ -461,9 +461,9 @@ export default function CustomProductionNode({
             )}
 
             {/* === Zone 1.6: Catalyst upkeep ===
-              * 1.4 transmuters drain an always-on catalyst (`ratePerMinute`
-              * per WHOLE building, even when idle) that the calculator folds
-              * into `recipe.inputs`. Surface it the same muted way as the
+              * 1.4 transmuters burn a catalyst fuel (`ratePerMinute` per
+              * building at 100% duty, load-proportional) that the calculator
+              * folds into `recipe.inputs`. Surface it the same muted way as the
               * internal-items row so the extra draw is legible; the precise
               * upkeep rate lives in the node's hover popup. The catalyst
               * portion of the intake routes to the top "catalyst" handle. */}

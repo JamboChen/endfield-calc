@@ -3,15 +3,17 @@
 // 1.4 gas-sustain model: the out-of-band item drains that keep
 // transmuters and vaporizers running. Derived from the game data.
 //
-// - `facilitySustainDrains`: catalyst drained at `ratePerMinute` per
-//   WHOLE building while placed — drains even when idle; over-supply is
-//   wasted (verified in-game 1.4). The calculator folds the
-//   proportional share into each recipe's inputs at graph-build time
-//   and tops up the idle drain of the marginal ceiled building via the
-//   sustain loop (see `src/lib/calculator.ts`).
+// - `facilitySustainDrains`: catalyst fuel burned at `ratePerMinute`
+//   per building at 100% duty — one unit buys 60/rate seconds of
+//   working time, so consumption is load-proportional (verified
+//   in-game 1.4; the eager activation port is assumed throttled to the
+//   duty rate). The calculator folds the charge into each recipe's
+//   inputs at graph-build time (see `src/lib/calculator.ts`).
 // - `vaporizerEnvs`: one synthetic zero-output recipe per gas
 //   environment (`Recipe.gasEnv` joins on the map key). Each vaporizer
-//   drains `ratePerMinute` of its gas, always-on; vaporizer count =
+//   drains `ratePerMinute` of its gas, modeled ALWAYS-ON (the shared
+//   aura's uptime is the union of up to machinesPerVaporizer
+//   unsynchronized duty cycles ≈ 100%); vaporizer count =
 //   ceil(env machines / machinesPerVaporizer) — coverage is a plan
 //   option, not spatial modeling. Aura: 13×13, buildings fully inside.
 //
@@ -24,7 +26,7 @@ import { FacilityId, ItemId, RecipeId } from "@/types/constants";
 
 export interface SustainDrain {
   itemId: ItemId;
-  /** Items/min per whole building, drains even when idle. */
+  /** Items/min per building at 100% duty (fuel: 1 unit = 60/rate s of work). */
   ratePerMinute: number;
 }
 

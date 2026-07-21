@@ -287,7 +287,7 @@ export type ProductionNode = {
   metastorageImport?: PlanMetastorageImport;
 
   /**
-   * Always-on catalyst upkeep for this display node, scaled to ITS
+   * Catalyst fuel upkeep for this display node, scaled to ITS
    * granularity by the emitting mapper (whole recipe in Recipe View,
    * singleton bin in fused Facility View, ONE building in separated
    * Facility View). Copied from the plan's authoritative
@@ -305,16 +305,18 @@ export type ProductionNode = {
  * from its own folding bookkeeping — the ONLY source display code may
  * use (no base-roster or drains-table lookups downstream).
  *
- * Invariant: the node's total intake of `itemId` (as solved by the LP
- * on the folded recipe) = `ingredientPerMin + upkeepPerMin`, exact by
- * construction even for synthetic recipes and unconverged keep-last
- * plans. On a converged plan `upkeepPerMin = ratePerMinute ×
- * max(1, ceil(facilityCount))` (each PLACED building drains flat, even
- * when idle / partial-load).
+ * The catalyst is a fuel: one unit buys `60 / ratePerMinute` seconds
+ * of working time, so the charge is load-proportional. Invariant: the
+ * node's total intake of `itemId` (as solved by the LP on the folded
+ * recipe) = `ingredientPerMin + upkeepPerMin`, exact by construction
+ * even for synthetic recipes, with `upkeepPerMin = ratePerMinute ×
+ * facilityCount` (fractional — a partially-loaded building only burns
+ * fuel while working, assuming its eager activation port is throttled
+ * to the duty rate).
  */
 export type CatalystUpkeep = {
   itemId: ItemId;
-  /** Drain per PLACED building (items/min), even when idle. */
+  /** Drain per building at 100% duty (items/min). */
   ratePerMinute: number;
   /** Charged upkeep at this node's scope (items/min): folded − ingredient. */
   upkeepPerMin: number;

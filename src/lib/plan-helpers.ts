@@ -31,9 +31,9 @@ export const PUMP_CATEGORIES: ReadonlySet<number> = new Set([25, 26, 41]);
  * Physical placements occupied by a fractional building count: any
  * positive activity occupies at least one whole building. THE ceil
  * semantics shared by the aggregator, the calculator's sustain loop
- * (`computeCatalystScales`, vaporizer env counts), and the separated
- * Facility-View mapper — one definition, so per-recipe/per-bin ceils
- * can never drift apart (no epsilon variants).
+ * (vaporizer env counts), and the separated Facility-View mapper —
+ * one definition, so per-recipe/per-bin ceils can never drift apart
+ * (no epsilon variants).
  */
 export const placedBuildings = (fractionalCount: number): number =>
   Math.max(1, Math.ceil(fractionalCount));
