@@ -25,10 +25,79 @@ interface ElkGraph {
   edges?: ElkEdge[];
 }
 
-type LayoutEngine = { layout: (graph: ElkGraph) => Promise<ElkNode> };
+type LayoutEngine = {
+  layout: (graph: ElkGraph) => Promise<ElkNode>;
+  terminateWorker?: () => void;
+};
 
-let elkInstance: LayoutEngine | null = null;
-let elkPromise: Promise<LayoutEngine> | null = null;
+/**
+ * Thrown by `getLayoutedElements` when `cancelLayoutLane` killed the
+ * lane mid-job. Callers MUST treat it as "discard, don't render" — the
+ * generic ELK-error fallback (return unlayouted nodes) deliberately
+ * does not apply to cancellations.
+ */
+export class LayoutCancelledError extends Error {
+  constructor() {
+    super("layout cancelled");
+    this.name = "LayoutCancelledError";
+  }
+}
+
+/**
+ * ELK job lanes. Each lane owns its OWN ELK instance (its own Web
+ * Worker): elkjs processes jobs sequentially per worker, so without the
+ * split a speculative multi-second prefetch job would queue AHEAD of an
+ * interactive layout the user is waiting on.
+ *
+ *   - "interactive": layouts the visible graph. Preloaded at module
+ *     import.
+ *   - "prefetch": background pre-computation of the not-currently-shown
+ *     view (see `layout-cache.ts`). Created lazily on first use;
+ *     terminated aggressively by `cancelLayoutLane` when its job goes
+ *     stale.
+ */
+export type LayoutLane = "interactive" | "prefetch";
+
+type LaneState = {
+  enginePromise: Promise<LayoutEngine> | null;
+  engine: LayoutEngine | null;
+  /** Deferred rejected by `cancelLayoutLane`; pending jobs race it. */
+  cancel: { promise: Promise<never>; reject: (e: Error) => void };
+};
+
+function makeCancelDeferred(): LaneState["cancel"] {
+  let reject!: (e: Error) => void;
+  const promise = new Promise<never>((_, rej) => {
+    reject = rej;
+  });
+  // Mark handled: a cancel with no in-flight job must not surface an
+  // unhandled-rejection warning. `Promise.race` attaches its own
+  // handler independently.
+  promise.catch(() => {});
+  return { promise, reject };
+}
+
+const lanes: Record<LayoutLane, LaneState> = {
+  interactive: { enginePromise: null, engine: null, cancel: makeCancelDeferred() },
+  prefetch: { enginePromise: null, engine: null, cancel: makeCancelDeferred() },
+};
+
+/**
+ * Terminate a lane's worker (if any) and reject its in-flight jobs with
+ * `LayoutCancelledError`. The engine is re-created lazily on the lane's
+ * next job. Called when a job is KNOWN stale — freeing the core beats
+ * letting a doomed multi-second NETWORK_SIMPLEX run finish (the whole
+ * point of real cancellation vs. ignore-the-result: rapid input spam
+ * must not keep a background core grinding).
+ */
+export function cancelLayoutLane(lane: LayoutLane): void {
+  const state = lanes[lane];
+  state.cancel.reject(new LayoutCancelledError());
+  state.cancel = makeCancelDeferred();
+  state.engine?.terminateWorker?.();
+  state.engine = null;
+  state.enginePromise = null;
+}
 
 /**
  * Creates the ELK engine, preferring a Web Worker so layout computation
@@ -59,6 +128,29 @@ async function createLayoutEngine(): Promise<LayoutEngine> {
   return new ELK() as unknown as LayoutEngine;
 }
 
+/**
+ * Resolve (and memoise) a lane's engine, racing the CALLER-captured
+ * cancellation promise — `cancelLayoutLane` swaps the lane's deferred,
+ * so a job must race against the one that was current when it started.
+ */
+async function laneEngine(
+  lane: LayoutLane,
+  cancel: Promise<never>,
+): Promise<LayoutEngine> {
+  const state = lanes[lane];
+  if (!state.enginePromise) {
+    state.enginePromise = createLayoutEngine().then((engine) => {
+      state.engine = engine;
+      return engine;
+    });
+    // A failed creation must not poison the lane forever.
+    state.enginePromise.catch(() => {
+      if (lanes[lane].engine === null) lanes[lane].enginePromise = null;
+    });
+  }
+  return Promise.race([state.enginePromise, cancel]);
+}
+
 const NODE_DIMENSIONS = {
   RAW_MATERIAL_NODE: { width: 208, height: 125 },
   PRODUCTION_NODE: { width: 208, height: 125 },
@@ -68,14 +160,22 @@ const NODE_DIMENSIONS = {
 } as const;
 
 /**
- * Initiates the loading of ELKJS.
+ * Initiates the loading of ELKJS for the interactive lane.
  * This can be called early to preload the 1.4MB bundle in the background.
  */
 export const preloadLayoutEngine = () => {
-  if (!elkPromise) {
-    elkPromise = createLayoutEngine();
+  const state = lanes.interactive;
+  if (!state.enginePromise) {
+    state.enginePromise = createLayoutEngine().then((engine) => {
+      state.engine = engine;
+      return engine;
+    });
+    state.enginePromise.catch(() => {
+      if (lanes.interactive.engine === null)
+        lanes.interactive.enginePromise = null;
+    });
   }
-  return elkPromise;
+  return state.enginePromise;
 };
 
 // Start preloading immediately when this utility module is imported
@@ -286,17 +386,21 @@ const PLACEMENT_TUNING_MAX_NODES = 600;
  *
  * @param twoEndAlignment When true (separated mode only), forces raw material
  *   nodes to the leftmost layer and target sink nodes to the rightmost layer.
+ * @param lane ELK job lane — see `LayoutLane`. Throws
+ *   `LayoutCancelledError` when `cancelLayoutLane(lane)` kills the job
+ *   mid-flight; every OTHER failure keeps the legacy behaviour of
+ *   returning the un-layouted inputs.
  */
 export const getLayoutedElements = async (
   nodes: Node[],
   edges: Edge[],
   direction = "RIGHT",
   twoEndAlignment = false,
+  lane: LayoutLane = "interactive",
 ) => {
-  // Ensure the engine is loaded
-  if (!elkInstance) {
-    elkInstance = await preloadLayoutEngine();
-  }
+  // Capture the lane's CURRENT cancel deferred: `cancelLayoutLane`
+  // swaps it, so this job races the one live at its start.
+  const cancel = lanes[lane].cancel.promise;
 
   const isHorizontal = direction === "RIGHT" || direction === "LEFT";
 
@@ -392,7 +496,13 @@ export const getLayoutedElements = async (
   };
 
   try {
-    const layoutedGraph = await elkInstance!.layout(elkGraph);
+    const engine = await laneEngine(lane, cancel);
+    // The raw promise may reject AFTER our race settles (terminated
+    // worker) — pre-attach a handler so it never surfaces as an
+    // unhandled rejection.
+    const rawLayout = engine.layout(elkGraph);
+    rawLayout.catch(() => {});
+    const layoutedGraph = await Promise.race([rawLayout, cancel]);
 
     const layoutedNodes = nodes.map((node) => {
       const elkNode = layoutedGraph.children?.find((n) => n.id === node.id);
@@ -420,6 +530,10 @@ export const getLayoutedElements = async (
 
     return { nodes: finalNodes, edges };
   } catch (error) {
+    // Cancellation is a control-flow signal for the caller (discard the
+    // job), NOT a degraded-render situation — never fall through to the
+    // unlayouted-nodes fallback with it.
+    if (error instanceof LayoutCancelledError) throw error;
     console.error("ELK layout failed:", error);
     return { nodes, edges };
   }

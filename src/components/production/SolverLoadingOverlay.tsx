@@ -11,17 +11,23 @@ import { useTranslation } from "react-i18next";
  * animation; no visible text. aria-label provides a screen-reader
  * label, routed through i18n's defaultValue so any future locale
  * additions pick it up automatically.
+ *
+ * Also reused by `ProductionDependencyTree` while the ELK layout of a
+ * large Facility View graph is in flight (multi-second on big plans) —
+ * `label` overrides the aria text for that context; visuals are
+ * identical so back-to-back solver → layout busy states read as one.
  */
-export default function SolverLoadingOverlay() {
+export default function SolverLoadingOverlay({ label }: { label?: string }) {
   const { i18n } = useTranslation("app");
-  const label = i18n.t("solverLoading", { defaultValue: "Loading solver" });
+  const resolvedLabel =
+    label ?? i18n.t("solverLoading", { defaultValue: "Loading solver" });
 
   return (
     <div
       className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm pointer-events-none"
       role="status"
       aria-live="polite"
-      aria-label={label}
+      aria-label={resolvedLabel}
     >
       <img
         src={`${import.meta.env.BASE_URL}images/loading.png`}

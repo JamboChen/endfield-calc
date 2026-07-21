@@ -32,6 +32,7 @@ import type {
 } from "@/types";
 import type { ProductionTableData } from "@/hooks/useProductionTable";
 import type { IneffectivePin } from "@/hooks/useProductionPlan";
+import { useLayoutPrefetch } from "@/components/flow/layout-cache";
 
 interface ProductionViewTabsProps {
   plan: ProductionDependencyGraph | null;
@@ -87,6 +88,25 @@ export default function ProductionViewTabs({
   const [visualizationMode, setVisualizationMode] =
     useState<VisualizationMode>("merged");
   const [twoEndAlignment, setTwoEndAlignment] = useState(false);
+
+  // Background pre-compute of likely-next tree views (the other
+  // visualization mode; plus the current one while the tree itself is
+  // unmounted on the table tab) into the shared layout cache — mounted
+  // HERE because this component outlives the tab switches that unmount
+  // the tree. Settle-debounced + idle-gated + cancellable; see
+  // layout-cache.ts for the concurrency policy.
+  useLayoutPrefetch({
+    plan,
+    items,
+    recipes,
+    facilities,
+    targetRates,
+    visualizationMode,
+    twoEndAlignment,
+    ceilMode,
+    binFusion,
+    activeTab,
+  });
 
   // The bin-fusion toggle only has visible effect when at least one bin
   // packs ≥2 demand recipes; for singleton / non-multi-formula plans the
