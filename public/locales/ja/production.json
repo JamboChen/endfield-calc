@@ -110,6 +110,6 @@
     "gasEnvBuffsDetail": "効果を受ける設備（代表的な割り当て）：",
     "gasEnvDescription": "毎分{{item}}を{{rate}}消費してガス環境を生成します。効果対象の製法を実行する設備は範囲内に完全に収める必要があります。",
     "catalyst": "触媒",
-    "catalystItemTooltip": "毎分{{rate}}の触媒を消費して稼働を維持します。稼働していなくても消費されます。"
+    "catalystItemTooltip": "稼働中に毎分{{rate}}の触媒を消費します。過剰な供給は無駄になります。"
   }
 }

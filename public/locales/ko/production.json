@@ -110,6 +110,6 @@
     "gasEnvBuffsDetail": "효과를 받는 설비 (대표 배분):",
     "gasEnvDescription": "분당 {{item}} {{rate}}개를 소모해 기체 환경을 생성합니다. 효과 대상 제조법을 실행하는 설비는 범위 안에 완전히 들어가야 합니다.",
     "catalyst": "촉매",
-    "catalystItemTooltip": "가동 유지를 위해 분당 촉매 {{rate}}개를 소모합니다. 가동하지 않아도 소모됩니다."
+    "catalystItemTooltip": "가동 중 분당 촉매 {{rate}}개를 소모합니다. 초과 공급량은 낭비됩니다."
   }
 }

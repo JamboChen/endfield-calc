@@ -1108,25 +1108,26 @@ describe("Real 1.2 data regression", () => {
       { rawMaterials: ALL_RAWS },
     );
 
-    // Re-pinned for 1.4: the gas-era lex optimum routes the gourd's
-    // component sub-chain through Xiranite Powder-hungry recipes
-    // (26.5/min total vs the 1.2-era 14/min), but the REGRESSION under
-    // test is unchanged — the absorber pool is NOT over-run (still 4
-    // cycles/min, asserted below) and surplus sewage goes to disposal.
+    // Re-pinned for the 1.4 load-proportional catalyst fuel: the
+    // cheaper transmuter pricing shifts the gourd's lex optimum to a
+    // less Xiranite Powder-hungry mix (14.9/min vs the whole-building
+    // catalyst era's 26.5), but the REGRESSION under test is unchanged
+    // — the absorber pool is NOT over-run (still 4 cycles/min,
+    // asserted below) and surplus sewage goes to disposal.
     const xiranite = plan.nodes.get(ItemId.ITEM_XIRANITE_POWDER);
     expect(xiranite?.type).toBe("item");
     if (xiranite?.type === "item") {
-      expect(xiranite.productionRate).toBeCloseTo(26.5, 1);
+      expect(xiranite.productionRate).toBeCloseTo(14.9, 1);
     }
 
-    // Sewage surplus should be disposed (2/min surplus / 30 per facility)
+    // Sewage surplus should be disposed (1/min surplus / 30 per facility)
     const sewageDisposal = plan.nodes.get(
       RecipeId.FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_SEWAGE,
     );
     expect(sewageDisposal).toBeDefined();
     if (sewageDisposal?.type === "recipe") {
       expect(sewageDisposal.isDisposal).toBe(true);
-      expect(sewageDisposal.facilityCount).toBeCloseTo(2 / 30, 3);
+      expect(sewageDisposal.facilityCount).toBeCloseTo(1 / 30, 3);
     }
 
     // Liquid Purifier absorbs the LOWPOLY produced by Pool to recover

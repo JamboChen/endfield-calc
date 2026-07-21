@@ -243,7 +243,8 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
       new Map<ItemIdT, number>([[XIRAGEN, 60]]),
     );
 
-    // The transmuter node exposes its catalyst upkeep (Xiragen, 6/min/bldg).
+    // The transmuter node exposes its catalyst upkeep (Xiragen, 6/min
+    // per building at full duty).
     const transmuterNode = flow.nodes.find(
       (n) =>
         (n.data as { productionNode?: { recipe?: { id?: string } } })
@@ -289,7 +290,7 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
   test("zero-vent Xiragen (transmuter_1): the merged Liquid Xiranite intake splits into catalyst (top) + ingredient (left)", async () => {
     // transmuter_1's catalyst is Liquid Xiranite, which is ALSO its recipe
     // ingredient (merged). So the Liquid Xiranite intake SPLITS: the catalyst
-    // portion (rate × ceil(buildings)) re-homes to the top handle, the
+    // portion (rate × fractional fc) re-homes to the top handle, the
     // ingredient portion stays on the left — two edges, same item, summing to
     // the full intake. This is the lossless-split path.
     const plan = await calculateProductionPlan(
@@ -345,11 +346,11 @@ describe("producible raws (Xiragen crafted vs. vent-mined)", () => {
     expect(topEdges.length).toBeGreaterThan(0);
     expect(leftEdges.length).toBeGreaterThan(0);
     // Top total == the plan's catalyst contract (`upkeepPerMin`, the
-    // figure the card renders) — which on a converged plan equals
-    // rate × ceil(buildings).
+    // figure the card renders) — the load-proportional fuel charge,
+    // rate × fractional fc.
     expect(sumRate(topEdges)).toBeCloseTo(pn.catalyst!.upkeepPerMin, 1);
     expect(pn.catalyst!.upkeepPerMin).toBeCloseTo(
-      pn.catalyst!.ratePerMinute * Math.max(1, Math.ceil(pn.facilityCount)),
+      pn.catalyst!.ratePerMinute * pn.facilityCount,
       1,
     );
     expect(sumRate(leftEdges)).toBeGreaterThan(0);

@@ -1070,21 +1070,15 @@ export function mapPlanToFlowBinFusedSeparated(
     // enumerates only variants that are port-feasible at full
     // utilisation.
     //
-    // EXCEPTION — the folded transmuter catalyst: each PLACED building
-    // drains it flat (even when idle / partial-load), so the drain
-    // item's upkeep portion splits `upkeepPerMin / N` per instance
-    // while its genuine-ingredient portion stays load-proportional.
-    // Both figures come from the plan's catalyst contract
-    // (`ProductionGraphNode.catalyst`) — the authoritative
-    // decomposition, so Σ instance rates ≡ the bin's external rate
-    // even on an unconverged keep-last plan; on a converged plan
-    // `upkeepPerMin / N` = the drain rate exactly.
+    // The folded transmuter catalyst (fuel, burned only while working)
+    // is load-proportional like every other input, so it needs no
+    // special split — the partial building carries a partial share.
+    // The per-instance contract below re-scales the plan's catalyst
+    // decomposition (`ProductionGraphNode.catalyst`) by the same load
+    // share, so Σ instance rates ≡ the bin's external rate by
+    // construction.
     const E = effectiveBuildingCount(plan, bin);
     const catalyst = binCatalyst(plan, bin);
-    const catalystPerInstance = catalyst ? catalyst.upkeepPerMin / N : 0;
-    const catalystIngredientPerBuilding = catalyst
-      ? catalyst.ingredientPerMin / E
-      : 0;
     // Full-load per-building rates at the bin's formula mix.
     const perBuildingInputsFull = bin.externalInputs.map((io) => ({
       itemId: io.itemId,
@@ -1103,11 +1097,12 @@ export function mapPlanToFlowBinFusedSeparated(
     // small that EVERY IO rate falls under MIN_VISIBLE_RATE_PER_MIN
     // (e.g. fc = k + 1e-5) produces an instance whose producer/consumer
     // entries are all filtered below — an emitted node with no edges,
-    // tripping the isolated-node integrity check. A flat catalyst
-    // drain keeps the instance connected regardless (its upkeep edge
-    // is load-independent), so those never fold. The fold adds ≤ the
-    // sub-visible rate to the previous building — invisible at display
-    // precision, and Σ loads (conservation) is preserved exactly.
+    // tripping the isolated-node integrity check. The folded catalyst
+    // fuel is load-proportional like every other input, so a
+    // sub-visible tail's catalyst is sub-visible too and folds with
+    // it. The fold adds ≤ the sub-visible rate to the previous
+    // building — invisible at display precision, and Σ loads
+    // (conservation) is preserved exactly.
     const maxFullIoRate = Math.max(
       0,
       ...perBuildingInputsFull.map((io) => io.rate),
@@ -1115,7 +1110,6 @@ export function mapPlanToFlowBinFusedSeparated(
     );
     while (
       loads.length >= 2 &&
-      catalystPerInstance <= MIN_VISIBLE_RATE_PER_MIN &&
       maxFullIoRate * loads[loads.length - 1] <= MIN_VISIBLE_RATE_PER_MIN
     ) {
       const tail = loads.pop()!;
@@ -1125,11 +1119,7 @@ export function mapPlanToFlowBinFusedSeparated(
       const loadFraction = loads[i];
       const inputs = perBuildingInputsFull.map((io) => ({
         itemId: io.itemId,
-        rate:
-          catalystPerInstance > 0 && io.itemId === catalyst!.itemId
-            ? catalystIngredientPerBuilding * loadFraction +
-              catalystPerInstance
-            : io.rate * loadFraction,
+        rate: io.rate * loadFraction,
         isLiquid: io.isLiquid,
       }));
       const outputs = perBuildingOutputsFull.map((io) => ({
@@ -1144,16 +1134,18 @@ export function mapPlanToFlowBinFusedSeparated(
         perBuildingInputs: inputs,
         perBuildingOutputs: outputs,
         isPartialLoad: loadFraction < 0.999,
-        // Contract re-scaled to ONE building: flat upkeep share, load-
-        // scaled ingredient. The card popup and the generic
+        // Contract re-scaled to ONE building: both components scale
+        // with the instance's load share of the bin's activity E
+        // (Σ loads = E, so the instances sum back to the bin-level
+        // contract exactly). The card popup and the generic
         // `buildCatalystIntakeByNode` both read this — per-building
         // edge ≡ popup ≡ plan by construction.
         catalyst: catalyst
           ? {
               itemId: catalyst.itemId,
               ratePerMinute: catalyst.ratePerMinute,
-              upkeepPerMin: catalystPerInstance,
-              ingredientPerMin: catalystIngredientPerBuilding * loadFraction,
+              upkeepPerMin: (catalyst.upkeepPerMin / E) * loadFraction,
+              ingredientPerMin: (catalyst.ingredientPerMin / E) * loadFraction,
             }
           : undefined,
       });
@@ -1330,9 +1322,9 @@ export function mapPlanToFlowBinFusedSeparated(
           // reference so the Prefill chip can render when they're in a
           // cycle (e.g. moss planter/seedcollector singletons).
           bin: inst.bin,
-          // Per-building catalyst contract (flat upkeep share, load-
-          // scaled ingredient) — the card and the intake router read
-          // this node-scoped figure directly.
+          // Per-building catalyst contract (load-scaled fuel share) —
+          // the card and the intake router read this node-scoped
+          // figure directly.
           catalyst: inst.catalyst,
           // Facility View chip: per-building, but the prefill obligation
           // is per-bin (seeding one building's inner inventory is what
@@ -1747,9 +1739,8 @@ export function mapPlanToFlowBinFusedSeparated(
 
   // Re-home the catalyst portion of each building's intake to its top
   // "catalyst" handle (per-building, source-agnostic). Every instance
-  // node embeds its own per-building contract (flat upkeep share,
-  // load-scaled ingredient), so the generic intake builder is exact
-  // here too.
+  // node embeds its own per-building contract (load-scaled fuel
+  // share), so the generic intake builder is exact here too.
   routeCatalystIntakeToTopHandle(
     flowEdges,
     buildCatalystIntakeByNode(flowNodes),
