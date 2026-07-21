@@ -1,4 +1,11 @@
-import { useMemo, useEffect, useRef, useState, useCallback } from "react";
+import {
+  useMemo,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  startTransition,
+} from "react";
 import {
   ReactFlow,
   Controls,
@@ -91,6 +98,14 @@ const LAYOUT_OVERLAY_DEBOUNCE_MS = 300;
  *  queue behind. Younger jobs are left to complete — terminate +
  *  worker-respawn thrash would cost more than they do. */
 const STALE_LAYOUT_TERMINATE_MS = 1000;
+
+/** Cache-hit restores above this node count show the busy overlay
+ *  IMMEDIATELY (no debounce): the DOM commit + React Flow measurement
+ *  of a big graph blocks the main thread up to ~2.5s and is not
+ *  time-sliceable, so the user gets the dimmed-canvas feedback painted
+ *  BEFORE the freeze. Small restores skip it — their freeze is shorter
+ *  than the flash would be. */
+const RESTORE_OVERLAY_MIN_NODES = 100;
 
 function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation("production");
@@ -504,17 +519,33 @@ export default function ProductionDependencyTree({
     };
 
     // Cache hit (prior visit snapshot or background prefetch): restore
-    // synchronously — no mapper, no ELK, no overlay (the debounce timer
-    // is cleared before it can fire).
+    // without mapper/ELK. The graph replacement is a TRANSITION:
+    // replacing hundreds of node/edge components in one urgent render
+    // blocked the main thread right on the click (measured 444+194ms at
+    // 46 nodes, 1183+1250ms at 356 — the tab/radio flip couldn't even
+    // paint). The render phase is time-sliced as a transition; the DOM
+    // commit + React Flow measurement pass remain one synchronous
+    // chunk, which is why big restores urgently paint the busy overlay
+    // FIRST (below) — click feedback lands before the freeze.
     const cached = getCachedLayout(inputs);
     if (cached) {
-      setNodes(
-        cached.nodes.map((n) => ({
-          ...n,
-          selected: false,
-        })) as FlowProductionNode[],
-      );
-      setEdges(cached.edges);
+      window.clearTimeout(overlayTimer);
+      // Urgent overlay for big restores: paints together with the
+      // tab/radio flip, before the graph-commit freeze. Cleared INSIDE
+      // the transition so it disappears exactly when the graph lands.
+      if (cached.nodes.length > RESTORE_OVERLAY_MIN_NODES) {
+        setShowLayoutOverlay(true);
+      }
+      startTransition(() => {
+        setNodes(
+          cached.nodes.map((n) => ({
+            ...n,
+            selected: false,
+          })) as FlowProductionNode[],
+        );
+        setEdges(cached.edges);
+        setShowLayoutOverlay(false);
+      });
       if (cached.viewport) {
         // Camera exactly as the user left this view.
         if (rfInstance.current) {
@@ -526,7 +557,8 @@ export default function ProductionDependencyTree({
         // Prefetched entry (no stored camera) — standard mode re-fit.
         fitToNodes(cached.nodes);
       }
-      finish();
+      // No finish() here: the timer is already cleared and the overlay
+      // hide rides the transition so it lifts exactly with the graph.
       return cleanup;
     }
 
@@ -557,8 +589,13 @@ export default function ProductionDependencyTree({
           // the cache for its combo before bailing.
           setCachedLayout(inputs, result);
           if (!isMounted) return;
-          setNodes(result.nodes as FlowProductionNode[]);
-          setEdges(result.edges);
+          // Transition for the same reason as the cache-hit restore:
+          // the giant commit must not freeze whatever the user is
+          // doing when the layout finally lands.
+          startTransition(() => {
+            setNodes(result.nodes as FlowProductionNode[]);
+            setEdges(result.edges);
+          });
           if (modeChanged) fitToNodes(result.nodes);
         } catch (error) {
           // Cancellation = superseded by a newer run; anything else is
@@ -568,7 +605,14 @@ export default function ProductionDependencyTree({
           }
         } finally {
           job.running = false;
-          finish();
+          window.clearTimeout(overlayTimer);
+          // Hide via transition: on the success path this batches with
+          // the graph commit above (overlay lifts exactly when the new
+          // graph lands, not before its commit freeze); on error/cancel
+          // paths there's no heavy render pending and it hides promptly.
+          if (isMounted) {
+            startTransition(() => setShowLayoutOverlay(false));
+          }
           const next = job.pending;
           job.pending = null;
           if (next) next();
