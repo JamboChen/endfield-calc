@@ -1,6 +1,7 @@
 import {
   useMemo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useCallback,
@@ -106,6 +107,20 @@ const STALE_LAYOUT_TERMINATE_MS = 1000;
  *  BEFORE the freeze. Small restores skip it — their freeze is shorter
  *  than the flash would be. */
 const RESTORE_OVERLAY_MIN_NODES = 100;
+
+/**
+ * Camera change parked until the graph swap it belongs to commits.
+ * Applying the camera urgently while `setNodes` rides a transition
+ * painted the OLD graph at the NEW view's camera for a few frames — a
+ * visible "layout shift" on every restore (most obvious on small
+ * Formula View restores, which don't get the masking overlay). The
+ * action is consumed by a `useLayoutEffect` keyed on the nodes state,
+ * which runs before the swap's commit paints — graph and camera land
+ * in the same frame.
+ */
+type PendingCameraAction =
+  | { type: "viewport"; viewport: Viewport }
+  | { type: "fit"; nodes: Node[] };
 
 function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation("production");
@@ -362,9 +377,10 @@ export default function ProductionDependencyTree({
   // Inputs of the view currently ON SCREEN — the snapshot target when
   // the user switches combos (or the tree unmounts on a tab flip).
   const lastComboRef = useRef<LayoutInputs | null>(null);
-  // Viewport restored from cache before the ReactFlow instance exists
-  // (tab-flip remount): consumed once by onInit.
-  const pendingViewportRef = useRef<Viewport | null>(null);
+  // Camera action parked for the pending graph swap — consumed by the
+  // nodes-keyed layout effect below (or by onInit on a tab-flip
+  // remount, whichever sees a ready ReactFlow instance first).
+  const pendingCameraRef = useRef<PendingCameraAction | null>(null);
   // Interactive-lane single-flight bookkeeping (latest-wins coalescing;
   // see the layout effect). Shared across effect invocations.
   const layoutJobRef = useRef<{
@@ -392,6 +408,66 @@ export default function ProductionDependencyTree({
   // snapshot on unmount so returning restores the exact view. Empty
   // deps = unmount-only cleanup.
   useEffect(() => () => snapshotCurrentView(), [snapshotCurrentView]);
+
+  // Re-center on a Formula ↔ Facility switch. Computed from the
+  // in-hand layouted nodes (positions + dimensions set by
+  // getLayoutedElements) instead of fitView() so there's no race
+  // against the store receiving the new nodes. Limits/padding match
+  // the fitViewOptions on the ReactFlow element.
+  const fitToNodes = useCallback((layoutedNodes: Node[]) => {
+    const pane = containerRef.current?.getBoundingClientRect();
+    if (!pane || !rfInstance.current || layoutedNodes.length === 0) return;
+    // Local bounds fold instead of xyflow's `getNodesBounds`:
+    // the standalone util dev-warns without a store nodeLookup,
+    // and the store-backed instance method would re-introduce
+    // the store race this block deliberately avoids (it
+    // resolves nodes BY ID from the store, which hasn't
+    // received the new nodes yet). ELK layout gives every node
+    // explicit position + width/height and none has a parentId,
+    // so a plain min/max fold is exact.
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of layoutedNodes) {
+      minX = Math.min(minX, n.position.x);
+      minY = Math.min(minY, n.position.y);
+      maxX = Math.max(maxX, n.position.x + (n.width ?? 0));
+      maxY = Math.max(maxY, n.position.y + (n.height ?? 0));
+    }
+    const bounds = {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
+    const viewport = getViewportForBounds(
+      bounds,
+      pane.width,
+      pane.height,
+      0.1,
+      1.5,
+      0.2,
+    );
+    rfInstance.current.setViewport(viewport, { duration: 300 });
+  }, []);
+
+  // Consume the parked camera action in the SAME painted frame as the
+  // graph swap it belongs to: layout effects run before the commit
+  // paints, so camera + nodes change atomically (see
+  // `PendingCameraAction`). Ref-check no-op on every other nodes
+  // change (drags etc.). When the ReactFlow instance isn't ready yet
+  // (tab-flip remount ordering), the action stays parked for onInit.
+  useLayoutEffect(() => {
+    const action = pendingCameraRef.current;
+    if (!action || !rfInstance.current) return;
+    pendingCameraRef.current = null;
+    if (action.type === "viewport") {
+      rfInstance.current.setViewport(action.viewport);
+    } else {
+      fitToNodes(action.nodes);
+    }
+  }, [nodes, fitToNodes]);
 
   // Disable ReactFlow's deferred initial fitView when THIS mount will
   // restore a snapshotted camera — the deferred fit fires once nodes
@@ -440,6 +516,7 @@ export default function ProductionDependencyTree({
 
     if (!plan || plan.nodes.size === 0) {
       lastComboRef.current = null;
+      pendingCameraRef.current = null;
       setNodes([]);
       setEdges([]);
       finish();
@@ -475,49 +552,6 @@ export default function ProductionDependencyTree({
       lastLayoutModeRef.current !== visualizationMode;
     lastLayoutModeRef.current = visualizationMode;
 
-    // Re-center on a Formula ↔ Facility switch. Computed from the
-    // in-hand layouted nodes (positions + dimensions set by
-    // getLayoutedElements) instead of fitView() so there's no race
-    // against the store receiving the new nodes. Limits/padding match
-    // the fitViewOptions on the ReactFlow element.
-    const fitToNodes = (layoutedNodes: Node[]) => {
-      const pane = containerRef.current?.getBoundingClientRect();
-      if (!pane || !rfInstance.current || layoutedNodes.length === 0) return;
-      // Local bounds fold instead of xyflow's `getNodesBounds`:
-      // the standalone util dev-warns without a store nodeLookup,
-      // and the store-backed instance method would re-introduce
-      // the store race this block deliberately avoids (it
-      // resolves nodes BY ID from the store, which hasn't
-      // received the new nodes yet). ELK layout gives every node
-      // explicit position + width/height and none has a parentId,
-      // so a plain min/max fold is exact.
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      for (const n of layoutedNodes) {
-        minX = Math.min(minX, n.position.x);
-        minY = Math.min(minY, n.position.y);
-        maxX = Math.max(maxX, n.position.x + (n.width ?? 0));
-        maxY = Math.max(maxY, n.position.y + (n.height ?? 0));
-      }
-      const bounds = {
-        x: minX,
-        y: minY,
-        width: maxX - minX,
-        height: maxY - minY,
-      };
-      const viewport = getViewportForBounds(
-        bounds,
-        pane.width,
-        pane.height,
-        0.1,
-        1.5,
-        0.2,
-      );
-      rfInstance.current.setViewport(viewport, { duration: 300 });
-    };
-
     // Cache hit (prior visit snapshot or background prefetch): restore
     // without mapper/ELK. The graph replacement is a TRANSITION:
     // replacing hundreds of node/edge components in one urgent render
@@ -546,17 +580,15 @@ export default function ProductionDependencyTree({
         setEdges(cached.edges);
         setShowLayoutOverlay(false);
       });
-      if (cached.viewport) {
-        // Camera exactly as the user left this view.
-        if (rfInstance.current) {
-          rfInstance.current.setViewport(cached.viewport);
-        } else {
-          pendingViewportRef.current = cached.viewport;
-        }
-      } else if (modeChanged) {
-        // Prefetched entry (no stored camera) — standard mode re-fit.
-        fitToNodes(cached.nodes);
-      }
+      // Park the camera change for the swap's commit (atomic with the
+      // new graph — never applied against the outgoing one).
+      pendingCameraRef.current = cached.viewport
+        ? // Camera exactly as the user left this view.
+          { type: "viewport", viewport: cached.viewport }
+        : modeChanged
+          ? // Prefetched entry (no stored camera) — standard mode re-fit.
+            { type: "fit", nodes: cached.nodes }
+          : null;
       // No finish() here: the timer is already cleared and the overlay
       // hide rides the transition so it lifts exactly with the graph.
       return cleanup;
@@ -592,11 +624,13 @@ export default function ProductionDependencyTree({
           // Transition for the same reason as the cache-hit restore:
           // the giant commit must not freeze whatever the user is
           // doing when the layout finally lands.
+          pendingCameraRef.current = modeChanged
+            ? { type: "fit", nodes: result.nodes }
+            : null;
           startTransition(() => {
             setNodes(result.nodes as FlowProductionNode[]);
             setEdges(result.edges);
           });
-          if (modeChanged) fitToNodes(result.nodes);
         } catch (error) {
           // Cancellation = superseded by a newer run; anything else is
           // unexpected (getLayoutedElements degrades internally).
@@ -858,12 +892,17 @@ export default function ProductionDependencyTree({
           edges={displayEdges}
           onInit={(instance) => {
             rfInstance.current = instance;
-            // Tab-flip remount with a snapshotted camera: the cache-hit
-            // effect ran before this instance existed and parked the
-            // viewport here.
-            if (pendingViewportRef.current) {
-              instance.setViewport(pendingViewportRef.current);
-              pendingViewportRef.current = null;
+            // Tab-flip remount with a parked camera action: the
+            // cache-hit effect (and its nodes-keyed layout effect) may
+            // have run before this instance existed.
+            const action = pendingCameraRef.current;
+            if (action) {
+              pendingCameraRef.current = null;
+              if (action.type === "viewport") {
+                instance.setViewport(action.viewport);
+              } else {
+                fitToNodes(action.nodes);
+              }
             }
             setLowZoom(instance.getZoom() < LABEL_FADE_ZOOM);
           }}
