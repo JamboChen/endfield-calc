@@ -283,7 +283,9 @@ describe("computeTransportAllocation", () => {
   test("best-fit split — splits the smallest sufficient producer", async () => {
     // Producers {30, 10}, consumers [5, 30]: splitting the 10 keeps the
     // 30 whole for the exact-match consumer → 2 main edges. Old greedy
-    // split the 30 first → 3 edges.
+    // split the 30 first → 3 edges. (The C30↔P30 pair is peeled in
+    // phase 0, so its edge is emitted first — assert the set, not the
+    // order.)
     const result = computeTransportAllocation(
       [
         { id: "P30", rate: 30 },
@@ -295,10 +297,17 @@ describe("computeTransportAllocation", () => {
       ],
     );
 
-    expect(result.edges).toEqual([
-      { producerId: "P10", consumerId: "C5", rate: 5 },
-      { producerId: "P30", consumerId: "C30", rate: 30 },
-    ]);
+    expect(result.edges).toHaveLength(2);
+    expect(result.edges).toContainEqual({
+      producerId: "P10",
+      consumerId: "C5",
+      rate: 5,
+    });
+    expect(result.edges).toContainEqual({
+      producerId: "P30",
+      consumerId: "C30",
+      rate: 30,
+    });
     expect(result.remainingByProducer.get("P10")).toBeCloseTo(5);
   });
 
@@ -409,6 +418,94 @@ describe("computeTransportAllocation", () => {
       0,
     );
     expect(belts).toBe(3);
+  });
+
+  test("phase 0a peel — late exact consumer keeps its virgin producer", async () => {
+    // Facility View fragment cascade (front-loaded crucibles): producers
+    // {30 × 6, 26.75}; consumers register the NON-matching 28.8 demands
+    // first, the exact 30 demands last. The un-peeled greedy tier-3-split
+    // the virgin 30s for the 28.8 consumers (splits ignore the pending
+    // reservation), so the late 30-consumers hoovered 3+ fragments each
+    // (24 + 4 + 2 in the field report). Peeling is order-independent:
+    // every 30-consumer gets exactly ONE whole 30 edge.
+    const producers = [
+      ...Array.from({ length: 6 }, (_, i) => ({ id: `p30_${i}`, rate: 30 })),
+      { id: "pPartial", rate: 26.75 },
+    ];
+    const consumers = [
+      { id: "c28_0", rate: 28.8 },
+      { id: "c28_1", rate: 28.8 },
+      { id: "c30_0", rate: 30 },
+      { id: "c30_1", rate: 30 },
+      { id: "c30_2", rate: 30 },
+      { id: "c30_3", rate: 30 },
+    ];
+    const { edges } = computeTransportAllocation(producers, consumers);
+
+    for (const c of ["c30_0", "c30_1", "c30_2", "c30_3"]) {
+      const inbound = edges.filter((e) => e.consumerId === c);
+      expect(inbound, `${c} should get one whole producer`).toHaveLength(1);
+      expect(inbound[0].rate).toBeCloseTo(30, 6);
+      expect(inbound[0].producerId).toMatch(/^p30_/);
+    }
+    // The 28.8 consumers split the residual {30 ×2, 26.75} pool — at
+    // most 2 inbound each, never 3+.
+    for (const c of ["c28_0", "c28_1"]) {
+      const inbound = edges.filter((e) => e.consumerId === c);
+      expect(inbound.length).toBeLessThanOrEqual(2);
+      expect(
+        inbound.reduce((s, e) => s + e.rate, 0),
+      ).toBeCloseTo(28.8, 6);
+    }
+  });
+
+  test("phase 0b peel — demand matching two producers takes both whole (2 edges)", async () => {
+    // "One full crucible fills 30, another provides the extra 6": a 36
+    // consumer with producers {30, 24, 6} takes 30 + 6 whole. Without
+    // the pair peel, whole-fit(30) + whole-fit-fragments could route
+    // three edges when fragments accumulate.
+    const { edges, remainingByProducer } = computeTransportAllocation(
+      [
+        { id: "p30", rate: 30 },
+        { id: "p24", rate: 24 },
+        { id: "p6", rate: 6 },
+      ],
+      [
+        { id: "c36", rate: 36 },
+        { id: "c24", rate: 24 },
+      ],
+    );
+
+    const c36Edges = edges.filter((e) => e.consumerId === "c36");
+    expect(c36Edges).toHaveLength(2);
+    expect(c36Edges.map((e) => e.producerId).sort()).toEqual(["p30", "p6"]);
+    const c24Edges = edges.filter((e) => e.consumerId === "c24");
+    expect(c24Edges).toHaveLength(1);
+    expect(c24Edges[0].producerId).toBe("p24");
+    for (const left of remainingByProducer.values()) {
+      expect(left).toBeLessThanOrEqual(1e-9);
+    }
+  });
+
+  test("peel is disabled when supply is short — targets keep first claim", async () => {
+    // Under-supply: registration order decides who starves. The
+    // later-registered consumer exactly matches the sole producer, but
+    // peeling it would starve the first-registered (target) consumer —
+    // the balance gate must keep the old behaviour: first claim wins.
+    const { edges } = computeTransportAllocation(
+      [{ id: "p28", rate: 28.8 }],
+      [
+        { id: "target", rate: 30 },
+        { id: "disposal", rate: 28.8 },
+      ],
+    );
+
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toEqual({
+      producerId: "p28",
+      consumerId: "target",
+      rate: 28.8,
+    });
   });
 });
 

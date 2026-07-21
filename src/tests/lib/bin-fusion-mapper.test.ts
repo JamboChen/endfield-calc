@@ -9,7 +9,9 @@
  *     external outputs, internal items get no edges.
  *   - `mapPlanToFlowBinFusedSeparated` (Facility View): one node per
  *     building (`ceil(bin.buildingCount)` nodes per bin), per-building
- *     rates are bin total ÷ buildingCount.
+ *     rates front-loaded: full buildings at bin total ÷ effective
+ *     count (the packer's utilisation scale, recovered from
+ *     `recipeBinAllocations`), remainder on the tail building.
  *   - Edge integrity: every edge's source and target are emitted nodes;
  *     no orphan nodes.
  */
@@ -17,11 +19,15 @@
 import { describe, test, expect } from "vitest";
 import { calculateProductionPlan } from "@/lib/calculator";
 import { pickBinHeadlineOutput } from "@/lib/plan-helpers";
-import { mapPlanToFlowBinFused, mapPlanToFlowBinFusedSeparated } from "@/components/mappers/bin-fused-mapper";
+import {
+  mapPlanToFlowBinFused,
+  mapPlanToFlowBinFusedSeparated,
+  frontLoadedProfile,
+} from "@/components/mappers/bin-fused-mapper";
 import { createRawMaterialId, createTargetSinkId } from "@/lib/node-keys";
 import { items, recipes, facilities } from "@/data";
 import { ALL_RAWS } from "./utils";
-import { ItemId, RecipeId } from "@/types/constants";
+import { FacilityId, ItemId, RecipeId } from "@/types/constants";
 import {
   mockItems,
   mockFacilities,
@@ -30,6 +36,7 @@ import {
 import type {
   Bin,
   BinId,
+  Facility,
   Item,
   Recipe,
   ItemId as ItemIdType,
@@ -757,7 +764,7 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     }
   });
 
-  test("per-building rates = bin total ÷ buildingCount", async () => {
+  test("per-building rates = bin total ÷ effective count (full-load buildings)", async () => {
     const plan = await calculateProductionPlan(
       [{ itemId: ItemId.ITEM_XIRANITE_POLY, rate: 60 }],
       items,
@@ -786,21 +793,41 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
     );
     if (!xirconExternal) return;
 
-    const perBuildingExpected = xirconExternal.rate / xirconBin.buildingCount;
+    // Effective count = the packer's per-variant utilisation scale,
+    // recovered as the max per-recipe slot allocation on this bin
+    // (rateDirection is max-normalised). Full-load buildings run at
+    // bin total ÷ effective count; only the tail may be partial.
+    const effective = Math.min(
+      Math.max(
+        ...xirconBin.recipeIds.map(
+          (rid) =>
+            plan.recipeBinAllocations
+              .get(rid)
+              ?.perBin.find((pb) => pb.binId === xirconBin.id)?.slots ?? 0,
+        ),
+      ),
+      xirconBin.buildingCount,
+    );
+    const perBuildingFull = xirconExternal.rate / effective;
     const buildings = flow.nodes.filter((n) =>
       n.id.startsWith(`${xirconBin.id}-bldg`),
     );
     expect(buildings.length).toBe(xirconBin.buildingCount);
-    for (const b of buildings) {
+    const rates = buildings.map((b) => {
       const data = b.data as {
         productionNode?: { item: Item; targetRate: number };
       };
       expect(data.productionNode?.item.id).toBe(ItemId.ITEM_XIRANITE_POLY);
-      expect(data.productionNode?.targetRate ?? 0).toBeCloseTo(
-        perBuildingExpected,
-        3,
-      );
-    }
+      return data.productionNode?.targetRate ?? 0;
+    });
+    // Σ instance rates ≡ bin external rate (conservation), and all but
+    // at most one instance run at the full-load rate.
+    expect(rates.reduce((s, r) => s + r, 0)).toBeCloseTo(
+      xirconExternal.rate,
+      3,
+    );
+    const fullOnes = rates.filter((r) => Math.abs(r - perBuildingFull) < 1e-3);
+    expect(fullOnes.length).toBeGreaterThanOrEqual(rates.length - 1);
   });
 
   test("flow integrity: no dangling edges in Facility View", async () => {
@@ -1406,5 +1433,310 @@ describe("mapPlanToFlowBinFusedSeparated (Facility View)", () => {
       false,
     );
     assertNoIsolatedNodes(flowSeparated, "Facility View");
+  });
+});
+
+describe("Facility View front-loaded per-building rates", () => {
+  // Regression for the Cuprium Solution fragment cascade: a grouped bin
+  // whose ILP building count exceeds its utilisation scale (E < N) used
+  // to split load EVENLY (206.75/7 = 29.54 per building), which cannot
+  // tile the front-loaded 30/min consumers — the greedy allocator then
+  // cascaded fragment edges (23.54 + 4.79 + 1.68 into one consumer).
+  // Front-loading gives full buildings the exact full-load rate, so
+  // producer and consumer instances exact-fit and each building ships
+  // its output through a single whole-rate edge.
+  const userPlanTargets = [
+    { itemId: ItemId.ITEM_COPPER_ENR2_CMPT, rate: 14.4 },
+    { itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, rate: 24 },
+    { itemId: ItemId.ITEM_PROC_BATTERY_5, rate: 14.45 },
+  ];
+  const userPlanOptions = {
+    rawMaterials: ALL_RAWS,
+    recipeOverrides: new Map([
+      [ItemId.ITEM_XIRANITE_POWDER, RecipeId.XIRANITE_OVEN_XIRANITE_POWDER_1],
+    ]),
+  };
+
+  /** Effective count E — max per-recipe slot allocation on the bin. */
+  const effectiveCount = (
+    plan: Awaited<ReturnType<typeof calculateProductionPlan>>,
+    bin: Bin,
+  ): number =>
+    Math.min(
+      Math.max(
+        ...bin.recipeIds.map(
+          (rid) =>
+            plan.recipeBinAllocations
+              .get(rid)
+              ?.perBin.find((pb) => pb.binId === bin.id)?.slots ?? 0,
+        ),
+      ),
+      bin.buildingCount,
+    );
+
+  test("grouped bin with E < N: floor(E) full buildings + partial tail, sums conserve", async () => {
+    const plan = await calculateProductionPlan(
+      userPlanTargets,
+      items,
+      recipes,
+      facilities,
+      userPlanOptions,
+    );
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map(),
+      false,
+    );
+
+    // The chosen targets must produce at least one under-utilised
+    // grouped bin — otherwise this test is vacuous and needs new
+    // targets (upstream-data drift).
+    const underUtilised = plan.bins.filter(
+      (b) =>
+        b.isGrouped &&
+        b.externalOutputs.length > 0 &&
+        effectiveCount(plan, b) < b.buildingCount - 1e-6,
+    );
+    expect(underUtilised.length).toBeGreaterThan(0);
+
+    for (const bin of underUtilised) {
+      const E = effectiveCount(plan, bin);
+      const N = bin.buildingCount; // integer for grouped bins
+      const instances = flow.nodes
+        .filter((n) => n.id.startsWith(`${bin.id}-bldg`))
+        .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+      if (instances.length === 0) continue; // singleton-terminal fold
+      // N instances normally; N−1 when a sub-visible tail folded into
+      // the previous building (near-integer E).
+      expect(instances.length).toBeGreaterThanOrEqual(N - 1);
+      expect(instances.length).toBeLessThanOrEqual(N);
+
+      const headlineItemId = (
+        instances[0].data as { productionNode: { item: Item } }
+      ).productionNode.item.id;
+      const binRate = bin.externalOutputs.find(
+        (o) => o.itemId === headlineItemId,
+      )!.rate;
+      const rates = instances.map(
+        (n) =>
+          (n.data as { productionNode: { targetRate: number } }).productionNode
+            .targetRate,
+      );
+
+      // Conservation: Σ instance rates ≡ bin external rate.
+      expect(rates.reduce((s, r) => s + r, 0)).toBeCloseTo(binRate, 3);
+      // Front-loading: no instance exceeds the full-load rate
+      // binRate / E, and at least ⌊E⌋ − 1 run exactly at it (⌊E⌋ in
+      // the common single-tail profile; the −1 slack covers the
+      // defensive near-integer decrement profile, where the remainder
+      // spreads over two tail buildings — an even 29.54-style split
+      // would still fail this with zero full-rate instances).
+      const fullRate = binRate / E;
+      for (const r of rates) {
+        expect(r).toBeLessThanOrEqual(fullRate + 1e-3);
+      }
+      const fullOnes = rates.filter((r) => Math.abs(r - fullRate) <= 1e-3);
+      expect(fullOnes.length).toBeGreaterThanOrEqual(Math.floor(E) - 1);
+
+      // Uniform mix: every instance runs the bin's formula mix in the
+      // bin's own ratio (internal items balance per building), so each
+      // extra output scales with the SAME load fraction as the
+      // headline.
+      for (const [idx, n] of instances.entries()) {
+        const data = n.data as {
+          productionNode: {
+            binExtraOutputs?: Array<{ itemId: string; rate: number }>;
+          };
+        };
+        for (const extra of data.productionNode.binExtraOutputs ?? []) {
+          const binExtraRate = bin.externalOutputs.find(
+            (o) => o.itemId === extra.itemId,
+          )!.rate;
+          expect(extra.rate).toBeCloseTo(
+            (binExtraRate / binRate) * rates[idx],
+            3,
+          );
+        }
+      }
+    }
+  });
+
+  test("producer instances ship through whole-rate edges (one out-edge per Cuprium building)", async () => {
+    const plan = await calculateProductionPlan(
+      userPlanTargets,
+      items,
+      recipes,
+      facilities,
+      userPlanOptions,
+    );
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      items,
+      recipes,
+      facilities,
+      new Map(),
+      false,
+    );
+
+    const copperEdges = flow.edges.filter(
+      (e) => e.data?.itemId === ItemId.ITEM_LIQUID_COPPER,
+    );
+    expect(copperEdges.length).toBeGreaterThan(0);
+
+    // Every Cuprium Solution producer building feeds exactly ONE
+    // consumer — the blueprint-grade "one pipe per building" property
+    // the even split broke (fragment cascades gave producers 2-3
+    // outgoing fragment edges).
+    const outEdgesBySource = new Map<string, number>();
+    for (const e of copperEdges) {
+      outEdgesBySource.set(
+        e.source,
+        (outEdgesBySource.get(e.source) ?? 0) + 1,
+      );
+    }
+    for (const [source, count] of outEdgesBySource) {
+      expect(count, `producer ${source} split across ${count} edges`).toBe(1);
+    }
+
+    // And no consumer hoovers fragments: with exact/pair peeling in
+    // `computeTransportAllocation`, every Cuprium consumer instance is
+    // fed by at most 2 whole producers (the 24 + 4 + 2 fragment cascade
+    // regression).
+    const inEdgesByTarget = new Map<string, number>();
+    for (const e of copperEdges) {
+      inEdgesByTarget.set(e.target, (inEdgesByTarget.get(e.target) ?? 0) + 1);
+    }
+    for (const [target, count] of inEdgesByTarget) {
+      expect(
+        count,
+        `consumer ${target} fed by ${count} edges`,
+      ).toBeLessThanOrEqual(2);
+    }
+  });
+});
+
+describe("frontLoadedProfile", () => {
+  const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
+
+  test("common case: ⌊E⌋ full buildings + one partial tail", () => {
+    const loads = frontLoadedProfile(6.89, 7);
+    expect(loads).toHaveLength(7);
+    for (let i = 0; i < 6; i++) expect(loads[i]).toBe(1);
+    expect(loads[6]).toBeCloseTo(0.89, 9);
+    expect(sum(loads)).toBeCloseTo(6.89, 9);
+  });
+
+  test("fully utilised (E = N): every building full", () => {
+    expect(frontLoadedProfile(3, 3)).toEqual([1, 1, 1]);
+  });
+
+  test("E within epsilon of N: even split at E/N, exact conservation", () => {
+    const loads = frontLoadedProfile(7 - 1e-12, 7);
+    expect(loads).toHaveLength(7);
+    for (const l of loads) expect(l).toBeCloseTo(1, 9);
+    expect(sum(loads)).toBeCloseTo(7 - 1e-12, 9);
+  });
+
+  test("defensive near-integer E < N: decrement spreads the remainder over two tails (no zero-load instance)", () => {
+    // The ILP normally places ⌈E⌉ buildings, so integer E < N is
+    // defensive-only — but a zero-load instance would emit an
+    // isolated node, so the guard must spread instead.
+    const loads = frontLoadedProfile(2, 3);
+    expect(loads).toEqual([1, 0.5, 0.5]);
+    for (const l of loads) expect(l).toBeGreaterThan(0);
+    expect(sum(loads)).toBeCloseTo(2, 9);
+  });
+
+  test("sub-single-building bin: one instance at E", () => {
+    expect(frontLoadedProfile(0.3, 1)).toEqual([0.3]);
+  });
+
+  test("conservation sweep: Σ loads ≡ E, every load in (0, 1]", () => {
+    const cases: Array<[number, number]> = [
+      [0.0001, 1],
+      [1.5, 2],
+      [2.0000000001, 3],
+      [4.9999999999, 5],
+      [17.4533, 18],
+      [34.9067, 35],
+    ];
+    for (const [E, N] of cases) {
+      const loads = frontLoadedProfile(E, N);
+      expect(loads).toHaveLength(N);
+      expect(sum(loads)).toBeCloseTo(E, 6);
+      for (const l of loads) {
+        expect(l).toBeGreaterThan(0);
+        expect(l).toBeLessThanOrEqual(1 + 1e-9);
+      }
+    }
+  });
+});
+
+describe("Facility View sub-visible tail fold", () => {
+  // fc = 2.00001 → 3 placed buildings, tail load 1e-5 → every tail IO
+  // rate (1e-5/min) sits under MIN_VISIBLE_RATE_PER_MIN. Its
+  // producer/consumer entries are all filtered, so before the fold
+  // guard the mapper emitted an edge-less third node and
+  // assertFlowIntegrity threw (isolated node) — for singletons this
+  // predates front-loading. The tail folds into building #2 (invisible
+  // at display precision), conserving the bin total exactly.
+  const foldItems: Item[] = [
+    { id: ItemId.ITEM_IRON_ORE, tier: 1 },
+    { id: ItemId.ITEM_IRON_NUGGET, tier: 2 },
+  ];
+  const foldFacility: Facility = {
+    id: FacilityId.FURNANCE_1,
+    category: 0,
+    buffersIn: { belt: [], pipe: [] },
+    buffersOut: { belt: [], pipe: [] },
+    domains: [],
+    powerConsumption: 10,
+    tier: 1,
+  };
+  const foldRecipe: Recipe = {
+    id: RecipeId.FURNANCE_IRON_NUGGET_1,
+    inputs: [{ itemId: ItemId.ITEM_IRON_ORE, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_IRON_NUGGET, amount: 1 }],
+    facilityId: FacilityId.FURNANCE_1,
+    craftingTime: 60, // 1/min per facility
+  };
+
+  test("emits N−1 instances, conserves the bin total, passes integrity", async () => {
+    const plan = await calculateProductionPlan(
+      [{ itemId: ItemId.ITEM_IRON_NUGGET, rate: 2.00001 }],
+      foldItems,
+      [foldRecipe],
+      [foldFacility],
+      { rawMaterials: new Set([ItemId.ITEM_IRON_ORE]) },
+    );
+    expect(plan.lpStatus).toBe("ok");
+    const bin = plan.bins.find((b) => b.recipeIds.includes(foldRecipe.id));
+    expect(bin).toBeDefined();
+    expect(Math.ceil(bin!.buildingCount)).toBe(3);
+
+    // `assertFlowIntegrity` throws in test mode — reaching the
+    // assertions below proves no isolated node was emitted.
+    const flow = mapPlanToFlowBinFusedSeparated(
+      plan,
+      foldItems,
+      [foldRecipe],
+      [foldFacility],
+      new Map(),
+      false,
+    );
+    const instances = flow.nodes.filter((n) =>
+      n.id.startsWith(`${bin!.id}-bldg`),
+    );
+    expect(instances).toHaveLength(2);
+    const rates = instances.map(
+      (n) =>
+        (n.data as { productionNode: { targetRate: number } }).productionNode
+          .targetRate,
+    );
+    expect(rates.reduce((s, r) => s + r, 0)).toBeCloseTo(2.00001, 6);
+    for (const r of rates) expect(r).toBeGreaterThanOrEqual(1 - 1e-6);
   });
 });

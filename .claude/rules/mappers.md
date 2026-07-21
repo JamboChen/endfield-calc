@@ -27,7 +27,7 @@ Phase 3 emits `plan.bins: Bin[]` + `plan.recipeBinAllocations: Map<RecipeId, Rec
 
 `bin-fused-mapper.ts` has two entry points:
 - `mapPlanToFlowBinFused` (line 59) — Recipe View, one node per bin.
-- `mapPlanToFlowBinFusedSeparated` (line 636) — Facility View, one node per ceiled building.
+- `mapPlanToFlowBinFusedSeparated` (line 636) — Facility View, one node per ceiled building. Per-building rates are **front-loaded** via `frontLoadedProfile(E, N)` (exported, unit-tested): `effectiveBuildingCount` recovers the packer's per-variant utilisation scale `u_v` (max per-recipe slot allocation on the bin — `rateDirection` is max-normalised; equivalence-class demand-id splits may under-estimate it, which only softens the front-load — conservation holds for any `E ∈ (0, N]`), the first `⌊E⌋` buildings run at full load, the tail carries the remainder (near-integer `E < N` spreads it over two tails instead of leaving a zero-load instance). A tail whose EVERY IO rate falls under `MIN_VISIBLE_RATE_PER_MIN` **folds into the previous building** — otherwise it emits an edge-less node and trips the isolated-node integrity check (flat catalyst drains keep an instance connected, so those never fold). Grouped bins scale their formula mix **uniformly** per building (never per-formula independent front-loading — internal items balance inside each building's own inner inventory). Full load per building is port-safe: Phase 3 only enumerates variants port-feasible at full utilisation. Catalyst exception: upkeep stays flat `/ N` per PLACED building; only the ingredient portion scales with load.
 
 Both call `assertFlowIntegrity` (lines 619, 1332) before returning.
 
@@ -51,7 +51,9 @@ Signature is `(demandRate, perFacilityRate)` — NOT `(demandRate, item)`. The c
 
 `computeTransportAllocation` (`src/lib/plan-helpers.ts`) is the **single source of truth** for producer→consumer edge decomposition — merged-mapper, both bin-fused paths, AND the Facility-View raw-pickup edges all route through it (issue #91 + follow-up: a fourth sequential-carving copy in the pickup path daisy-chained 1.2/28.8 fragment edges across whole pickup rows).
 
-Tiers per consumer, in registration order: exact-fit → whole-fit (skipping producers whose supply matches a still-PENDING consumer demand — reserved as that consumer's future exact-fit) → best-fit split (preferring splits whose remainder matches a pending demand) → reserved whole-fit as last resort. The pending-demand reservation is what prevents fragment daisy-chains; tests pin it in `plan-helpers.test.ts` ("pump pickups" / "whole-fit skips fragments") and `flow-integrity.test.ts` ("exactly one pump").
+**Phase 0 — exact-component peeling**, gated on balance (`Σ supply ≥ Σ demand − ε`; under-supplied items skip it so registration-order starvation priority is untouched): (0a) a consumer matching one producer's supply takes it whole — order-INDEPENDENT, so a late-registered exact consumer keeps its virgin producer even when earlier consumers would tier-3-split it (the Facility View 24+4+2 fragment cascade); (0b) a consumer matching the SUM of two producers takes both whole. Peeling never exceeds the spanning-tree edge bound.
+
+**Phase 1 — greedy tiers** per remaining consumer, in registration order: exact-fit → whole-fit (skipping producers whose supply matches a still-PENDING consumer demand — reserved as that consumer's future exact-fit) → best-fit split (preferring splits whose remainder matches a pending demand) → reserved whole-fit as last resort. The pending-demand reservation is what prevents fragment daisy-chains; tests pin it in `plan-helpers.test.ts` ("pump pickups" / "whole-fit skips fragments" / "phase 0a/0b peel") and `flow-integrity.test.ts` ("exactly one pump").
 
 ## Active-rate bin I/O
 

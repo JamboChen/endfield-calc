@@ -1,4 +1,12 @@
-import { useMemo, useEffect, useRef, useState, useCallback } from "react";
+import {
+  useMemo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useCallback,
+  startTransition,
+} from "react";
 import {
   ReactFlow,
   Controls,
@@ -12,6 +20,7 @@ import {
   useNodesState,
   useEdgesState,
   type Edge,
+  type Viewport,
   Panel,
   useReactFlow,
   getViewportForBounds,
@@ -33,7 +42,17 @@ import CustomDisposalNode from "../nodes/CustomDisposalNode";
 import CustomPowerNode from "../nodes/CustomPowerNode";
 import CustomEnvNode from "../nodes/CustomEnvNode";
 import { useTranslation } from "react-i18next";
-import { getLayoutedElements } from "@/lib/layout";
+import { LayoutCancelledError } from "@/lib/layout";
+import {
+  computeFlowLayout,
+  decideCameraAction,
+  getCachedLayout,
+  layoutComboKey,
+  setCachedLayout,
+  useCoalescedInteractiveJob,
+  type LayoutInputs,
+  type PendingCameraAction,
+} from "./layout-cache";
 import {
   getNeighborhood,
   getPinnedSpotlight,
@@ -42,12 +61,6 @@ import {
 import { edgeBounds, computeEdgeFitView } from "@/lib/edge-fit";
 import GraphSearchPanel from "./GraphSearchPanel";
 import { NodeJumpContext } from "./node-jump-context";
-import { mapPlanToFlowMerged } from "../mappers/merged-mapper";
-import {
-  mapPlanToFlowBinFused,
-  mapPlanToFlowBinFusedSeparated,
-} from "../mappers/bin-fused-mapper";
-import { applyEdgeStyling } from "./flow-utils";
 import CustomBackwardEdge from "../nodes/CustomBackwardEdge";
 import CustomBezierEdge from "../nodes/CustomBezierEdge";
 import { Button } from "@/components/ui/button";
@@ -63,6 +76,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import SolverLoadingOverlay from "@/components/production/SolverLoadingOverlay";
 
 const EXPORT_FORMATS = ["svg", "png"] as const;
 type ExportFormat = (typeof EXPORT_FORMATS)[number];
@@ -78,6 +92,18 @@ const LABEL_FADE_ZOOM = 0.5;
 
 /** Min zoom a node-jump lands at (mirrors the search panel's jump). */
 const NODE_JUMP_MIN_ZOOM = 0.8;
+
+/** Layout-busy overlay debounce — matches the solver overlay's
+ *  threshold so sub-perceptible layouts never flash it. */
+const LAYOUT_OVERLAY_DEBOUNCE_MS = 300;
+
+/** Cache-hit restores above this node count show the busy overlay
+ *  IMMEDIATELY (no debounce): the DOM commit + React Flow measurement
+ *  of a big graph blocks the main thread up to ~2.5s and is not
+ *  time-sliceable, so the user gets the dimmed-canvas feedback painted
+ *  BEFORE the freeze. Small restores skip it — their freeze is shorter
+ *  than the flash would be. */
+const RESTORE_OVERLAY_MIN_NODES = 100;
 
 function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation("production");
@@ -287,6 +313,15 @@ export default function ProductionDependencyTree({
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
+  // Live view mirror for the snapshot-on-switch-out path: the layout
+  // effect must read the CURRENT nodes/edges (manual drags included)
+  // without depending on them — that would re-run layout on every drag.
+  const liveViewRef = useRef<{ nodes: FlowProductionNode[]; edges: Edge[] }>({
+    nodes: [],
+    edges: [],
+  });
+  liveViewRef.current = { nodes, edges };
+
   // Spotlight state. Hover = direct neighborhood (the "which belts does
   // this building connect to" wiring task); click-to-pin (React Flow
   // selection) = upstream production cone + direct consumers (the
@@ -301,6 +336,14 @@ export default function ProductionDependencyTree({
   // toggled here — NOT a per-edge zoom subscription, which would re-render
   // every edge continuously while zooming).
   const [lowZoom, setLowZoom] = useState(false);
+  // Layout-in-flight overlay. ELK runs multi-second on large Facility
+  // View graphs (~2s at 250 nodes, ~4.6s at 425 with NETWORK_SIMPLEX
+  // placement) while the STALE graph stays on screen — without
+  // feedback the mode-switch click looks dead. Mirrors the solver
+  // overlay's 300ms debounce (see `SolverLoadingOverlay`) so fast
+  // layouts never flash it; back-to-back solve → layout busy states
+  // share the same visuals and read as one.
+  const [showLayoutOverlay, setShowLayoutOverlay] = useState(false);
   const rfInstance = useRef<ReactFlowInstance<FlowProductionNode, Edge> | null>(
     null,
   );
@@ -310,115 +353,325 @@ export default function ProductionDependencyTree({
   // space — re-fit on the switch. Deliberately ONLY for the
   // Formula/Facility switch: bin-fusion / alignment toggles and plan
   // recomputes preserve the camera. `null` = no layout yet (first
-  // mount keeps the `fitView` prop behaviour).
+  // mount keeps the `fitView` prop behaviour). Cache HITS carrying a
+  // snapshotted viewport skip the re-fit — the stored camera wins.
   const lastLayoutModeRef = useRef<VisualizationMode | null>(null);
+
+  // Inputs of the most recently REQUESTED view — drives the "did the
+  // combo change" snapshot trigger in the layout effect.
+  const lastComboRef = useRef<LayoutInputs | null>(null);
+  // Inputs of the graph actually COMMITTED to the canvas. Snapshots
+  // key off THIS, not the requested combo: the request is recorded
+  // synchronously while the swap rides a transition, and an unmount
+  // landing in that window would otherwise write the still-committed
+  // OLD nodes under the NEW combo's cache entry. Promotion happens in
+  // the nodes-keyed layout effect, matched by array identity.
+  const pendingComboRef = useRef<{
+    inputs: LayoutInputs;
+    nodes: FlowProductionNode[];
+  } | null>(null);
+  const committedComboRef = useRef<LayoutInputs | null>(null);
+  // Camera action parked for the pending graph swap — consumed by the
+  // nodes-keyed layout effect below (or by onInit on a tab-flip
+  // remount, whichever sees a ready ReactFlow instance first).
+  const pendingCameraRef = useRef<PendingCameraAction | null>(null);
+  // Interactive-lane single-flight scheduling (latest-wins coalescing +
+  // stale-job termination) — see `useCoalescedInteractiveJob`.
+  const scheduleLayoutJob = useCoalescedInteractiveJob();
+
+  // Snapshot the on-screen view (drags + camera) into its combo's cache
+  // entry. `selected` is normalized off so a React Flow selection ring
+  // can't survive a restore whose spotlight state was cleared.
+  const snapshotCurrentView = useCallback(() => {
+    const committed = committedComboRef.current;
+    if (!committed) return;
+    const { nodes: liveNodes, edges: liveEdges } = liveViewRef.current;
+    if (liveNodes.length === 0) return;
+    setCachedLayout(committed, {
+      nodes: liveNodes.map((n) => ({ ...n, selected: false })),
+      edges: liveEdges,
+      viewport: rfInstance.current?.getViewport(),
+    });
+  }, []);
+
+  // Tab flips unmount the tree (Radix TabsContent, no forceMount) —
+  // snapshot on unmount so returning restores the exact view. Empty
+  // deps = unmount-only cleanup.
+  useEffect(() => () => snapshotCurrentView(), [snapshotCurrentView]);
+
+  // Re-center on a Formula ↔ Facility switch. Computed from the
+  // in-hand layouted nodes (positions + dimensions set by
+  // getLayoutedElements) instead of fitView() so there's no race
+  // against the store receiving the new nodes. Limits/padding match
+  // the fitViewOptions on the ReactFlow element.
+  const fitToNodes = useCallback((layoutedNodes: Node[], animate: boolean) => {
+    const pane = containerRef.current?.getBoundingClientRect();
+    if (!pane || !rfInstance.current || layoutedNodes.length === 0) return;
+    // Local bounds fold instead of xyflow's `getNodesBounds`:
+    // the standalone util dev-warns without a store nodeLookup,
+    // and the store-backed instance method would re-introduce
+    // the store race this block deliberately avoids (it
+    // resolves nodes BY ID from the store, which hasn't
+    // received the new nodes yet). ELK layout gives every node
+    // explicit position + width/height and none has a parentId,
+    // so a plain min/max fold is exact.
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of layoutedNodes) {
+      minX = Math.min(minX, n.position.x);
+      minY = Math.min(minY, n.position.y);
+      maxX = Math.max(maxX, n.position.x + (n.width ?? 0));
+      maxY = Math.max(maxY, n.position.y + (n.height ?? 0));
+    }
+    const bounds = {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
+    const viewport = getViewportForBounds(
+      bounds,
+      pane.width,
+      pane.height,
+      0.1,
+      1.5,
+      0.2,
+    );
+    // Mode switches glide (deliberate 300ms); mount restores apply
+    // instantly — an animation FROM the default camera would itself
+    // read as a layout shift.
+    rfInstance.current.setViewport(
+      viewport,
+      animate ? { duration: 300 } : undefined,
+    );
+  }, []);
+
+  // Consume the parked camera action in the SAME painted frame as the
+  // graph swap it belongs to: layout effects run before the commit
+  // paints, so camera + nodes change atomically (see
+  // `PendingCameraAction`). Ref-check no-op on every other nodes
+  // change (drags etc.). When the ReactFlow instance isn't ready yet
+  // (tab-flip remount ordering), the action stays parked for onInit.
+  useLayoutEffect(() => {
+    // Promote the committed combo when the ARRAY we handed to setNodes
+    // is what actually landed (identity match — drags and interleaved
+    // older commits can't mis-promote).
+    const pendingCombo = pendingComboRef.current;
+    if (pendingCombo && nodes === pendingCombo.nodes) {
+      committedComboRef.current = pendingCombo.inputs;
+      pendingComboRef.current = null;
+    }
+    const action = pendingCameraRef.current;
+    if (!action || !rfInstance.current) return;
+    pendingCameraRef.current = null;
+    if (action.type === "viewport") {
+      rfInstance.current.setViewport(action.viewport);
+    } else {
+      fitToNodes(action.nodes, action.animate);
+    }
+  }, [nodes, fitToNodes]);
+
+  // Cache entry THIS mount will restore (tab-flip remount), captured
+  // once at first render. Two jobs:
+  //   - `defaultViewport`: a snapshotted camera initializes ReactFlow
+  //     AT the restored viewport from frame one — a post-hoc
+  //     `setViewport` correction raced RF's `onInit` against the
+  //     transition's nodes commit, painting the graph at the default
+  //     camera for a few frames before jumping (the Table → Tree
+  //     "layout shift").
+  //   - `fitView` suppression: whenever ANY entry restores at mount, we
+  //     own the camera (stored viewport, or a parked instant fit for
+  //     viewport-less prefetched entries) — RF's deferred initial fit
+  //     would land late, after node measurement, as a visible jump. The
+  //     prop stays on only for a true first-ever mount with nothing
+  //     cached, where it is the only fit available.
+  // useState lazy initializer: runs exactly once per instance, and the
+  // committed value is stable even if a concurrent render is discarded
+  // (unlike a render-phase ref write).
+  const [mountRestore] = useState<{ viewport?: Viewport } | null>(() =>
+    plan && plan.nodes.size > 0
+      ? (getCachedLayout({
+          plan,
+          items,
+          recipes,
+          facilities,
+          targetRates,
+          visualizationMode,
+          twoEndAlignment,
+          ceilMode,
+          binFusion,
+        }) ?? null)
+      : null,
+  );
 
   useEffect(() => {
     let isMounted = true;
-    async function computeLayout() {
-      // Stale spotlight ids must not survive a plan/mode change.
-      setHoveredNodeId(null);
-      setPinnedNodeIds([]);
-      setHoveredEdgeId(null);
-      if (!plan || plan.nodes.size === 0) {
-        setNodes([]);
-        setEdges([]);
-        return;
-      }
+    // Debounced busy overlay: armed for every run, cleared in the
+    // shared `finally`. A run that outlives the deps (cleanup fired)
+    // leaves the overlay to the SUCCESSOR run's timer — continuous
+    // busy state across rapid toggles, no flicker.
+    const overlayTimer = window.setTimeout(() => {
+      if (isMounted) setShowLayoutOverlay(true);
+    }, LAYOUT_OVERLAY_DEBOUNCE_MS);
+    const finish = () => {
+      window.clearTimeout(overlayTimer);
+      if (isMounted) setShowLayoutOverlay(false);
+    };
+    const cleanup = () => {
+      isMounted = false;
+      window.clearTimeout(overlayTimer);
+    };
 
-      // Select mapper:
-      //   - Facility View (separated) is ALWAYS bin-fused per the
-      //     documented invariant; the Recipe-View toggle has no UI
-      //     affordance in this mode and must not leak through when the
-      //     user persisted bf=0 in the URL hash.
-      //   - Recipe View (merged) with binFusion ON (default): one card
-      //     per bin via the bin-fused merged mapper.
-      //   - Recipe View (merged) with binFusion OFF: per-recipe via
-      //     the original merged mapper (chain-debugging mode).
-      const flowData =
-        visualizationMode === "separated"
-          ? mapPlanToFlowBinFusedSeparated(
-              plan,
-              items,
-              recipes,
-              facilities,
-              targetRates,
-              ceilMode,
-            )
-          : binFusion
-            ? mapPlanToFlowBinFused(plan, items, recipes, facilities, targetRates, ceilMode)
-            : mapPlanToFlowMerged(plan, items, facilities, targetRates, ceilMode);
+    // Stale spotlight ids must not survive a plan/mode change.
+    setHoveredNodeId(null);
+    setPinnedNodeIds([]);
+    setHoveredEdgeId(null);
 
-      const { nodes: layoutedNodes, edges: layoutedEdges } =
-        await getLayoutedElements(
-          flowData.nodes,
-          flowData.edges,
-          "RIGHT",
-          twoEndAlignment,
-        );
-
-      if (!isMounted) return;
-
-      const styledEdges = applyEdgeStyling(layoutedEdges, layoutedNodes);
-
-      setNodes(layoutedNodes as FlowProductionNode[]);
-      setEdges(styledEdges);
-
-      // Re-center on a Formula ↔ Facility switch. Computed from the
-      // in-hand layouted nodes (positions + dimensions set by
-      // getLayoutedElements) instead of fitView() so there's no race
-      // against the store receiving the new nodes. Limits/padding match
-      // the fitViewOptions on the ReactFlow element.
-      const modeChanged =
-        lastLayoutModeRef.current !== null &&
-        lastLayoutModeRef.current !== visualizationMode;
-      lastLayoutModeRef.current = visualizationMode;
-      if (modeChanged) {
-        const pane = containerRef.current?.getBoundingClientRect();
-        if (pane && rfInstance.current && layoutedNodes.length > 0) {
-          // Local bounds fold instead of xyflow's `getNodesBounds`:
-          // the standalone util dev-warns without a store nodeLookup,
-          // and the store-backed instance method would re-introduce
-          // the store race this block deliberately avoids (it
-          // resolves nodes BY ID from the store, which hasn't
-          // received the new nodes yet). ELK layout gives every node
-          // explicit position + width/height and none has a parentId,
-          // so a plain min/max fold is exact.
-          let minX = Infinity;
-          let minY = Infinity;
-          let maxX = -Infinity;
-          let maxY = -Infinity;
-          for (const n of layoutedNodes) {
-            minX = Math.min(minX, n.position.x);
-            minY = Math.min(minY, n.position.y);
-            maxX = Math.max(maxX, n.position.x + (n.width ?? 0));
-            maxY = Math.max(maxY, n.position.y + (n.height ?? 0));
-          }
-          const bounds = {
-            x: minX,
-            y: minY,
-            width: maxX - minX,
-            height: maxY - minY,
-          };
-          const viewport = getViewportForBounds(
-            bounds,
-            pane.width,
-            pane.height,
-            0.1,
-            1.5,
-            0.2,
-          );
-          rfInstance.current.setViewport(viewport, { duration: 300 });
-        }
-      }
+    if (!plan || plan.nodes.size === 0) {
+      lastComboRef.current = null;
+      pendingCameraRef.current = null;
+      pendingComboRef.current = null;
+      committedComboRef.current = null;
+      setNodes([]);
+      setEdges([]);
+      finish();
+      return cleanup;
     }
 
-    computeLayout();
-
-    return () => {
-      isMounted = false;
+    const inputs: LayoutInputs = {
+      plan,
+      items,
+      recipes,
+      facilities,
+      targetRates,
+      visualizationMode,
+      twoEndAlignment,
+      ceilMode,
+      binFusion,
     };
-  }, [plan, items, recipes, facilities, visualizationMode, targetRates, twoEndAlignment, ceilMode, binFusion, setNodes, setEdges]);
+
+    // Snapshot the outgoing view (drags + camera) into its cache entry
+    // before replacing it. The TRIGGER compares requested combos; the
+    // WRITE keys off the COMMITTED combo (see committedComboRef) so an
+    // uncommitted in-flight swap can't mis-file the old view. A
+    // snapshot against a superseded plan lands in a WeakMap entry that
+    // dies with that plan, harmlessly.
+    if (
+      lastComboRef.current &&
+      layoutComboKey(lastComboRef.current) !== layoutComboKey(inputs)
+    ) {
+      snapshotCurrentView();
+    }
+    lastComboRef.current = inputs;
+
+    // Canvas currently empty (fresh mount / tab-flip remount / after an
+    // empty plan) — the incoming graph must bring its own camera, and
+    // `modeChanged` can't cover it (there is no previous mode). Checked
+    // against the LIVE canvas, not a first-run flag: effect re-runs for
+    // the same combo before the nodes commit (StrictMode double-invoke,
+    // dep identity churn) must park the same action again, not null it.
+    const canvasEmpty = liveViewRef.current.nodes.length === 0;
+    const modeChanged =
+      lastLayoutModeRef.current !== null &&
+      lastLayoutModeRef.current !== visualizationMode;
+    lastLayoutModeRef.current = visualizationMode;
+
+    // Cache hit (prior visit snapshot or background prefetch): restore
+    // without mapper/ELK. The graph replacement is a TRANSITION:
+    // replacing hundreds of node/edge components in one urgent render
+    // blocked the main thread right on the click (measured 444+194ms at
+    // 46 nodes, 1183+1250ms at 356 — the tab/radio flip couldn't even
+    // paint). The render phase is time-sliced as a transition; the DOM
+    // commit + React Flow measurement pass remain one synchronous
+    // chunk, which is why big restores urgently paint the busy overlay
+    // FIRST (below) — click feedback lands before the freeze.
+    const cached = getCachedLayout(inputs);
+    if (cached) {
+      window.clearTimeout(overlayTimer);
+      // Urgent overlay for big restores: paints together with the
+      // tab/radio flip, before the graph-commit freeze. Cleared INSIDE
+      // the transition so it disappears exactly when the graph lands.
+      if (cached.nodes.length > RESTORE_OVERLAY_MIN_NODES) {
+        setShowLayoutOverlay(true);
+      }
+      const restoredNodes = cached.nodes.map((n) => ({
+        ...n,
+        selected: false,
+      })) as FlowProductionNode[];
+      startTransition(() => {
+        setNodes(restoredNodes);
+        setEdges(cached.edges);
+        setShowLayoutOverlay(false);
+      });
+      pendingComboRef.current = { inputs, nodes: restoredNodes };
+      // Park the camera change for the swap's commit (atomic with the
+      // new graph — never applied against the outgoing one). On a fresh
+      // mount the snapshotted viewport is already live via
+      // `defaultViewport` — re-parking it is an idempotent no-op.
+      pendingCameraRef.current = decideCameraAction({
+        viewport: cached.viewport,
+        nodes: cached.nodes,
+        modeChanged,
+        canvasEmpty,
+      });
+      // No finish() here: the timer is already cleared and the overlay
+      // hide rides the transition so it lifts exactly with the graph.
+      return cleanup;
+    }
+
+    // MISS → compute on the interactive lane. Single-flight scheduling
+    // (latest-wins coalescing + stale-job termination) is owned by
+    // `useCoalescedInteractiveJob`; this run owns everything per-run.
+    scheduleLayoutJob(async () => {
+      try {
+        // Yield one macrotask before the synchronous mapper: it can
+        // block the main thread a few hundred ms on big plans, and
+        // without the yield the toggle's own re-render (and, past the
+        // debounce, the overlay) wouldn't paint until the first
+        // genuine await.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (!isMounted) return;
+        const result = await computeFlowLayout(inputs, "interactive");
+        // Even a superseded result is internally consistent — warm
+        // the cache for its combo before bailing.
+        setCachedLayout(inputs, result);
+        if (!isMounted) return;
+        // Transition for the same reason as the cache-hit restore:
+        // the giant commit must not freeze whatever the user is
+        // doing when the layout finally lands.
+        const resultNodes = result.nodes as FlowProductionNode[];
+        pendingComboRef.current = { inputs, nodes: resultNodes };
+        pendingCameraRef.current = decideCameraAction({
+          nodes: result.nodes,
+          modeChanged,
+          canvasEmpty,
+        });
+        startTransition(() => {
+          setNodes(resultNodes);
+          setEdges(result.edges);
+        });
+      } catch (error) {
+        // Cancellation = superseded by a newer run; anything else is
+        // unexpected (getLayoutedElements degrades internally).
+        if (!(error instanceof LayoutCancelledError)) {
+          console.error("Layout pipeline failed:", error);
+        }
+      } finally {
+        window.clearTimeout(overlayTimer);
+        // Hide via transition: on the success path this batches with
+        // the graph commit above (overlay lifts exactly when the new
+        // graph lands, not before its commit freeze); on error/cancel
+        // paths there's no heavy render pending and it hides promptly.
+        if (isMounted) {
+          startTransition(() => setShowLayoutOverlay(false));
+        }
+      }
+    });
+
+    return cleanup;
+  }, [plan, items, recipes, facilities, visualizationMode, targetRates, twoEndAlignment, ceilMode, binFusion, setNodes, setEdges, snapshotCurrentView, scheduleLayoutJob]);
 
   const nodeTypes: NodeTypes = useMemo(
     () => ({
@@ -633,7 +886,12 @@ export default function ProductionDependencyTree({
 
   return (
     <div className="h-full w-full flex flex-col">
-      <div className="flex-1" ref={containerRef}>
+      <div className="flex-1 relative" ref={containerRef}>
+        {showLayoutOverlay && (
+          <SolverLoadingOverlay
+            label={t("tree.arranging", { defaultValue: "Arranging graph" })}
+          />
+        )}
         <NodeJumpContext.Provider value={jumpToNode}>
         <ReactFlow
           className={`flow-theme${lowZoom ? " flow-lowzoom" : ""}`}
@@ -641,6 +899,18 @@ export default function ProductionDependencyTree({
           edges={displayEdges}
           onInit={(instance) => {
             rfInstance.current = instance;
+            // Tab-flip remount with a parked camera action: the
+            // cache-hit effect (and its nodes-keyed layout effect) may
+            // have run before this instance existed.
+            const action = pendingCameraRef.current;
+            if (action) {
+              pendingCameraRef.current = null;
+              if (action.type === "viewport") {
+                instance.setViewport(action.viewport);
+              } else {
+                fitToNodes(action.nodes, action.animate);
+              }
+            }
             setLowZoom(instance.getZoom() < LABEL_FADE_ZOOM);
           }}
           onNodesChange={onNodesChange}
@@ -654,7 +924,11 @@ export default function ProductionDependencyTree({
           onSelectionChange={onSelectionChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          fitView
+          // Mount restores own the camera (see mountRestore):
+          // initialize AT the snapshotted viewport and suppress RF's
+          // deferred initial fit whenever any entry restores.
+          defaultViewport={mountRestore?.viewport}
+          fitView={!mountRestore}
           fitViewOptions={{
             padding: 0.2,
             minZoom: 0.1,

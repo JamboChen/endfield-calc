@@ -25,10 +25,91 @@ interface ElkGraph {
   edges?: ElkEdge[];
 }
 
-type LayoutEngine = { layout: (graph: ElkGraph) => Promise<ElkNode> };
+type LayoutEngine = {
+  layout: (graph: ElkGraph) => Promise<ElkNode>;
+  terminateWorker?: () => void;
+};
 
-let elkInstance: LayoutEngine | null = null;
-let elkPromise: Promise<LayoutEngine> | null = null;
+/**
+ * Thrown by `getLayoutedElements` when `cancelLayoutLane` killed the
+ * lane mid-job. Callers MUST treat it as "discard, don't render" — the
+ * generic ELK-error fallback (return unlayouted nodes) deliberately
+ * does not apply to cancellations.
+ */
+export class LayoutCancelledError extends Error {
+  constructor() {
+    super("layout cancelled");
+    this.name = "LayoutCancelledError";
+  }
+}
+
+/**
+ * ELK job lanes. Each lane owns its OWN ELK instance (its own Web
+ * Worker): elkjs processes jobs sequentially per worker, so without the
+ * split a speculative multi-second prefetch job would queue AHEAD of an
+ * interactive layout the user is waiting on.
+ *
+ *   - "interactive": layouts the visible graph. Preloaded at module
+ *     import.
+ *   - "prefetch": background pre-computation of the not-currently-shown
+ *     view (see `layout-cache.ts`). Created lazily on first use;
+ *     terminated aggressively by `cancelLayoutLane` when its job goes
+ *     stale.
+ */
+export type LayoutLane = "interactive" | "prefetch";
+
+type LaneState = {
+  enginePromise: Promise<LayoutEngine> | null;
+  engine: LayoutEngine | null;
+  /** Deferred rejected by `cancelLayoutLane`; pending jobs race it. */
+  cancel: { promise: Promise<never>; reject: (e: Error) => void };
+};
+
+function makeCancelDeferred(): LaneState["cancel"] {
+  let reject!: (e: Error) => void;
+  const promise = new Promise<never>((_, rej) => {
+    reject = rej;
+  });
+  // Mark handled: a cancel with no in-flight job must not surface an
+  // unhandled-rejection warning. `Promise.race` attaches its own
+  // handler independently.
+  promise.catch(() => {});
+  return { promise, reject };
+}
+
+const lanes: Record<LayoutLane, LaneState> = {
+  interactive: { enginePromise: null, engine: null, cancel: makeCancelDeferred() },
+  prefetch: { enginePromise: null, engine: null, cancel: makeCancelDeferred() },
+};
+
+/**
+ * Terminate a lane's worker (if any) and reject its in-flight jobs with
+ * `LayoutCancelledError`. The engine is re-created lazily on the lane's
+ * next job. Called when a job is KNOWN stale — freeing the core beats
+ * letting a doomed multi-second NETWORK_SIMPLEX run finish (the whole
+ * point of real cancellation vs. ignore-the-result: rapid input spam
+ * must not keep a background core grinding).
+ *
+ * MUST never throw into caller effects: elkjs' bundled main-thread
+ * fallback wraps a fake worker that has `postMessage` but NO
+ * `terminate`, so `terminateWorker()` itself throws a TypeError there
+ * (optional chaining doesn't help — the method exists, its body
+ * throws). On the fallback there is no worker to kill anyway; the
+ * rejection above is the whole cancellation.
+ */
+export function cancelLayoutLane(lane: LayoutLane): void {
+  const state = lanes[lane];
+  state.cancel.reject(new LayoutCancelledError());
+  state.cancel = makeCancelDeferred();
+  try {
+    state.engine?.terminateWorker?.();
+  } catch {
+    // Main-thread fallback engine — nothing to terminate. See JSDoc.
+  } finally {
+    state.engine = null;
+    state.enginePromise = null;
+  }
+}
 
 /**
  * Creates the ELK engine, preferring a Web Worker so layout computation
@@ -59,6 +140,34 @@ async function createLayoutEngine(): Promise<LayoutEngine> {
   return new ELK() as unknown as LayoutEngine;
 }
 
+/** Memoised lane engine bootstrap (shared by preload + jobs). */
+function ensureLane(lane: LayoutLane): Promise<LayoutEngine> {
+  const state = lanes[lane];
+  if (!state.enginePromise) {
+    state.enginePromise = createLayoutEngine().then((engine) => {
+      state.engine = engine;
+      return engine;
+    });
+    // A failed creation must not poison the lane forever.
+    state.enginePromise.catch(() => {
+      if (lanes[lane].engine === null) lanes[lane].enginePromise = null;
+    });
+  }
+  return state.enginePromise;
+}
+
+/**
+ * Resolve a lane's engine, racing the CALLER-captured cancellation
+ * promise — `cancelLayoutLane` swaps the lane's deferred, so a job must
+ * race against the one that was current when it started.
+ */
+async function laneEngine(
+  lane: LayoutLane,
+  cancel: Promise<never>,
+): Promise<LayoutEngine> {
+  return Promise.race([ensureLane(lane), cancel]);
+}
+
 const NODE_DIMENSIONS = {
   RAW_MATERIAL_NODE: { width: 208, height: 125 },
   PRODUCTION_NODE: { width: 208, height: 125 },
@@ -68,15 +177,10 @@ const NODE_DIMENSIONS = {
 } as const;
 
 /**
- * Initiates the loading of ELKJS.
+ * Initiates the loading of ELKJS for the interactive lane.
  * This can be called early to preload the 1.4MB bundle in the background.
  */
-export const preloadLayoutEngine = () => {
-  if (!elkPromise) {
-    elkPromise = createLayoutEngine();
-  }
-  return elkPromise;
-};
+export const preloadLayoutEngine = () => ensureLane("interactive");
 
 // Start preloading immediately when this utility module is imported
 preloadLayoutEngine();
@@ -246,23 +350,61 @@ function alignTwoEnds(nodes: Node[]): Node[] {
 const GREEDY_SWITCH_MAX_NODES = 400;
 
 /**
+ * Above this node count, model-order tie-breaking and NETWORK_SIMPLEX
+ * node placement are dropped (BRANDES_KOEPF default placement instead).
+ * NETWORK_SIMPLEX placement is the big straightness win — measured on
+ * the benchmark Facility View plans (straight-line metrics over node
+ * centers; React Flow draws point-to-point beziers, so these track
+ * visible clutter):
+ *
+ *   - 425 nodes / 593 edges: total edge length 1.13M → 0.63M px
+ *     (−45%), crossings 1485 → 1412
+ *   - 250 nodes / 348 edges: length 497k → 379k px (−24%), crossings
+ *     821 → 821
+ *
+ * but its LP grows superlinearly: ~4.5s at 425 nodes, ~26s at 940
+ * nodes (vs ~3s BK), which is too slow even off the main thread.
+ * Model-order tie-breaking (`considerModelOrder`) keeps same-bank
+ * sibling buildings near emission order (bank interleave −23% on the
+ * 425-node benchmark) and is cheap, but measured slightly NEGATIVE at
+ * 940 nodes (+5% crossings), so it shares the gate.
+ *
+ * REJECTED EXPERIMENT — do not reintroduce blindly: a post-pass that
+ * reordered each column's y-slots to make same-bank buildings fully
+ * contiguous ("bank gathering") was measured and dropped. It can only
+ * lengthen edges (it drags nodes away from their placement-optimized
+ * slots), and the cost was steep: +53% total edge length and +109%
+ * crossings on the 250-node benchmark — users read that as MORE
+ * long-distance connections, the exact complaint this tuning
+ * addresses. If full bank-as-block grouping is ever wanted, the sound
+ * route is compound-node layout (`elk.hierarchyHandling:
+ * INCLUDE_CHILDREN`), where the engine optimizes edges AROUND the
+ * groups instead of position surgery after the fact.
+ */
+const PLACEMENT_TUNING_MAX_NODES = 600;
+
+/**
  * Lays out React Flow elements using the ELK algorithm.
  * ELK provides better handling of hierarchy and complex cycles than Dagre.
  * Uses static node dimensions for consistent and immediate layout.
  *
  * @param twoEndAlignment When true (separated mode only), forces raw material
  *   nodes to the leftmost layer and target sink nodes to the rightmost layer.
+ * @param lane ELK job lane — see `LayoutLane`. Throws
+ *   `LayoutCancelledError` when `cancelLayoutLane(lane)` kills the job
+ *   mid-flight; every OTHER failure keeps the legacy behaviour of
+ *   returning the un-layouted inputs.
  */
 export const getLayoutedElements = async (
   nodes: Node[],
   edges: Edge[],
   direction = "RIGHT",
   twoEndAlignment = false,
+  lane: LayoutLane = "interactive",
 ) => {
-  // Ensure the engine is loaded
-  if (!elkInstance) {
-    elkInstance = await preloadLayoutEngine();
-  }
+  // Capture the lane's CURRENT cancel deferred: `cancelLayoutLane`
+  // swaps it, so this job races the one live at its start.
+  const cancel = lanes[lane].cancel.promise;
 
   const isHorizontal = direction === "RIGHT" || direction === "LEFT";
 
@@ -289,6 +431,19 @@ export const getLayoutedElements = async (
             "elk.layered.crossingMinimization.greedySwitch.type": "TWO_SIDED",
             "elk.layered.crossingMinimization.greedySwitch.activationThreshold":
               "0",
+          }
+        : {}),
+      // Straightness + sibling-order tuning, gated by size (see
+      // PLACEMENT_TUNING_MAX_NODES for the measured numbers):
+      // NETWORK_SIMPLEX placement makes `favorStraightEdges` above
+      // actually bite (it is a network-simplex-placement option) and
+      // nearly halves total edge length; considerModelOrder biases the
+      // layer sweeps toward mapper emission order, keeping same-bank
+      // sibling buildings near each other.
+      ...(nodes.length <= PLACEMENT_TUNING_MAX_NODES
+        ? {
+            "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+            "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
           }
         : {}),
       "org.eclipse.elk.padding": "[top=40,left=40,bottom=40,right=40]",
@@ -345,7 +500,13 @@ export const getLayoutedElements = async (
   };
 
   try {
-    const layoutedGraph = await elkInstance!.layout(elkGraph);
+    const engine = await laneEngine(lane, cancel);
+    // The raw promise may reject AFTER our race settles (terminated
+    // worker) — pre-attach a handler so it never surfaces as an
+    // unhandled rejection.
+    const rawLayout = engine.layout(elkGraph);
+    rawLayout.catch(() => {});
+    const layoutedGraph = await Promise.race([rawLayout, cancel]);
 
     const layoutedNodes = nodes.map((node) => {
       const elkNode = layoutedGraph.children?.find((n) => n.id === node.id);
@@ -373,6 +534,10 @@ export const getLayoutedElements = async (
 
     return { nodes: finalNodes, edges };
   } catch (error) {
+    // Cancellation is a control-flow signal for the caller (discard the
+    // job), NOT a degraded-render situation — never fall through to the
+    // unlayouted-nodes fallback with it.
+    if (error instanceof LayoutCancelledError) throw error;
     console.error("ELK layout failed:", error);
     return { nodes, edges };
   }

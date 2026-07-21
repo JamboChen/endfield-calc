@@ -25,6 +25,8 @@ import {
   mapPlanToFlowBinFusedSeparated,
 } from "@/components/mappers/bin-fused-mapper";
 import { mapPlanToFlowMerged } from "@/components/mappers/merged-mapper";
+import { routeCatalystIntakeToTopHandle } from "@/components/flow/flow-utils";
+import type { Edge } from "@xyflow/react";
 import type {
   Facility,
   Item,
@@ -814,5 +816,87 @@ describe("gas sustain: real 1.4 data", () => {
     expect(
       plan.warnings.find((w) => w.kind === "gas-env-unavailable"),
     ).toBeUndefined();
+  });
+});
+
+// ── routeCatalystIntakeToTopHandle (direct) ─────────────────────────────────
+//
+// The merged branch (catalyst item is ALSO a base ingredient) must prefer
+// retagging WHOLE edges that exactly cover the catalyst portion — retag is
+// lossless, a split adds an edge. Field case: inbound {30 whole-producer,
+// 6 top-up} with a 6/min catalyst portion split the 30 into 24 + 6 and
+// left the 6 top-up on the ingredient handle (3 edges where 2 suffice).
+
+describe("routeCatalystIntakeToTopHandle", () => {
+  const itemById = new Map<ItemId, Item>([
+    [ItemId.ITEM_LIQUID_XIRANITE, { id: ItemId.ITEM_LIQUID_XIRANITE, tier: 2, isLiquid: true }],
+  ]);
+  const mkEdge = (id: string, rate: number): Edge => ({
+    id,
+    source: `src-${id}`,
+    target: "consumer",
+    data: { itemId: ItemId.ITEM_LIQUID_XIRANITE, flowRate: rate },
+  });
+  const route = (edges: Edge[], ingredientRate: number): Edge[] => {
+    let n = 100;
+    routeCatalystIntakeToTopHandle(
+      edges,
+      new Map([
+        ["consumer", { itemId: ItemId.ITEM_LIQUID_XIRANITE, ingredientRate }],
+      ]),
+      itemById,
+      false,
+      () => `e${n++}`,
+    );
+    return edges;
+  };
+  const rate = (e: Edge): number =>
+    (e.data as { flowRate?: number }).flowRate ?? 0;
+
+  test("exact single: the whole top-up edge retags, the whole-producer edge stays intact", () => {
+    // {30, 6}, ingredient 30 → catalyst portion 6. The 6 edge must go to
+    // the top handle WHOLE; the 30 edge must not be split.
+    const edges = route([mkEdge("a", 30), mkEdge("b", 6)], 30);
+
+    expect(edges).toHaveLength(2); // no split, no clone
+    const top = edges.filter((e) => e.targetHandle === "catalyst");
+    expect(top).toHaveLength(1);
+    expect(top[0].id).toBe("b");
+    expect(rate(top[0])).toBeCloseTo(6, 6);
+    const left = edges.filter((e) => e.targetHandle !== "catalyst");
+    expect(left).toHaveLength(1);
+    expect(rate(left[0])).toBeCloseTo(30, 6);
+  });
+
+  test("exact pair: two edges summing to the portion retag whole", () => {
+    // {30, 4, 2}, ingredient 30 → portion 6 = 4 + 2.
+    const edges = route([mkEdge("a", 30), mkEdge("b", 4), mkEdge("c", 2)], 30);
+
+    expect(edges).toHaveLength(3);
+    const top = edges.filter((e) => e.targetHandle === "catalyst");
+    expect(top.map((e) => e.id).sort()).toEqual(["b", "c"]);
+    expect(rate(edges.find((e) => e.id === "a")!)).toBeCloseTo(30, 6);
+    expect(edges.find((e) => e.id === "a")!.targetHandle).toBeUndefined();
+  });
+
+  test("fallback: single inbound edge covering both portions still splits at the boundary", () => {
+    // {10}, ingredient 4 → portion 6: no exact subset — the lossless
+    // split (4 left + 6 cloned top) is the only representation.
+    const edges = route([mkEdge("a", 10)], 4);
+
+    expect(edges).toHaveLength(2);
+    const top = edges.filter((e) => e.targetHandle === "catalyst");
+    expect(top).toHaveLength(1);
+    expect(rate(top[0])).toBeCloseTo(6, 6);
+    const left = edges.filter((e) => e.targetHandle !== "catalyst");
+    expect(left).toHaveLength(1);
+    expect(rate(left[0])).toBeCloseTo(4, 6);
+  });
+
+  test("pure catalyst (ingredientRate 0): all edges retag, none split", () => {
+    const edges = route([mkEdge("a", 12), mkEdge("b", 6)], 0);
+
+    expect(edges).toHaveLength(2);
+    expect(edges.every((e) => e.targetHandle === "catalyst")).toBe(true);
   });
 });

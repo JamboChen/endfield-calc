@@ -341,8 +341,15 @@ export function buildCatalystIntakeByNode(
  * - Pure catalyst (a separate item, or a self-loop): `ingredientRate == 0`,
  *   so every such edge is simply retagged — LOSSLESS, only `targetHandle`
  *   changes.
- * - Merged (the catalyst item is also a base ingredient): the boundary edge
- *   is split into a left remainder (ingredient) + a cloned top fragment
+ * - Merged (the catalyst item is also a base ingredient): the catalyst
+ *   portion prefers WHOLE edges that exactly cover it — an exact single
+ *   edge, then an exact pair (mirroring `computeTransportAllocation`'s
+ *   peel tiers) — because retagging is lossless while splitting adds an
+ *   edge. The field case: inbound {30 whole-producer, 6 top-up} with a
+ *   6/min catalyst portion must retag the 6 whole, NOT split the 30
+ *   into 24 + 6 (three edges where two suffice). Only when no exact
+ *   subset exists does the front-carve fallback split the boundary edge
+ *   into a left remainder (ingredient) + a cloned top fragment
  *   (catalyst). The clone spreads the original edge, so `type`, `direction`
  *   (incl. `"backward"` cycle tags), and marker survive; only the rate and
  *   its label are recomputed.
@@ -387,8 +394,36 @@ export function routeCatalystIntakeToTopHandle(
       continue;
     }
 
-    // Merged: carve the catalyst portion off the front to the top handle,
-    // leaving the ingredient portion on the default (left) handle.
+    // Merged: prefer retagging WHOLE edges that exactly cover the
+    // catalyst portion (lossless — no split, no extra edge).
+    // Tier 1: exact single edge.
+    const exactSingle = cEdges.find(
+      (e) => Math.abs(edgeRate(e) - remainingTop) <= MIN_VISIBLE_RATE_PER_MIN,
+    );
+    if (exactSingle) {
+      exactSingle.targetHandle = "catalyst";
+      continue;
+    }
+    // Tier 2: exact pair of edges.
+    let pairDone = false;
+    for (let a = 0; a < cEdges.length && !pairDone; a++) {
+      for (let b = a + 1; b < cEdges.length; b++) {
+        if (
+          Math.abs(edgeRate(cEdges[a]) + edgeRate(cEdges[b]) - remainingTop) <=
+          MIN_VISIBLE_RATE_PER_MIN
+        ) {
+          cEdges[a].targetHandle = "catalyst";
+          cEdges[b].targetHandle = "catalyst";
+          pairDone = true;
+          break;
+        }
+      }
+    }
+    if (pairDone) continue;
+
+    // Fallback: carve the catalyst portion off the front to the top
+    // handle, leaving the ingredient portion on the default (left)
+    // handle.
     const item = itemById.get(itemId);
     for (const e of cEdges) {
       if (remainingTop <= MIN_VISIBLE_RATE_PER_MIN) break;
