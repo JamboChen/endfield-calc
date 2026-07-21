@@ -89,14 +89,26 @@ const lanes: Record<LayoutLane, LaneState> = {
  * letting a doomed multi-second NETWORK_SIMPLEX run finish (the whole
  * point of real cancellation vs. ignore-the-result: rapid input spam
  * must not keep a background core grinding).
+ *
+ * MUST never throw into caller effects: elkjs' bundled main-thread
+ * fallback wraps a fake worker that has `postMessage` but NO
+ * `terminate`, so `terminateWorker()` itself throws a TypeError there
+ * (optional chaining doesn't help — the method exists, its body
+ * throws). On the fallback there is no worker to kill anyway; the
+ * rejection above is the whole cancellation.
  */
 export function cancelLayoutLane(lane: LayoutLane): void {
   const state = lanes[lane];
   state.cancel.reject(new LayoutCancelledError());
   state.cancel = makeCancelDeferred();
-  state.engine?.terminateWorker?.();
-  state.engine = null;
-  state.enginePromise = null;
+  try {
+    state.engine?.terminateWorker?.();
+  } catch {
+    // Main-thread fallback engine — nothing to terminate. See JSDoc.
+  } finally {
+    state.engine = null;
+    state.enginePromise = null;
+  }
 }
 
 /**
@@ -128,15 +140,8 @@ async function createLayoutEngine(): Promise<LayoutEngine> {
   return new ELK() as unknown as LayoutEngine;
 }
 
-/**
- * Resolve (and memoise) a lane's engine, racing the CALLER-captured
- * cancellation promise — `cancelLayoutLane` swaps the lane's deferred,
- * so a job must race against the one that was current when it started.
- */
-async function laneEngine(
-  lane: LayoutLane,
-  cancel: Promise<never>,
-): Promise<LayoutEngine> {
+/** Memoised lane engine bootstrap (shared by preload + jobs). */
+function ensureLane(lane: LayoutLane): Promise<LayoutEngine> {
   const state = lanes[lane];
   if (!state.enginePromise) {
     state.enginePromise = createLayoutEngine().then((engine) => {
@@ -148,7 +153,19 @@ async function laneEngine(
       if (lanes[lane].engine === null) lanes[lane].enginePromise = null;
     });
   }
-  return Promise.race([state.enginePromise, cancel]);
+  return state.enginePromise;
+}
+
+/**
+ * Resolve a lane's engine, racing the CALLER-captured cancellation
+ * promise — `cancelLayoutLane` swaps the lane's deferred, so a job must
+ * race against the one that was current when it started.
+ */
+async function laneEngine(
+  lane: LayoutLane,
+  cancel: Promise<never>,
+): Promise<LayoutEngine> {
+  return Promise.race([ensureLane(lane), cancel]);
 }
 
 const NODE_DIMENSIONS = {
@@ -163,20 +180,7 @@ const NODE_DIMENSIONS = {
  * Initiates the loading of ELKJS for the interactive lane.
  * This can be called early to preload the 1.4MB bundle in the background.
  */
-export const preloadLayoutEngine = () => {
-  const state = lanes.interactive;
-  if (!state.enginePromise) {
-    state.enginePromise = createLayoutEngine().then((engine) => {
-      state.engine = engine;
-      return engine;
-    });
-    state.enginePromise.catch(() => {
-      if (lanes.interactive.engine === null)
-        lanes.interactive.enginePromise = null;
-    });
-  }
-  return state.enginePromise;
-};
+export const preloadLayoutEngine = () => ensureLane("interactive");
 
 // Start preloading immediately when this utility module is imported
 preloadLayoutEngine();

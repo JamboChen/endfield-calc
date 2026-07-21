@@ -39,7 +39,7 @@
  * spare worker; the simpler protocol has no promotion states to get
  * wrong.
  */
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { Edge, Node, Viewport } from "@xyflow/react";
 import type {
   Facility,
@@ -218,13 +218,21 @@ function whenIdle(): Promise<void> {
 
 /** True while a prefetch job is inside the ELK stage — the only window
  *  where `cancelLayoutLane` buys anything (module-level: the hook may
- *  remount around an in-flight job). */
+ *  remount around an in-flight job). Writes are OWNER-GUARDED by token
+ *  in the runner: a superseded job must never clear a successor's flag,
+ *  or the next input change would skip the cancel and let a doomed
+ *  multi-second job keep grinding a core. */
 let prefetchElkInFlight = false;
 
 /**
  * Speculatively pre-computes likely-next views into the layout cache.
  * Mount ONCE from a component that outlives tab switches
  * (`ProductionViewTabs`).
+ *
+ * CONTRACT: every input must be IDENTITY-STABLE across renders when
+ * semantically unchanged (memoized rosters/targetRates — true for the
+ * App.tsx-fed props today). An input recreated per render restarts the
+ * settle-debounce every render and the prefetch never launches.
  */
 export function useLayoutPrefetch(
   inputs: Omit<LayoutInputs, "plan"> & {
@@ -290,11 +298,13 @@ export function useLayoutPrefetch(
           try {
             prefetchElkInFlight = true;
             const result = await computeFlowLayout(target, "prefetch");
-            prefetchElkInFlight = false;
-            if (token !== tokenRef.current) return;
+            // Owner-guarded clear: a stale job's continuation must not
+            // clobber a successor's `true` (see flag JSDoc).
+            if (token === tokenRef.current) prefetchElkInFlight = false;
+            else return;
             setCachedLayoutIfAbsent(target, result);
           } catch (error) {
-            prefetchElkInFlight = false;
+            if (token === tokenRef.current) prefetchElkInFlight = false;
             if (error instanceof LayoutCancelledError) return;
             // Speculative work — swallow anything else (the interactive
             // path will surface genuine failures if the user actually
@@ -320,4 +330,97 @@ export function useLayoutPrefetch(
     binFusion,
     activeTab,
   ]);
+}
+
+/**
+ * Camera change parked until the graph swap it belongs to commits.
+ * Applying the camera urgently while `setNodes` rides a transition
+ * painted the OLD graph at the NEW view's camera for a few frames — a
+ * visible "layout shift". The tree consumes the action in a
+ * `useLayoutEffect` keyed on the nodes state (runs before the swap's
+ * commit paints), so graph and camera land in the same frame.
+ */
+export type PendingCameraAction =
+  | { type: "viewport"; viewport: Viewport }
+  | { type: "fit"; nodes: Node[]; animate: boolean };
+
+/**
+ * Decide the camera action for a graph about to be committed. Pure —
+ * unit-tested, because the implicit inline version of this decision
+ * already produced one real bug (a same-combo effect re-run nulled a
+ * parked fit under React StrictMode).
+ *
+ *   - A stored viewport always wins (camera exactly as the user left
+ *     the view; idempotent when `defaultViewport` pre-applied it).
+ *   - Otherwise a fit is needed when the MODE changed (the two views'
+ *     extents differ wildly — animated glide) or when the canvas is
+ *     currently EMPTY (fresh mount / after an empty plan; instant snap,
+ *     an animation from the default camera would read as a shift).
+ *   - Otherwise the camera stays where it is (plan recomputes keep the
+ *     user's pan/zoom).
+ */
+export function decideCameraAction(args: {
+  viewport?: Viewport;
+  nodes: Node[];
+  modeChanged: boolean;
+  canvasEmpty: boolean;
+}): PendingCameraAction | null {
+  if (args.viewport) return { type: "viewport", viewport: args.viewport };
+  if (args.modeChanged || args.canvasEmpty) {
+    return { type: "fit", nodes: args.nodes, animate: args.modeChanged };
+  }
+  return null;
+}
+
+/** A superseded interactive layout job older than this gets its worker
+ *  terminated instead of finishing as a corpse the fresh layout must
+ *  queue behind. Younger jobs are left to complete — terminate +
+ *  worker-respawn thrash would cost more than they do. */
+const STALE_LAYOUT_TERMINATE_MS = 1000;
+
+/**
+ * Latest-wins coalescing for interactive-lane layout jobs: at most one
+ * job in flight; a run scheduled while one is active parks itself as
+ * `pending` (overwriting any previously-parked run — latest wins) and
+ * the finishing job starts it. Without this, rapid input spam queued
+ * every stale layout sequentially in the single interactive ELK worker
+ * and the visible one waited behind all the corpses. A stale job
+ * already past `STALE_LAYOUT_TERMINATE_MS` additionally gets its
+ * worker terminated (`cancelLayoutLane`).
+ *
+ * The returned `schedule` is identity-stable. The caller's `run`
+ * closure owns all per-run concerns (overlay, state commits,
+ * cancellation-error handling); this hook owns only the single-flight
+ * bookkeeping.
+ */
+export function useCoalescedInteractiveJob(): (
+  run: () => Promise<void>,
+) => void {
+  const jobRef = useRef<{
+    running: boolean;
+    startedAt: number;
+    pending: (() => void) | null;
+  }>({ running: false, startedAt: 0, pending: null });
+
+  return useCallback((run: () => Promise<void>) => {
+    const job = jobRef.current;
+    const start = () => {
+      job.running = true;
+      job.startedAt = Date.now();
+      void run().finally(() => {
+        job.running = false;
+        const next = job.pending;
+        job.pending = null;
+        if (next) next();
+      });
+    };
+    if (job.running) {
+      job.pending = start;
+      if (Date.now() - job.startedAt > STALE_LAYOUT_TERMINATE_MS) {
+        cancelLayoutLane("interactive");
+      }
+    } else {
+      start();
+    }
+  }, []);
 }

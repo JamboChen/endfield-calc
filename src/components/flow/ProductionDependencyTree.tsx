@@ -42,13 +42,16 @@ import CustomDisposalNode from "../nodes/CustomDisposalNode";
 import CustomPowerNode from "../nodes/CustomPowerNode";
 import CustomEnvNode from "../nodes/CustomEnvNode";
 import { useTranslation } from "react-i18next";
-import { cancelLayoutLane, LayoutCancelledError } from "@/lib/layout";
+import { LayoutCancelledError } from "@/lib/layout";
 import {
   computeFlowLayout,
+  decideCameraAction,
   getCachedLayout,
   layoutComboKey,
   setCachedLayout,
+  useCoalescedInteractiveJob,
   type LayoutInputs,
+  type PendingCameraAction,
 } from "./layout-cache";
 import {
   getNeighborhood,
@@ -94,12 +97,6 @@ const NODE_JUMP_MIN_ZOOM = 0.8;
  *  threshold so sub-perceptible layouts never flash it. */
 const LAYOUT_OVERLAY_DEBOUNCE_MS = 300;
 
-/** A superseded interactive layout job older than this gets its worker
- *  terminated instead of finishing as a corpse the fresh layout must
- *  queue behind. Younger jobs are left to complete — terminate +
- *  worker-respawn thrash would cost more than they do. */
-const STALE_LAYOUT_TERMINATE_MS = 1000;
-
 /** Cache-hit restores above this node count show the busy overlay
  *  IMMEDIATELY (no debounce): the DOM commit + React Flow measurement
  *  of a big graph blocks the main thread up to ~2.5s and is not
@@ -107,20 +104,6 @@ const STALE_LAYOUT_TERMINATE_MS = 1000;
  *  BEFORE the freeze. Small restores skip it — their freeze is shorter
  *  than the flash would be. */
 const RESTORE_OVERLAY_MIN_NODES = 100;
-
-/**
- * Camera change parked until the graph swap it belongs to commits.
- * Applying the camera urgently while `setNodes` rides a transition
- * painted the OLD graph at the NEW view's camera for a few frames — a
- * visible "layout shift" on every restore (most obvious on small
- * Formula View restores, which don't get the masking overlay). The
- * action is consumed by a `useLayoutEffect` keyed on the nodes state,
- * which runs before the swap's commit paints — graph and camera land
- * in the same frame.
- */
-type PendingCameraAction =
-  | { type: "viewport"; viewport: Viewport }
-  | { type: "fit"; nodes: Node[]; animate: boolean };
 
 function ExportImageButton({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation("production");
@@ -374,30 +357,37 @@ export default function ProductionDependencyTree({
   // snapshotted viewport skip the re-fit — the stored camera wins.
   const lastLayoutModeRef = useRef<VisualizationMode | null>(null);
 
-  // Inputs of the view currently ON SCREEN — the snapshot target when
-  // the user switches combos (or the tree unmounts on a tab flip).
+  // Inputs of the most recently REQUESTED view — drives the "did the
+  // combo change" snapshot trigger in the layout effect.
   const lastComboRef = useRef<LayoutInputs | null>(null);
+  // Inputs of the graph actually COMMITTED to the canvas. Snapshots
+  // key off THIS, not the requested combo: the request is recorded
+  // synchronously while the swap rides a transition, and an unmount
+  // landing in that window would otherwise write the still-committed
+  // OLD nodes under the NEW combo's cache entry. Promotion happens in
+  // the nodes-keyed layout effect, matched by array identity.
+  const pendingComboRef = useRef<{
+    inputs: LayoutInputs;
+    nodes: FlowProductionNode[];
+  } | null>(null);
+  const committedComboRef = useRef<LayoutInputs | null>(null);
   // Camera action parked for the pending graph swap — consumed by the
   // nodes-keyed layout effect below (or by onInit on a tab-flip
   // remount, whichever sees a ready ReactFlow instance first).
   const pendingCameraRef = useRef<PendingCameraAction | null>(null);
-  // Interactive-lane single-flight bookkeeping (latest-wins coalescing;
-  // see the layout effect). Shared across effect invocations.
-  const layoutJobRef = useRef<{
-    running: boolean;
-    startedAt: number;
-    pending: (() => void) | null;
-  }>({ running: false, startedAt: 0, pending: null });
+  // Interactive-lane single-flight scheduling (latest-wins coalescing +
+  // stale-job termination) — see `useCoalescedInteractiveJob`.
+  const scheduleLayoutJob = useCoalescedInteractiveJob();
 
   // Snapshot the on-screen view (drags + camera) into its combo's cache
   // entry. `selected` is normalized off so a React Flow selection ring
   // can't survive a restore whose spotlight state was cleared.
   const snapshotCurrentView = useCallback(() => {
-    const last = lastComboRef.current;
-    if (!last) return;
+    const committed = committedComboRef.current;
+    if (!committed) return;
     const { nodes: liveNodes, edges: liveEdges } = liveViewRef.current;
     if (liveNodes.length === 0) return;
-    setCachedLayout(last, {
+    setCachedLayout(committed, {
       nodes: liveNodes.map((n) => ({ ...n, selected: false })),
       edges: liveEdges,
       viewport: rfInstance.current?.getViewport(),
@@ -465,6 +455,14 @@ export default function ProductionDependencyTree({
   // change (drags etc.). When the ReactFlow instance isn't ready yet
   // (tab-flip remount ordering), the action stays parked for onInit.
   useLayoutEffect(() => {
+    // Promote the committed combo when the ARRAY we handed to setNodes
+    // is what actually landed (identity match — drags and interleaved
+    // older commits can't mis-promote).
+    const pendingCombo = pendingComboRef.current;
+    if (pendingCombo && nodes === pendingCombo.nodes) {
+      committedComboRef.current = pendingCombo.inputs;
+      pendingComboRef.current = null;
+    }
     const action = pendingCameraRef.current;
     if (!action || !rfInstance.current) return;
     pendingCameraRef.current = null;
@@ -489,25 +487,24 @@ export default function ProductionDependencyTree({
   //     would land late, after node measurement, as a visible jump. The
   //     prop stays on only for a true first-ever mount with nothing
   //     cached, where it is the only fit available.
-  const mountRestoreRef = useRef<{ viewport?: Viewport } | null | undefined>(
-    undefined,
+  // useState lazy initializer: runs exactly once per instance, and the
+  // committed value is stable even if a concurrent render is discarded
+  // (unlike a render-phase ref write).
+  const [mountRestore] = useState<{ viewport?: Viewport } | null>(() =>
+    plan && plan.nodes.size > 0
+      ? (getCachedLayout({
+          plan,
+          items,
+          recipes,
+          facilities,
+          targetRates,
+          visualizationMode,
+          twoEndAlignment,
+          ceilMode,
+          binFusion,
+        }) ?? null)
+      : null,
   );
-  if (mountRestoreRef.current === undefined) {
-    mountRestoreRef.current =
-      plan && plan.nodes.size > 0
-        ? (getCachedLayout({
-            plan,
-            items,
-            recipes,
-            facilities,
-            targetRates,
-            visualizationMode,
-            twoEndAlignment,
-            ceilMode,
-            binFusion,
-          }) ?? null)
-        : null;
-  }
 
   useEffect(() => {
     let isMounted = true;
@@ -535,6 +532,8 @@ export default function ProductionDependencyTree({
     if (!plan || plan.nodes.size === 0) {
       lastComboRef.current = null;
       pendingCameraRef.current = null;
+      pendingComboRef.current = null;
+      committedComboRef.current = null;
       setNodes([]);
       setEdges([]);
       finish();
@@ -553,10 +552,12 @@ export default function ProductionDependencyTree({
       binFusion,
     };
 
-    // Snapshot the outgoing view (drags + camera) into ITS combo's
-    // cache entry before replacing it. Keyed on the PREVIOUS inputs —
-    // a snapshot against a superseded plan lands in a WeakMap entry
-    // that dies with that plan, harmlessly.
+    // Snapshot the outgoing view (drags + camera) into its cache entry
+    // before replacing it. The TRIGGER compares requested combos; the
+    // WRITE keys off the COMMITTED combo (see committedComboRef) so an
+    // uncommitted in-flight swap can't mis-file the old view. A
+    // snapshot against a superseded plan lands in a WeakMap entry that
+    // dies with that plan, harmlessly.
     if (
       lastComboRef.current &&
       layoutComboKey(lastComboRef.current) !== layoutComboKey(inputs)
@@ -595,107 +596,82 @@ export default function ProductionDependencyTree({
       if (cached.nodes.length > RESTORE_OVERLAY_MIN_NODES) {
         setShowLayoutOverlay(true);
       }
+      const restoredNodes = cached.nodes.map((n) => ({
+        ...n,
+        selected: false,
+      })) as FlowProductionNode[];
       startTransition(() => {
-        setNodes(
-          cached.nodes.map((n) => ({
-            ...n,
-            selected: false,
-          })) as FlowProductionNode[],
-        );
+        setNodes(restoredNodes);
         setEdges(cached.edges);
         setShowLayoutOverlay(false);
       });
+      pendingComboRef.current = { inputs, nodes: restoredNodes };
       // Park the camera change for the swap's commit (atomic with the
       // new graph — never applied against the outgoing one). On a fresh
       // mount the snapshotted viewport is already live via
       // `defaultViewport` — re-parking it is an idempotent no-op.
-      pendingCameraRef.current = cached.viewport
-        ? // Camera exactly as the user left this view.
-          { type: "viewport", viewport: cached.viewport }
-        : modeChanged || canvasEmpty
-          ? // Prefetched entry (no stored camera): mode re-fit glides,
-            // an empty-canvas restore snaps (no visible pre-fit camera).
-            { type: "fit", nodes: cached.nodes, animate: modeChanged }
-          : null;
+      pendingCameraRef.current = decideCameraAction({
+        viewport: cached.viewport,
+        nodes: cached.nodes,
+        modeChanged,
+        canvasEmpty,
+      });
       // No finish() here: the timer is already cleared and the overlay
       // hide rides the transition so it lifts exactly with the graph.
       return cleanup;
     }
 
-    // MISS → compute on the interactive lane with LATEST-WINS
-    // COALESCING: at most one ELK job in flight; when the effect fires
-    // again mid-job, the newest run parks itself as `pending` and the
-    // finishing job starts it. Without this, rapid target spam queued
-    // every stale layout sequentially in the single interactive worker
-    // and the visible one waited behind all the corpses. A stale job
-    // already >1s deep additionally gets its worker terminated
-    // (`cancelLayoutLane`) — fast jobs are left to finish, since
-    // terminate + respawn thrash would cost more than they do.
-    const job = layoutJobRef.current;
-    const start = () => {
-      job.running = true;
-      job.startedAt = Date.now();
-      void (async () => {
-        try {
-          // Yield one macrotask before the synchronous mapper: it can
-          // block the main thread a few hundred ms on big plans, and
-          // without the yield the toggle's own re-render (and, past the
-          // debounce, the overlay) wouldn't paint until the first
-          // genuine await.
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          if (!isMounted) return;
-          const result = await computeFlowLayout(inputs, "interactive");
-          // Even a superseded result is internally consistent — warm
-          // the cache for its combo before bailing.
-          setCachedLayout(inputs, result);
-          if (!isMounted) return;
-          // Transition for the same reason as the cache-hit restore:
-          // the giant commit must not freeze whatever the user is
-          // doing when the layout finally lands.
-          // Same empty-canvas rule as the hit path: a graph landing on
-          // a bare canvas brings its own camera (RF's own fitView may
-          // be suppressed on instances mounted with a restore).
-          pendingCameraRef.current = modeChanged || canvasEmpty
-            ? { type: "fit", nodes: result.nodes, animate: modeChanged }
-            : null;
-          startTransition(() => {
-            setNodes(result.nodes as FlowProductionNode[]);
-            setEdges(result.edges);
-          });
-        } catch (error) {
-          // Cancellation = superseded by a newer run; anything else is
-          // unexpected (getLayoutedElements degrades internally).
-          if (!(error instanceof LayoutCancelledError)) {
-            console.error("Layout pipeline failed:", error);
-          }
-        } finally {
-          job.running = false;
-          window.clearTimeout(overlayTimer);
-          // Hide via transition: on the success path this batches with
-          // the graph commit above (overlay lifts exactly when the new
-          // graph lands, not before its commit freeze); on error/cancel
-          // paths there's no heavy render pending and it hides promptly.
-          if (isMounted) {
-            startTransition(() => setShowLayoutOverlay(false));
-          }
-          const next = job.pending;
-          job.pending = null;
-          if (next) next();
+    // MISS → compute on the interactive lane. Single-flight scheduling
+    // (latest-wins coalescing + stale-job termination) is owned by
+    // `useCoalescedInteractiveJob`; this run owns everything per-run.
+    scheduleLayoutJob(async () => {
+      try {
+        // Yield one macrotask before the synchronous mapper: it can
+        // block the main thread a few hundred ms on big plans, and
+        // without the yield the toggle's own re-render (and, past the
+        // debounce, the overlay) wouldn't paint until the first
+        // genuine await.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (!isMounted) return;
+        const result = await computeFlowLayout(inputs, "interactive");
+        // Even a superseded result is internally consistent — warm
+        // the cache for its combo before bailing.
+        setCachedLayout(inputs, result);
+        if (!isMounted) return;
+        // Transition for the same reason as the cache-hit restore:
+        // the giant commit must not freeze whatever the user is
+        // doing when the layout finally lands.
+        const resultNodes = result.nodes as FlowProductionNode[];
+        pendingComboRef.current = { inputs, nodes: resultNodes };
+        pendingCameraRef.current = decideCameraAction({
+          nodes: result.nodes,
+          modeChanged,
+          canvasEmpty,
+        });
+        startTransition(() => {
+          setNodes(resultNodes);
+          setEdges(result.edges);
+        });
+      } catch (error) {
+        // Cancellation = superseded by a newer run; anything else is
+        // unexpected (getLayoutedElements degrades internally).
+        if (!(error instanceof LayoutCancelledError)) {
+          console.error("Layout pipeline failed:", error);
         }
-      })();
-    };
-
-    if (job.running) {
-      job.pending = start;
-      if (Date.now() - job.startedAt > STALE_LAYOUT_TERMINATE_MS) {
-        cancelLayoutLane("interactive");
+      } finally {
+        window.clearTimeout(overlayTimer);
+        // Hide via transition: on the success path this batches with
+        // the graph commit above (overlay lifts exactly when the new
+        // graph lands, not before its commit freeze); on error/cancel
+        // paths there's no heavy render pending and it hides promptly.
+        if (isMounted) {
+          startTransition(() => setShowLayoutOverlay(false));
+        }
       }
-    } else {
-      start();
-    }
+    });
 
     return cleanup;
-  }, [plan, items, recipes, facilities, visualizationMode, targetRates, twoEndAlignment, ceilMode, binFusion, setNodes, setEdges, snapshotCurrentView]);
+  }, [plan, items, recipes, facilities, visualizationMode, targetRates, twoEndAlignment, ceilMode, binFusion, setNodes, setEdges, snapshotCurrentView, scheduleLayoutJob]);
 
   const nodeTypes: NodeTypes = useMemo(
     () => ({
@@ -948,11 +924,11 @@ export default function ProductionDependencyTree({
           onSelectionChange={onSelectionChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          // Mount restores own the camera (see mountRestoreRef):
+          // Mount restores own the camera (see mountRestore):
           // initialize AT the snapshotted viewport and suppress RF's
           // deferred initial fit whenever any entry restores.
-          defaultViewport={mountRestoreRef.current?.viewport}
-          fitView={!mountRestoreRef.current}
+          defaultViewport={mountRestore?.viewport}
+          fitView={!mountRestore}
           fitViewOptions={{
             padding: 0.2,
             minZoom: 0.1,
