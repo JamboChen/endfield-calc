@@ -65,6 +65,7 @@ import {
   sanitizePersistedShape,
   type PersistedShape,
 } from "@/hooks/useDomainSettings";
+import { decodeItemRef, encodeItemRef } from "@/lib/item-code";
 
 /** The hash key under which the settings blob rides. */
 const SHARE_HASH_KEY = "s";
@@ -123,7 +124,11 @@ const FIELD_ENCODERS: Record<DeltaKey, (c: PersistedShape) => string> = {
   rawLimits: (c) =>
     "R" +
     (c.rawLimits?.overrides ?? [])
-      .flatMap((o) => [o.itemId, stripDomain(o.domainId), String(o.value)])
+      .flatMap((o) => [
+        encodeItemRef(o.itemId),
+        stripDomain(o.domainId),
+        String(o.value),
+      ])
       .join("~"),
   structures: (c) =>
     "S" +
@@ -180,7 +185,7 @@ const FIELD_DECODERS: Record<
     const overrides: unknown[] = [];
     for (let i = 0; i + 3 <= t.length; i += 3) {
       overrides.push({
-        itemId: t[i],
+        itemId: decodeItemRef(t[i]) ?? t[i],
         domainId: withDomain(t[i + 1]),
         value: Number(t[i + 2]),
       });

@@ -9,6 +9,7 @@ import {
   encodeSettingsSnapshot,
   withShareBlob,
 } from "@/lib/plan-share-codec";
+import { decodeItemRef, encodeItemRef } from "@/lib/item-code";
 import { useTargetOptimizer } from "@/hooks/useTargetOptimizer";
 import { items, recipes, facilities, powerFuels, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -158,7 +159,6 @@ function parseHash(): ParsedHashState {
     if (!hash) return defaultState;
 
     const params = new URLSearchParams(hash);
-    const knownItemIds = new Set(items.map((item) => item.id));
     const knownRecipeIds = new Set(recipes.map((recipe) => recipe.id));
 
     // Parse targets: t=item_steel:6,item_glass:3
@@ -173,11 +173,11 @@ function parseHash(): ParsedHashState {
       for (const part of targetsRaw.split(",")) {
         const colonIdx = part.lastIndexOf(":");
         if (colonIdx === -1) continue;
-        const itemId = part.slice(0, colonIdx) as ItemId;
+        const itemId = decodeItemRef(part.slice(0, colonIdx));
         const rateStr = part.slice(colonIdx + 1);
         const locked = rateStr.endsWith("l");
         const rate = parseFloat(rateStr);
-        if (knownItemIds.has(itemId) && isFinite(rate) && rate >= 0) {
+        if (itemId && isFinite(rate) && rate >= 0) {
           parsedTargets.push(
             locked ? { itemId, rate, locked: true } : { itemId, rate },
           );
@@ -192,9 +192,9 @@ function parseHash(): ParsedHashState {
       for (const part of recipeRaw.split(",")) {
         const colonIdx = part.indexOf(":");
         if (colonIdx === -1) continue;
-        const itemId = part.slice(0, colonIdx) as ItemId;
+        const itemId = decodeItemRef(part.slice(0, colonIdx));
         const recipeId = part.slice(colonIdx + 1) as RecipeId;
-        if (knownItemIds.has(itemId) && knownRecipeIds.has(recipeId)) {
+        if (itemId && knownRecipeIds.has(recipeId)) {
           parsedRecipeOverrides.set(itemId, recipeId);
         }
       }
@@ -205,8 +205,8 @@ function parseHash(): ParsedHashState {
     const parsedManualRawMaterials = new Set<ItemId>();
     if (manualRaw) {
       for (const rawId of manualRaw.split(",")) {
-        const itemId = rawId as ItemId;
-        if (knownItemIds.has(itemId)) {
+        const itemId = decodeItemRef(rawId);
+        if (itemId) {
           parsedManualRawMaterials.add(itemId);
         }
       }
@@ -260,7 +260,9 @@ function serializeHash(
     params.set(
       "t",
       targets
-        .map((t) => `${t.itemId}:${t.rate}${t.locked ? "l" : ""}`)
+        .map(
+          (t) => `${encodeItemRef(t.itemId)}:${t.rate}${t.locked ? "l" : ""}`,
+        )
         .join(","),
     );
   }
@@ -269,13 +271,13 @@ function serializeHash(
     params.set(
       "r",
       Array.from(recipeOverrides.entries())
-        .map(([itemId, recipeId]) => `${itemId}:${recipeId}`)
+        .map(([itemId, recipeId]) => `${encodeItemRef(itemId)}:${recipeId}`)
         .join(","),
     );
   }
 
   if (manualRawMaterials.size > 0) {
-    params.set("m", Array.from(manualRawMaterials).join(","));
+    params.set("m", Array.from(manualRawMaterials, encodeItemRef).join(","));
   }
 
   if (ceilMode) {
