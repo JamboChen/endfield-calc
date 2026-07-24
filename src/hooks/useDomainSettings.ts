@@ -160,6 +160,7 @@ import {
   structuresDisabledFromEnabled,
   type SharedSettingsDiff,
 } from "@/lib/settings-helpers";
+import { markOnboardingSeen } from "@/lib/onboarding-storage";
 import { namespaceStorageKey } from "@/lib/storage-namespace";
 import type {
   AicGroupId,
@@ -927,7 +928,8 @@ export interface DomainSettingsValue {
 
   /**
    * Adopt the shared plan's settings as the viewer's own (writes
-   * localStorage, leaves shared-view). Destructive — confirm first.
+   * localStorage, leaves shared-view, and marks first-visit onboarding
+   * as seen so it can't fire over the import). Destructive — confirm first.
    */
   importSharedPlan: () => void;
 
@@ -1207,7 +1209,15 @@ export function useDomainSettings(
   // read-only so the persist effect writes the current (snapshot) state
   // to localStorage. Destructive to prior settings — the banner
   // confirms before calling.
+  //
+  // Also mark onboarding as seen: adopting a shared plan's settings is a
+  // deliberate configuration choice, so a never-onboarded viewer must
+  // NOT get the first-visit dialog afterward — it would override the
+  // just-imported settings with the all-checked default. Set the flag
+  // before flipping `readOnly` so the dialog (mounted once shared-view
+  // ends) reads it as already-seen and stays closed.
   const importSharedPlan = useCallback(() => {
+    markOnboardingSeen();
     setReadOnly(false);
   }, []);
 

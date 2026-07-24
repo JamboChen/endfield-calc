@@ -83,12 +83,10 @@ import {
 } from "@/components/ui/select";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { pickLatestActive } from "@/hooks/useDomainSettings";
-import { namespaceStorageKey } from "@/lib/storage-namespace";
+import { hasSeenOnboarding, markOnboardingSeen } from "@/lib/onboarding-storage";
 import { cn } from "@/lib/utils";
 import { parseDomainId } from "@/types/domain";
 import type { Domain, DomainId } from "@/types/domain";
-
-const STORAGE_KEY = namespaceStorageKey("endfield-calc:onboarding-v1");
 
 export function AicOnboardingDialog() {
   const { t } = useTranslation(["onboarding", "domain"]);
@@ -147,17 +145,12 @@ export function AicOnboardingDialog() {
   // pattern.
   const isTrivialRegionPick = pickerOptions.length <= 1;
 
-  // Trigger gate: read localStorage post-mount. Hidden on SSR.
+  // Trigger gate: read the seen-flag post-mount. Hidden on SSR and when
+  // localStorage is unavailable (`hasSeenOnboarding` returns false there,
+  // so the dialog shows and the user gets the all-checked default by not
+  // interacting).
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      if (!window.localStorage.getItem(STORAGE_KEY)) {
-        setOpen(true);
-      }
-    } catch {
-      // localStorage disabled/full — silently skip the dialog. The
-      // user gets the all-checked default by virtue of not interacting.
-    }
+    if (!hasSeenOnboarding()) setOpen(true);
   }, []);
 
   const handleToggle = useCallback((id: DomainId) => {
@@ -170,12 +163,7 @@ export function AicOnboardingDialog() {
 
   const handleConfirm = useCallback(() => {
     applyOnboardingChoices(choices, stagedCurrent);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, "1");
-    } catch {
-      // Best-effort: if storage is unavailable, the dialog re-shows on
-      // next visit. Not catastrophic.
-    }
+    markOnboardingSeen();
     setOpen(false);
   }, [applyOnboardingChoices, choices, stagedCurrent]);
 
