@@ -19,19 +19,32 @@
  * # Staying small
  *
  * The blob is a **per-top-level-field delta from the first-run default
- * shape** (`DEFAULT_PERSISTED_SHAPE`), then lz-string compressed. A
- * default user's delta is `{}` → a handful of characters; the blob only
- * grows for fields the sharer actually customized. Both sides compute
- * the same default baseline (same app/data version), so the delta
- * round-trips exactly.
+ * shape** (`DEFAULT_PERSISTED_SHAPE`): only fields the sharer actually
+ * customized are emitted, so a default user's delta is empty. Each
+ * present field is serialized to a short, chat-safe string (NOT JSON):
+ * fields are delimited by their uppercase letter (all ids/values are
+ * lowercase `[a-z0-9_.]`, so no separator is needed between them) and
+ * `~` separates everything inside a field. Only the universal `domain_`
+ * / `tech_` prefixes are stripped; item/facility/structure ids stay
+ * full. The whole thing is prefixed `0` (raw) or `1` (lz-compressed),
+ * whichever is shorter — lz only wins for large deltas (many
+ * unresearched techs), where a plain JSON payload used to LOSE to
+ * lz-string's own base64 overhead.
+ *
+ * Both sides compute the same default baseline + strip/format rules
+ * (same app/data version), so the delta round-trips exactly; decoding
+ * always ends at `sanitizePersistedShape`, so a cross-version blob
+ * degrades gracefully (unknown ids dropped, unknown field letters
+ * skipped).
  *
  * # URL transport
  *
- * `compressToEncodedURIComponent` output is URI-safe but can contain
- * `+`, which `URLSearchParams` would mangle (→ space). So the blob is
- * appended to / read from the hash manually (`withShareBlob` /
- * `readShareBlobFromHash`), NOT via `URLSearchParams`. `+` is a valid
- * unencoded fragment character (RFC 3986), so it survives copy-paste.
+ * The blob is appended to / read from the hash manually (`withShareBlob`
+ * / `readShareBlobFromHash`), NOT via `URLSearchParams` — the `0`-form
+ * uses `~` (fine) and the `1`-form's `compressToEncodedURIComponent`
+ * output can contain `+`, which `URLSearchParams` would mangle (→
+ * space). Both alphabets are valid unencoded in a fragment (RFC 3986),
+ * so they survive copy-paste.
  *
  * # Robustness
  *
@@ -70,27 +83,171 @@ const DELTA_KEYS = [
   "metastorage",
 ] as const satisfies readonly (keyof PersistedShape)[];
 
+// ── Compact serialization ──────────────────────────────────────────────────
+
+type DeltaKey = (typeof DELTA_KEYS)[number];
+
+const DOMAIN_PREFIX = "domain_";
+const TECH_PREFIX = "tech_";
+/** Metastorage route-mode marker for "disabled" (guaranteed not a domain
+ *  suffix — see the `plan-share-codec.test.ts` marker invariant). */
+const DISABLED_MARK = "x";
+
+const stripDomain = (id: string): string => id.slice(DOMAIN_PREFIX.length);
+const stripTech = (id: string): string => id.slice(TECH_PREFIX.length);
+const withDomain = (s: string): string => DOMAIN_PREFIX + s;
+const withTech = (s: string): string => TECH_PREFIX + s;
+
+/**
+ * Per-field encoders — a TOTAL map over `DeltaKey`, so adding a new
+ * settings category to `DELTA_KEYS` fails the build until it has an
+ * encoder here (the maintenance guard). Each returns one `<Letter>…`
+ * field string.
+ */
+const FIELD_ENCODERS: Record<DeltaKey, (c: PersistedShape) => string> = {
+  domains: (c) =>
+    "D" +
+    [
+      c.domains.current ? stripDomain(c.domains.current) : "",
+      ...c.domains.inactive.map(stripDomain),
+    ].join("~"),
+  aic: (c) => {
+    const techs = c.aic.unresearched.map(stripTech);
+    const caps = c.aic.capOverrides.flatMap((o) => [
+      o.facilityId,
+      stripDomain(o.domainId),
+      String(o.value),
+    ]);
+    return "A" + [String(techs.length), ...techs, ...caps].join("~");
+  },
+  rawLimits: (c) =>
+    "R" +
+    (c.rawLimits?.overrides ?? [])
+      .flatMap((o) => [o.itemId, stripDomain(o.domainId), String(o.value)])
+      .join("~"),
+  structures: (c) =>
+    "S" +
+    (c.structures?.disabled ?? [])
+      .flatMap((d) => [d.structureId, stripDomain(d.domainId)])
+      .join("~"),
+  metastorage: (c) =>
+    "M" +
+    (c.metastorage?.routes ?? [])
+      .flatMap((r) => [
+        stripDomain(r.source),
+        r.mode === "disabled" ? DISABLED_MARK : stripDomain(r.mode),
+      ])
+      .join("~"),
+};
+
+/** Split a field payload into `~`-tokens (empty payload → no tokens). */
+const splitField = (payload: string): string[] =>
+  payload === "" ? [] : payload.split("~");
+
+/**
+ * Per-field decoders keyed by field letter; each writes one delta field
+ * into `out` (a loose, pre-sanitize shape). Unknown letters are skipped
+ * by the caller for forward-compatibility.
+ */
+const FIELD_DECODERS: Record<
+  string,
+  (payload: string, out: Record<string, unknown>) => void
+> = {
+  D: (p, out) => {
+    const [cur, ...inactive] = splitField(p);
+    out.domains = {
+      current: cur ? withDomain(cur) : undefined,
+      inactive: inactive.map(withDomain),
+    };
+  },
+  A: (p, out) => {
+    const t = splitField(p);
+    const n = Number(t[0] ?? "0");
+    const unresearched = t.slice(1, 1 + n).map(withTech);
+    const rest = t.slice(1 + n);
+    const capOverrides: unknown[] = [];
+    for (let i = 0; i + 3 <= rest.length; i += 3) {
+      capOverrides.push({
+        facilityId: rest[i],
+        domainId: withDomain(rest[i + 1]),
+        value: Number(rest[i + 2]),
+      });
+    }
+    out.aic = { unresearched, capOverrides };
+  },
+  R: (p, out) => {
+    const t = splitField(p);
+    const overrides: unknown[] = [];
+    for (let i = 0; i + 3 <= t.length; i += 3) {
+      overrides.push({
+        itemId: t[i],
+        domainId: withDomain(t[i + 1]),
+        value: Number(t[i + 2]),
+      });
+    }
+    out.rawLimits = { overrides };
+  },
+  S: (p, out) => {
+    const t = splitField(p);
+    const disabled: unknown[] = [];
+    for (let i = 0; i + 2 <= t.length; i += 2) {
+      disabled.push({ structureId: t[i], domainId: withDomain(t[i + 1]) });
+    }
+    out.structures = { disabled };
+  },
+  M: (p, out) => {
+    const t = splitField(p);
+    const routes: unknown[] = [];
+    for (let i = 0; i + 2 <= t.length; i += 2) {
+      routes.push({
+        source: withDomain(t[i]),
+        mode: t[i + 1] === DISABLED_MARK ? "disabled" : withDomain(t[i + 1]),
+      });
+    }
+    out.metastorage = { routes };
+  },
+};
+
+/** Serialize the present (differ-from-default) fields to the raw compact form. */
+function encodeCompact(canonical: PersistedShape): string {
+  let out = "";
+  for (const key of DELTA_KEYS) {
+    if (
+      JSON.stringify(canonical[key]) !==
+      JSON.stringify(DEFAULT_PERSISTED_SHAPE[key])
+    ) {
+      out += FIELD_ENCODERS[key](canonical);
+    }
+  }
+  return out;
+}
+
+/** Parse the raw compact form back into a partial (pre-sanitize) shape. */
+function decodeCompact(raw: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const field of raw.match(/[A-Z][^A-Z]*/g) ?? []) {
+    FIELD_DECODERS[field[0]]?.(field.slice(1), out); // unknown letter → skip
+  }
+  return out;
+}
+
 /**
  * Encode a settings snapshot into the compact `s=` blob value. Input is
  * sanitized + canonicalized first, so any channel (live settings, a
  * hand-edited saved file) yields the same output for the same effective
- * settings. Fields equal to the first-run default are omitted.
+ * settings. Fields equal to the first-run default are omitted; the whole
+ * thing is prefixed `0` (raw) or `1` (lz), whichever is shorter.
  */
 export function encodeSettingsSnapshot(shape: PersistedShape): string {
   try {
-    const canonical = canonicalizeShape(
-      sanitizePersistedShape(shape) ?? DEFAULT_PERSISTED_SHAPE,
+    const compact = encodeCompact(
+      canonicalizeShape(
+        sanitizePersistedShape(shape) ?? DEFAULT_PERSISTED_SHAPE,
+      ),
     );
-    const delta: Record<string, unknown> = {};
-    for (const key of DELTA_KEYS) {
-      if (
-        JSON.stringify(canonical[key]) !==
-        JSON.stringify(DEFAULT_PERSISTED_SHAPE[key])
-      ) {
-        delta[key] = canonical[key];
-      }
-    }
-    return compressToEncodedURIComponent(JSON.stringify(delta));
+    const raw = "0" + compact;
+    const packed = "1" + compressToEncodedURIComponent(compact);
+    return raw.length <= packed.length ? raw : packed;
   } catch {
     // Runs inside a render-time `useMemo` (the URL `s=` sync). Never
     // break the render over a settings-encode failure — degrade to a
@@ -101,22 +258,28 @@ export function encodeSettingsSnapshot(shape: PersistedShape): string {
 }
 
 /**
- * Decode an `s=` blob back into a clean `PersistedShape`. Reconstructs
- * the full shape by overlaying the decoded delta on the default
+ * Decode an `s=` blob back into a clean `PersistedShape`. Reads the
+ * format flag, reconstructs the delta, overlays it on the default
  * baseline, then sanitizes. Returns `null` for empty / corrupt /
- * cross-version-incompatible input (caller falls back to own settings).
+ * unrecognized-format input (caller falls back to own settings).
  */
 export function decodeSettingsSnapshot(blob: string): PersistedShape | null {
   try {
-    const json = decompressFromEncodedURIComponent(blob);
-    // lz-string returns "" for empty input and null for malformed input
-    // (its typings understate the null case).
-    if (!json) return null;
-    const delta = JSON.parse(json) as unknown;
-    if (!delta || typeof delta !== "object") return null;
+    if (!blob) return null;
+    const rest = blob.slice(1);
+    let compact: string | null;
+    if (blob[0] === "1") {
+      // lz-string's typings understate the null-on-malformed case.
+      compact = decompressFromEncodedURIComponent(rest);
+    } else if (blob[0] === "0") {
+      compact = rest;
+    } else {
+      return null; // unrecognized format flag (e.g. a pre-format blob)
+    }
+    if (compact == null) return null;
     return sanitizePersistedShape({
       ...DEFAULT_PERSISTED_SHAPE,
-      ...(delta as Record<string, unknown>),
+      ...decodeCompact(compact),
     });
   } catch {
     return null;

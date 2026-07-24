@@ -299,7 +299,12 @@ function serializeHash(
     params.set("mpv", String(machinesPerVaporizer));
   }
 
-  const base = params.toString();
+  // `:` and `,` (the only chars URLSearchParams encodes in t/r/m — item/
+  // recipe ids are `[a-z0-9_]`, rates `[0-9.]`) are valid unencoded in a
+  // fragment, so raw-ify them for shorter, readable plan params.
+  // `parseHash` reads via `URLSearchParams.get`, which accepts both the
+  // raw and legacy `%3A`/`%2C` forms.
+  const base = params.toString().replace(/%3A/g, ":").replace(/%2C/g, ",");
   // The settings blob rides along only when there's an actual plan to
   // share; an empty app keeps a clean, hash-less URL. See
   // `plan-share-codec.ts`.
