@@ -82,6 +82,8 @@
     "importConfirm": "覆蓋我的設定",
     "cancel": "取消",
     "imported": "已套用分享的設定。",
-    "exited": "已還原為你自己的設定。"
+    "exited": "已還原為你自己的設定。",
+    "linkNoPlan": "該連結未包含方案，因此未載入任何內容。",
+    "linkNoPlanKept": "該連結未包含方案，已保留目前方案。"
   }
 }

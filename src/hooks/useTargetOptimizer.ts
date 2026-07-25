@@ -198,6 +198,19 @@ export function useTargetOptimizer(params: {
     cancelActiveSearch();
   }, [calcProblem, cancelActiveSearch]);
 
+  // Unmount: stop the worker-side loop. The staleness effects above only
+  // fire while mounted, so without this a search in flight when the tree
+  // is torn down (loading a pasted plan link remounts it — see
+  // `useProductionPlan`'s hashchange handler) keeps running to its time
+  // limit with nobody left to consume the result. Cancels only the
+  // worker loop, not the token/marks, which die with the hook.
+  useEffect(() => {
+    return () => {
+      activeSearchRef.current?.cancel();
+      activeSearchRef.current = null;
+    };
+  }, []);
+
   const handleMaximizeTarget = useCallback(
     async (index: number) => {
       const captured = targetsRef.current;

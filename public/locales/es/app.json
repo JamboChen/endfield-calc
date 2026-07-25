@@ -82,6 +82,8 @@
     "importConfirm": "Sobrescribir mi configuración",
     "cancel": "Cancelar",
     "imported": "Se aplicó la configuración compartida.",
-    "exited": "Se restauró tu propia configuración."
+    "exited": "Se restauró tu propia configuración.",
+    "linkNoPlan": "Ese enlace no contenía ningún plan, así que no se cargó nada.",
+    "linkNoPlanKept": "Ese enlace no contenía ningún plan. Se mantuvo tu plan actual."
   }
 }

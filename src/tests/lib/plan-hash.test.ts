@@ -13,7 +13,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { serializeHash } from "@/hooks/useProductionPlan";
+import { parseHash, serializeHash } from "@/hooks/useProductionPlan";
 import { decodeHash, encodeHashToken } from "@/lib/plan-share-codec";
 import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
 import { encodeItemRef } from "@/lib/url-codes";
@@ -119,5 +119,61 @@ describe("serializeHash — a link needs a target", () => {
 
   test("an empty hash tokenizes to nothing (no '#' in the URL)", () => {
     expect(encodeHashToken(serialize())).toBe("");
+  });
+});
+
+describe("parseHash — the pasted-link guard", () => {
+  // The hashchange handler loads a pasted link only when this yields at
+  // least one target; anything else leaves the open plan alone and warns.
+  const targetCount = (hash: string) => parseHash(hash).targets.length;
+
+  test("accepts a real plan link, with or without the '#'", () => {
+    const token = encodeHashToken(
+      serialize({ targets: [{ itemId: someItem, rate: 6 }] }),
+    );
+    expect(targetCount(`#${token}`)).toBe(1);
+    expect(targetCount(token)).toBe(1);
+  });
+
+  test("accepts a legacy readable hash", () => {
+    expect(targetCount(`#t=${encodeItemRef(someItem)}:6`)).toBe(1);
+  });
+
+  test("rejects an empty hash", () => {
+    expect(targetCount("")).toBe(0);
+    expect(targetCount("#")).toBe(0);
+  });
+
+  test("rejects a hash with options but no plan", () => {
+    expect(targetCount("#c=1&bf=0&ps=1")).toBe(0);
+  });
+
+  test("rejects a settings-only hash", () => {
+    expect(targetCount("#s=0D2")).toBe(0);
+  });
+
+  test("rejects a corrupt or truncated token", () => {
+    const token = encodeHashToken(
+      serialize({ targets: [{ itemId: someItem, rate: 6 }] }),
+    );
+    expect(targetCount("#!!!not-base64!!!")).toBe(0);
+    // Truncation must never resolve to a bogus plan or throw.
+    for (let i = 1; i < token.length; i++) {
+      expect(() => targetCount(`#${token.slice(0, i)}`)).not.toThrow();
+    }
+  });
+
+  test("rejects a link whose targets don't resolve to real items", () => {
+    // Guards the case a `t=` presence check would wave through: the
+    // param is there, but nothing in it decodes, so loading it would
+    // blank the user's plan for nothing.
+    expect(targetCount("#t=zzzzzz:6")).toBe(0);
+    expect(targetCount("#t=not_an_item:6")).toBe(0);
+  });
+
+  test("rejects malformed target rates", () => {
+    expect(targetCount(`#t=${encodeItemRef(someItem)}`)).toBe(0);
+    expect(targetCount(`#t=${encodeItemRef(someItem)}:abc`)).toBe(0);
+    expect(targetCount(`#t=${encodeItemRef(someItem)}:-5`)).toBe(0);
   });
 });

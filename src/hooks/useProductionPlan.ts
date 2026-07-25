@@ -144,7 +144,17 @@ interface ParsedHashState {
 }
 
 /** Sanitize an `mpv` value: integer in [1, 16], else the default. */
-function parseHash(): ParsedHashState {
+/**
+ * Read a plan state out of a location hash. Defaults to the live URL;
+ * the hashchange handler passes an explicit hash to decide whether an
+ * externally-pasted link actually carries a plan. Exported for tests.
+ *
+ * Never throws — anything unparseable degrades to the target-less
+ * default state.
+ */
+export function parseHash(
+  rawHash: string = typeof window === "undefined" ? "" : window.location.hash,
+): ParsedHashState {
   // Stored option preferences apply ONLY on a hash-less visit ("this is
   // my app"). A hash means "render exactly this plan state", and since
   // `serializeHash` omits default-valued options, an absent param there
@@ -169,7 +179,7 @@ function parseHash(): ParsedHashState {
   try {
     // Unwraps the opaque token (or passes a legacy readable hash
     // through) — see `decodeHash`.
-    const hash = decodeHash(window.location.hash);
+    const hash = decodeHash(rawHash);
     if (!hash) return defaultState;
 
     const params = new URLSearchParams(hash);
@@ -464,6 +474,11 @@ function formatPlanWarning(
  * `calculateProductionPlan` (which auto-selects each route's single
  * transferred item) and consulted by the auto-prune effect so an
  * import-only target survives while its route is live.
+ *
+ * `onExternalPlan` fires when a plan-bearing link is pasted into the
+ * address bar of the already-open app. App.tsx answers by remounting the
+ * settings provider and this hook, so the pasted link goes through the
+ * same mount-time seeding as a fresh visit.
  */
 export function useProductionPlan(
   availableRecipes: readonly Recipe[],
@@ -472,6 +487,7 @@ export function useProductionPlan(
   facilityCaps?: ReadonlyMap<FacilityId, number>,
   rawMaterialCaps?: ReadonlyMap<ItemId, number>,
   metastorageRoutes?: readonly MetastorageRouteConfig[],
+  onExternalPlan?: () => void,
 ) {
   const { t } = useTranslation("app");
 
@@ -531,6 +547,13 @@ export function useProductionPlan(
     [settingsShape],
   );
 
+  /** The last URL this app wrote, so a rejected paste can be undone. */
+  const ownUrlRef = useRef(
+    typeof window === "undefined" ? "" : window.location.href,
+  );
+  /** Whether there's a plan to keep, for the rejected-paste message. */
+  const hasPlanRef = useRef(false);
+
   useEffect(() => {
     const hash = serializeHash(
       targets,
@@ -546,8 +569,47 @@ export function useProductionPlan(
     const newUrl = token
       ? `${window.location.pathname}${window.location.search}#${token}`
       : window.location.pathname + window.location.search;
+    ownUrlRef.current = newUrl;
+    hasPlanRef.current = targets.length > 0;
     history.replaceState(null, "", newUrl);
   }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer, shareBlob]);
+
+  // Pasting a shared link into the address bar of an already-open app
+  // only changes the fragment, which is not a navigation — without this
+  // the plan would sit there unread.
+  //
+  // `hashchange` fires ONLY for user-driven changes here: the app writes
+  // its own hash via `history.replaceState`, which by spec never emits
+  // the event, and nothing assigns `location.hash` or renders in-page
+  // anchors. So there is no self-trigger and no loop.
+  //
+  // A link that carries a plan remounts the tree (`onExternalPlan`),
+  // which re-runs the same mount-time seeding a fresh visit would —
+  // including the provider's read-only shared-view resolution. Anything
+  // else is rejected: the current plan is already untouched, so all
+  // that's left is to put the address bar back and say what happened.
+  useEffect(() => {
+    const onHashChange = () => {
+      if (parseHash(window.location.hash).targets.length > 0) {
+        onExternalPlan?.();
+        return;
+      }
+      history.replaceState(null, "", ownUrlRef.current);
+      toast.warning(
+        hasPlanRef.current
+          ? t("sharedPlan.linkNoPlanKept", {
+              defaultValue:
+                "That link didn't contain a plan. Your current plan was kept.",
+            })
+          : t("sharedPlan.linkNoPlan", {
+              defaultValue:
+                "That link didn't contain a plan, so nothing was loaded.",
+            }),
+      );
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [onExternalPlan, t]);
 
   // The calculation engine (HiGHS WASM inside the calc worker, with a
   // main-thread fallback — see `calc-client.ts`) initialises async.

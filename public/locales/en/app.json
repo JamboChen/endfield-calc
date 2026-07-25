@@ -82,6 +82,8 @@
     "importConfirm": "Overwrite my settings",
     "cancel": "Cancel",
     "imported": "Shared settings applied to your configuration.",
-    "exited": "Switched back to your own settings."
+    "exited": "Switched back to your own settings.",
+    "linkNoPlan": "That link didn't contain a plan, so nothing was loaded.",
+    "linkNoPlanKept": "That link didn't contain a plan. Your current plan was kept."
   }
 }

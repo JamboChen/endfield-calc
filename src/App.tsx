@@ -88,7 +88,7 @@ function ThemedToaster() {
  * Separated from `App` so that `useDomainSettingsContext()` can read
  * the provider's value (the hook errors when called above its provider).
  */
-function AppContent() {
+function AppContent({ onExternalPlan }: { onExternalPlan: () => void }) {
   const { i18n } = useTranslation("app");
   const settings = useDomainSettingsContext();
 
@@ -523,6 +523,7 @@ function AppContent() {
     facilityCaps,
     rawMaterialCaps,
     metastorageRoutes,
+    onExternalPlan,
   );
 
   // Content-keyed (same pattern as `metastorageRouteSig` above): lock
@@ -786,11 +787,22 @@ function AppContent() {
 }
 
 export default function App() {
+  // Bumped when a plan-bearing link is pasted into the address bar of
+  // the already-open app. It keys the settings provider, so both it and
+  // `AppContent` remount and re-run their mount-time seeding against the
+  // new hash — the provider's read-only shared-view resolution is a
+  // render-phase lazy initializer, so it cannot be re-triggered any
+  // other way. Everything expensive (the calc worker + HiGHS WASM, the
+  // layout engine) lives at module scope and survives untouched, which
+  // is why this beats a full page reload.
+  const [planEpoch, setPlanEpoch] = useState(0);
+  const handleExternalPlan = useCallback(() => setPlanEpoch((n) => n + 1), []);
+
   return (
     <ThemeProvider defaultTheme="light" storageKey={namespaceStorageKey("vite-ui-theme")}>
-      <DomainSettingsProvider>
+      <DomainSettingsProvider key={planEpoch}>
         <TooltipProvider>
-          <AppContent />
+          <AppContent onExternalPlan={handleExternalPlan} />
           <ThemedToaster />
         </TooltipProvider>
       </DomainSettingsProvider>

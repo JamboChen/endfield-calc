@@ -82,6 +82,8 @@
     "importConfirm": "覆盖我的设置",
     "cancel": "取消",
     "imported": "已应用分享的设置。",
-    "exited": "已恢复为你自己的设置。"
+    "exited": "已恢复为你自己的设置。",
+    "linkNoPlan": "该链接未包含方案，因此未加载任何内容。",
+    "linkNoPlanKept": "该链接未包含方案，已保留当前方案。"
   }
 }
