@@ -42,6 +42,7 @@ import {
   regionStructures,
 } from "@/data";
 import { aicNodes, domains } from "@/data/aic-plans";
+import { encodeFacilityRef } from "@/lib/url-codes";
 import { DomainId } from "@/types/domain";
 import { FacilityId } from "@/types/constants";
 
@@ -364,6 +365,66 @@ describe("codec invariants (guards against data drift)", () => {
       expect(withShareBlob("t=s:14.4l,5h:24l&r=s:4r&m=3a&c=1", blob)).toMatch(
         ASCII,
       );
+    }
+  });
+});
+
+describe("hostile blob input (the URL is untrusted)", () => {
+  // `decodeSettingsSnapshot` → `sanitizePersistedShape` is the only gate
+  // between a pasted URL and the settings that drive the solver. Craft
+  // blobs by hand (not via the encoder) so invalid content actually
+  // reaches the decoder.
+  const decodeRaw = (compact: string) => decodeSettingsSnapshot("0" + compact);
+
+  test("an unknown tech code is dropped, not admitted", () => {
+    const shape = decodeRaw("A2~zzz~zzy");
+    expect(shape).not.toBeNull();
+    expect(shape!.aic.unresearched).toHaveLength(0);
+  });
+
+  test("a cap override for an unknown facility is dropped", () => {
+    const shape = decodeRaw("A0~not_a_facility~1~5");
+    expect(shape!.aic.capOverrides).toHaveLength(0);
+  });
+
+  test("a negative cap override is dropped, a valid one survives", () => {
+    // Same real facility + domain either way, so the sign is the only
+    // variable — proving the guard, not just that the blob is rejected.
+    const facility = encodeFacilityRef(FacilityId.PUMP_1);
+    const domain = DomainId.DOMAIN_1.slice("domain_".length);
+    expect(decodeRaw(`A0~${facility}~${domain}~7`)!.aic.capOverrides).toEqual([
+      { facilityId: FacilityId.PUMP_1, domainId: DomainId.DOMAIN_1, value: 7 },
+    ]);
+    expect(
+      decodeRaw(`A0~${facility}~${domain}~-5`)!.aic.capOverrides,
+    ).toHaveLength(0);
+  });
+
+  test("a raw limit outside the region's availability is dropped", () => {
+    // `0` is a valid item code but not a raw of this region.
+    expect(decodeRaw("R0~1~5")!.rawLimits?.overrides ?? []).toHaveLength(0);
+  });
+
+  test("a NaN value is dropped rather than poisoning the solver", () => {
+    expect(decodeRaw("R0~1~abc")!.rawLimits?.overrides ?? []).toHaveLength(0);
+  });
+
+  test("an unknown structure / metastorage source is dropped", () => {
+    expect(decodeRaw("Snope~1")!.structures?.disabled ?? []).toHaveLength(0);
+    expect(decodeRaw("Mnope~x")!.metastorage?.routes ?? []).toHaveLength(0);
+  });
+
+  test("a malformed tech count never throws and yields a clean shape", () => {
+    for (const compact of ["A", "A~", "Aabc~0~1", "A-5~0", "A999~0~1"]) {
+      expect(() => decodeRaw(compact)).not.toThrow();
+      expect(decodeRaw(compact)).not.toBeNull();
+    }
+  });
+
+  test("a truncated / garbage token yields no plan and no settings", () => {
+    for (const hash of ["#0!!!", "#1!!!", "#zzz", "#0", "#1"]) {
+      expect(() => decodeHash(hash)).not.toThrow();
+      expect(readShareBlobFromHash(decodeHash(hash))).toBeNull();
     }
   });
 });

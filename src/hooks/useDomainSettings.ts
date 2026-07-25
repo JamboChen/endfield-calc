@@ -134,6 +134,7 @@ import {
   facilityBaseCaps,
 } from "@/data/aic-plans";
 import {
+  facilities,
   metastorageSources,
   rawAvailabilityByDomain,
   regionStructures,
@@ -409,15 +410,25 @@ export function sanitizePersistedShape(parsed: unknown): PersistedShape | null {
       typeof id === "string" && knownTechIds.has(id),
     );
     const inactive = shape.domains.inactive.filter(isDomainId);
+    // Facility-cap overrides. Validated against the live facility
+    // registry like every other category: a cap for an unknown facility
+    // is unusable, and it would otherwise linger as a phantom entry that
+    // `diffSettings` reports as a permanently "changed" setting (which
+    // can force read-only shared-view on its own). Negative caps are
+    // dropped too — a cap is a physical building count, and only the
+    // URL/localStorage channels can produce one, since the setter can't.
+    const knownFacilityIds = new Set<string>(facilities.map((f) => f.id));
     const capOverrides = shape.aic.capOverrides.filter(
       (c): c is CapOverrideRecord =>
         c !== null &&
         typeof c === "object" &&
         typeof c.facilityId === "string" &&
+        knownFacilityIds.has(c.facilityId) &&
         typeof c.domainId === "string" &&
         isDomainId(c.domainId) &&
         typeof c.value === "number" &&
-        Number.isFinite(c.value),
+        Number.isFinite(c.value) &&
+        c.value >= 0,
     );
     // Validate `domains.current` against the post-filter active set
     // (not just known-domain membership). The invariant
@@ -1224,6 +1235,11 @@ export function useDomainSettings(
   // Discard the shared snapshot and restore the viewer's own settings
   // from localStorage. Re-seeds all seven atoms in one batch, then
   // leaves read-only; the plan re-solves against the viewer's own world.
+  //
+  // Deliberately does NOT `markOnboardingSeen`, unlike `importSharedPlan`:
+  // there is nothing to clobber here. A viewer who never onboarded and
+  // asks for their own settings has none, so letting the first-visit
+  // dialog appear is the correct prompt, not a bug to suppress.
   const exitSharedPlan = useCallback(() => {
     const own = composeStateFromShape(loadPersistedShape());
     setInactiveDomains(own.inactiveDomains);
