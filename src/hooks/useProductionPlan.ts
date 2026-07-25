@@ -4,7 +4,11 @@ import {
   isCalcEngineReady,
   isCalcSuperseded,
 } from "@/lib/calc-client";
-import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
+import {
+  DEFAULT_MACHINES_PER_VAPORIZER,
+  sanitizeMachinesPerVaporizer,
+} from "@/lib/sustain-constants";
+import { loadPlanOptions, savePlanOption } from "@/lib/plan-options-storage";
 import {
   decodeHash,
   encodeHashToken,
@@ -140,25 +144,26 @@ interface ParsedHashState {
 }
 
 /** Sanitize an `mpv` value: integer in [1, 16], else the default. */
-function sanitizeMachinesPerVaporizer(value: number): number {
-  if (!Number.isFinite(value)) return DEFAULT_MACHINES_PER_VAPORIZER;
-  const int = Math.round(value);
-  return int >= 1 && int <= 16 ? int : DEFAULT_MACHINES_PER_VAPORIZER;
-}
-
 function parseHash(): ParsedHashState {
+  // Stored option preferences apply ONLY on a hash-less visit ("this is
+  // my app"). A hash means "render exactly this plan state", and since
+  // `serializeHash` omits default-valued options, an absent param there
+  // means the sharer had the default — so the parsed branch below must
+  // never consult these. See `plan-options-storage.ts`.
+  const preferred = loadPlanOptions();
   const defaultState: ParsedHashState = {
     targets: [],
     recipeOverrides: new Map(),
     manualRawMaterials: new Set(),
-    ceilMode: false,
+    ceilMode: preferred.ceilMode ?? false,
     // binFusion defaults to ON. The hash key `bf=0` opts out;
     // omitting `bf` (or setting `bf=1`) keeps the default ON.
-    binFusion: true,
+    binFusion: preferred.binFusion ?? true,
     // powerSustain defaults to OFF. The hash key `ps=1` opts in.
-    powerSustain: false,
+    powerSustain: preferred.powerSustain ?? false,
     // Gas-env coverage ratio defaults to 4. The hash key `mpv=N` tunes.
-    machinesPerVaporizer: DEFAULT_MACHINES_PER_VAPORIZER,
+    machinesPerVaporizer:
+      preferred.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
   };
 
   try {
@@ -476,14 +481,37 @@ export function useProductionPlan(
   const [manualRawMaterials, setManualRawMaterials] = useState<Set<ItemId>>(
     initialState.manualRawMaterials,
   );
-  const [ceilMode, setCeilMode] = useState(initialState.ceilMode);
-  const [binFusion, setBinFusion] = useState(initialState.binFusion);
-  const [powerSustain, setPowerSustain] = useState(initialState.powerSustain);
+  // The four plan options double as persisted preferences. Each setter
+  // writes its OWN key, and only when actually called — never on mount —
+  // so opening someone else's link can't fold their options into the
+  // viewer's preferences. See `plan-options-storage.ts`.
+  const [ceilMode, setCeilModeState] = useState(initialState.ceilMode);
+  const setCeilMode = useCallback((value: boolean) => {
+    setCeilModeState(value);
+    savePlanOption("ceilMode", value);
+  }, []);
+
+  const [binFusion, setBinFusionState] = useState(initialState.binFusion);
+  const setBinFusion = useCallback((value: boolean) => {
+    setBinFusionState(value);
+    savePlanOption("binFusion", value);
+  }, []);
+
+  const [powerSustain, setPowerSustainState] = useState(
+    initialState.powerSustain,
+  );
+  const setPowerSustain = useCallback((value: boolean) => {
+    setPowerSustainState(value);
+    savePlanOption("powerSustain", value);
+  }, []);
+
   const [machinesPerVaporizer, setMachinesPerVaporizerState] = useState(
     initialState.machinesPerVaporizer,
   );
   const setMachinesPerVaporizer = useCallback((value: number) => {
-    setMachinesPerVaporizerState(sanitizeMachinesPerVaporizer(value));
+    const sanitized = sanitizeMachinesPerVaporizer(value);
+    setMachinesPerVaporizerState(sanitized);
+    savePlanOption("machinesPerVaporizer", sanitized);
   }, []);
 
   // The viewer's settings, compressed into the `s=` hash blob. Memoized
@@ -1429,7 +1457,13 @@ export function useProductionPlan(
     }
     fileInputRef.current.value = "";
     fileInputRef.current.click();
-  }, [resetEditContext, setMachinesPerVaporizer]);
+  }, [
+    resetEditContext,
+    setCeilMode,
+    setBinFusion,
+    setPowerSustain,
+    setMachinesPerVaporizer,
+  ]);
 
   return {
     targets,
