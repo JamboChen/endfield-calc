@@ -161,7 +161,7 @@ import {
   structuresDisabledFromEnabled,
   type SharedSettingsDiff,
 } from "@/lib/settings-helpers";
-import { markOnboardingSeen } from "@/lib/onboarding-storage";
+import { hasSeenOnboarding, markOnboardingSeen } from "@/lib/onboarding-storage";
 import { namespaceStorageKey } from "@/lib/storage-namespace";
 import type {
   AicGroupId,
@@ -883,6 +883,26 @@ export interface DomainSettingsValue {
   ) => void;
 
   /**
+   * True until first-visit onboarding has been answered. Drives the
+   * dialog's `open`, and gates anything that would apply settings
+   * destructively to a plan.
+   *
+   * The pre-onboarding defaults are NOT a neutral starting point: every
+   * non-pinned domain starts inactive (`defaultInactiveDomains`), which
+   * is stricter than the dialog's own all-checked default. Acting on
+   * them would delete parts of a plan the user is one click away from
+   * being able to build — see `computePlanPrune`.
+   */
+  readonly onboardingPending: boolean;
+
+  /**
+   * Mark first-visit onboarding as answered — persists the flag and
+   * clears `onboardingPending`. Call right after `applyOnboardingChoices`
+   * so the settings land before anything reacts to the flip.
+   */
+  completeOnboarding: () => void;
+
+  /**
    * The user's currently-selected factory region. Used by the
    * `Facility.domains` filter and per-region cap lookup. Invariant:
    * always a member of `activeDomains`.
@@ -1119,6 +1139,18 @@ export function useDomainSettings(
   // Cleared by `importSharedPlan` / `exitSharedPlan`.
   const [readOnly, setReadOnly] = useState<boolean>(() => !!sharedInit);
 
+  // First-visit onboarding gate. Held as state (not read from
+  // localStorage at each call site) so flipping it re-renders consumers —
+  // the auto-prune waits on it, and must run the moment it clears.
+  const [onboardingPending, setOnboardingPending] = useState<boolean>(
+    () => !hasSeenOnboarding(),
+  );
+
+  const completeOnboarding = useCallback(() => {
+    markOnboardingSeen();
+    setOnboardingPending(false);
+  }, []);
+
   const [inactiveDomains, setInactiveDomains] = useState<
     ReadonlySet<DomainId>
   >(initial.inactiveDomains);
@@ -1228,9 +1260,9 @@ export function useDomainSettings(
   // before flipping `readOnly` so the dialog (mounted once shared-view
   // ends) reads it as already-seen and stays closed.
   const importSharedPlan = useCallback(() => {
-    markOnboardingSeen();
+    completeOnboarding();
     setReadOnly(false);
-  }, []);
+  }, [completeOnboarding]);
 
   // Discard the shared snapshot and restore the viewer's own settings
   // from localStorage. Re-seeds all seven atoms in one batch, then
@@ -1682,6 +1714,8 @@ export function useDomainSettings(
     activeDomains,
     toggleDomain,
     applyOnboardingChoices,
+    onboardingPending,
+    completeOnboarding,
     currentDomain,
     setCurrentDomain,
     aic,

@@ -524,6 +524,7 @@ function AppContent({ onExternalPlan }: { onExternalPlan: () => void }) {
     rawMaterialCaps,
     metastorageRoutes,
     onExternalPlan,
+    settings.onboardingPending,
   );
 
   // Content-keyed (same pattern as `metastorageRouteSig` above): lock

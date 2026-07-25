@@ -9,6 +9,7 @@ import {
   sanitizeMachinesPerVaporizer,
 } from "@/lib/sustain-constants";
 import { loadPlanOptions, savePlanOption } from "@/lib/plan-options-storage";
+import { computePlanPrune } from "@/lib/plan-prune";
 import {
   decodeHash,
   encodeHashToken,
@@ -479,6 +480,12 @@ function formatPlanWarning(
  * address bar of the already-open app. App.tsx answers by remounting the
  * settings provider and this hook, so the pasted link goes through the
  * same mount-time seeding as a fresh visit.
+ *
+ * `onboardingPending` suspends the auto-prune while the first-visit
+ * dialog is unanswered — the settings in force until then are stricter
+ * defaults the user never chose, and pruning against them destroys parts
+ * of a plan they're one click away from being able to build. See
+ * `computePlanPrune`.
  */
 export function useProductionPlan(
   availableRecipes: readonly Recipe[],
@@ -488,6 +495,7 @@ export function useProductionPlan(
   rawMaterialCaps?: ReadonlyMap<ItemId, number>,
   metastorageRoutes?: readonly MetastorageRouteConfig[],
   onExternalPlan?: () => void,
+  onboardingPending = false,
 ) {
   const { t } = useTranslation("app");
 
@@ -890,82 +898,44 @@ export function useProductionPlan(
   // on the next render. Sits AFTER the optimizer hook because a target
   // prune must clear its per-edit context (indices shift).
   useEffect(() => {
-    let removedOverrides = 0;
-    let removedRaws = 0;
-
-    const nextTargets = targets.filter(
-      (t) =>
-        reachableProducibleItems.has(t.itemId) ||
-        metastorageImportableItems.has(t.itemId),
+    const pruned = computePlanPrune(
+      { targets, recipeOverrides, manualRawMaterials },
+      {
+        onboardingPending,
+        reachableProducibleItems,
+        availableRecipeIds,
+        metastorageImportableItems,
+        regionRawMaterials,
+      },
     );
-    const removedTargets = targets.length - nextTargets.length;
+    if (!pruned) return;
 
-    const nextOverrides = new Map<ItemId, RecipeId>();
-    for (const [itemId, recipeId] of recipeOverrides) {
-      if (availableRecipeIds.has(recipeId)) {
-        nextOverrides.set(itemId, recipeId);
-      } else {
-        removedOverrides++;
-      }
-    }
-
-    const nextRaws = new Set<ItemId>();
-    for (const itemId of manualRawMaterials) {
-      // Keep a manual raw iff the item is either producible (in
-      // `reachableProducibleItems`, i.e. an output of at least one
-      // recipe in the strict `availableRecipes` set) OR a region-
-      // available raw (always-available in the current factory — pin
-      // is redundant but harmless).
-      //
-      // Drop pins on items that are completely unreachable: no
-      // available recipe produces them, not a regional raw, AND not
-      // Metastorage-importable here. Rationale: a manual-raw pin on an
-      // unsourceable item in the current region is meaningless — there's
-      // no chain to override. Cuprium-in-Valley-IV pins get dropped
-      // here; the user gets a toast and the affected target (if any) is
-      // auto-pruned too. An importable item is a legitimate pin target
-      // (hand-feed it as a raw, freeing the route for another item), so
-      // it survives — symmetric with the target-prune predicate above.
-      if (
-        reachableProducibleItems.has(itemId) ||
-        regionRawMaterials.has(itemId) ||
-        metastorageImportableItems.has(itemId)
-      ) {
-        nextRaws.add(itemId);
-      } else {
-        removedRaws++;
-      }
-    }
-
-    const total = removedTargets + removedOverrides + removedRaws;
-    if (total === 0) return;
-
-    if (removedTargets > 0) {
+    if (pruned.removedTargets > 0) {
       // Pruning shifts indices — a stale exclusion would point
       // auto-fit at the wrong target. Not a user edit, so the one-shot
       // guard is left alone (`disarm: false`).
       resetEditContext({ disarm: false });
-      setTargets(nextTargets);
+      setTargets(pruned.targets);
     }
-    if (removedOverrides > 0) setRecipeOverrides(nextOverrides);
-    if (removedRaws > 0) setManualRawMaterials(nextRaws);
+    if (pruned.removedOverrides > 0) setRecipeOverrides(pruned.recipeOverrides);
+    if (pruned.removedRaws > 0) setManualRawMaterials(pruned.manualRawMaterials);
 
     toast.info(
       t("autoPruneSummary", {
-        count: total,
+        count: pruned.total,
         defaultValue:
-          total === 1
+          pruned.total === 1
             ? "Removed 1 item no longer producible by your current settings."
-            : `Removed ${total} items no longer producible by your current settings.`,
+            : `Removed ${pruned.total} items no longer producible by your current settings.`,
       }),
     );
-    // The effect is idempotent against its own output: when the setters
-    // above fire, `targets` / `recipeOverrides` / `manualRawMaterials`
-    // change identity → effect re-runs → recomputes the prune against
-    // already-pruned state → `total === 0` → early return above, no
-    // double toast. So declaring the full dep set is safe (and
-    // ESLint-honest) — the second pass exits before any state writes.
+    // Idempotent against its own output: the setters above change
+    // `targets` / `recipeOverrides` / `manualRawMaterials` identity →
+    // effect re-runs → `computePlanPrune` sees already-pruned state →
+    // `null` → no second toast. So the full dep set is safe (and
+    // ESLint-honest); the second pass exits before any state writes.
   }, [
+    onboardingPending,
     reachableProducibleItems,
     availableRecipeIds,
     metastorageImportableItems,
