@@ -50,6 +50,7 @@ import {
   type SharedPlanInit,
 } from "@/hooks/useDomainSettings";
 import {
+  decodeHash,
   decodeSettingsSnapshot,
   readShareBlobFromHash,
   shapesEqual,
@@ -66,7 +67,7 @@ import { DomainSettingsContext } from "./domain-settings-context";
  */
 function resolveSharedInit(): SharedPlanInit | undefined {
   if (typeof window === "undefined") return undefined;
-  const blob = readShareBlobFromHash(window.location.hash);
+  const blob = readShareBlobFromHash(decodeHash(window.location.hash));
   if (!blob) return undefined;
   const snapshot = decodeSettingsSnapshot(blob);
   if (!snapshot) return undefined;

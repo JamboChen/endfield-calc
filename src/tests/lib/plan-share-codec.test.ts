@@ -24,7 +24,9 @@ import {
   type PersistedShape,
 } from "@/hooks/useDomainSettings";
 import {
+  decodeHash,
   decodeSettingsSnapshot,
+  encodeHashToken,
   encodeSettingsSnapshot,
   readShareBlobFromHash,
   shapesEqual,
@@ -239,6 +241,68 @@ describe("hash transport (withShareBlob / readShareBlobFromHash)", () => {
     );
     expect(extracted).toBe(encoded);
     expect(shapesEqual(decodeSettingsSnapshot(extracted!)!, MAXIMAL)).toBe(true);
+  });
+});
+
+describe("hash token (encodeHashToken / decodeHash)", () => {
+  test("round-trips an arbitrary hash body", () => {
+    const inner = "t=s:14.4l,5h:24l&c=1&s=0Dvalley~A3~a~b~c";
+    const token = encodeHashToken(inner);
+    expect(token).not.toBe(inner);
+    expect(decodeHash(token)).toBe(inner);
+    expect(decodeHash("#" + token)).toBe(inner);
+  });
+
+  test("the token is base64url — no '=', '&', '#' or '%' to re-encode", () => {
+    // `=`/`&` would collide with the legacy-form detection below, and any
+    // char outside the fragment-safe set would get percent-escaped on
+    // copy-paste and break the link.
+    for (const inner of [
+      "t=s:14.4l",
+      "t=s:1,5h:2,5a:3&r=s:4r&m=3a&c=1&bf=0&ps=1&mpv=6",
+      "s=1aB+c-d$eF",
+      "t=" + "s:1,".repeat(50),
+    ]) {
+      expect(encodeHashToken(inner)).toMatch(/^[A-Za-z0-9_-]+$/);
+      expect(decodeHash(encodeHashToken(inner))).toBe(inner);
+    }
+  });
+
+  test("legacy readable hashes pass through untouched (back-compat)", () => {
+    // Links shared before tokenization — every param is `k=v`, so the
+    // body always contains '='.
+    expect(decodeHash("#t=item_steel:6")).toBe("t=item_steel:6");
+    expect(decodeHash("#t=item_steel:6&c=1")).toBe("t=item_steel:6&c=1");
+    expect(decodeHash("t=item_steel:6&s=0Dvalley")).toBe(
+      "t=item_steel:6&s=0Dvalley",
+    );
+  });
+
+  test("empty in → empty out (an empty plan keeps a hash-less URL)", () => {
+    expect(encodeHashToken("")).toBe("");
+    expect(decodeHash("")).toBe("");
+    expect(decodeHash("#")).toBe("");
+  });
+
+  test("a corrupt token decodes to '' instead of throwing", () => {
+    // Truncated / mangled by a chat client, or a plain '#anchor'.
+    expect(() => decodeHash("#!!!not-base64!!!")).not.toThrow();
+    expect(decodeHash("#!!!not-base64!!!")).toBe("");
+    const token = encodeHashToken("t=s:14.4l&c=1");
+    // Any truncation must degrade, never throw.
+    for (let i = 1; i < token.length; i++) {
+      expect(() => decodeHash("#" + token.slice(0, i))).not.toThrow();
+    }
+  });
+
+  test("a token is shorter than a URL-encoded readable hash would be", () => {
+    // The point of the wrapper is cosmetic, but it must not blow the
+    // URL up either: base64url costs ~33%, which stays well under what
+    // percent-encoding the same string would cost.
+    const inner = "t=s:14.4l,5h:24l,5a:14.75&c=1&s=0Dvalley";
+    expect(encodeHashToken(inner).length).toBeLessThan(
+      encodeURIComponent(inner).length,
+    );
   });
 });
 

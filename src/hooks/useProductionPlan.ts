@@ -6,6 +6,8 @@ import {
 } from "@/lib/calc-client";
 import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
 import {
+  decodeHash,
+  encodeHashToken,
   encodeSettingsSnapshot,
   withShareBlob,
 } from "@/lib/plan-share-codec";
@@ -160,7 +162,9 @@ function parseHash(): ParsedHashState {
   };
 
   try {
-    const hash = window.location.hash.slice(1); // remove leading '#'
+    // Unwraps the opaque token (or passes a legacy readable hash
+    // through) — see `decodeHash`.
+    const hash = decodeHash(window.location.hash);
     if (!hash) return defaultState;
 
     const params = new URLSearchParams(hash);
@@ -503,8 +507,9 @@ export function useProductionPlan(
       machinesPerVaporizer,
       shareBlob,
     );
-    const newUrl = hash
-      ? `${window.location.pathname}${window.location.search}#${hash}`
+    const token = encodeHashToken(hash);
+    const newUrl = token
+      ? `${window.location.pathname}${window.location.search}#${token}`
       : window.location.pathname + window.location.search;
     history.replaceState(null, "", newUrl);
   }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer, shareBlob]);
@@ -1377,7 +1382,7 @@ export function useProductionPlan(
               history.replaceState(
                 null,
                 "",
-                `${window.location.pathname}${window.location.search}#${planHash}`,
+                `${window.location.pathname}${window.location.search}#${encodeHashToken(planHash)}`,
               );
               window.location.reload();
               return;

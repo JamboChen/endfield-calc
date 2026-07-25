@@ -48,6 +48,13 @@
  * space). Both alphabets are valid unencoded in a fragment (RFC 3986),
  * so they survive copy-paste.
  *
+ * That whole `t=…&r=…&s=…` string is then wrapped in ONE opaque
+ * base64url token (`encodeHashToken`), so the address bar reads
+ * `#Xk9aB2c…` instead of a wall of parameters — a shared link looks like
+ * an ordinary permalink rather than something hand-crafted. The wrapper
+ * is purely cosmetic: the inner format is unchanged, and `decodeHash`
+ * unwraps it before anything parses it.
+ *
  * # Robustness
  *
  * Decoding funnels through `sanitizePersistedShape` (the same defensive
@@ -339,4 +346,51 @@ export function withShareBlob(baseHash: string, encoded: string): string {
   return baseHash
     ? `${baseHash}&${SHARE_HASH_KEY}=${encoded}`
     : `${SHARE_HASH_KEY}=${encoded}`;
+}
+
+/**
+ * Wrap a full hash body (`t=…&r=…&s=…`) into the single opaque token the
+ * address bar shows. base64url (`A-Za-z0-9-_`, padding stripped): valid
+ * unencoded in a fragment, so it survives copy-paste, and free of the
+ * `=`/`&` that mark the legacy readable form.
+ *
+ * Empty in → empty out, so an empty app keeps a clean, hash-less URL.
+ *
+ * `btoa` is safe here: every producer of the inner string emits ASCII
+ * only (ids are `[a-z0-9_]`, rates `[0-9.]`, the settings blob is
+ * base64/lz alphabet + `~`).
+ */
+export function encodeHashToken(inner: string): string {
+  if (!inner) return "";
+  return btoa(inner)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/**
+ * Unwrap a location hash into the inner `t=…&r=…&s=…` body that the
+ * parsers consume. The inverse of `encodeHashToken`, plus back-compat.
+ *
+ * Legacy readable links (`#t=item_steel:6`) are passed through untouched:
+ * every parameter is a `k=v` pair, so a legacy body always contains `=`,
+ * while the token alphabet contains neither `=` nor `&`. That keeps every
+ * link shared before tokenization working — and doubles as an escape
+ * hatch, since a hand-written readable hash is still accepted.
+ *
+ * Never throws: a corrupt token (truncated, or a stray `#anchor`) yields
+ * `""`, which the callers read as "no plan" rather than erroring.
+ */
+export function decodeHash(hash: string): string {
+  const body = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (!body) return "";
+  if (body.includes("=") || body.includes("&")) return body; // legacy
+  try {
+    const base64 =
+      body.replace(/-/g, "+").replace(/_/g, "/") +
+      "=".repeat((4 - (body.length % 4)) % 4);
+    return atob(base64);
+  } catch {
+    return "";
+  }
 }
