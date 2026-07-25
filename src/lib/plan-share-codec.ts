@@ -27,11 +27,16 @@
  * `~` separates everything inside a field. Item / facility / structure
  * ids ride as their short base36 codes (`url-codes.ts`, also lowercase,
  * so the uppercase-letter delimiter stays unambiguous); the universal
- * `domain_` / `tech_` prefixes are stripped instead, since domains and
- * techs have no code registry. The whole thing is prefixed `0` (raw) or
- * `1` (lz-compressed), whichever is shorter — lz only wins for large
- * deltas (many unresearched techs), where a plain JSON payload used to
- * LOSE to lz-string's own base64 overhead.
+ * `domain_` prefix is stripped instead, since `DomainId`s are already
+ * 1 char once unprefixed (`domain_1` → `1`) and so need no registry.
+ * The result is prefixed `0`; compression is not applied here but one
+ * layer out, in `encodeHashToken`.
+ *
+ * Coding the techs is what makes the blob small: the delta is
+ * per-top-level-field, so researching a single node emits the WHOLE
+ * unresearched list, and those ids average 22 chars. On a realistic
+ * payload that field alone was ~530 chars, and the finished token went
+ * from 524 to 95 chars once coded.
  *
  * Both sides compute the same default baseline + strip/format rules
  * (same app/data version), so the delta round-trips exactly; decoding
@@ -42,18 +47,15 @@
  * # URL transport
  *
  * The blob is appended to / read from the hash manually (`withShareBlob`
- * / `readShareBlobFromHash`), NOT via `URLSearchParams` — the `0`-form
- * uses `~` (fine) and the `1`-form's `compressToEncodedURIComponent`
- * output can contain `+`, which `URLSearchParams` would mangle (→
- * space). Both alphabets are valid unencoded in a fragment (RFC 3986),
- * so they survive copy-paste.
+ * / `readShareBlobFromHash`), NOT via `URLSearchParams`, which would
+ * mangle the `~` separators' neighbours on re-encode.
  *
- * That whole `t=…&r=…&s=…` string is then wrapped in ONE opaque
- * base64url token (`encodeHashToken`), so the address bar reads
- * `#Xk9aB2c…` instead of a wall of parameters — a shared link looks like
- * an ordinary permalink rather than something hand-crafted. The wrapper
- * is purely cosmetic: the inner format is unchanged, and `decodeHash`
- * unwraps it before anything parses it.
+ * That whole `t=…&r=…&s=…` string is then wrapped in ONE opaque token
+ * (`encodeHashToken`), so the address bar reads `#0dD1zOjE0…` instead of
+ * a wall of parameters — a shared link looks like an ordinary permalink
+ * rather than something hand-crafted. The inner format is unchanged;
+ * `decodeHash` unwraps it before anything parses it, and still accepts a
+ * legacy readable hash.
  *
  * # Robustness
  *
@@ -78,9 +80,11 @@ import {
   decodeFacilityRef,
   decodeItemRef,
   decodeStructureRef,
+  decodeTechRef,
   encodeFacilityRef,
   encodeItemRef,
   encodeStructureRef,
+  encodeTechRef,
 } from "@/lib/url-codes";
 
 /** The hash key under which the settings blob rides. */
@@ -111,9 +115,17 @@ const TECH_PREFIX = "tech_";
 const DISABLED_MARK = "x";
 
 const stripDomain = (id: string): string => id.slice(DOMAIN_PREFIX.length);
-const stripTech = (id: string): string => id.slice(TECH_PREFIX.length);
 const withDomain = (s: string): string => DOMAIN_PREFIX + s;
-const withTech = (s: string): string => TECH_PREFIX + s;
+
+/**
+ * Resolve one unresearched-tech token. Accepts a code (current form) and,
+ * as a fallback, the `tech_`-stripped id that pre-code blobs carried —
+ * without it such a blob would decode to an EMPTY unresearched list,
+ * i.e. a confident "everything is researched" rather than a failure.
+ * Unknown tokens pass through for `sanitizePersistedShape` to drop.
+ */
+const decodeTech = (token: string): string =>
+  decodeTechRef(token) ?? decodeTechRef(TECH_PREFIX + token) ?? token;
 
 /**
  * Per-field encoders — a TOTAL map over `DeltaKey`, so adding a new
@@ -129,7 +141,7 @@ const FIELD_ENCODERS: Record<DeltaKey, (c: PersistedShape) => string> = {
       ...c.domains.inactive.map(stripDomain),
     ].join("~"),
   aic: (c) => {
-    const techs = c.aic.unresearched.map(stripTech);
+    const techs = c.aic.unresearched.map(encodeTechRef);
     const caps = c.aic.capOverrides.flatMap((o) => [
       encodeFacilityRef(o.facilityId),
       stripDomain(o.domainId),
@@ -187,7 +199,7 @@ const FIELD_DECODERS: Record<
   A: (p, out) => {
     const t = splitField(p);
     const n = Number(t[0] ?? "0");
-    const unresearched = t.slice(1, 1 + n).map(withTech);
+    const unresearched = t.slice(1, 1 + n).map(decodeTech);
     const rest = t.slice(1 + n);
     const capOverrides: unknown[] = [];
     for (let i = 0; i + 3 <= rest.length; i += 3) {
@@ -262,19 +274,25 @@ function decodeCompact(raw: string): Record<string, unknown> {
  * Encode a settings snapshot into the compact `s=` blob value. Input is
  * sanitized + canonicalized first, so any channel (live settings, a
  * hand-edited saved file) yields the same output for the same effective
- * settings. Fields equal to the first-run default are omitted; the whole
- * thing is prefixed `0` (raw) or `1` (lz), whichever is shorter.
+ * settings. Fields equal to the first-run default are omitted.
+ *
+ * Always prefixed `0`. The prefix is load-bearing even though it is now
+ * constant: a default-settings sharer has an EMPTY delta, and `s=0`
+ * ("settings, all default") has to stay distinguishable from an absent
+ * `s=` ("this link carries no settings" — a legacy link), which
+ * `withShareBlob` drops. Compression lives one layer out, in
+ * `encodeHashToken`, where it can see the whole hash.
  */
 export function encodeSettingsSnapshot(shape: PersistedShape): string {
   try {
-    const compact = encodeCompact(
-      canonicalizeShape(
-        sanitizePersistedShape(shape) ?? DEFAULT_PERSISTED_SHAPE,
-      ),
+    return (
+      "0" +
+      encodeCompact(
+        canonicalizeShape(
+          sanitizePersistedShape(shape) ?? DEFAULT_PERSISTED_SHAPE,
+        ),
+      )
     );
-    const raw = "0" + compact;
-    const packed = "1" + compressToEncodedURIComponent(compact);
-    return raw.length <= packed.length ? raw : packed;
   } catch {
     // Runs inside a render-time `useMemo` (the URL `s=` sync). Never
     // break the render over a settings-encode failure — degrade to a
@@ -285,23 +303,25 @@ export function encodeSettingsSnapshot(shape: PersistedShape): string {
 }
 
 /**
- * Decode an `s=` blob back into a clean `PersistedShape`. Reads the
+ * Decode an `s=` blob back into a clean `PersistedShape`. Checks the
  * format flag, reconstructs the delta, overlays it on the default
  * baseline, then sanitizes. Returns `null` for empty / corrupt /
  * unrecognized-format input (caller falls back to own settings).
  */
 export function decodeSettingsSnapshot(blob: string): PersistedShape | null {
   try {
+    // Only the `0` (raw) form exists. A blob that reaches here still
+    // compressed would be a pre-tech-code link, whose tech tokens the
+    // `decodeTech` fallback handles once decompressed.
     if (!blob) return null;
-    const rest = blob.slice(1);
     let compact: string | null;
-    if (blob[0] === "1") {
+    if (blob[0] === "0") {
+      compact = blob.slice(1);
+    } else if (blob[0] === "1") {
       // lz-string's typings understate the null-on-malformed case.
-      compact = decompressFromEncodedURIComponent(rest);
-    } else if (blob[0] === "0") {
-      compact = rest;
+      compact = decompressFromEncodedURIComponent(blob.slice(1));
     } else {
-      return null; // unrecognized format flag (e.g. a pre-format blob)
+      return null; // unrecognized format flag
     }
     if (compact == null) return null;
     return sanitizePersistedShape({
@@ -350,22 +370,36 @@ export function withShareBlob(baseHash: string, encoded: string): string {
 
 /**
  * Wrap a full hash body (`t=…&r=…&s=…`) into the single opaque token the
- * address bar shows. base64url (`A-Za-z0-9-_`, padding stripped): valid
- * unencoded in a fragment, so it survives copy-paste, and free of the
- * `=`/`&` that mark the legacy readable form.
+ * address bar shows, prefixed with a 1-char format flag:
+ *
+ *   `0` + base64url  — `A-Za-z0-9-_`, padding stripped
+ *   `1` + lz-string  — `A-Za-z0-9+-$` (`compressToEncodedURIComponent`)
+ *
+ * Whichever is shorter wins. Both alphabets are valid unencoded in a
+ * fragment (RFC 3986) so they survive copy-paste, and neither contains
+ * `=` or `&`, which is what lets `decodeHash` recognize the legacy
+ * readable form.
+ *
+ * This is the ONLY place compression happens. Doing it here rather than
+ * inside the `s=` blob matters: base64url costs a flat +33%, so
+ * compressing further in and then base64-ing the result inflated the
+ * compressed bytes right back (measured 370 → 524 chars on a realistic
+ * payload). One decision, taken where the final URL length is visible.
  *
  * Empty in → empty out, so an empty app keeps a clean, hash-less URL.
  *
  * `btoa` is safe here: every producer of the inner string emits ASCII
- * only (ids are `[a-z0-9_]`, rates `[0-9.]`, the settings blob is
- * base64/lz alphabet + `~`).
+ * only (ids are base36 codes or `[a-z0-9_]`, rates `[0-9.]`), which
+ * `plan-share-codec.test.ts` asserts directly.
  */
 export function encodeHashToken(inner: string): string {
   if (!inner) return "";
-  return btoa(inner)
+  const packed = compressToEncodedURIComponent(inner);
+  const base64 = btoa(inner)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+  return base64.length <= packed.length ? "0" + base64 : "1" + packed;
 }
 
 /**
@@ -386,9 +420,14 @@ export function decodeHash(hash: string): string {
   if (!body) return "";
   if (body.includes("=") || body.includes("&")) return body; // legacy
   try {
+    const payload = body.slice(1);
+    if (body[0] === "1") {
+      return decompressFromEncodedURIComponent(payload) ?? "";
+    }
+    if (body[0] !== "0") return ""; // unrecognized format flag
     const base64 =
-      body.replace(/-/g, "+").replace(/_/g, "/") +
-      "=".repeat((4 - (body.length % 4)) % 4);
+      payload.replace(/-/g, "+").replace(/_/g, "/") +
+      "=".repeat((4 - (payload.length % 4)) % 4);
     return atob(base64);
   } catch {
     return "";

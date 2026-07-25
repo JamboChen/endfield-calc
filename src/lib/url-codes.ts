@@ -1,12 +1,13 @@
 /**
  * Short, stable reference codes for shareable URLs.
  *
- * Game-data ids are long — items ~18 chars (`item_copper_enr2_cmpt`) and
- * recipes up to 59 (`fluid_consume_liquid_cleaner_1_item_liquid_…`) — and
- * they dominate the length of both the plan params (`t=`/`r=`/`m=`) and
- * the settings blob (`s=`'s raw limits, cap overrides, structures). This
- * maps each id to a 1–2 char base36 code from the append-only registries
- * in `src/data/{item,recipe,facility,structure}-codes.ts` (code = the
+ * Game-data ids are long — items ~18 chars (`item_copper_enr2_cmpt`),
+ * recipes up to 59 (`fluid_consume_liquid_cleaner_1_item_liquid_…`), AIC
+ * techs ~22 — and they dominate the length of both the plan params
+ * (`t=`/`r=`/`m=`) and the settings blob (`s=`'s raw limits, cap
+ * overrides, structures, unresearched techs). This maps each id to a 1–2
+ * char base36 code from the append-only registries in
+ * `src/data/{item,recipe,facility,structure,tech}-codes.ts` (code = the
  * entry's array index in base36). The registries are stable forever — see
  * `gen-url-codes.ts` — so codes in already-shared URLs never change
  * meaning.
@@ -21,10 +22,13 @@
  */
 
 import { facilities, items, recipes, regionStructures } from "@/data";
+import { aicNodes } from "@/data/aic-plans";
 import { facilityCodeTable } from "@/data/facility-codes";
 import { itemCodeTable } from "@/data/item-codes";
 import { recipeCodeTable } from "@/data/recipe-codes";
 import { structureCodeTable } from "@/data/structure-codes";
+import { techCodeTable } from "@/data/tech-codes";
+import type { AicTechId } from "@/types/aic";
 import type { FacilityId, ItemId, RecipeId, RegionStructureId } from "@/types";
 
 interface RefCodec<T extends string> {
@@ -86,6 +90,10 @@ const structureCodec = makeRefCodec<RegionStructureId>(
   structureCodeTable,
   [...regionStructures.values()].flatMap((list) => list.map((s) => s.id)),
 );
+const techCodec = makeRefCodec<AicTechId>(
+  techCodeTable,
+  aicNodes.map((n) => n.id),
+);
 
 export const encodeItemRef = itemCodec.encode;
 export const decodeItemRef = itemCodec.decode;
@@ -98,3 +106,6 @@ export const decodeFacilityRef = facilityCodec.decode;
 
 export const encodeStructureRef = structureCodec.encode;
 export const decodeStructureRef = structureCodec.decode;
+
+export const encodeTechRef = techCodec.encode;
+export const decodeTechRef = techCodec.decode;

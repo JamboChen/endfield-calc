@@ -16,15 +16,18 @@
 import { describe, expect, test } from "vitest";
 
 import { facilities, items, recipes, regionStructures } from "@/data";
+import { aicNodes } from "@/data/aic-plans";
 import {
   decodeFacilityRef,
   decodeItemRef,
   decodeRecipeRef,
   decodeStructureRef,
+  decodeTechRef,
   encodeFacilityRef,
   encodeItemRef,
   encodeRecipeRef,
   encodeStructureRef,
+  encodeTechRef,
 } from "@/lib/url-codes";
 
 const structureIds = [
@@ -61,6 +64,13 @@ const REGISTRIES = [
     encode: encodeStructureRef as (id: string) => string,
     decode: decodeStructureRef as (token: string) => string | null,
     unknown: "definitely_not_a_structure",
+  },
+  {
+    name: "tech",
+    ids: aicNodes.map((n) => n.id) as readonly string[],
+    encode: encodeTechRef as (id: string) => string,
+    decode: decodeTechRef as (token: string) => string | null,
+    unknown: "definitely_not_a_tech",
   },
 ] as const;
 

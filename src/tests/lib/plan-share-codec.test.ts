@@ -4,15 +4,17 @@
  * Pure-function coverage (no DOM):
  *   - encode → decode round-trips a shape to the same effective settings,
  *     across every field type + a maximal (all-fields) shape;
- *   - the default shape compacts to `"0"`; the `0`/`1` flag picks the
- *     shorter of raw vs lz;
+ *   - the default shape compacts to `"0"`, and the coded tech list stays
+ *     small;
  *   - the raw (`0`) form is chat-safe (`[A-Za-z0-9_.~]` only);
  *   - `shapesEqual` is the shared-vs-own gate;
  *   - corrupt / unknown-flag / cross-version input degrades to `null` or
  *     is sanitized, never throws;
- *   - the manual `s=` hash transport;
+ *   - the manual `s=` hash transport + the outer opaque token, including
+ *     its `0`/`1` (base64url vs lz) choice and legacy pass-through;
  *   - GUARD tests asserting the codec's data assumptions (prefixes,
- *     charset, disabled-marker) so future data drift fails loudly.
+ *     charset, disabled-marker, ASCII-only payload) so future data drift
+ *     fails loudly.
  */
 
 import { describe, expect, test } from "vitest";
@@ -130,22 +132,31 @@ describe("encode / decode round-trip", () => {
   });
 });
 
-describe("compaction + flag selection", () => {
+describe("compaction", () => {
   test("the default shape encodes to the raw empty delta `0`", () => {
+    // `0` rather than "": `withShareBlob` drops an empty blob, and
+    // "settings, all default" must stay distinguishable from "this link
+    // carries no settings".
     expect(encodeSettingsSnapshot(DEFAULT_PERSISTED_SHAPE)).toBe("0");
   });
 
-  test("a small delta uses the raw form (flag 0)", () => {
+  test("every shape uses the raw form — compression lives in the token", () => {
     expect(encodeSettingsSnapshot(CUSTOM_SHAPE)[0]).toBe("0");
+    expect(encodeSettingsSnapshot(MAXIMAL)[0]).toBe("0");
   });
 
-  test("a large delta uses the lz form (flag 1) and still round-trips", () => {
+  test("the whole-unresearched-list delta stays small (tech codes)", () => {
+    // The delta is per-top-level-field, so researching one node emits
+    // the entire unresearched list. With ~22-char tech ids that field
+    // alone ran to ~530 chars; base36 codes keep it near one char each.
     const big: PersistedShape = {
       ...DEFAULT_PERSISTED_SHAPE,
       aic: { unresearched: aicNodes.map((n) => n.id), capOverrides: [] },
     };
-    expect(encodeSettingsSnapshot(big)[0]).toBe("1");
+    const blob = encodeSettingsSnapshot(big);
     expect(shapesEqual(roundTrip(big)!, big)).toBe(true);
+    const rawIdCost = aicNodes.reduce((s, n) => s + n.id.length, 0);
+    expect(blob.length).toBeLessThan(rawIdCost / 4);
   });
 
   test("customized settings are far smaller than the old JSON+lz form", () => {
@@ -253,19 +264,31 @@ describe("hash token (encodeHashToken / decodeHash)", () => {
     expect(decodeHash("#" + token)).toBe(inner);
   });
 
-  test("the token is base64url — no '=', '&', '#' or '%' to re-encode", () => {
-    // `=`/`&` would collide with the legacy-form detection below, and any
-    // char outside the fragment-safe set would get percent-escaped on
-    // copy-paste and break the link.
+  test("the token stays fragment-safe and legacy-distinguishable", () => {
+    // Contract, not alphabet: either branch may win, so assert what
+    // actually matters. `=`/`&` would collide with the legacy-form
+    // detection, and anything outside the RFC 3986 fragment set would
+    // get percent-escaped on copy-paste and break the link.
     for (const inner of [
       "t=s:14.4l",
       "t=s:1,5h:2,5a:3&r=s:4r&m=3a&c=1&bf=0&ps=1&mpv=6",
-      "s=1aB+c-d$eF",
-      "t=" + "s:1,".repeat(50),
+      "s=0D1A3~0~1~2",
+      "t=" + "s:1,".repeat(50), // compressible → the lz branch wins
     ]) {
-      expect(encodeHashToken(inner)).toMatch(/^[A-Za-z0-9_-]+$/);
-      expect(decodeHash(encodeHashToken(inner))).toBe(inner);
+      const token = encodeHashToken(inner);
+      expect(token).toMatch(/^[01]/); // format flag
+      expect(token).toMatch(/^[A-Za-z0-9_+$-]+$/); // base64url ∪ lz-string
+      expect(token).not.toMatch(/[=&#%/]/);
+      expect(decodeHash(token)).toBe(inner);
     }
+  });
+
+  test("picks the shorter of the two encodings", () => {
+    const compressible = "t=" + "s:1,".repeat(50);
+    expect(encodeHashToken(compressible)[0]).toBe("1");
+    // Short and high-entropy: base64url wins, since lz-string has a
+    // fixed startup cost it cannot amortize.
+    expect(encodeHashToken("t=s:14.4l")[0]).toBe("0");
   });
 
   test("legacy readable hashes pass through untouched (back-compat)", () => {
@@ -326,6 +349,21 @@ describe("codec invariants (guards against data drift)", () => {
   test("no DomainId suffix collides with the disabled marker 'x'", () => {
     for (const d of domains) {
       expect(d.id.slice("domain_".length)).not.toBe("x");
+    }
+  });
+
+  test("every encodable hash payload is ASCII (btoa cannot throw)", () => {
+    // `encodeHashToken` runs in the URL-sync effect, where a throw would
+    // blank the app, and `btoa` throws above U+00FF. Rather than swallow
+    // that in a catch, assert the precondition here so a future non-ASCII
+    // field fails loudly at the seam instead of degrading silently.
+    const ASCII = /^[\x20-\x7E]*$/;
+    for (const shape of [DEFAULT_PERSISTED_SHAPE, CUSTOM_SHAPE, MAXIMAL]) {
+      const blob = encodeSettingsSnapshot(shape);
+      expect(blob).toMatch(ASCII);
+      expect(withShareBlob("t=s:14.4l,5h:24l&r=s:4r&m=3a&c=1", blob)).toMatch(
+        ASCII,
+      );
     }
   });
 });
