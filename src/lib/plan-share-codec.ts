@@ -24,12 +24,14 @@
  * present field is serialized to a short, chat-safe string (NOT JSON):
  * fields are delimited by their uppercase letter (all ids/values are
  * lowercase `[a-z0-9_.]`, so no separator is needed between them) and
- * `~` separates everything inside a field. Only the universal `domain_`
- * / `tech_` prefixes are stripped; item/facility/structure ids stay
- * full. The whole thing is prefixed `0` (raw) or `1` (lz-compressed),
- * whichever is shorter — lz only wins for large deltas (many
- * unresearched techs), where a plain JSON payload used to LOSE to
- * lz-string's own base64 overhead.
+ * `~` separates everything inside a field. Item / facility / structure
+ * ids ride as their short base36 codes (`url-codes.ts`, also lowercase,
+ * so the uppercase-letter delimiter stays unambiguous); the universal
+ * `domain_` / `tech_` prefixes are stripped instead, since domains and
+ * techs have no code registry. The whole thing is prefixed `0` (raw) or
+ * `1` (lz-compressed), whichever is shorter — lz only wins for large
+ * deltas (many unresearched techs), where a plain JSON payload used to
+ * LOSE to lz-string's own base64 overhead.
  *
  * Both sides compute the same default baseline + strip/format rules
  * (same app/data version), so the delta round-trips exactly; decoding
@@ -65,7 +67,14 @@ import {
   sanitizePersistedShape,
   type PersistedShape,
 } from "@/hooks/useDomainSettings";
-import { decodeItemRef, encodeItemRef } from "@/lib/item-code";
+import {
+  decodeFacilityRef,
+  decodeItemRef,
+  decodeStructureRef,
+  encodeFacilityRef,
+  encodeItemRef,
+  encodeStructureRef,
+} from "@/lib/url-codes";
 
 /** The hash key under which the settings blob rides. */
 const SHARE_HASH_KEY = "s";
@@ -115,7 +124,7 @@ const FIELD_ENCODERS: Record<DeltaKey, (c: PersistedShape) => string> = {
   aic: (c) => {
     const techs = c.aic.unresearched.map(stripTech);
     const caps = c.aic.capOverrides.flatMap((o) => [
-      o.facilityId,
+      encodeFacilityRef(o.facilityId),
       stripDomain(o.domainId),
       String(o.value),
     ]);
@@ -133,7 +142,10 @@ const FIELD_ENCODERS: Record<DeltaKey, (c: PersistedShape) => string> = {
   structures: (c) =>
     "S" +
     (c.structures?.disabled ?? [])
-      .flatMap((d) => [d.structureId, stripDomain(d.domainId)])
+      .flatMap((d) => [
+        encodeStructureRef(d.structureId),
+        stripDomain(d.domainId),
+      ])
       .join("~"),
   metastorage: (c) =>
     "M" +
@@ -173,7 +185,7 @@ const FIELD_DECODERS: Record<
     const capOverrides: unknown[] = [];
     for (let i = 0; i + 3 <= rest.length; i += 3) {
       capOverrides.push({
-        facilityId: rest[i],
+        facilityId: decodeFacilityRef(rest[i]) ?? rest[i],
         domainId: withDomain(rest[i + 1]),
         value: Number(rest[i + 2]),
       });
@@ -196,7 +208,10 @@ const FIELD_DECODERS: Record<
     const t = splitField(p);
     const disabled: unknown[] = [];
     for (let i = 0; i + 2 <= t.length; i += 2) {
-      disabled.push({ structureId: t[i], domainId: withDomain(t[i + 1]) });
+      disabled.push({
+        structureId: decodeStructureRef(t[i]) ?? t[i],
+        domainId: withDomain(t[i + 1]),
+      });
     }
     out.structures = { disabled };
   },

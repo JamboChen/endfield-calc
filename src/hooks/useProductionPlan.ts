@@ -9,7 +9,12 @@ import {
   encodeSettingsSnapshot,
   withShareBlob,
 } from "@/lib/plan-share-codec";
-import { decodeItemRef, encodeItemRef } from "@/lib/item-code";
+import {
+  decodeItemRef,
+  decodeRecipeRef,
+  encodeItemRef,
+  encodeRecipeRef,
+} from "@/lib/url-codes";
 import { useTargetOptimizer } from "@/hooks/useTargetOptimizer";
 import { items, recipes, facilities, powerFuels, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -159,7 +164,6 @@ function parseHash(): ParsedHashState {
     if (!hash) return defaultState;
 
     const params = new URLSearchParams(hash);
-    const knownRecipeIds = new Set(recipes.map((recipe) => recipe.id));
 
     // Parse targets: t=item_steel:6,item_glass:3
     // A trailing `l` on the rate marks the target as locked
@@ -185,7 +189,7 @@ function parseHash(): ParsedHashState {
       }
     }
 
-    // Parse recipeOverrides: r=item_steel:recipe_alloy
+    // Parse recipeOverrides: r=<item>:<recipe> (both short codes)
     const recipeRaw = params.get("r");
     const parsedRecipeOverrides = new Map<ItemId, RecipeId>();
     if (recipeRaw) {
@@ -193,8 +197,10 @@ function parseHash(): ParsedHashState {
         const colonIdx = part.indexOf(":");
         if (colonIdx === -1) continue;
         const itemId = decodeItemRef(part.slice(0, colonIdx));
-        const recipeId = part.slice(colonIdx + 1) as RecipeId;
-        if (itemId && knownRecipeIds.has(recipeId)) {
+        // Resolves a code or a legacy full id, and doubles as the
+        // existence check (unknown → null → the pin is dropped).
+        const recipeId = decodeRecipeRef(part.slice(colonIdx + 1));
+        if (itemId && recipeId) {
           parsedRecipeOverrides.set(itemId, recipeId);
         }
       }
@@ -271,7 +277,10 @@ function serializeHash(
     params.set(
       "r",
       Array.from(recipeOverrides.entries())
-        .map(([itemId, recipeId]) => `${encodeItemRef(itemId)}:${recipeId}`)
+        .map(
+          ([itemId, recipeId]) =>
+            `${encodeItemRef(itemId)}:${encodeRecipeRef(recipeId)}`,
+        )
         .join(","),
     );
   }
