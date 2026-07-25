@@ -8,7 +8,11 @@ import {
   DEFAULT_MACHINES_PER_VAPORIZER,
   sanitizeMachinesPerVaporizer,
 } from "@/lib/sustain-constants";
-import { loadPlanOptions, savePlanOption } from "@/lib/plan-options-storage";
+import {
+  loadPlanOptions,
+  savePlanOption,
+  type PlanOptions,
+} from "@/lib/plan-options-storage";
 import { computePlanPrune } from "@/lib/plan-prune";
 import {
   decodeHash,
@@ -134,17 +138,18 @@ interface SavedPlan {
  */
 export type IneffectivePin = { itemId: ItemId; recipeId: RecipeId };
 
-interface ParsedHashState {
+/**
+ * A complete plan as the URL carries it — what `parseHash` reads out and
+ * what `serializeHash` writes back, so the two are provable inverses
+ * (`plan-hash.test.ts` round-trips them). Naming the fields also removes
+ * the swap hazard three adjacent boolean parameters used to carry.
+ */
+export interface PlanHashState extends PlanOptions {
   targets: ProductionTarget[];
   recipeOverrides: Map<ItemId, RecipeId>;
   manualRawMaterials: Set<ItemId>;
-  ceilMode: boolean;
-  binFusion: boolean;
-  powerSustain: boolean;
-  machinesPerVaporizer: number;
 }
 
-/** Sanitize an `mpv` value: integer in [1, 16], else the default. */
 /**
  * Read a plan state out of a location hash. Defaults to the live URL;
  * the hashchange handler passes an explicit hash to decide whether an
@@ -155,14 +160,14 @@ interface ParsedHashState {
  */
 export function parseHash(
   rawHash: string = typeof window === "undefined" ? "" : window.location.hash,
-): ParsedHashState {
+): PlanHashState {
   // Stored option preferences apply ONLY on a hash-less visit ("this is
   // my app"). A hash means "render exactly this plan state", and since
   // `serializeHash` omits default-valued options, an absent param there
   // means the sharer had the default — so the parsed branch below must
   // never consult these. See `plan-options-storage.ts`.
   const preferred = loadPlanOptions();
-  const defaultState: ParsedHashState = {
+  const defaultState: PlanHashState = {
     targets: [],
     recipeOverrides: new Map(),
     manualRawMaterials: new Set(),
@@ -272,21 +277,26 @@ export function parseHash(
 
 /**
  * Build the hash body for a plan state (before `encodeHashToken` wraps
- * it). Exported for tests; the app reaches it through the URL-sync
- * effect and the plan-file re-entry path.
+ * it) — the exact inverse of `parseHash`. Exported for tests; the app
+ * reaches it through the URL-sync effect and the plan-file re-entry
+ * path.
  *
  * Returns `""` for a target-less plan, which keeps the URL clean.
  */
 export function serializeHash(
-  targets: ProductionTarget[],
-  recipeOverrides: Map<ItemId, RecipeId>,
-  manualRawMaterials: Set<ItemId>,
-  ceilMode: boolean,
-  binFusion: boolean,
-  powerSustain: boolean,
-  machinesPerVaporizer: number,
+  state: PlanHashState,
   shareBlob: string,
 ): string {
+  const {
+    targets,
+    recipeOverrides,
+    manualRawMaterials,
+    ceilMode,
+    binFusion,
+    powerSustain,
+    machinesPerVaporizer,
+  } = state;
+
   // No target, no link. Options and the settings blob describe no plan
   // on their own, so writing them would leave a long opaque hash on an
   // empty app — and the options now survive a reload as preferences
@@ -443,60 +453,94 @@ function formatPlanWarning(
 }
 
 /**
- * Plan/recipe-calc state hook.
+ * Inputs to `useProductionPlan`.
  *
- * `availableRecipes` is the AIC-filtered subset of game-data recipes
- * derived in `App.tsx` from the user's current research / domain
- * activation state. The calc, the auto-prune effect, and the
- * recipe-override picker all operate on this set; recipes outside it
- * cannot run in this plan.
+ * An object rather than a parameter list (matching `useTargetOptimizer`):
+ * with this many inputs, positional arguments make an added or reordered
+ * field easy to get silently wrong at the single call site.
  *
- * Why threaded as args instead of read from a global: the App layer
- * is the single source of truth that combines game data with user
- * settings. Globals would re-introduce cross-module state and break
- * the auto-prune signal.
- *
- * `facilityCaps` is the per-facility aggregated cap (sum across active
- * domains of `effectiveCaps[facilityId][domainId]`). Passed into
- * `calculateProductionPlan` → Phase 5 MIP. Optional and undefined when
- * the user has no caps configured.
- *
- * `rawMaterialCaps` is the per-(raw item) cap for the current region,
- * in items/min. Passed into `calculateProductionPlan` → LP (which adds
- * slack-based upper-bound constraints); residual overage comes back as
- * calculator-emitted `raw-over-cap` PlanWarnings (see
- * `computeLimitViolations` in plan-helpers). **No entry in this map =
- * no limit** for that item; items the user hasn't capped don't appear
- * here and don't trigger warnings. Optional and undefined when nothing
- * is capped.
- *
- * `metastorageRoutes` are the Metastorage import routes resolved for
- * the current region by App.tsx. Threaded into
- * `calculateProductionPlan` (which auto-selects each route's single
- * transferred item) and consulted by the auto-prune effect so an
- * import-only target survives while its route is live.
- *
- * `onExternalPlan` fires when a plan-bearing link is pasted into the
- * address bar of the already-open app. App.tsx answers by remounting the
- * settings provider and this hook, so the pasted link goes through the
- * same mount-time seeding as a fresh visit.
- *
- * `onboardingPending` suspends the auto-prune while the first-visit
- * dialog is unanswered — the settings in force until then are stricter
- * defaults the user never chose, and pruning against them destroys parts
- * of a plan they're one click away from being able to build. See
- * `computePlanPrune`.
+ * Everything here is threaded in rather than read from a global because
+ * the App layer is the one place that combines game data with user
+ * settings. Globals would re-introduce cross-module state and break the
+ * auto-prune signal.
  */
-export function useProductionPlan(
-  availableRecipes: readonly Recipe[],
-  regionRawMaterials: ReadonlySet<ItemId>,
-  settingsShape: PersistedShape,
-  facilityCaps?: ReadonlyMap<FacilityId, number>,
-  rawMaterialCaps?: ReadonlyMap<ItemId, number>,
-  metastorageRoutes?: readonly MetastorageRouteConfig[],
-  onExternalPlan?: () => void,
-  onboardingPending = false,
-) {
+export interface UseProductionPlanOptions {
+  /**
+   * The AIC-filtered subset of game-data recipes, derived in `App.tsx`
+   * from the user's current research / domain activation. The calc, the
+   * auto-prune effect and the recipe-override picker all operate on this
+   * set; recipes outside it cannot run in this plan.
+   */
+  readonly availableRecipes: readonly Recipe[];
+
+  /** Raws the current region supplies directly. */
+  readonly regionRawMaterials: ReadonlySet<ItemId>;
+
+  /** The viewer's live settings, embedded in the URL and saved files. */
+  readonly settingsShape: PersistedShape;
+
+  /**
+   * Per-facility aggregated cap (summed across active domains of
+   * `effectiveCaps[facilityId][domainId]`). Passed into
+   * `calculateProductionPlan` → Phase 5 MIP. Undefined when the user has
+   * no caps configured.
+   */
+  readonly facilityCaps?: ReadonlyMap<FacilityId, number>;
+
+  /**
+   * Per-(raw item) cap for the current region, in items/min. Passed into
+   * `calculateProductionPlan` → LP (which adds slack-based upper-bound
+   * constraints); residual overage comes back as calculator-emitted
+   * `raw-over-cap` PlanWarnings (see `computeLimitViolations` in
+   * plan-helpers). **No entry in this map = no limit** for that item, so
+   * uncapped items simply don't appear and never trigger warnings.
+   * Undefined when nothing is capped.
+   */
+  readonly rawMaterialCaps?: ReadonlyMap<ItemId, number>;
+
+  /**
+   * Metastorage import routes resolved for the current region by
+   * `App.tsx`. Threaded into `calculateProductionPlan` (which
+   * auto-selects each route's single transferred item) and consulted by
+   * the auto-prune effect, so an import-only target survives while its
+   * route is live.
+   */
+  readonly metastorageRoutes?: readonly MetastorageRouteConfig[];
+
+  /**
+   * Fires when a plan-bearing link is pasted into the address bar of the
+   * already-open app. `App.tsx` answers by remounting the settings
+   * provider and this hook, so the pasted link goes through the same
+   * mount-time seeding as a fresh visit.
+   */
+  readonly onExternalPlan?: () => void;
+
+  /**
+   * Suspends the auto-prune while the first-visit dialog is unanswered.
+   * The settings in force until then are stricter defaults the user
+   * never chose, and pruning against them destroys parts of a plan
+   * they're one click away from being able to build. See
+   * `computePlanPrune`.
+   */
+  readonly onboardingPending?: boolean;
+}
+
+/** Plan/recipe-calc state hook. See `UseProductionPlanOptions`. */
+export function useProductionPlan(options: UseProductionPlanOptions) {
+  // Destructured immediately so the body (and every dependency array in
+  // it) keeps referring to plain values — `options` itself is a fresh
+  // literal each render and must never enter a dep array.
+  const {
+    availableRecipes,
+    regionRawMaterials,
+    settingsShape,
+    facilityCaps,
+    rawMaterialCaps,
+    metastorageRoutes,
+    onExternalPlan,
+    onboardingPending = false,
+  } = options;
+
   const { t } = useTranslation("app");
 
   const initialState = useMemo(() => parseHash(), []);
@@ -564,13 +608,15 @@ export function useProductionPlan(
 
   useEffect(() => {
     const hash = serializeHash(
-      targets,
-      recipeOverrides,
-      manualRawMaterials,
-      ceilMode,
-      binFusion,
-      powerSustain,
-      machinesPerVaporizer,
+      {
+        targets,
+        recipeOverrides,
+        manualRawMaterials,
+        ceilMode,
+        binFusion,
+        powerSustain,
+        machinesPerVaporizer,
+      },
       shareBlob,
     );
     const token = encodeHashToken(hash);
@@ -1421,24 +1467,32 @@ export function useProductionPlan(
             if (data.settings) {
               const settingsBlob = encodeSettingsSnapshot(data.settings);
               const base = serializeHash(
-                data.targets.map((t) =>
-                  t.locked === true
-                    ? { itemId: t.itemId as ItemId, rate: t.rate, locked: true }
-                    : { itemId: t.itemId as ItemId, rate: t.rate },
-                ),
-                new Map(
-                  Object.entries(data.recipeOverrides).map(([k, v]) => [
-                    k as ItemId,
-                    v as RecipeId,
-                  ]),
-                ),
-                new Set(data.manualRawMaterials as ItemId[]),
-                data.ceilMode,
-                data.binFusion ?? true,
-                data.powerSustain ?? false,
-                sanitizeMachinesPerVaporizer(
-                  data.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
-                ),
+                {
+                  targets: data.targets.map((t) =>
+                    t.locked === true
+                      ? {
+                          itemId: t.itemId as ItemId,
+                          rate: t.rate,
+                          locked: true,
+                        }
+                      : { itemId: t.itemId as ItemId, rate: t.rate },
+                  ),
+                  recipeOverrides: new Map(
+                    Object.entries(data.recipeOverrides).map(([k, v]) => [
+                      k as ItemId,
+                      v as RecipeId,
+                    ]),
+                  ),
+                  manualRawMaterials: new Set(
+                    data.manualRawMaterials as ItemId[],
+                  ),
+                  ceilMode: data.ceilMode,
+                  binFusion: data.binFusion ?? true,
+                  powerSustain: data.powerSustain ?? false,
+                  machinesPerVaporizer: sanitizeMachinesPerVaporizer(
+                    data.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
+                  ),
+                },
                 settingsBlob,
               );
               // `serializeHash` emits nothing for a target-less plan

@@ -13,40 +13,38 @@
 
 import { describe, expect, test } from "vitest";
 
-import { parseHash, serializeHash } from "@/hooks/useProductionPlan";
+import {
+  parseHash,
+  serializeHash,
+  type PlanHashState,
+} from "@/hooks/useProductionPlan";
 import { decodeHash, encodeHashToken } from "@/lib/plan-share-codec";
 import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
 import { encodeItemRef } from "@/lib/url-codes";
-import { items } from "@/data";
-import type { ItemId, RecipeId } from "@/types";
+import { items, recipes } from "@/data";
 
 const someItem = items[0].id;
+const otherItem = items[1].id;
+const someRecipe = recipes[0].id;
 const BLOB = "0D2";
 
-/** `serializeHash` with every option at its default. */
-function serialize(
-  overrides: Partial<{
-    targets: { itemId: ItemId; rate: number; locked?: boolean }[];
-    recipeOverrides: Map<ItemId, RecipeId>;
-    manualRawMaterials: Set<ItemId>;
-    ceilMode: boolean;
-    binFusion: boolean;
-    powerSustain: boolean;
-    machinesPerVaporizer: number;
-    shareBlob: string;
-  }> = {},
-) {
-  return serializeHash(
-    overrides.targets ?? [],
-    overrides.recipeOverrides ?? new Map(),
-    overrides.manualRawMaterials ?? new Set(),
-    overrides.ceilMode ?? false,
-    overrides.binFusion ?? true,
-    overrides.powerSustain ?? false,
-    overrides.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
-    overrides.shareBlob ?? BLOB,
-  );
+/** A plan state with every option at its default. */
+function state(overrides: Partial<PlanHashState> = {}): PlanHashState {
+  return {
+    targets: [],
+    recipeOverrides: new Map(),
+    manualRawMaterials: new Set(),
+    ceilMode: false,
+    binFusion: true,
+    powerSustain: false,
+    machinesPerVaporizer: DEFAULT_MACHINES_PER_VAPORIZER,
+    ...overrides,
+  };
 }
+
+const serialize = (
+  overrides: Partial<PlanHashState> & { shareBlob?: string } = {},
+) => serializeHash(state(overrides), overrides.shareBlob ?? BLOB);
 
 describe("serializeHash — a link needs a target", () => {
   test("no targets → no hash, even with a settings blob", () => {
@@ -75,7 +73,7 @@ describe("serializeHash — a link needs a target", () => {
     // Both are meaningless without a plan to apply them to.
     expect(
       serialize({
-        recipeOverrides: new Map([[someItem, "whatever" as RecipeId]]),
+        recipeOverrides: new Map([[someItem, someRecipe]]),
         manualRawMaterials: new Set([someItem]),
       }),
     ).toBe("");
@@ -119,6 +117,74 @@ describe("serializeHash — a link needs a target", () => {
 
   test("an empty hash tokenizes to nothing (no '#' in the URL)", () => {
     expect(encodeHashToken(serialize())).toBe("");
+  });
+});
+
+describe("round-trip — parseHash and serializeHash are inverses", () => {
+  // The property that matters: whatever the app writes, it reads back
+  // identically THROUGH the token layer. Because both sides now speak
+  // `PlanHashState`, this catches drift between them — a field added to
+  // one and forgotten in the other fails here, which per-field
+  // assertions could never do.
+  const roundTrip = (input: PlanHashState): PlanHashState =>
+    parseHash(`#${encodeHashToken(serializeHash(input, BLOB))}`);
+
+  const CASES: Record<string, PlanHashState> = {
+    "a single target": state({ targets: [{ itemId: someItem, rate: 6 }] }),
+    "a fractional rate": state({
+      targets: [{ itemId: someItem, rate: 14.75 }],
+    }),
+    "a locked target": state({
+      targets: [{ itemId: someItem, rate: 6, locked: true }],
+    }),
+    "mixed locked and unlocked": state({
+      targets: [
+        { itemId: someItem, rate: 6, locked: true },
+        { itemId: otherItem, rate: 3 },
+      ],
+    }),
+    "a recipe pin": state({
+      targets: [{ itemId: someItem, rate: 6 }],
+      recipeOverrides: new Map([[someItem, someRecipe]]),
+    }),
+    "a manual raw": state({
+      targets: [{ itemId: someItem, rate: 6 }],
+      manualRawMaterials: new Set([otherItem]),
+    }),
+    "every option flipped off-default": state({
+      targets: [{ itemId: someItem, rate: 6 }],
+      ceilMode: true,
+      binFusion: false,
+      powerSustain: true,
+      machinesPerVaporizer: 9,
+    }),
+    "everything at once": state({
+      targets: [
+        { itemId: someItem, rate: 14.75, locked: true },
+        { itemId: otherItem, rate: 3 },
+      ],
+      recipeOverrides: new Map([[someItem, someRecipe]]),
+      manualRawMaterials: new Set([otherItem]),
+      ceilMode: true,
+      binFusion: false,
+      powerSustain: true,
+      machinesPerVaporizer: 16,
+    }),
+  };
+
+  test.each(Object.keys(CASES))("%s survives the round trip", (name) => {
+    const input = CASES[name];
+    expect(roundTrip(input)).toEqual(input);
+  });
+
+  test("re-serializing the parsed state reproduces the same hash", () => {
+    // Stability: reading a link and writing it back must not churn the
+    // URL, or the URL-sync effect would rewrite every shared link on open.
+    const input = CASES["everything at once"];
+    const hash = serializeHash(input, BLOB);
+    expect(serializeHash(parseHash(`#${encodeHashToken(hash)}`), BLOB)).toBe(
+      hash,
+    );
   });
 });
 

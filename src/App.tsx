@@ -516,16 +516,16 @@ function AppContent({ onExternalPlan }: { onExternalPlan: () => void }) {
     isLoading,
     pinnedItemIds,
     ineffectivePins,
-  } = useProductionPlan(
+  } = useProductionPlan({
     availableRecipes,
     regionRawMaterials,
-    settings.currentShape,
+    settingsShape: settings.currentShape,
     facilityCaps,
     rawMaterialCaps,
     metastorageRoutes,
     onExternalPlan,
-    settings.onboardingPending,
-  );
+    onboardingPending: settings.onboardingPending,
+  });
 
   // Content-keyed (same pattern as `metastorageRouteSig` above): lock
   // toggles produce a new `targets` identity without changing any

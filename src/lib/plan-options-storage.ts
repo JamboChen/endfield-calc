@@ -37,29 +37,56 @@ const PLAN_OPTIONS_STORAGE_KEY = namespaceStorageKey(
 );
 
 /**
+ * The four plan options, as the app holds them. Single declaration —
+ * `PlanHashState` embeds it and the stored form below is its `Partial`,
+ * so the URL and the preference store cannot drift apart on which
+ * options exist.
+ */
+export interface PlanOptions {
+  ceilMode: boolean;
+  binFusion: boolean;
+  powerSustain: boolean;
+  machinesPerVaporizer: number;
+}
+
+/**
  * Persisted plan options. Every field is optional: a key is present only
  * once the user has actually set it, so an untouched option keeps
  * following the in-app default if that default ever changes.
  */
-export interface StoredPlanOptions {
-  ceilMode?: boolean;
-  binFusion?: boolean;
-  powerSustain?: boolean;
-  machinesPerVaporizer?: number;
-}
+export type StoredPlanOptions = Partial<PlanOptions>;
 
-/** Coerce one parsed field, dropping anything of the wrong shape. */
+/**
+ * Per-option coercion from untrusted JSON — a TOTAL map over
+ * `PlanOptions`, so adding a fifth option fails the build until it has a
+ * validator here. Without that, a new option would silently never
+ * persist. (Same maintenance-guard trick as `FIELD_ENCODERS` in
+ * `plan-share-codec.ts`.)
+ *
+ * Each returns `undefined` to drop the value, which keeps the key absent
+ * rather than pinning it to a wrong default.
+ */
+const VALIDATORS: {
+  [K in keyof PlanOptions]: (raw: unknown) => PlanOptions[K] | undefined;
+} = {
+  ceilMode: (raw) => (typeof raw === "boolean" ? raw : undefined),
+  binFusion: (raw) => (typeof raw === "boolean" ? raw : undefined),
+  powerSustain: (raw) => (typeof raw === "boolean" ? raw : undefined),
+  machinesPerVaporizer: (raw) =>
+    typeof raw === "number" ? sanitizeMachinesPerVaporizer(raw) : undefined,
+};
+
+/** Coerce a parsed payload, dropping anything of the wrong shape. */
 function sanitize(parsed: Record<string, unknown>): StoredPlanOptions {
   const out: StoredPlanOptions = {};
-  if (typeof parsed.ceilMode === "boolean") out.ceilMode = parsed.ceilMode;
-  if (typeof parsed.binFusion === "boolean") out.binFusion = parsed.binFusion;
-  if (typeof parsed.powerSustain === "boolean") {
-    out.powerSustain = parsed.powerSustain;
-  }
-  if (typeof parsed.machinesPerVaporizer === "number") {
-    out.machinesPerVaporizer = sanitizeMachinesPerVaporizer(
-      parsed.machinesPerVaporizer,
-    );
+  for (const key of Object.keys(VALIDATORS) as (keyof PlanOptions)[]) {
+    const value = VALIDATORS[key](parsed[key]);
+    // Narrowing per key: the map's value type is keyed to `key`, but TS
+    // can't track that through the loop, so assign through a union-safe
+    // cast confined to this one line.
+    if (value !== undefined) {
+      (out[key] as PlanOptions[typeof key]) = value;
+    }
   }
   return out;
 }
