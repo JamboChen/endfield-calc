@@ -259,7 +259,14 @@ function parseHash(): ParsedHashState {
   }
 }
 
-function serializeHash(
+/**
+ * Build the hash body for a plan state (before `encodeHashToken` wraps
+ * it). Exported for tests; the app reaches it through the URL-sync
+ * effect and the plan-file re-entry path.
+ *
+ * Returns `""` for a target-less plan, which keeps the URL clean.
+ */
+export function serializeHash(
   targets: ProductionTarget[],
   recipeOverrides: Map<ItemId, RecipeId>,
   manualRawMaterials: Set<ItemId>,
@@ -269,18 +276,21 @@ function serializeHash(
   machinesPerVaporizer: number,
   shareBlob: string,
 ): string {
+  // No target, no link. Options and the settings blob describe no plan
+  // on their own, so writing them would leave a long opaque hash on an
+  // empty app — and the options now survive a reload as preferences
+  // anyway (`plan-options-storage.ts`), so nothing is lost by omitting
+  // them here.
+  if (targets.length === 0) return "";
+
   const params = new URLSearchParams();
 
-  if (targets.length > 0) {
-    params.set(
-      "t",
-      targets
-        .map(
-          (t) => `${encodeItemRef(t.itemId)}:${t.rate}${t.locked ? "l" : ""}`,
-        )
-        .join(","),
-    );
-  }
+  params.set(
+    "t",
+    targets
+      .map((t) => `${encodeItemRef(t.itemId)}:${t.rate}${t.locked ? "l" : ""}`)
+      .join(","),
+  );
 
   if (recipeOverrides.size > 0) {
     params.set(
@@ -325,10 +335,7 @@ function serializeHash(
   // `parseHash` reads via `URLSearchParams.get`, which accepts both the
   // raw and legacy `%3A`/`%2C` forms.
   const base = params.toString().replace(/%3A/g, ":").replace(/%2C/g, ",");
-  // The settings blob rides along only when there's an actual plan to
-  // share; an empty app keeps a clean, hash-less URL. See
-  // `plan-share-codec.ts`.
-  return base ? withShareBlob(base, shareBlob) : "";
+  return withShareBlob(base, shareBlob);
 }
 
 
@@ -1402,10 +1409,10 @@ export function useProductionPlan(
                 ),
                 settingsBlob,
               );
-              // `serializeHash` drops the settings blob when there are no
-              // plan fields (keeps a live URL clean). For a file re-entry
-              // that must NOT lose the sharer's settings, keep the blob
-              // even with zero targets so shared-view still triggers.
+              // `serializeHash` emits nothing for a target-less plan
+              // (keeps a live URL clean). For a file re-entry that must
+              // NOT lose the saved settings, keep the blob even with zero
+              // targets so shared-view still triggers on the reload.
               const planHash = base || withShareBlob("", settingsBlob);
               history.replaceState(
                 null,
