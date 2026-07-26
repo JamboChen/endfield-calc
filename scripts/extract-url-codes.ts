@@ -137,22 +137,45 @@ const REGISTRIES: readonly Registry[] = [
 ];
 
 /**
- * The previously-emitted table for one registry (or [] on first run).
+ * The previously-emitted table for one registry.
  *
- * Anchored on the full `= [ … \n];` declaration: a looser pattern can
- * match the `[]` of the `readonly string[]` type annotation instead of
- * the array literal and silently read back an EMPTY registry, which
- * would renumber every code.
+ * Two "nothing to read" cases that must NOT be conflated:
+ *
+ *   - the export is ABSENT — a registry added to `REGISTRIES` after the
+ *     file was last generated. It has no codes yet, so starting at `[]`
+ *     is correct and the only way to bootstrap one without deleting the
+ *     whole file (which would renumber the other registries);
+ *   - the export is PRESENT but its array won't parse — the file has been
+ *     hand-edited or the emit format has drifted. Continuing here would
+ *     re-append every id from index 0 and renumber already-shared codes,
+ *     so refuse instead.
+ *
+ * The presence probe is deliberately LOOSER than the parse below (it
+ * ignores the type annotation), so emit-format drift lands in the throwing
+ * branch instead of being mistaken for "absent" — the latter would rewrite
+ * that registry from index 0 and invalidate every shared URL. A rename in
+ * `REGISTRIES` still reads as absent, and still needs a hand migration.
+ *
+ * The array match is anchored on the full `= [ … \n];` declaration: a
+ * looser pattern can match the `[]` of the `readonly string[]` type
+ * annotation instead of the literal and silently read back an EMPTY
+ * registry. `\b` pins the end of the name in both patterns so a longer one
+ * sharing its prefix (`itemCodeTable` vs `itemCodeTable2`) can't stand in
+ * for it.
  */
 function existingTable(source: string, tableName: string): string[] {
+  const declaration = `export const ${tableName}\\b`;
+  if (!new RegExp(declaration).test(source)) return [];
+
   const arr = source.match(
-    new RegExp(`export const ${tableName}[^=]*=\\s*\\[([\\s\\S]*?)\\n\\];`),
+    new RegExp(`${declaration}\\s*:[^=]*=\\s*\\[([\\s\\S]*?)\\n\\];`),
   );
   if (!arr) {
     throw new Error(
-      `extract-url-codes: could not read the existing ${tableName} from ` +
-        `${path.relative(REPO_ROOT, OUT_PATH)} — refusing to run, since ` +
-        `regenerating from scratch would renumber already-shared codes.`,
+      `extract-url-codes: found ${tableName} in ` +
+        `${path.relative(REPO_ROOT, OUT_PATH)} but could not parse its ` +
+        `array — refusing to run, since regenerating from scratch would ` +
+        `renumber already-shared codes.`,
     );
   }
   return [...arr[1].matchAll(/"([^"]*)"/g)].map((m) => m[1]);
