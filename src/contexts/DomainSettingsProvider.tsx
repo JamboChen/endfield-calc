@@ -50,11 +50,11 @@ import {
   type SharedPlanInit,
 } from "@/hooks/useDomainSettings";
 import {
-  decodeHash,
   decodeSettingsSnapshot,
   readShareBlobFromHash,
   shapesEqual,
 } from "@/lib/plan-share-codec";
+import { decodeHash } from "@/lib/plan-url";
 import { AicOnboardingDialog } from "@/components/onboarding/AicOnboardingDialog";
 
 import { DomainSettingsContext } from "./domain-settings-context";

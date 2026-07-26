@@ -30,7 +30,10 @@
  */
 
 import { namespaceStorageKey } from "@/lib/storage-namespace";
-import { sanitizeMachinesPerVaporizer } from "@/lib/sustain-constants";
+import {
+  DEFAULT_MACHINES_PER_VAPORIZER,
+  sanitizeMachinesPerVaporizer,
+} from "@/lib/sustain-constants";
 
 const PLAN_OPTIONS_STORAGE_KEY = namespaceStorageKey(
   "endfield-calc:plan-options-v1",
@@ -48,6 +51,20 @@ export interface PlanOptions {
   powerSustain: boolean;
   machinesPerVaporizer: number;
 }
+
+/**
+ * The in-app default for each option — the single place these values are
+ * written down. `serializeHash` omits any option equal to its default
+ * (which is what makes an absent URL param mean "default"), and
+ * `parseHash` restores them, so a literal duplicated between the two
+ * would silently change what every existing link means.
+ */
+export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
+  ceilMode: false,
+  binFusion: true,
+  powerSustain: false,
+  machinesPerVaporizer: DEFAULT_MACHINES_PER_VAPORIZER,
+};
 
 /**
  * Persisted plan options. Every field is optional: a key is present only

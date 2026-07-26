@@ -66,11 +66,6 @@
  */
 
 import {
-  compressToEncodedURIComponent,
-  decompressFromEncodedURIComponent,
-} from "lz-string";
-
-import {
   DEFAULT_PERSISTED_SHAPE,
   canonicalizeShape,
   sanitizePersistedShape,
@@ -109,7 +104,6 @@ const DELTA_KEYS = [
 type DeltaKey = (typeof DELTA_KEYS)[number];
 
 const DOMAIN_PREFIX = "domain_";
-const TECH_PREFIX = "tech_";
 /** Metastorage route-mode marker for "disabled" (guaranteed not a domain
  *  suffix — see the `plan-share-codec.test.ts` marker invariant). */
 const DISABLED_MARK = "x";
@@ -117,15 +111,6 @@ const DISABLED_MARK = "x";
 const stripDomain = (id: string): string => id.slice(DOMAIN_PREFIX.length);
 const withDomain = (s: string): string => DOMAIN_PREFIX + s;
 
-/**
- * Resolve one unresearched-tech token. Accepts a code (current form) and,
- * as a fallback, the `tech_`-stripped id that pre-code blobs carried —
- * without it such a blob would decode to an EMPTY unresearched list,
- * i.e. a confident "everything is researched" rather than a failure.
- * Unknown tokens pass through for `sanitizePersistedShape` to drop.
- */
-const decodeTech = (token: string): string =>
-  decodeTechRef(token) ?? decodeTechRef(TECH_PREFIX + token) ?? token;
 
 /**
  * Per-field encoders — a TOTAL map over `DeltaKey`, so adding a new
@@ -199,7 +184,8 @@ const FIELD_DECODERS: Record<
   A: (p, out) => {
     const t = splitField(p);
     const n = Number(t[0] ?? "0");
-    const unresearched = t.slice(1, 1 + n).map(decodeTech);
+    // Unknown codes pass through for `sanitizePersistedShape` to drop.
+    const unresearched = t.slice(1, 1 + n).map((c) => decodeTechRef(c) ?? c);
     const rest = t.slice(1 + n);
     const capOverrides: unknown[] = [];
     for (let i = 0; i + 3 <= rest.length; i += 3) {
@@ -310,23 +296,12 @@ export function encodeSettingsSnapshot(shape: PersistedShape): string {
  */
 export function decodeSettingsSnapshot(blob: string): PersistedShape | null {
   try {
-    // Only the `0` (raw) form exists. A blob that reaches here still
-    // compressed would be a pre-tech-code link, whose tech tokens the
-    // `decodeTech` fallback handles once decompressed.
-    if (!blob) return null;
-    let compact: string | null;
-    if (blob[0] === "0") {
-      compact = blob.slice(1);
-    } else if (blob[0] === "1") {
-      // lz-string's typings understate the null-on-malformed case.
-      compact = decompressFromEncodedURIComponent(blob.slice(1));
-    } else {
-      return null; // unrecognized format flag
-    }
-    if (compact == null) return null;
+    // `0` (raw) is the only form. Compression lives one layer out, in
+    // `encodeHashToken`, so anything else here is corrupt input.
+    if (!blob || blob[0] !== "0") return null;
     return sanitizePersistedShape({
       ...DEFAULT_PERSISTED_SHAPE,
-      ...decodeCompact(compact),
+      ...decodeCompact(blob.slice(1)),
     });
   } catch {
     return null;
@@ -366,70 +341,4 @@ export function withShareBlob(baseHash: string, encoded: string): string {
   return baseHash
     ? `${baseHash}&${SHARE_HASH_KEY}=${encoded}`
     : `${SHARE_HASH_KEY}=${encoded}`;
-}
-
-/**
- * Wrap a full hash body (`t=…&r=…&s=…`) into the single opaque token the
- * address bar shows, prefixed with a 1-char format flag:
- *
- *   `0` + base64url  — `A-Za-z0-9-_`, padding stripped
- *   `1` + lz-string  — `A-Za-z0-9+-$` (`compressToEncodedURIComponent`)
- *
- * Whichever is shorter wins. Both alphabets are valid unencoded in a
- * fragment (RFC 3986) so they survive copy-paste, and neither contains
- * `=` or `&`, which is what lets `decodeHash` recognize the legacy
- * readable form.
- *
- * This is the ONLY place compression happens. Doing it here rather than
- * inside the `s=` blob matters: base64url costs a flat +33%, so
- * compressing further in and then base64-ing the result inflated the
- * compressed bytes right back (measured 370 → 524 chars on a realistic
- * payload). One decision, taken where the final URL length is visible.
- *
- * Empty in → empty out, so an empty app keeps a clean, hash-less URL.
- *
- * `btoa` is safe here: every producer of the inner string emits ASCII
- * only (ids are base36 codes or `[a-z0-9_]`, rates `[0-9.]`), which
- * `plan-share-codec.test.ts` asserts directly.
- */
-export function encodeHashToken(inner: string): string {
-  if (!inner) return "";
-  const packed = compressToEncodedURIComponent(inner);
-  const base64 = btoa(inner)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-  return base64.length <= packed.length ? "0" + base64 : "1" + packed;
-}
-
-/**
- * Unwrap a location hash into the inner `t=…&r=…&s=…` body that the
- * parsers consume. The inverse of `encodeHashToken`, plus back-compat.
- *
- * Legacy readable links (`#t=item_steel:6`) are passed through untouched:
- * every parameter is a `k=v` pair, so a legacy body always contains `=`,
- * while the token alphabet contains neither `=` nor `&`. That keeps every
- * link shared before tokenization working — and doubles as an escape
- * hatch, since a hand-written readable hash is still accepted.
- *
- * Never throws: a corrupt token (truncated, or a stray `#anchor`) yields
- * `""`, which the callers read as "no plan" rather than erroring.
- */
-export function decodeHash(hash: string): string {
-  const body = hash.startsWith("#") ? hash.slice(1) : hash;
-  if (!body) return "";
-  if (body.includes("=") || body.includes("&")) return body; // legacy
-  try {
-    const payload = body.slice(1);
-    if (body[0] === "1") {
-      return decompressFromEncodedURIComponent(payload) ?? "";
-    }
-    if (body[0] !== "0") return ""; // unrecognized format flag
-    const base64 =
-      payload.replace(/-/g, "+").replace(/_/g, "/") +
-      "=".repeat((4 - (payload.length % 4)) % 4);
-    return atob(base64);
-  } catch {
-    return "";
-  }
 }
