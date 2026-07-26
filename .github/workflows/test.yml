@@ -32,7 +32,10 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: "20.x"
+          # Matches deploy.yml. Must stay >= 22: the DOM suite's
+          # `@testing-library/jest-dom` and `jsdom` both declare engines
+          # that Node 20 no longer satisfies.
+          node-version: lts/*
           cache: "pnpm"
 
       - name: Install dependencies

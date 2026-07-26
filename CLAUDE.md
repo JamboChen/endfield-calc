@@ -13,8 +13,9 @@ pnpm install                 # Install dependencies
 pnpm dev                     # Dev server
 pnpm run build               # tsc -b then Vite build
 pnpm run lint                # ESLint
-pnpm vitest run              # Run all Vitest tests
+pnpm vitest run              # Run all Vitest tests (both projects)
 pnpm vitest run <path>       # Run a single test file
+pnpm vitest run --project dom  # Only the jsdom component/hook suite
 pnpm run knip                # Detect unused code/exports
 pnpm run extract:all         # Run every extractor in dependency order (recommended)
 pnpm run extract:ids         # Refresh src/types/constants.ts (Item/Recipe/FacilityId enums) + orphan-guard
@@ -108,13 +109,27 @@ Domain types in `src/types/{core,production,flow,domain,aic}.ts`. Keep enums in 
 
 ## Test conventions
 
-- Tests live in `src/tests/lib/`. Run a single file: `pnpm vitest run <path>`.
-- **For latent-bug regressions**: write tests with inline synthetic items + recipes passed to `calculateProductionPlan`. Isolates from upstream-data drift.
-- **For upstream-data-triggered bugs**: import real `items` / `recipes` / `facilities`, target specific `ItemId` enum values, assert exact rates.
-- Use `toBeCloseTo(value, 3)` for facility counts and rates.
-- `flow-integrity.test.ts` is the model for mapper-output assertions. `assertFlowIntegrity` throws in test mode — most mapper bugs surface as test failures before reaching explicit assertions.
-- `vite.config.ts:92` sets `testTimeout: 30000` (30s) — matches the packer's `SOLVER_TIME_LIMIT_SECONDS = 30`.
-- Solver-transport tests run without WASM: `calc-client.test.ts` stubs `globalThis.Worker` with a recording fake; `highs-wrapper.test.ts` mocks the singleton. Use those as models when testing transport-layer behavior.
+**Two Vitest projects** (`vite.config.ts` → `test.projects`), one invocation runs both:
+
+| Project | Files | Environment | Setup |
+|---|---|---|---|
+| `node` | `src/tests/**/*.test.ts` | node | `src/tests/setup.ts` (pre-warms HiGHS WASM) |
+| `dom` | `src/tests/dom/**/*.test.tsx` | jsdom | `src/tests/setup-dom.ts` |
+
+The `.ts` / `.tsx` extension is what routes a file, so a DOM test MUST be `.tsx`. Run one project with `pnpm vitest run --project dom`.
+
+- **`node` project** — pure functions, the historical suite.
+  - **For latent-bug regressions**: write tests with inline synthetic items + recipes passed to `calculateProductionPlan`. Isolates from upstream-data drift.
+  - **For upstream-data-triggered bugs**: import real `items` / `recipes` / `facilities`, target specific `ItemId` enum values, assert exact rates.
+  - Use `toBeCloseTo(value, 3)` for facility counts and rates.
+  - `flow-integrity.test.ts` is the model for mapper-output assertions. `assertFlowIntegrity` throws in test mode — most mapper bugs surface as test failures before reaching explicit assertions.
+  - `testTimeout: 30000` (30s) — matches the packer's `SOLVER_TIME_LIMIT_SECONDS = 30`.
+  - Solver-transport tests run without WASM: `calc-client.test.ts` stubs `globalThis.Worker` with a recording fake; `highs-wrapper.test.ts` mocks the singleton. Use those as models when testing transport-layer behavior.
+- **`dom` project** — components, hooks and effects under jsdom + Testing Library. Deliberately does NOT load `setup.ts`: the HiGHS emscripten wrapper branches on `typeof window`, so under jsdom it would try to fetch the WASM over HTTP.
+  - jsdom, not a real browser, because these tests assert storage writes, state transitions and disabled state. **If a test needs to know something is *visible* rather than merely present** (clipped, covered, off-screen), or needs focus order / real layout / `IntersectionObserver`, jsdom will lie — add a third project on a browser provider instead of weakening the assertion.
+  - `setup-dom.ts` provides jest-dom matchers, RTL `cleanup`, a `ResizeObserver` stub (Radix `useSize`), a resetting `localStorage` + URL, and a bare i18next instance with EMPTY resources: every `t()` call site passes a `defaultValue`, so keys resolve to the English default with no locale files and no network. Keys *without* a default (the game-data namespaces) resolve to the raw id — prefer those as query targets, they are stabler than translated names.
+  - Build links with the production encoders (`src/tests/dom/shared-plan-fixture.ts`), never a hand-written hash token, so a codec change is followed automatically.
+  - Assert read-only-ness with `toBeDisabled()`: it walks the ancestor chain itself, so it catches a `<fieldset disabled>` regression without depending on the environment modelling "actually disabled".
 
 ## Pre-ship workflow
 
