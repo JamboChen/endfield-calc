@@ -1,28 +1,40 @@
 /**
- * extract-url-codes — maintains the stable, APPEND-ONLY id→code registries
- * that keep shareable plan URLs short:
- *
- *   src/data/item-codes.ts       ItemId            (targets, raw limits, pins)
- *   src/data/recipe-codes.ts     RecipeId          (recipe pins)
- *   src/data/facility-codes.ts   FacilityId        (AIC cap overrides)
- *   src/data/structure-codes.ts  RegionStructureId (disabled structures)
- *   src/data/tech-codes.ts       AicTechId         (unresearched AIC techs)
+ * extract-url-codes — maintains `src/data/id-codes.ts`, the stable,
+ * APPEND-ONLY id→code registries that keep shareable plan URLs short
+ * (items, recipes, facilities, region structures, AIC techs).
  *
  * STANDALONE + self-contained: it parses committed files only (the enums
  * in `src/types/constants.ts`, the AIC node table, and the existing
- * registries), so unlike the game-data extractors it needs no data dir
- * and anyone can run it — `pnpm run extract:url-codes`. Run it after
+ * registry), so unlike the game-data extractors it needs no data dir and
+ * anyone can run it — `pnpm run extract:url-codes`. Run it after
  * `extract:all`.
  *
- * A code is the entry's `index.toString(36)`. Codes must NEVER change or
- * be reused (shared URLs reference them), so this only:
- *   - keeps every existing entry at its index (codes stay stable),
- *   - tombstones ("") ids that left the enum (index retired, not reused),
- *   - appends new ids at the end.
+ * # The one rule
+ *
+ * A code is the entry's `index.toString(36)`, so an index must never
+ * move or be reused — shared URLs reference them. This script therefore
+ * ONLY ever appends. It never reorders, and it never deletes.
+ *
+ * # Why removed ids stay
+ *
+ * They are kept, named, forever. Nothing here decides liveness: the
+ * codec (`src/lib/url-codes.ts`) resolves a code only when the id exists
+ * in the live game data, so a departed id simply stops resolving. That
+ * has three consequences worth knowing:
+ *
+ *   - a removal needs no regeneration at all — the file is purely
+ *     append-only, which is the simplest contract available and cannot
+ *     go stale;
+ *   - an id removed by one patch and restored by a later one KEEPS its
+ *     original code, so links shared in between start working again
+ *     (blanking the slot used to append a second, different code for
+ *     the same id and silently break those links);
+ *   - the registry is a superset of the enums by design. Do not read
+ *     "present here" as "exists" — that is the codec's job.
  *
  * The completeness guard in `src/tests/lib/url-codes.test.ts` fails if a
- * new id has no code (i.e. this wasn't re-run) — that's the "fail if we
- * forget" backstop.
+ * new id has no code (i.e. this wasn't re-run), and the pinned-code test
+ * there fails if any existing code moves.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -34,15 +46,13 @@ const REPO_ROOT = path.resolve(
 );
 const CONSTANTS_PATH = path.join(REPO_ROOT, "src", "types", "constants.ts");
 const AIC_PLANS_PATH = path.join(REPO_ROOT, "src", "data", "aic-plans.ts");
-const DATA_DIR = path.join(REPO_ROOT, "src", "data");
+const OUT_PATH = path.join(REPO_ROOT, "src", "data", "id-codes.ts");
 
 interface Registry {
   /** The id type this registry mirrors (doc header + error messages). */
   readonly typeName: string;
   /** Exported table name in the generated module. */
   readonly tableName: string;
-  /** Generated file, relative to `src/data/`. */
-  readonly fileName: string;
   /** Plural noun for the doc header + console summary. */
   readonly label: string;
   /** What the codes shorten, for the doc header. */
@@ -92,7 +102,6 @@ const REGISTRIES: readonly Registry[] = [
   {
     typeName: "ItemId",
     tableName: "itemCodeTable",
-    fileName: "item-codes.ts",
     label: "items",
     usage: "plan targets, recipe pins, manual raws and raw-limit overrides",
     readIds: fromConstantsEnum("ItemId"),
@@ -100,7 +109,6 @@ const REGISTRIES: readonly Registry[] = [
   {
     typeName: "RecipeId",
     tableName: "recipeCodeTable",
-    fileName: "recipe-codes.ts",
     label: "recipes",
     usage: "recipe pins",
     readIds: fromConstantsEnum("RecipeId"),
@@ -108,7 +116,6 @@ const REGISTRIES: readonly Registry[] = [
   {
     typeName: "FacilityId",
     tableName: "facilityCodeTable",
-    fileName: "facility-codes.ts",
     label: "facilities",
     usage: "AIC facility-cap overrides",
     readIds: fromConstantsEnum("FacilityId"),
@@ -116,7 +123,6 @@ const REGISTRIES: readonly Registry[] = [
   {
     typeName: "RegionStructureId",
     tableName: "structureCodeTable",
-    fileName: "structure-codes.ts",
     label: "structures",
     usage: "disabled map structures",
     readIds: fromConstantsEnum("RegionStructureId"),
@@ -124,7 +130,6 @@ const REGISTRIES: readonly Registry[] = [
   {
     typeName: "AicTechId",
     tableName: "techCodeTable",
-    fileName: "tech-codes.ts",
     label: "AIC techs",
     usage: "the unresearched-tech list, the largest field in the blob",
     readIds: fromAicNodes(),
@@ -132,40 +137,39 @@ const REGISTRIES: readonly Registry[] = [
 ];
 
 /**
- * The previously-emitted table (or [] on first run), tombstones included.
+ * The previously-emitted table for one registry (or [] on first run).
  *
  * Anchored on the full `= [ … \n];` declaration: a looser pattern can
  * match the `[]` of the `readonly string[]` type annotation instead of
  * the array literal and silently read back an EMPTY registry, which
- * would renumber every code on the next run.
+ * would renumber every code.
  */
-function existingTable(outPath: string, tableName: string): string[] {
-  if (!fs.existsSync(outPath)) return [];
-  const src = fs.readFileSync(outPath, "utf8");
-  const arr = src.match(
+function existingTable(source: string, tableName: string): string[] {
+  const arr = source.match(
     new RegExp(`export const ${tableName}[^=]*=\\s*\\[([\\s\\S]*?)\\n\\];`),
   );
   if (!arr) {
     throw new Error(
       `extract-url-codes: could not read the existing ${tableName} from ` +
-        `${path.relative(REPO_ROOT, outPath)} — refusing to run, since ` +
+        `${path.relative(REPO_ROOT, OUT_PATH)} — refusing to run, since ` +
         `regenerating from scratch would renumber already-shared codes.`,
     );
   }
   return [...arr[1].matchAll(/"([^"]*)"/g)].map((m) => m[1]);
 }
 
-function updateRegistry(registry: Registry): void {
-  const outPath = path.join(DATA_DIR, registry.fileName);
-  const ids = registry.readIds();
-  const live = new Set(ids);
+interface Updated {
+  readonly registry: Registry;
+  readonly table: readonly string[];
+  readonly appended: number;
+  readonly liveCount: number;
+}
 
-  const table = existingTable(outPath, registry.tableName);
-  // Retire ids that left the enum — keep the index (never reuse a code).
-  for (let i = 0; i < table.length; i++) {
-    if (table[i] !== "" && !live.has(table[i])) table[i] = "";
-  }
-  // Append genuinely-new ids (enum order) at the end.
+/** Append any ids missing from this registry's table. Never removes. */
+function updateRegistry(registry: Registry, previous: string): Updated {
+  const ids = registry.readIds();
+  const table = previous ? existingTable(previous, registry.tableName) : [];
+
   const known = new Set(table);
   let appended = 0;
   for (const id of ids) {
@@ -176,38 +180,61 @@ function updateRegistry(registry: Registry): void {
     }
   }
 
-  const lines = [
+  const live = new Set(ids);
+  return {
+    registry,
+    table,
+    appended,
+    liveCount: table.filter((id) => live.has(id)).length,
+  };
+}
+
+function emit(updates: readonly Updated[]): string {
+  const lines: string[] = [
     "/**",
     " * AUTO-GENERATED by `pnpm run extract:url-codes` — DO NOT EDIT BY HAND.",
     " *",
-    ` * Stable, APPEND-ONLY ${registry.typeName}→code registry for shareable`,
-    ` * URLs (${registry.usage}).`,
+    " * Stable, APPEND-ONLY id→code registries for shareable plan URLs. A",
+    " * code is the entry's `index.toString(36)`, so an index must never move",
+    " * or be reused: shared URLs reference them.",
     " *",
-    " * A code is the entry's `index.toString(36)`; codes must never change or",
-    " * be reused (shared plan URLs reference them). Re-running only appends",
-    ' * new entries and tombstones ("") removed ones — it never reorders',
-    " * existing entries.",
-    " *",
-    " * Re-run after `extract:all`; `url-codes.test.ts` fails if an id lacks a",
-    " * code.",
+    " * These lists are a SUPERSET of the `constants.ts` enums and stay that",
+    " * way on purpose. An id removed from the game keeps its slot, named,",
+    " * forever — `src/lib/url-codes.ts` resolves a code only for ids present",
+    " * in the live game data, so a departed id stops resolving on its own and",
+    " * a restored one gets its original code back. Do NOT read \"listed here\"",
+    " * as \"exists\", and never derive codes from the enums: those are sorted",
+    " * and shed removals, which would renumber everything.",
     " */",
-    `export const ${registry.tableName}: readonly string[] = [`,
-    ...table.map((id) => `  ${JSON.stringify(id)},`),
-    "];",
     "",
   ];
-  fs.writeFileSync(outPath, lines.join("\n"));
-
-  const liveCount = table.filter((id) => id !== "").length;
-  console.log(
-    `[extract-url-codes] wrote ${path.relative(REPO_ROOT, outPath)} — ` +
-      `${liveCount} ${registry.label}, ${appended} appended, ` +
-      `${table.length - liveCount} tombstones, next code "${table.length.toString(36)}"`,
-  );
+  for (const { registry, table } of updates) {
+    lines.push(
+      `/** ${registry.typeName} — ${registry.usage}. */`,
+      `export const ${registry.tableName}: readonly string[] = [`,
+      ...table.map((id) => `  ${JSON.stringify(id)},`),
+      "];",
+      "",
+    );
+  }
+  return lines.join("\n");
 }
 
 function run(): void {
-  for (const registry of REGISTRIES) updateRegistry(registry);
+  const previous = fs.existsSync(OUT_PATH)
+    ? fs.readFileSync(OUT_PATH, "utf8")
+    : "";
+  const updates = REGISTRIES.map((r) => updateRegistry(r, previous));
+  fs.writeFileSync(OUT_PATH, emit(updates));
+
+  console.log(`[extract-url-codes] wrote ${path.relative(REPO_ROOT, OUT_PATH)}`);
+  for (const { registry, table, appended, liveCount } of updates) {
+    console.log(
+      `  ${registry.label.padEnd(12)} ${String(liveCount).padStart(3)} live, ` +
+        `${appended} appended, ${table.length - liveCount} retired, ` +
+        `next code "${table.length.toString(36)}"`,
+    );
+  }
 }
 
 run();

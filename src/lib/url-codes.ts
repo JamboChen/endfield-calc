@@ -7,10 +7,17 @@
  * (`t=`/`r=`/`m=`) and the settings blob (`s=`'s raw limits, cap
  * overrides, structures, unresearched techs). This maps each id to a 1–2
  * char base36 code from the append-only registries in
- * `src/data/{item,recipe,facility,structure,tech}-codes.ts` (code = the
- * entry's array index in base36). The registries are stable forever — see
- * `extract-url-codes.ts` — so codes in already-shared URLs never change
- * meaning.
+ * `src/data/id-codes.ts` (code = the entry's array index in base36). The
+ * registries only ever grow — see `extract-url-codes.ts` — so codes in
+ * already-shared URLs never change meaning.
+ *
+ * **This module decides liveness, the registry does not.** A code is
+ * honoured only when its id is present in the live game data, so the
+ * registry can (and does) keep departed ids listed forever: they stop
+ * resolving here on their own, and an id restored by a later patch gets
+ * its original code back. That is why the registry stores bare ids and
+ * no `retired` flag — such a flag would be a second, stale-able answer
+ * to a question already answered by `knownIds` below.
  *
  * Decoding is backward-compatible: a token is resolved as a full id
  * (links shared before codes existed) OR a code, so old plan URLs keep
@@ -23,11 +30,13 @@
 
 import { facilities, items, recipes, regionStructures } from "@/data";
 import { aicNodes } from "@/data/aic-plans";
-import { facilityCodeTable } from "@/data/facility-codes";
-import { itemCodeTable } from "@/data/item-codes";
-import { recipeCodeTable } from "@/data/recipe-codes";
-import { structureCodeTable } from "@/data/structure-codes";
-import { techCodeTable } from "@/data/tech-codes";
+import {
+  facilityCodeTable,
+  itemCodeTable,
+  recipeCodeTable,
+  structureCodeTable,
+  techCodeTable,
+} from "@/data/id-codes";
 import type { AicTechId } from "@/types/aic";
 import type { FacilityId, ItemId, RecipeId, RegionStructureId } from "@/types";
 

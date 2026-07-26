@@ -1,3 +1,15 @@
+/*
+ * AUTO-GENERATED enums (`pnpm run extract:ids`) — the ids that exist in
+ * the game RIGHT NOW. Alphabetised for reading; nothing consumes the
+ * order (the only runtime reads build `Set`s), so it is safe to resort.
+ *
+ * These lists SHED ids that leave the game — that is what makes them
+ * truthful closed types. Consequently they must NEVER be used to derive
+ * shareable-URL codes: those live in `src/data/id-codes.ts`, which is
+ * append-only and keeps departed ids forever so a code is never reused.
+ * Deriving codes from a sorted, shedding list would silently repoint
+ * every shared link the first time an id is added or removed.
+ */
 const ItemId = {
   __MULTI_TARGET__: "__multi_target__",
   ITEM_ACTIVITY_XIRANITE_BOTTLE: "item_activity_xiranite_bottle",
