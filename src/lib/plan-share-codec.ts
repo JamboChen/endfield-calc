@@ -70,7 +70,7 @@ import {
   canonicalizeShape,
   sanitizePersistedShape,
   type PersistedShape,
-} from "@/hooks/useDomainSettings";
+} from "@/lib/persisted-shape";
 import {
   decodeFacilityRef,
   decodeItemRef,
@@ -99,9 +99,22 @@ const DELTA_KEYS = [
   "metastorage",
 ] as const satisfies readonly (keyof PersistedShape)[];
 
-// ── Compact serialization ──────────────────────────────────────────────────
-
 type DeltaKey = (typeof DELTA_KEYS)[number];
+
+/**
+ * Completeness guard. `satisfies` above only rejects keys that AREN'T on
+ * `PersistedShape`; the dangerous direction is the opposite — add a
+ * sixth settings category and forget this list, and every shared link
+ * silently omits it, so the receiver computes a different plan with no
+ * error anywhere. This fails the build instead.
+ */
+type UncoveredSettingsField = Exclude<keyof PersistedShape, DeltaKey>;
+const _allSettingsFieldsCovered: UncoveredSettingsField extends never
+  ? true
+  : ["settings field missing from DELTA_KEYS:", UncoveredSettingsField] = true;
+void _allSettingsFieldsCovered;
+
+// ── Compact serialization ──────────────────────────────────────────────────
 
 const DOMAIN_PREFIX = "domain_";
 /** Metastorage route-mode marker for "disabled" (guaranteed not a domain

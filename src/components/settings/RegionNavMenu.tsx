@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
-import { pickLatestActive } from "@/hooks/useDomainSettings";
+import { pickLatestActive } from "@/lib/persisted-shape";
 import { cn } from "@/lib/utils";
 import type { Domain, DomainId } from "@/types/domain";
 

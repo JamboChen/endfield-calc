@@ -31,7 +31,7 @@ import type {
   ProductionDependencyGraph,
 } from "@/types";
 import type { MetastorageRouteConfig } from "@/types/metastorage";
-import type { PersistedShape } from "@/hooks/useDomainSettings";
+import type { PersistedShape } from "@/lib/persisted-shape";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useProductionStats } from "./useProductionStats";

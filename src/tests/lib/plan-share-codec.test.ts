@@ -24,7 +24,7 @@ import {
   DEFAULT_PERSISTED_SHAPE,
   canonicalizeShape,
   type PersistedShape,
-} from "@/hooks/useDomainSettings";
+} from "@/lib/persisted-shape";
 import {
   decodeSettingsSnapshot,
   encodeSettingsSnapshot,
@@ -41,7 +41,7 @@ import {
   regionStructures,
 } from "@/data";
 import { aicNodes, domains } from "@/data/aic-plans";
-import { encodeFacilityRef } from "@/lib/url-codes";
+import { encodeFacilityRef, encodeItemRef } from "@/lib/url-codes";
 import { DomainId } from "@/types/domain";
 import { FacilityId } from "@/types/constants";
 
@@ -325,9 +325,18 @@ describe("hostile blob input (the URL is untrusted)", () => {
     ).toHaveLength(0);
   });
 
-  test("a raw limit outside the region's availability is dropped", () => {
-    // `0` is a valid item code but not a raw of this region.
-    expect(decodeRaw("R0~1~5")!.rawLimits?.overrides ?? []).toHaveLength(0);
+  test("a raw limit for a real item that isn't a raw here is dropped", () => {
+    // Uses a REAL, resolvable item code so the drop is the region check
+    // doing its job, not the unknown-id path below. (An earlier version
+    // passed `0`, which resolves to nothing at all — see the
+    // runtime-existence test in `url-codes.test.ts` — so it proved
+    // nothing this suite didn't already cover.)
+    const notARawHere = items.find(
+      (i) => !(rawAvailabilityByDomain.get(firstRaw.domain)?.has(i.id) ?? false),
+    );
+    expect(notARawHere).toBeDefined();
+    const token = `R${encodeItemRef(notARawHere!.id)}~${firstRaw.domain.slice("domain_".length)}~5`;
+    expect(decodeRaw(token)!.rawLimits?.overrides ?? []).toHaveLength(0);
   });
 
   test("a NaN value is dropped rather than poisoning the solver", () => {

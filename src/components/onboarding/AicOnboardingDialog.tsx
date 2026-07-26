@@ -85,7 +85,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
-import { pickLatestActive } from "@/hooks/useDomainSettings";
+import { pickLatestActive } from "@/lib/persisted-shape";
 import { cn } from "@/lib/utils";
 import { parseDomainId } from "@/types/domain";
 import type { Domain, DomainId } from "@/types/domain";

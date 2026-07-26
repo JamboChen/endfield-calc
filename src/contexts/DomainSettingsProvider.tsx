@@ -43,12 +43,11 @@
 
 import { useState, type ReactNode } from "react";
 
+import { useDomainSettings, type SharedPlanInit } from "@/hooks/useDomainSettings";
 import {
   DEFAULT_PERSISTED_SHAPE,
   loadPersistedShape,
-  useDomainSettings,
-  type SharedPlanInit,
-} from "@/hooks/useDomainSettings";
+} from "@/lib/persisted-shape";
 import {
   decodeSettingsSnapshot,
   readShareBlobFromHash,
