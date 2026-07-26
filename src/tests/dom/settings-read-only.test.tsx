@@ -24,60 +24,12 @@
  * and `HTMLElement.click()` honours the result), which is what makes the
  * behavioural half meaningful too.
  */
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { RegionConfigTabs } from "@/components/settings/RegionConfigTabs";
-import { DomainSettingsProvider } from "@/contexts/DomainSettingsProvider";
-
-import {
-  AIC_STORAGE_KEY,
-  CAP_TARGET,
-  ONBOARDING_STORAGE_KEY,
-  SHARED_SHAPE,
-  seedShareLink,
-} from "./shared-plan-fixture";
-
-/** No-op handlers: the toast-wrapped actions are `SettingsSheet`'s job. */
-const noop = () => {};
-
-/**
- * Render the sub-tabs for the region that owns the capped facility and
- * open the named tab.
- *
- * The region is derived from the fixture rather than hardcoded because
- * only regions WITH cap targets render a Limits tab at all.
- *
- * `shared: false` renders the same tree in ordinary editable mode, by
- * seeding the viewer's OWN settings with the fixture snapshot so the
- * provider sees no difference and stays out of shared-view. That keeps the
- * two modes comparing like with like: same region, same cap override, same
- * unresearched cap-raises — only `isSharedView` differs.
- */
-async function renderTab(
-  name: RegExp,
-  { shared = true }: { shared?: boolean } = {},
-): Promise<void> {
-  if (shared) {
-    seedShareLink(SHARED_SHAPE);
-  } else {
-    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, "1");
-    window.localStorage.setItem(AIC_STORAGE_KEY, JSON.stringify(SHARED_SHAPE));
-  }
-  render(
-    <DomainSettingsProvider>
-      <RegionConfigTabs
-        editingDomain={CAP_TARGET.domainId}
-        onToggleNode={noop}
-        onActivateLayer={noop}
-        onActivateGroup={noop}
-        onResetGroup={noop}
-      />
-    </DomainSettingsProvider>,
-  );
-  await userEvent.click(screen.getByRole("tab", { name }));
-}
+import { renderTab } from "./render-settings";
+import { CAP_TARGET } from "./shared-plan-fixture";
 
 /**
  * The Limits card header. Its accessible name is the facility name, which
@@ -152,7 +104,7 @@ describe("settings sub-tabs in read-only shared-view", () => {
     // hard-coding `disabled` on these controls (or dropping the per-card
     // actions outright) would satisfy the tests above while breaking the
     // ordinary editing path the fix promises is untouched.
-    await renderTab(/Limits/, { shared: false });
+    await renderTab(/Limits/, { mode: "own" });
 
     expect(screen.getByLabelText(/Custom/)).toBeEnabled();
     const checkboxes = screen.getAllByRole("checkbox");

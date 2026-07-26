@@ -13,15 +13,13 @@
  * resolves it at mount, and the assertions run against the context value
  * the whole app consumes.
  */
-import { act, render } from "@testing-library/react";
+import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { DomainSettingsProvider } from "@/contexts/DomainSettingsProvider";
-import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { metastorageSources, regionStructures } from "@/data";
-import type { DomainSettingsValue } from "@/hooks/useDomainSettings";
 import { DEFAULT_PERSISTED_SHAPE } from "@/lib/persisted-shape";
 
+import { renderProvider } from "./render-settings";
 import {
   AIC_STORAGE_KEY,
   CAP_KEY,
@@ -34,26 +32,6 @@ import {
   UNPINNED_DOMAIN,
   seedShareLink,
 } from "./shared-plan-fixture";
-
-/**
- * Mount the provider and hand back a live handle on the context value.
- *
- * `handle.value` is re-assigned on every render, so read it fresh after
- * each `act()` rather than destructuring once.
- */
-function renderProvider(): { value: DomainSettingsValue } {
-  const handle = {} as { value: DomainSettingsValue };
-  function Probe() {
-    handle.value = useDomainSettingsContext();
-    return null;
-  }
-  render(
-    <DomainSettingsProvider>
-      <Probe />
-    </DomainSettingsProvider>,
-  );
-  return handle;
-}
 
 describe("read-only shared-view", () => {
   it("enters shared-view for a link whose settings differ from the viewer's", () => {
