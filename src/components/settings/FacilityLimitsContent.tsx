@@ -41,6 +41,17 @@ interface FacilityLimitsContentProps {
   changedCaps?: ReadonlySet<string>;
   /** Read-only shared-view: cap-raise node ids that differ from the viewer's own. */
   changedNodes?: ReadonlySet<AicTechId>;
+  /**
+   * Freezes the editing controls while leaving expand/collapse navigation
+   * usable. Explicit rather than inferred from `changedCaps` /
+   * `changedNodes`, which are for accents and may legitimately be empty.
+   *
+   * This is why the caller must NOT wrap this content in a disabled
+   * `fieldset`: that would disable the collapsible card headers too (they
+   * are real `<button>`s), trapping every card in whatever state it
+   * happened to be in.
+   */
+  readOnly?: boolean;
 }
 
 function capKey(facilityId: FacilityId, domainId: DomainId): string {
@@ -82,6 +93,7 @@ export function FacilityLimitsContent({
   onDeactivateRaiseNodes,
   changedCaps,
   changedNodes,
+  readOnly = false,
 }: FacilityLimitsContentProps) {
   const { t } = useTranslation(["facility", "settings", "aic"]);
 
@@ -200,6 +212,7 @@ export function FacilityLimitsContent({
             onDeactivateRaiseNodes={onDeactivateRaiseNodes}
             changedCaps={changedCaps}
             changedNodes={changedNodes}
+            readOnly={readOnly}
           />
         );
       })}
@@ -224,6 +237,8 @@ interface CapTargetRowProps {
   onDeactivateRaiseNodes: (ids: readonly AicTechId[]) => void;
   changedCaps?: ReadonlySet<string>;
   changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes this card's edit controls — see `FacilityLimitsContentProps`. */
+  readOnly?: boolean;
 }
 
 function CapTargetRow({
@@ -239,6 +254,7 @@ function CapTargetRow({
   onDeactivateRaiseNodes,
   changedCaps,
   changedNodes,
+  readOnly = false,
 }: CapTargetRowProps) {
   const { t } = useTranslation(["facility", "settings", "aic"]);
 
@@ -327,8 +343,10 @@ function CapTargetRow({
     </span>
   );
 
+  // Hidden rather than disabled in read-only shared-view, mirroring the
+  // Plan tab's own activate / reset actions (`AicLayer`, `AicPlanContent`).
   const actions =
-    canActivateAny || canResetToBase ? (
+    !readOnly && (canActivateAny || canResetToBase) ? (
       <>
         {canActivateAny && (
           <Button
@@ -401,7 +419,9 @@ function CapTargetRow({
                   key={node.id}
                   className={cn(
                     settingsRowClass,
-                    "hover:bg-accent/40 cursor-pointer",
+                    // No hover/pointer affordance when the row can't be
+                    // toggled — a dead cursor reads as a broken control.
+                    !readOnly && "hover:bg-accent/40 cursor-pointer",
                     // Faded when prereqs aren't researched yet — a "level"
                     // hint, not a block: clicking still cascades them in.
                     isLocked && "opacity-55",
@@ -411,6 +431,7 @@ function CapTargetRow({
                 >
                   <Checkbox
                     checked={isResearched}
+                    disabled={readOnly}
                     onCheckedChange={() =>
                       isResearched
                         ? onToggle(node.id)
@@ -451,6 +472,7 @@ function CapTargetRow({
             id={`cap-override-${overrideKey}`}
             type="number"
             inputMode="numeric"
+            disabled={readOnly}
             value={draft}
             placeholder={String(gameCap)}
             onChange={(e) => setDraft(e.target.value)}

@@ -70,8 +70,17 @@ export function RegionConfigTabs({
   const { aic, rawLimits, structures, metastorage, domains, sharedDiff, isSharedView } =
     useDomainSettingsContext();
   // In read-only shared-view, disable every editing control in the tab
-  // bodies (tab triggers stay usable). A layout-neutral fieldset disables
-  // all nested native controls without threading `disabled` per row.
+  // bodies (tab triggers stay usable), by one of two mechanisms:
+  //
+  //   - FLAT bodies (Resources / Structures / Metastorage) get a
+  //     layout-neutral fieldset, which disables every nested native
+  //     control without threading `disabled` per row.
+  //   - COLLAPSIBLE bodies (Plan / Limits) take `readOnly` as a prop and
+  //     freeze their own controls. A fieldset is WRONG for them: it would
+  //     also disable the card header buttons that expand and collapse the
+  //     cards, plus the info popovers, so a viewer could no longer
+  //     navigate what they are allowed to read.
+  //
   // Read-only is its own signal on the context. `sharedDiff` is for
   // ACCENTS only: deriving the mode from it would silently unlock the
   // whole sheet if it were ever memoized to `null` for an empty diff.
@@ -232,10 +241,8 @@ export function RegionConfigTabs({
               })}
             </StatusLine>
           )}
-          {/* No fieldset here: the Plan tab's cards are collapsible and
-              carry info popovers — a disabled fieldset would trap them
-              collapsed. AicPlanContent disables its edit controls itself
-              via `readOnly`, keeping expand/collapse + popovers usable. */}
+          {/* Collapsible body: `readOnly` prop, no fieldset. See the
+              two-mechanism note where `readOnly` is derived. */}
           <AicPlanContent
             groups={groups}
             layers={aic.layers}
@@ -263,22 +270,23 @@ export function RegionConfigTabs({
               })}
             </StatusLine>
           )}
-          <fieldset disabled={readOnly} className={fieldsetClass}>
-            <FacilityLimitsContent
-              domainId={editingDomain}
-              capRaiseNodes={capRaiseNodes}
-              researched={aic.researched}
-              baseCaps={aic.baseCaps}
-              capOverrides={aic.capOverrides}
-              effectiveCaps={aic.effectiveCaps}
-              onToggle={onToggleNode}
-              onSetCapOverride={aic.setCapOverride}
-              onActivateRaiseNodes={aic.activateNodes}
-              onDeactivateRaiseNodes={aic.deactivateNodes}
-              changedCaps={sharedDiff?.capOverrides}
-              changedNodes={sharedDiff?.researched}
-            />
-          </fieldset>
+          {/* Collapsible body: `readOnly` prop, no fieldset. See the
+              two-mechanism note where `readOnly` is derived. */}
+          <FacilityLimitsContent
+            domainId={editingDomain}
+            capRaiseNodes={capRaiseNodes}
+            researched={aic.researched}
+            baseCaps={aic.baseCaps}
+            capOverrides={aic.capOverrides}
+            effectiveCaps={aic.effectiveCaps}
+            onToggle={onToggleNode}
+            onSetCapOverride={aic.setCapOverride}
+            onActivateRaiseNodes={aic.activateNodes}
+            onDeactivateRaiseNodes={aic.deactivateNodes}
+            changedCaps={sharedDiff?.capOverrides}
+            changedNodes={sharedDiff?.researched}
+            readOnly={readOnly}
+          />
         </TabsContent>
       )}
 
