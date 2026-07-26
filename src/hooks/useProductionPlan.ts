@@ -1231,10 +1231,17 @@ export function useProductionPlan(options: UseProductionPlanOptions) {
             setTargets(state.targets);
             setRecipeOverrides(state.recipeOverrides);
             setManualRawMaterials(state.manualRawMaterials);
-            setCeilMode(state.ceilMode);
-            setBinFusion(state.binFusion);
-            setPowerSustain(state.powerSustain);
-            setMachinesPerVaporizer(state.machinesPerVaporizer);
+            // Raw state setters, NOT the persisting wrappers: opening a
+            // file is not the user choosing a preference. The path above
+            // (a file carrying settings) re-enters through the URL and so
+            // persists nothing either — and a legacy file that OMITS an
+            // option would otherwise store that option's default as if it
+            // had been picked, clobbering what the user actually set.
+            setCeilModeState(state.ceilMode);
+            setBinFusionState(state.binFusion);
+            setPowerSustainState(state.powerSustain);
+            // `savedPlanToHashState` already sanitized this one.
+            setMachinesPerVaporizerState(state.machinesPerVaporizer);
           } catch {
             // ignore invalid files
           }
@@ -1245,14 +1252,7 @@ export function useProductionPlan(options: UseProductionPlanOptions) {
     }
     fileInputRef.current.value = "";
     fileInputRef.current.click();
-  }, [
-    onExternalPlan,
-    resetEditContext,
-    setCeilMode,
-    setBinFusion,
-    setPowerSustain,
-    setMachinesPerVaporizer,
-  ]);
+  }, [onExternalPlan, resetEditContext]);
 
   return {
     targets,

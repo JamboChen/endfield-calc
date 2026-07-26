@@ -27,6 +27,12 @@
  * option persists just that key; the sharer's other options never leak
  * into their preferences. Same anti-clobber rule the settings snapshot
  * follows, without needing read-only mode for four toggles.
+ *
+ * Loading a plan FILE is likewise not a setter call: `useProductionPlan`
+ * applies a file's options through the raw state setters, so someone
+ * else's saved plan cannot fold their four options into the opener's
+ * preferences — and a legacy file that omits an option cannot store that
+ * option's default as though it had been chosen.
  */
 
 import { namespaceStorageKey } from "@/lib/storage-namespace";
