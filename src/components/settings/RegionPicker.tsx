@@ -67,7 +67,8 @@ export function RegionPicker({
   );
 
   const currentDomainObj = options.find((d) => d.id === currentDomain);
-  const isTrivial = options.length <= 1 || disabled;
+  // Nothing to pick between, or the caller froze it (shared-view).
+  const pickerDisabled = options.length <= 1 || disabled;
 
   return (
     <div className="space-y-1.5">
@@ -86,7 +87,7 @@ export function RegionPicker({
           const d = parseDomainId(value);
           if (d) onChange(d);
         }}
-        disabled={isTrivial}
+        disabled={pickerDisabled}
       >
         <SelectTrigger
           id={pickerId}

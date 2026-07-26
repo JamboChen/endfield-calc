@@ -23,7 +23,7 @@
     "extract:raw-caps": "bun run scripts/extract-raw-caps.ts",
     "extract:all": "bun run scripts/extract-all.ts",
     "extract:item-colors": "bun run scripts/extract-item-colors.ts",
-    "extract:url-codes": "bun run scripts/gen-url-codes.ts",
+    "extract:url-codes": "bun run scripts/extract-url-codes.ts",
     "extract:icons": "bun run scripts/extract-icons.ts"
   },
   "dependencies": {

@@ -334,13 +334,15 @@ export function shapesEqual(a: PersistedShape, b: PersistedShape): boolean {
 
 /**
  * Extract the raw `s=` blob from a location hash (with or without the
- * leading `#`). Read manually rather than via `URLSearchParams` to
- * preserve any `+` characters in the lz-string output. Returns `null`
- * when absent or empty.
+ * leading `#`). Read manually rather than via `URLSearchParams`, whose
+ * round trip would re-encode the blob's `~` separators. Returns `null`
+ * when absent or empty. Keyed off `SHARE_HASH_KEY` so the reader and
+ * `withShareBlob` cannot drift.
  */
 export function readShareBlobFromHash(hash: string): string | null {
   const body = hash.startsWith("#") ? hash.slice(1) : hash;
-  const match = body.match(/(?:^|&)s=([^&]*)/);
+  // `(?:^|&)` anchors the key so `ps=`/`mpv=` can't match it.
+  const match = body.match(new RegExp(`(?:^|&)${SHARE_HASH_KEY}=([^&]*)`));
   return match && match[1] ? match[1] : null;
 }
 

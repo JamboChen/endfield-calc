@@ -158,6 +158,7 @@ import { hasSeenOnboarding, markOnboardingSeen } from "@/lib/onboarding-storage"
 import {
   NODE_DOMAIN_BY_GROUP,
   composeStateFromShape,
+  type ComposedState,
   loadPersistedShape,
   persistToStorage,
   pickLatestActive,
@@ -496,6 +497,15 @@ export interface SharedPlanInit {
   shape: PersistedShape;
 }
 
+/**
+ * The viewer's OWN settings, composed fresh from localStorage. Used by
+ * the two shared-view consumers that must ignore the live (snapshot)
+ * atoms: the exit path, and the per-setting diff.
+ */
+function loadOwnState(): ComposedState {
+  return composeStateFromShape(loadPersistedShape());
+}
+
 export function useDomainSettings(
   sharedInit?: SharedPlanInit,
 ): DomainSettingsValue {
@@ -653,7 +663,7 @@ export function useDomainSettings(
   // asks for their own settings has none, so letting the first-visit
   // dialog appear is the correct prompt, not a bug to suppress.
   const exitSharedPlan = useCallback(() => {
-    const own = composeStateFromShape(loadPersistedShape());
+    const own = loadOwnState();
     setInactiveDomains(own.inactiveDomains);
     setResearched(own.researched);
     setCapOverrides(own.capOverrides);
@@ -671,7 +681,7 @@ export function useDomainSettings(
   // written in shared-view, so `own` is stable across the session.
   const sharedDiff = useMemo<SharedSettingsDiff | null>(() => {
     if (!readOnly) return null;
-    const own = composeStateFromShape(loadPersistedShape());
+    const own = loadOwnState();
     return diffSettings(
       {
         inactiveDomains,

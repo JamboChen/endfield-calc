@@ -9,7 +9,7 @@
  * char base36 code from the append-only registries in
  * `src/data/{item,recipe,facility,structure,tech}-codes.ts` (code = the
  * entry's array index in base36). The registries are stable forever — see
- * `gen-url-codes.ts` — so codes in already-shared URLs never change
+ * `extract-url-codes.ts` — so codes in already-shared URLs never change
  * meaning.
  *
  * Decoding is backward-compatible: a token is resolved as a full id

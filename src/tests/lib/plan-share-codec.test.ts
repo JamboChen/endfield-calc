@@ -67,6 +67,7 @@ const firstStructure = (() => {
 const msSource = [...metastorageSources.keys()][0];
 if (!msSource) throw new Error("test setup: no Metastorage source");
 const lockedDest = domains.find((d) => d.id !== msSource)?.id;
+if (!lockedDest) throw new Error("test setup: no second domain for a locked route");
 
 const someTech =
   aicNodes.find((n) => !n.id.startsWith("tech_group_"))?.id ?? aicNodes[0].id;

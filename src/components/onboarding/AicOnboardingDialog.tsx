@@ -61,8 +61,8 @@
  *
  * # SSR safety
  *
- *   - The `localStorage` read is `hasSeenOnboarding()`, which returns
- *     false without a `window`, so server-side renders don't touch it.
+ *   - This component reads no storage at all. `onboardingPending` comes
+ *     from the hook, whose own read returns false without a `window`.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";

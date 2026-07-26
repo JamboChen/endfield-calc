@@ -1,5 +1,5 @@
 /**
- * gen-url-codes — maintains the stable, APPEND-ONLY id→code registries
+ * extract-url-codes — maintains the stable, APPEND-ONLY id→code registries
  * that keep shareable plan URLs short:
  *
  *   src/data/item-codes.ts       ItemId            (targets, raw limits, pins)
@@ -63,7 +63,7 @@ function fromConstantsEnum(typeName: string): () => string[] {
     );
     if (!block) {
       throw new Error(
-        `gen-url-codes: ${typeName} enum not found in constants.ts`,
+        `extract-url-codes: ${typeName} enum not found in constants.ts`,
       );
     }
     return [...block[1].matchAll(/:\s*"([^"]+)"/g)].map((m) => m[1]);
@@ -82,7 +82,7 @@ function fromAicNodes(): () => string[] {
       (m) => m[1],
     );
     if (ids.length === 0) {
-      throw new Error("gen-url-codes: no AicTechIds found in aic-plans.ts");
+      throw new Error("extract-url-codes: no AicTechIds found in aic-plans.ts");
     }
     return ids;
   };
@@ -147,7 +147,7 @@ function existingTable(outPath: string, tableName: string): string[] {
   );
   if (!arr) {
     throw new Error(
-      `gen-url-codes: could not read the existing ${tableName} from ` +
+      `extract-url-codes: could not read the existing ${tableName} from ` +
         `${path.relative(REPO_ROOT, outPath)} — refusing to run, since ` +
         `regenerating from scratch would renumber already-shared codes.`,
     );
@@ -200,7 +200,7 @@ function updateRegistry(registry: Registry): void {
 
   const liveCount = table.filter((id) => id !== "").length;
   console.log(
-    `[gen-url-codes] wrote ${path.relative(REPO_ROOT, outPath)} — ` +
+    `[extract-url-codes] wrote ${path.relative(REPO_ROOT, outPath)} — ` +
       `${liveCount} ${registry.label}, ${appended} appended, ` +
       `${table.length - liveCount} tombstones, next code "${table.length.toString(36)}"`,
   );

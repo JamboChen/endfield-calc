@@ -4,11 +4,13 @@
  *
  * The flag gates the once-per-browser `AicOnboardingDialog`. It is a
  * DIFFERENT key from the settings state (`endfield-calc:aic-v1`) and must
- * stay separate (see `.claude/rules/domain-settings.md`). This module
- * exists so the two writers of the flag — the dialog itself, and
- * `useDomainSettings.importSharedPlan` (adopting a shared plan's settings
- * counts as completing onboarding) — share one definition instead of
- * duplicating the namespaced key.
+ * stay separate (see `.claude/rules/domain-settings.md`).
+ *
+ * `useDomainSettings` is the only consumer — it reads the flag once into
+ * `onboardingPending` and writes it through `completeOnboarding` (which
+ * `importSharedPlan` also calls, since adopting a shared plan's settings
+ * counts as answering the question). Keeping the key here rather than
+ * inline is what makes that behaviour testable without a DOM.
  */
 
 import { namespaceStorageKey } from "@/lib/storage-namespace";

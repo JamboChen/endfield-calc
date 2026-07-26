@@ -33,12 +33,14 @@
  * # Onboarding dialog
  *
  * The provider also renders `<AicOnboardingDialog />` as a sibling of
- * `children`. The dialog is self-gating: it checks the
- * `endfield-calc:onboarding-v1` localStorage flag on mount and shows
- * itself only when absent. Co-locating it here keeps the "first-visit
- * AIC choice" UI bound to the same module that owns the per-domain
- * state it mutates. It is suppressed while viewing a shared plan (its
- * bulk-apply would mutate the read-only snapshot).
+ * `children`. Its open state is `onboardingPending` from the hook, which
+ * holds the `endfield-calc:onboarding-v1` flag as reactive state — the
+ * plan auto-prune waits on the same flag, so it cannot live inside the
+ * dialog. Co-locating the dialog here keeps the "first-visit AIC choice"
+ * UI bound to the module that owns the per-domain state it mutates. It
+ * is suppressed while viewing a shared plan (its bulk-apply would mutate
+ * the read-only snapshot), which means a never-onboarded viewer answers
+ * it only after leaving shared-view.
  */
 
 import { useState, type ReactNode } from "react";

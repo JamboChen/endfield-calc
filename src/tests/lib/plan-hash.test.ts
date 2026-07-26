@@ -24,6 +24,7 @@ import {
 import { DEFAULT_PLAN_OPTIONS } from "@/lib/plan-options-storage";
 import { encodeItemRef } from "@/lib/url-codes";
 import { items, recipes, MAX_TARGETS } from "@/data";
+import { stubLocalStorage } from "./fake-storage";
 
 const someItem = items[0].id;
 const otherItem = items[1].id;
@@ -324,20 +325,10 @@ describe("option preferences apply to a hash-less visit only", () => {
   // reproduce a shared plan with the WRONG options — silently. Without a
   // `window`, `loadPlanOptions` returns `{}` and this whole rule is
   // invisible, so the fake store is the point of these tests.
-  const stubStoredOptions = (stored: Record<string, unknown>) => {
-    const store = new Map<string, string>([
-      ["endfield-calc:plan-options-v1", JSON.stringify(stored)],
-    ]);
-    vi.stubGlobal("window", {
-      localStorage: {
-        getItem: (k: string): string | null => store.get(k) ?? null,
-        setItem: (k: string, v: string): void => {
-          store.set(k, v);
-        },
-      },
-      location: { hash: "" },
+  const stubStoredOptions = (stored: Record<string, unknown>) =>
+    stubLocalStorage({
+      "endfield-calc:plan-options-v1": JSON.stringify(stored),
     });
-  };
 
   afterEach(() => {
     vi.unstubAllGlobals();

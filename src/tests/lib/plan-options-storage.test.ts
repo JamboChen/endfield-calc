@@ -18,22 +18,12 @@ import {
   savePlanOption,
 } from "@/lib/plan-options-storage";
 import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
+import { stubLocalStorage, stubThrowingLocalStorage } from "./fake-storage";
 
 const KEY = "endfield-calc:plan-options-v1";
 
-function stubStorage(seed?: string) {
-  const store = new Map<string, string>();
-  if (seed !== undefined) store.set(KEY, seed);
-  vi.stubGlobal("window", {
-    localStorage: {
-      getItem: (k: string): string | null => store.get(k) ?? null,
-      setItem: (k: string, v: string): void => {
-        store.set(k, v);
-      },
-    },
-  });
-  return store;
-}
+const stubStorage = (seed?: string) =>
+  stubLocalStorage(seed === undefined ? {} : { [KEY]: seed });
 
 describe("plan-options-storage", () => {
   afterEach(() => {
@@ -131,16 +121,7 @@ describe("plan-options-storage", () => {
   });
 
   test("a throwing localStorage is swallowed", () => {
-    vi.stubGlobal("window", {
-      localStorage: {
-        getItem: () => {
-          throw new Error("blocked");
-        },
-        setItem: () => {
-          throw new Error("blocked");
-        },
-      },
-    });
+    stubThrowingLocalStorage();
     expect(loadPlanOptions()).toEqual({});
     expect(() => savePlanOption("ceilMode", true)).not.toThrow();
   });

@@ -46,10 +46,10 @@ const PLAN_OPTIONS_STORAGE_KEY = namespaceStorageKey(
  * options exist.
  */
 export interface PlanOptions {
-  ceilMode: boolean;
-  binFusion: boolean;
-  powerSustain: boolean;
-  machinesPerVaporizer: number;
+  readonly ceilMode: boolean;
+  readonly binFusion: boolean;
+  readonly powerSustain: boolean;
+  readonly machinesPerVaporizer: number;
 }
 
 /**
@@ -95,7 +95,8 @@ const VALIDATORS: {
 
 /** Coerce a parsed payload, dropping anything of the wrong shape. */
 function sanitize(parsed: Record<string, unknown>): StoredPlanOptions {
-  const out: StoredPlanOptions = {};
+  const out: { -readonly [K in keyof StoredPlanOptions]: StoredPlanOptions[K] } =
+    {};
   for (const key of Object.keys(VALIDATORS) as (keyof PlanOptions)[]) {
     const value = VALIDATORS[key](parsed[key]);
     // Narrowing per key: the map's value type is keyed to `key`, but TS

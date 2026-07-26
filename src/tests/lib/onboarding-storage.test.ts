@@ -9,20 +9,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { hasSeenOnboarding, markOnboardingSeen } from "@/lib/onboarding-storage";
-
-function fakeLocalStorage() {
-  const store = new Map<string, string>();
-  return {
-    getItem: (k: string): string | null => store.get(k) ?? null,
-    setItem: (k: string, v: string): void => {
-      store.set(k, v);
-    },
-    removeItem: (k: string): void => {
-      store.delete(k);
-    },
-    clear: (): void => store.clear(),
-  };
-}
+import { stubLocalStorage, stubThrowingLocalStorage } from "./fake-storage";
 
 describe("onboarding-storage", () => {
   afterEach(() => {
@@ -30,7 +17,7 @@ describe("onboarding-storage", () => {
   });
 
   test("markOnboardingSeen → hasSeenOnboarding round-trips", () => {
-    vi.stubGlobal("window", { localStorage: fakeLocalStorage() });
+    stubLocalStorage();
     expect(hasSeenOnboarding()).toBe(false);
     markOnboardingSeen();
     expect(hasSeenOnboarding()).toBe(true);
@@ -43,16 +30,7 @@ describe("onboarding-storage", () => {
   });
 
   test("a throwing localStorage is swallowed (treated as unseen)", () => {
-    vi.stubGlobal("window", {
-      localStorage: {
-        getItem: () => {
-          throw new Error("blocked");
-        },
-        setItem: () => {
-          throw new Error("blocked");
-        },
-      },
-    });
+    stubThrowingLocalStorage();
     expect(hasSeenOnboarding()).toBe(false);
     expect(() => markOnboardingSeen()).not.toThrow();
   });
