@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Check, ChevronsDownUp, ChevronsUpDown, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -473,6 +474,7 @@ function CapTargetRow({
             id={`cap-override-${overrideKey}`}
             type="number"
             inputMode="numeric"
+            min={0}
             disabled={readOnly}
             value={draft}
             placeholder={String(gameCap)}
@@ -482,11 +484,24 @@ function CapTargetRow({
                 onSetCapOverride(target.facilityId, target.domainId, null);
                 return;
               }
+              // Non-negative, like the raw-limit field. A negative cap
+              // would reach the LP as a negative hard facility limit for
+              // this session and then silently vanish on reload, since
+              // `sanitizePersistedShape` drops it at rest. Toast rather
+              // than revert silently, so the value disappearing from the
+              // field reads as a rejection instead of a glitch.
               const v = parseInt(draft, 10);
-              if (Number.isFinite(v)) {
+              if (Number.isFinite(v) && v >= 0) {
                 onSetCapOverride(target.facilityId, target.domainId, v);
               } else {
                 setDraft(hasOverride ? String(overrideValue) : "");
+                toast.warning(
+                  t("aic.facilityLimits.invalidValue", {
+                    ns: "settings",
+                    defaultValue:
+                      "Limit must be a non-negative number. Value not saved.",
+                  }),
+                );
               }
             }}
             className="h-9 sm:h-7 w-20 text-xs tabular-nums"

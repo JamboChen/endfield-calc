@@ -71,7 +71,8 @@
       "gameCap": "游戏上限",
       "customCap": "自定义",
       "effective": "实际",
-      "resetToBase": "重置为基础上限"
+      "resetToBase": "重置为基础上限",
+      "invalidValue": "上限必须为非负数。未保存。"
     },
     "domain": {
       "toggleActivate": "激活 {{name}}",

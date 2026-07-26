@@ -71,7 +71,8 @@
       "gameCap": "遊戲上限",
       "customCap": "自訂",
       "effective": "實際",
-      "resetToBase": "重置為基礎上限"
+      "resetToBase": "重置為基礎上限",
+      "invalidValue": "上限必須為非負數。未儲存。"
     },
     "domain": {
       "toggleActivate": "啟用 {{name}}",

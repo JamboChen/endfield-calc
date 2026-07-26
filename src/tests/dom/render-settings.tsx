@@ -41,7 +41,7 @@ export interface SettingsHandle {
  * comparing like with like: same region, same cap override, same
  * unresearched cap-raises, only `isSharedView` differs.
  */
-export function seedSettings(mode: "shared" | "own"): void {
+function seedSettings(mode: "shared" | "own"): void {
   if (mode === "shared") {
     seedShareLink(SHARED_SHAPE);
     return;

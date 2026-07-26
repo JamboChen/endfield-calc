@@ -71,7 +71,8 @@
       "gameCap": "게임 한도",
       "customCap": "사용자 지정",
       "effective": "실효",
-      "resetToBase": "기본 한도로 재설정"
+      "resetToBase": "기본 한도로 재설정",
+      "invalidValue": "한도는 0 이상의 숫자여야 합니다. 값이 저장되지 않았습니다."
     },
     "domain": {
       "toggleActivate": "{{name}} 활성화",

@@ -71,7 +71,8 @@
       "gameCap": "Game limit",
       "customCap": "Custom",
       "effective": "Effective",
-      "resetToBase": "Reset to base limit"
+      "resetToBase": "Reset to base limit",
+      "invalidValue": "Limit must be a non-negative number. Value not saved."
     },
     "domain": {
       "toggleActivate": "Activate {{name}}",

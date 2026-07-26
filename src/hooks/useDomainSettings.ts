@@ -950,8 +950,17 @@ export function useDomainSettings(
       setCapOverrides((prev) => {
         const next = new Map(prev);
         const key = capKey(facilityId, domainId);
-        if (value === null || !Number.isFinite(value)) next.delete(key);
-        else next.set(key, value);
+        // Reject null, non-finite (NaN / Infinity), and negative values.
+        // The UI also rejects these at input time; this is the hook-layer
+        // safety net so any caller (URL load, programmatic set, etc.) hits
+        // the same gate. `sanitizePersistedShape` already drops negatives
+        // at rest, so without this a negative cap would apply to the LP
+        // for one session and then vanish on the next reload.
+        if (value === null || !Number.isFinite(value) || value < 0) {
+          next.delete(key);
+        } else {
+          next.set(key, value);
+        }
         return next;
       });
     },

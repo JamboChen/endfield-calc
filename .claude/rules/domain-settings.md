@@ -108,6 +108,7 @@ Opening a link (or a saved file) whose embedded settings differ from the viewer'
 ## Facility caps + over-cap warnings (verified pipeline)
 
 - User-overridable per-(facility, domain) caps live in `aic.capOverrides: ReadonlyMap<string, number>` keyed by `capKey(facilityId, domainId)` = `${facilityId}\u0000${domainId}`.
+- **An override value is validated at three layers, and they must agree** (same contract as raw limits): the input rejects and toasts, `setCapOverride` rejects as the net for every non-UI caller (URL, saved file, programmatic), and `sanitizePersistedShape` rejects at rest. A value accepted by fewer layers than the others applies to the LP for one session and then vanishes on reload. Today's rule is finite and `>= 0`; `computeEffectiveCaps` passes the override straight through (`override ?? base + raises`), so nothing downstream re-checks it.
 - `aic.effectiveCaps` derives `base + raises` (or override if set) per facility per domain.
 - `App.tsx` builds the aggregate `facilityCaps: ReadonlyMap<FacilityId, number>` (sum across active domains of `effectiveCaps`, PLUS `+1` per enabled `role: "instance"` structure) and threads it into:
   1. The **LP** (`lp-solver.ts` per-facility cap constraint) — soft upper bound with `SLACK_PENALTY`: `Σ_{r : r.facilityId === F} x_r ≤ cap + slack`. The penalty makes the LP respect the cap whenever any alternative producer exists; slack engages only when demand is otherwise infeasible.

@@ -71,7 +71,8 @@
       "gameCap": "Límite del juego",
       "customCap": "Personalizado",
       "effective": "Efectivo",
-      "resetToBase": "Restablecer al límite base"
+      "resetToBase": "Restablecer al límite base",
+      "invalidValue": "El límite debe ser un número no negativo. Valor no guardado."
     },
     "domain": {
       "toggleActivate": "Activar {{name}}",
