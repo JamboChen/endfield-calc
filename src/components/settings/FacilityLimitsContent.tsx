@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useNumericDraft } from "@/hooks/useNumericDraft";
 import { cn } from "@/lib/utils";
 import { facilities } from "@/data";
 import { FacilityIcon } from "@/components/FacilityIcon";
@@ -288,9 +289,9 @@ function CapTargetRow({
     return value;
   }, [target, researched]);
 
-  const [draft, setDraft] = useState<string>(
-    hasOverride ? String(overrideValue) : "",
-  );
+  // Resyncs when the override changes externally, so the field can never
+  // sit on a value the app did not store and write it back on blur.
+  const [draft, setDraft] = useNumericDraft(overrideValue);
 
   // Per-facility Activate Check button: hide when there's nothing to
   // activate (no cap-raise nodes) or everything is already researched.

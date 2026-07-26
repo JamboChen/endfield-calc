@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { defaultRawCapsByDomain, items } from "@/data";
+import { useNumericDraft } from "@/hooks/useNumericDraft";
 import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import { filterRegionRawItems } from "@/lib/settings-helpers";
 import { cn } from "@/lib/utils";
@@ -184,16 +185,9 @@ function RawLimitRow({
   const { t } = useTranslation(["item", "settings"]);
   const itemName = t(item.id, { ns: "item", defaultValue: item.id });
   const hasOverride = value !== undefined;
-  const [draft, setDraft] = useState<string>(hasOverride ? String(value) : "");
-
-  // Sync the local draft when `value` changes externally — e.g. the
-  // tab-level "Clear all" (which clears via `onSetLimit(null)`), or a
-  // future write path (import / URL load). Without this, the draft would
-  // diverge from the persisted value and the next blur would write the
-  // stale draft back.
-  useEffect(() => {
-    setDraft(value !== undefined ? String(value) : "");
-  }, [value]);
+  // Resyncs when `value` changes externally — here that is the tab-level
+  // "Clear all", which clears other mounted rows via `onSetLimit(null)`.
+  const [draft, setDraft] = useNumericDraft(value);
 
   // parseFloat with finite + non-negative check, empty → clear override.
   // Fractional caps are intentional (a pump cycling every 2 min is
