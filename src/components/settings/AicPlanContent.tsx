@@ -293,6 +293,7 @@ function AicPlanGroup({
         onToggleNode={onToggleNode}
         onActivateLayer={onActivateLayer}
         changedNodes={changedNodes}
+        readOnly={readOnly}
       />
     </div>
   );
