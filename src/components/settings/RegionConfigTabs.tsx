@@ -67,12 +67,15 @@ export function RegionConfigTabs({
   onResetGroup,
 }: RegionConfigTabsProps) {
   const { t } = useTranslation(["settings"]);
-  const { aic, rawLimits, structures, metastorage, domains, sharedDiff } =
+  const { aic, rawLimits, structures, metastorage, domains, sharedDiff, isSharedView } =
     useDomainSettingsContext();
   // In read-only shared-view, disable every editing control in the tab
   // bodies (tab triggers stay usable). A layout-neutral fieldset disables
   // all nested native controls without threading `disabled` per row.
-  const readOnly = sharedDiff !== null;
+  // Read-only is its own signal on the context. `sharedDiff` is for
+  // ACCENTS only: deriving the mode from it would silently unlock the
+  // whole sheet if it were ever memoized to `null` for an empty diff.
+  const readOnly = isSharedView;
   const fieldsetClass = "min-w-0 border-0 p-0 m-0";
 
   const groups = useMemo(
@@ -232,8 +235,7 @@ export function RegionConfigTabs({
           {/* No fieldset here: the Plan tab's cards are collapsible and
               carry info popovers — a disabled fieldset would trap them
               collapsed. AicPlanContent disables its edit controls itself
-              (derived from `changedNodes` presence) while keeping
-              expand/collapse + popovers usable. */}
+              via `readOnly`, keeping expand/collapse + popovers usable. */}
           <AicPlanContent
             groups={groups}
             layers={aic.layers}
@@ -245,6 +247,7 @@ export function RegionConfigTabs({
             onActivateGroup={onActivateGroup}
             onResetGroup={onResetGroup}
             changedNodes={sharedDiff?.researched}
+            readOnly={readOnly}
           />
         </TabsContent>
       )}

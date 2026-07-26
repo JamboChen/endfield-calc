@@ -46,11 +46,14 @@ export function RegionNavMenu({
   onEditingDomainChange,
 }: RegionNavMenuProps) {
   const { t } = useTranslation(["settings", "domain"]);
-  const { domains, activeDomains, currentDomain, toggleDomain, sharedDiff } =
+  const { domains, activeDomains, currentDomain, toggleDomain, sharedDiff, isSharedView } =
     useDomainSettingsContext();
   // Read-only shared-view: viewing other regions stays allowed, but the
   // activation switches are frozen (they'd mutate the shared snapshot).
-  const readOnly = sharedDiff !== null;
+  // Read-only is its own signal on the context. `sharedDiff` is for
+  // ACCENTS only: deriving the mode from it would silently unlock the
+  // whole sheet if it were ever memoized to `null` for an empty diff.
+  const readOnly = isSharedView;
   const domainChanged = (id: DomainId): boolean =>
     (sharedDiff?.domainActivation.has(id) ?? false) ||
     (id === currentDomain && (sharedDiff?.currentDomainChanged ?? false));

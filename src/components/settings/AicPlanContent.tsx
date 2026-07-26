@@ -28,6 +28,9 @@ interface AicPlanContentProps {
   onResetGroup: (groupId: AicGroupId) => void;
   /** Read-only shared-view: node ids whose researched state differs from own. */
   changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes the controls. Explicit rather than inferred from
+   *  `changedNodes`, which is for accents and may legitimately be empty. */
+  readOnly?: boolean;
 }
 
 /**
@@ -49,6 +52,7 @@ export function AicPlanContent({
   onActivateGroup,
   onResetGroup,
   changedNodes,
+  readOnly = false,
 }: AicPlanContentProps) {
   return (
     <div className="space-y-3">
@@ -65,6 +69,7 @@ export function AicPlanContent({
           onActivateGroup={onActivateGroup}
           onResetGroup={onResetGroup}
           changedNodes={changedNodes}
+          readOnly={readOnly}
         />
       ))}
     </div>
@@ -82,6 +87,9 @@ interface AicPlanGroupProps {
   onActivateGroup: (groupId: AicGroupId) => void;
   onResetGroup: (groupId: AicGroupId) => void;
   changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes the group's edit actions while leaving expand/collapse
+   *  navigation usable — see `AicPlanContentProps.readOnly`. */
+  readOnly?: boolean;
 }
 
 function AicPlanGroup({
@@ -95,12 +103,9 @@ function AicPlanGroup({
   onActivateGroup,
   onResetGroup,
   changedNodes,
+  readOnly = false,
 }: AicPlanGroupProps) {
   const { t } = useTranslation(["aic", "settings"]);
-  // `changedNodes` is threaded only in read-only shared-view (undefined
-  // in normal mode) — its presence freezes the group edit actions while
-  // leaving expand/collapse navigation usable.
-  const readOnly = changedNodes !== undefined;
 
   const groupLayers = useMemo(
     () => layers.filter((l) => l.groupId === group.id),

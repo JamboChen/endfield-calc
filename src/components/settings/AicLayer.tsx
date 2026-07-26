@@ -26,6 +26,9 @@ interface AicLayerProps {
   onActivateLayer: () => void;
   /** Read-only shared-view: node ids whose researched state differs from own. */
   changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes the controls. Explicit rather than inferred from
+   *  `changedNodes`, which is for accents and may legitimately be empty. */
+  readOnly?: boolean;
 }
 
 function AicLayerSection({
@@ -37,11 +40,9 @@ function AicLayerSection({
   onToggle,
   onActivateLayer,
   changedNodes,
+  readOnly = false,
 }: AicLayerProps) {
   const { t } = useTranslation(["aic", "settings"]);
-  // `changedNodes` is threaded only in read-only shared-view (undefined
-  // in normal mode), so its presence is the read-only signal.
-  const readOnly = changedNodes !== undefined;
 
   // Count facility-unlock + mode-unlock nodes only — cap-raises live in the
   // Facility-limits section, so they shouldn't double up the layer count.
@@ -134,6 +135,8 @@ interface AicLayerListProps {
   onActivateLayer: (layerId: string) => void;
   /** Read-only shared-view: node ids whose researched state differs from own. */
   changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes the controls — see `AicLayerProps.readOnly`. */
+  readOnly?: boolean;
 }
 
 /**
@@ -148,6 +151,7 @@ export function AicLayerList({
   onToggleNode,
   onActivateLayer,
   changedNodes,
+  readOnly = false,
 }: AicLayerListProps) {
   const ordered = useMemo(
     () => [...layers].sort((a, b) => a.order - b.order),
@@ -169,6 +173,7 @@ export function AicLayerList({
             onToggle={onToggleNode}
             onActivateLayer={() => onActivateLayer(layer.id)}
             changedNodes={changedNodes}
+            readOnly={readOnly}
           />
         );
       })}
