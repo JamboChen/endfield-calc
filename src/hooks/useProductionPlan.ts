@@ -9,6 +9,12 @@ import {
   sanitizeMachinesPerVaporizer,
 } from "@/lib/sustain-constants";
 import { savePlanOption } from "@/lib/plan-options-storage";
+import {
+  buildSavedPlan,
+  readSavedSettings,
+  savedPlanToHashState,
+  type SavedPlan,
+} from "@/lib/plan-file";
 import { computePlanPrune } from "@/lib/plan-prune";
 import {
   encodeSettingsSnapshot,
@@ -69,43 +75,6 @@ export type PowerTarget = {
   /** The Thermal Bank facility (for the localized name). */
   facility: Facility;
 };
-
-interface SavedPlan {
-  version: string;
-  /** `locked` is optional/additive: legacy saves omit it (= unlocked). */
-  targets: { itemId: string; rate: number; locked?: boolean }[];
-  recipeOverrides: Record<string, string>;
-  manualRawMaterials: string[];
-  ceilMode: boolean;
-  /**
-   * Optional. When absent (legacy saves predating bin-fusion), the
-   * loader defaults to `true` (bin-fusion on) — matching the
-   * `parseHash` default.
-   */
-  binFusion?: boolean;
-  /**
-   * Optional. Self-sustaining power (Thermal Bank battery burning).
-   * When absent (legacy saves), defaults to `false` — matching the
-   * `parseHash` default.
-   */
-  powerSustain?: boolean;
-  /**
-   * Optional. Gas-environment coverage ratio (1.4): how many env-gated
-   * machines one Gas Dispersing Unit's 13×13 aura covers. When absent,
-   * defaults to `DEFAULT_MACHINES_PER_VAPORIZER` — matching the
-   * `parseHash` default.
-   */
-  machinesPerVaporizer?: number;
-  /**
-   * Optional. The sharer's domain/user settings snapshot (region, AIC
-   * research, facility/raw caps, structures, metastorage routes), so the
-   * saved plan reproduces exactly as authored. When absent (legacy
-   * saves), the plan loads against the opener's own settings. When
-   * present + different, opening enters read-only shared-view (same as a
-   * shared URL) — see `handleOpenPlan`.
-   */
-  settings?: PersistedShape;
-}
 
 /**
  * A user-pinned (item, recipe) pair where the LP chose to produce zero
@@ -1179,26 +1148,21 @@ export function useProductionPlan(options: UseProductionPlanOptions) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSavePlan = useCallback(() => {
-    const data: SavedPlan = {
-      version: "1",
-      targets: targets.map((t) => ({
-        itemId: t.itemId,
-        rate: t.rate,
-        ...(t.locked ? { locked: true } : {}),
-      })),
-      recipeOverrides: Object.fromEntries(recipeOverrides),
-      manualRawMaterials: Array.from(manualRawMaterials),
-      ceilMode,
-      binFusion,
-      powerSustain,
-      ...(machinesPerVaporizer !== DEFAULT_MACHINES_PER_VAPORIZER
-        ? { machinesPerVaporizer }
-        : {}),
-      // Embed the current domain/user settings so the saved plan
-      // reproduces exactly as authored (region, AIC, caps, structures,
-      // metastorage) — the file-side twin of the shared URL's `s=` blob.
-      settings: settingsShape,
-    };
+    // Embeds the current domain/user settings so the saved plan
+    // reproduces exactly as authored (region, AIC, caps, structures,
+    // metastorage) — the file-side twin of the shared URL's `s=` blob.
+    const data = buildSavedPlan(
+      {
+        targets,
+        recipeOverrides,
+        manualRawMaterials,
+        ceilMode,
+        binFusion,
+        powerSustain,
+        machinesPerVaporizer,
+      },
+      settingsShape,
+    );
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1224,55 +1188,38 @@ export function useProductionPlan(options: UseProductionPlanOptions) {
           try {
             const data = JSON.parse(ev.target?.result as string) as SavedPlan;
             if (data.version !== "1") return;
+            const state = savedPlanToHashState(data);
             // A settings snapshot travels with the plan → reproduce it
             // exactly by re-entering through the URL, which the provider
             // resolves into read-only shared-view at mount (identical to
             // a shared link, and only when it differs from the opener's
-            // own settings). Reload so the seed applies synchronously
-            // with no auto-prune flash. Legacy files (no `settings`)
-            // fall through to the direct in-place load below.
-            if (data.settings) {
-              const settingsBlob = encodeSettingsSnapshot(data.settings);
-              const base = serializeHash(
-                {
-                  targets: data.targets.map((t) =>
-                    t.locked === true
-                      ? {
-                          itemId: t.itemId as ItemId,
-                          rate: t.rate,
-                          locked: true,
-                        }
-                      : { itemId: t.itemId as ItemId, rate: t.rate },
-                  ),
-                  recipeOverrides: new Map(
-                    Object.entries(data.recipeOverrides).map(([k, v]) => [
-                      k as ItemId,
-                      v as RecipeId,
-                    ]),
-                  ),
-                  manualRawMaterials: new Set(
-                    data.manualRawMaterials as ItemId[],
-                  ),
-                  ceilMode: data.ceilMode,
-                  binFusion: data.binFusion ?? true,
-                  powerSustain: data.powerSustain ?? false,
-                  machinesPerVaporizer: sanitizeMachinesPerVaporizer(
-                    data.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
-                  ),
-                },
-                settingsBlob,
-              );
+            // own settings).
+            //
+            // Only a snapshot that SURVIVES validation takes this path.
+            // A file with no settings, or with a block too damaged to
+            // read, falls through to the in-place load below and runs
+            // against the opener's own world — see `readSavedSettings`.
+            const settings = readSavedSettings(data);
+            if (settings) {
+              const settingsBlob = encodeSettingsSnapshot(settings);
+              const base = serializeHash(state, settingsBlob);
               // `serializeHash` emits nothing for a target-less plan
               // (keeps a live URL clean). For a file re-entry that must
               // NOT lose the saved settings, keep the blob even with zero
-              // targets so shared-view still triggers on the reload.
+              // targets so shared-view still triggers.
               const planHash = base || withShareBlob("", settingsBlob);
               history.replaceState(
                 null,
                 "",
                 `${window.location.pathname}${window.location.search}#${encodeHashToken(planHash)}`,
               );
-              window.location.reload();
+              // Re-enter against the hash just written. The remount runs
+              // the same mount-time seeding a fresh visit does while the
+              // calc worker and its WASM survive; a full reload would
+              // throw those away for no gain. Falls back to one when the
+              // caller wired no handler.
+              if (onExternalPlan) onExternalPlan();
+              else window.location.reload();
               return;
             }
             // Whole-array replacement: any remembered "last edited"
@@ -1281,32 +1228,13 @@ export function useProductionPlan(options: UseProductionPlanOptions) {
             // over-limit plan is not an edit and must not trigger an
             // immediate rebalance.
             resetEditContext({ disarm: true });
-            setTargets(
-              data.targets.map((t) =>
-                t.locked === true
-                  ? { itemId: t.itemId as ItemId, rate: t.rate, locked: true }
-                  : { itemId: t.itemId as ItemId, rate: t.rate },
-              ),
-            );
-            setRecipeOverrides(
-              new Map(
-                Object.entries(data.recipeOverrides).map(([k, v]) => [
-                  k as ItemId,
-                  v as RecipeId,
-                ]),
-              ),
-            );
-            setManualRawMaterials(new Set(data.manualRawMaterials as ItemId[]));
-            setCeilMode(data.ceilMode);
-            // Legacy saves (pre-bin-fusion) omit `binFusion`; default to on
-            // to match `parseHash` and the in-app default.
-            setBinFusion(data.binFusion ?? true);
-            // Legacy saves omit `powerSustain`; default off (parseHash).
-            setPowerSustain(data.powerSustain ?? false);
-            // Legacy saves omit `machinesPerVaporizer`; default 4.
-            setMachinesPerVaporizer(
-              data.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
-            );
+            setTargets(state.targets);
+            setRecipeOverrides(state.recipeOverrides);
+            setManualRawMaterials(state.manualRawMaterials);
+            setCeilMode(state.ceilMode);
+            setBinFusion(state.binFusion);
+            setPowerSustain(state.powerSustain);
+            setMachinesPerVaporizer(state.machinesPerVaporizer);
           } catch {
             // ignore invalid files
           }
@@ -1318,6 +1246,7 @@ export function useProductionPlan(options: UseProductionPlanOptions) {
     fileInputRef.current.value = "";
     fileInputRef.current.click();
   }, [
+    onExternalPlan,
     resetEditContext,
     setCeilMode,
     setBinFusion,
