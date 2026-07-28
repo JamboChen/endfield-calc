@@ -624,7 +624,28 @@ function AppContent({ onExternalPlan }: { onExternalPlan: () => void }) {
   };
 
   return (
-    <div className="h-screen flex flex-col p-4 pb-0 gap-4 overflow-x-hidden [@media(orientation:portrait)]:pb-[max(1rem,env(safe-area-inset-bottom))]">
+    /*
+     * `h-dvh`, not the `screen` height utility it replaced (naming that
+     * class here would make Tailwind emit its rule, since the scanner
+     * reads comments too): `100vh` is the LARGE viewport, i.e. the
+     * height as if the browser's retractable chrome were hidden. This
+     * shell is a fixed-height, non-scrolling column, so with `100vh` it
+     * stands taller than the visible area whenever the URL bar is
+     * showing, pushing its last child below the fold — in portrait that
+     * child is `MobileNav`, the primary navigation. Nothing scrolls here
+     * to make the toolbar retract and hand the space back, so it stays
+     * lost. `100dvh` tracks the height actually available.
+     *
+     * The usual objection to `dvh` (reflow as the toolbar animates) does
+     * not apply for the same reason: there is no vertical scroll to
+     * trigger the transition.
+     *
+     * Composes with the padding below: `viewport-fit=cover` (index.html)
+     * lets the viewport extend under the home indicator, `dvh` includes
+     * that region, and `env(safe-area-inset-bottom)` lifts content back
+     * out of it.
+     */
+    <div className="h-dvh flex flex-col p-4 pb-0 gap-4 overflow-x-hidden [@media(orientation:portrait)]:pb-[max(1rem,env(safe-area-inset-bottom))]">
       <AppHeader
         onLanguageChange={handleLanguageChange}
         onSavePlan={handleSavePlan}
