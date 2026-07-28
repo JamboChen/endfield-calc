@@ -25,11 +25,14 @@ import {
   Save,
   FolderOpen,
   Settings,
+  Share2,
   MoreHorizontal,
   Languages,
 } from "lucide-react";
 import { SiGithub, SiDiscord, SiTencentqq } from "react-icons/si";
+import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { sharePlanLink } from "@/lib/share-plan";
 
 interface AppHeaderProps {
   onLanguageChange: (lang: string) => void;
@@ -135,10 +138,52 @@ export default function AppHeader({
   const currentLang = resolveDisplayLang(i18n.language);
 
   const settingsLabel = t("title", { ns: "settings", defaultValue: "Settings" });
+  const shareLabel = t("header.share", { defaultValue: "Share Plan" });
+
+  /**
+   * Hand the current URL to the OS share sheet, or copy it.
+   *
+   * Must stay synchronous up to the `sharePlanLink` call: the Web Share
+   * API needs the click's transient activation, and an `await` here would
+   * consume it. `window.location.href` is read at click time because the
+   * plan/URL sync effect rewrites the hash as the plan changes.
+   *
+   * Shared unconditionally, even with no targets: a plan-less URL is
+   * still a link to the tool, which is a reasonable thing to send.
+   */
+  const handleShare = () => {
+    void sharePlanLink({
+      url: window.location.href,
+      title: t("title"),
+    }).then((outcome) => {
+      // "shared" and "dismissed" are both the user getting what they
+      // asked for; only the fallback paths need narrating.
+      if (outcome === "copied") {
+        toast.success(
+          t("sharedPlan.linkCopied", {
+            defaultValue: "Link copied to clipboard.",
+          }),
+        );
+      } else if (outcome === "unavailable") {
+        toast.error(
+          t("sharedPlan.shareFailed", {
+            defaultValue: "Couldn't share the link.",
+          }),
+        );
+      }
+    });
+  };
 
   return (
     <div className="flex items-center justify-between gap-2 min-h-9">
-      <h1 className="text-xl font-bold whitespace-nowrap">{t("title")}</h1>
+      {/* Fluid rather than fixed `text-xl`: the toolbar is 4 controls
+          wide on mobile, and a 10-glyph CJK title at 20px would overflow
+          a 360px viewport (the root clips rather than scrolls). Scales
+          only below ~500px, so wider screens are unchanged; `min-w-0` +
+          `truncate` is the floor for the narrowest devices. */}
+      <h1 className="text-[length:clamp(1rem,4vw,1.25rem)] font-bold whitespace-nowrap min-w-0 truncate">
+        {t("title")}
+      </h1>
 
       {/* Desktop toolbar */}
       <div className="hidden md:flex items-center gap-1">
@@ -147,6 +192,9 @@ export default function AppHeader({
         </HeaderIconButton>
         <HeaderIconButton label={t("header.open")} onClick={onOpenPlan}>
           <FolderOpen className="h-4 w-4" />
+        </HeaderIconButton>
+        <HeaderIconButton label={shareLabel} onClick={handleShare}>
+          <Share2 className="h-4 w-4" />
         </HeaderIconButton>
 
         <Separator orientation="vertical" className="h-5 mx-1" />
@@ -275,6 +323,12 @@ export default function AppHeader({
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Outside the overflow menu on purpose: sharing a link is the
+            action mobile users reach for most, and burying it behind `⋯`
+            would defeat the point of wiring up the native share sheet. */}
+        <HeaderIconButton label={shareLabel} onClick={handleShare}>
+          <Share2 className="h-4 w-4" />
+        </HeaderIconButton>
         <HeaderIconButton label={settingsLabel} onClick={onOpenSettings}>
           <Settings className="h-4 w-4" />
         </HeaderIconButton>

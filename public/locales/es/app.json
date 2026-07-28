@@ -51,6 +51,7 @@
     "open": "Abrir plan",
     "qqGroup": "Grupo de QQ",
     "save": "Guardar plan",
+    "share": "Compartir plan",
     "toggleTheme": "Cambiar tema"
   },
   "mobileNav": {
@@ -84,6 +85,8 @@
     "imported": "Se aplicó la configuración compartida.",
     "exited": "Se restauró tu propia configuración.",
     "linkNoPlan": "Ese enlace no contenía ningún plan, así que no se cargó nada.",
-    "linkNoPlanKept": "Ese enlace no contenía ningún plan. Se mantuvo tu plan actual."
+    "linkNoPlanKept": "Ese enlace no contenía ningún plan. Se mantuvo tu plan actual.",
+    "linkCopied": "Enlace copiado al portapapeles.",
+    "shareFailed": "No se pudo compartir el enlace."
   }
 }

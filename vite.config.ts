@@ -142,6 +142,11 @@ export default defineConfig({
           include: ["src/**/*.test.tsx"],
           exclude: TEST_EXCLUDE,
           setupFiles: ["./src/tests/setup-dom.ts"],
+          // Module mocks (`vi.mock`) are created once per FILE, so their
+          // call history would otherwise accumulate across the tests in
+          // it and turn `toHaveBeenCalledTimes` into a running total.
+          // Clearing (not restoring) keeps factory implementations intact.
+          clearMocks: true,
         },
       },
     ],

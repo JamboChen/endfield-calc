@@ -51,6 +51,7 @@
     "open": "開啟方案",
     "qqGroup": "QQ 群",
     "save": "儲存方案",
+    "share": "分享計劃",
     "toggleTheme": "切換主題"
   },
   "mobileNav": {
@@ -84,6 +85,8 @@
     "imported": "已套用分享的設定。",
     "exited": "已還原為你自己的設定。",
     "linkNoPlan": "該連結未包含方案，因此未載入任何內容。",
-    "linkNoPlanKept": "該連結未包含方案，已保留目前方案。"
+    "linkNoPlanKept": "該連結未包含方案，已保留目前方案。",
+    "linkCopied": "連結已複製到剪貼簿。",
+    "shareFailed": "無法分享連結。"
   }
 }
