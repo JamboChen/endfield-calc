@@ -3,6 +3,13 @@ import type { Recipe } from "@/types";
 
 export const recipes: Recipe[] = [
   {
+    id: RecipeId.COMPONENT_ACTIVITY_COPPER_POLY_CMPT,
+    inputs: [{ itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY, amount: 5 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY_CMPT, amount: 1 }],
+    facilityId: FacilityId.COMPONENT_MC_1,
+    craftingTime: 10,
+  },
+  {
     id: RecipeId.COMPONENT_ACTIVITY_XIRANITE_CMPT_1,
     inputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_CMPT, amount: 1 }],
@@ -1675,6 +1682,20 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.FURNANCE_ACTIVITY_XIRANITE_ENR_NUGGET_1,
+    inputs: [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_NUGGET, amount: 1 }],
+    facilityId: FacilityId.FURNANCE_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.FURNANCE_ACTIVITY_XIRANITE_NUGGET_1,
+    inputs: [{ itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_NUGGET, amount: 1 }],
+    facilityId: FacilityId.FURNANCE_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.FURNANCE_CARBON_ENR_1,
     inputs: [{ itemId: ItemId.ITEM_CARBON_ENR_POWDER, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_CARBON_ENR, amount: 1 }],
@@ -1861,6 +1882,17 @@ export const recipes: Recipe[] = [
     outputs: [{ itemId: ItemId.ITEM_QUARTZ_GLASS, amount: 1 }],
     facilityId: FacilityId.FURNANCE_1,
     craftingTime: 2,
+  },
+  {
+    id: RecipeId.GAS_REACTOR_ACTIVITY_COPPER_POLY_GAS_1,
+    inputs: [
+      { itemId: ItemId.ITEM_GAS_COPPER, amount: 2 },
+      { itemId: ItemId.ITEM_GAS_XIRANITE, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY_GAS, amount: 1 }],
+    facilityId: FacilityId.GAS_REACTOR_1,
+    craftingTime: 2,
+    gasEnv: 1,
   },
   {
     id: RecipeId.GAS_REACTOR_GAS_COPPER_ENR2_1,
@@ -2102,6 +2134,20 @@ export const recipes: Recipe[] = [
     outputs: [{ itemId: ItemId.ITEM_LIQUID_XIRANITE_ENR, amount: 2 }],
     facilityId: FacilityId.TRANSMUTER_1,
     craftingTime: 10,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_ACTIVITY_COPPER_POLY_1,
+    inputs: [{ itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY_GAS, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 2,
+  },
+  {
+    id: RecipeId.LIQUID_TRANSMUTER_2_ACTIVITY_COPPER_POLY_GAS_1,
+    inputs: [{ itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY_GAS, amount: 1 }],
+    facilityId: FacilityId.TRANSMUTER_2,
+    craftingTime: 2,
   },
   {
     id: RecipeId.LIQUID_TRANSMUTER_2_GAS_GAS_COPPER_1,
@@ -2477,6 +2523,13 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.SHAPER_ACTIVITY_XIRANITE_BOX_1,
+    inputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_NUGGET, amount: 1 }],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_BOX, amount: 1 }],
+    facilityId: FacilityId.SHAPER_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.SHAPER_ACTIVITY_XIRANITE_ENR_BOTTLE_1,
     inputs: [{ itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 1 }],
     outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_BOTTLE, amount: 2 }],
@@ -2496,6 +2549,16 @@ export const recipes: Recipe[] = [
     outputs: [{ itemId: ItemId.ITEM_COPPER_ENR_BOTTLE, amount: 1 }],
     facilityId: FacilityId.SHAPER_1,
     craftingTime: 2,
+  },
+  {
+    id: RecipeId.SHAPER_GAS_ACTIVITY_XIRANITE_ENR_BOX_1,
+    inputs: [
+      { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_NUGGET, amount: 1 },
+      { itemId: ItemId.ITEM_GAS_INERT, amount: 5 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_BOX, amount: 1 }],
+    facilityId: FacilityId.SHAPER_1,
+    craftingTime: 10,
   },
   {
     id: RecipeId.SHAPER_GAS_COPPER_JAR_1,
@@ -2606,12 +2669,42 @@ export const recipes: Recipe[] = [
     craftingTime: 2,
   },
   {
+    id: RecipeId.TOOLS_PROC_ACTIVITY_COPPER_POLY_TOOL_1,
+    inputs: [
+      { itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY_CMPT, amount: 1 },
+      { itemId: ItemId.ITEM_XIRANITE_ENR_POWDER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY_TOOL, amount: 1 }],
+    facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.TOOLS_PROC_ACTIVITY_XIRANITE_COPPER_TOOL_1,
+    inputs: [
+      { itemId: ItemId.ITEM_COPPER_CMPT, amount: 4 },
+      { itemId: ItemId.ITEM_XIRANITE_POWDER, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_COPPER_XIRANITE_TOOL, amount: 1 }],
+    facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
+    craftingTime: 2,
+  },
+  {
     id: RecipeId.TOOLS_PROC_ACTIVITY_XIRANITE_ENR_HULU_1,
     inputs: [
       { itemId: ItemId.ITEM_FBOTTLE_XIRANENR_GRASS_2, amount: 1 },
       { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_TOOL, amount: 1 },
     ],
     outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_HULU, amount: 1 }],
+    facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.TOOLS_PROC_ACTIVITY_XIRANITE_ENR_LUNG,
+    inputs: [
+      { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_BOX, amount: 1 },
+      { itemId: ItemId.ITEM_ACTIVITY_COPPER_POLY_TOOL, amount: 1 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_ENR_LUNG, amount: 1 }],
     facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
     craftingTime: 10,
   },
@@ -2632,6 +2725,16 @@ export const recipes: Recipe[] = [
       { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_CMPT, amount: 5 },
     ],
     outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_HULU, amount: 1 }],
+    facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
+    craftingTime: 10,
+  },
+  {
+    id: RecipeId.TOOLS_PROC_ACTIVITY_XIRANITE_LUNG,
+    inputs: [
+      { itemId: ItemId.ITEM_ACTIVITY_XIRANITE_BOX, amount: 5 },
+      { itemId: ItemId.ITEM_ACTIVITY_COPPER_XIRANITE_TOOL, amount: 5 },
+    ],
+    outputs: [{ itemId: ItemId.ITEM_ACTIVITY_XIRANITE_LUNG, amount: 1 }],
     facilityId: FacilityId.TOOLS_ASSEBLING_MC_1,
     craftingTime: 10,
   },

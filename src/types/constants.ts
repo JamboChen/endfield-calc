@@ -1,12 +1,23 @@
 const ItemId = {
   __MULTI_TARGET__: "__multi_target__",
+  ITEM_ACTIVITY_COPPER_POLY: "item_activity_copper_poly",
+  ITEM_ACTIVITY_COPPER_POLY_CMPT: "item_activity_copper_poly_cmpt",
+  ITEM_ACTIVITY_COPPER_POLY_GAS: "item_activity_copper_poly_gas",
+  ITEM_ACTIVITY_COPPER_POLY_TOOL: "item_activity_copper_poly_tool",
+  ITEM_ACTIVITY_COPPER_XIRANITE_TOOL: "item_activity_copper_xiranite_tool",
   ITEM_ACTIVITY_XIRANITE_BOTTLE: "item_activity_xiranite_bottle",
+  ITEM_ACTIVITY_XIRANITE_BOX: "item_activity_xiranite_box",
   ITEM_ACTIVITY_XIRANITE_CMPT: "item_activity_xiranite_cmpt",
   ITEM_ACTIVITY_XIRANITE_ENR_BOTTLE: "item_activity_xiranite_enr_bottle",
+  ITEM_ACTIVITY_XIRANITE_ENR_BOX: "item_activity_xiranite_enr_box",
   ITEM_ACTIVITY_XIRANITE_ENR_CMPT: "item_activity_xiranite_enr_cmpt",
   ITEM_ACTIVITY_XIRANITE_ENR_HULU: "item_activity_xiranite_enr_hulu",
+  ITEM_ACTIVITY_XIRANITE_ENR_LUNG: "item_activity_xiranite_enr_lung",
+  ITEM_ACTIVITY_XIRANITE_ENR_NUGGET: "item_activity_xiranite_enr_nugget",
   ITEM_ACTIVITY_XIRANITE_ENR_TOOL: "item_activity_xiranite_enr_tool",
   ITEM_ACTIVITY_XIRANITE_HULU: "item_activity_xiranite_hulu",
+  ITEM_ACTIVITY_XIRANITE_LUNG: "item_activity_xiranite_lung",
+  ITEM_ACTIVITY_XIRANITE_NUGGET: "item_activity_xiranite_nugget",
   ITEM_BOTTLED_FOOD_1: "item_bottled_food_1",
   ITEM_BOTTLED_FOOD_2: "item_bottled_food_2",
   ITEM_BOTTLED_FOOD_3: "item_bottled_food_3",
@@ -211,6 +222,7 @@ const RecipeId = {
   BURN_ITEM_PROC_BATTERY_3: "burn_item_proc_battery_3",
   BURN_ITEM_PROC_BATTERY_4: "burn_item_proc_battery_4",
   BURN_ITEM_PROC_BATTERY_5: "burn_item_proc_battery_5",
+  COMPONENT_ACTIVITY_COPPER_POLY_CMPT: "component_activity_copper_poly_cmpt",
   COMPONENT_ACTIVITY_XIRANITE_CMPT_1: "component_activity_xiranite_cmpt_1",
   COMPONENT_ACTIVITY_XIRANITE_ENR_CMPT_1:
     "component_activity_xiranite_enr_cmpt_1",
@@ -400,6 +412,9 @@ const RecipeId = {
     "fluid_consume_liquid_cleaner_1_item_liquid_xiranite_lowpoly",
   FLUID_CONSUME_LIQUID_CLEANER_1_ITEM_LIQUID_XIRANITE_POLY:
     "fluid_consume_liquid_cleaner_1_item_liquid_xiranite_poly",
+  FURNANCE_ACTIVITY_XIRANITE_ENR_NUGGET_1:
+    "furnance_activity_xiranite_enr_nugget_1",
+  FURNANCE_ACTIVITY_XIRANITE_NUGGET_1: "furnance_activity_xiranite_nugget_1",
   FURNANCE_CARBON_ENR_1: "furnance_carbon_enr_1",
   FURNANCE_CARBON_ENR_POWDER_1: "furnance_carbon_enr_powder_1",
   FURNANCE_CARBON_ENR_POWDER_2: "furnance_carbon_enr_powder_2",
@@ -426,6 +441,8 @@ const RecipeId = {
   FURNANCE_QUARTZ_ENR_1: "furnance_quartz_enr_1",
   FURNANCE_QUARTZ_GLASS_1: "furnance_quartz_glass_1",
   FURNANCE_QUARTZ_GLASS_2: "furnance_quartz_glass_2",
+  GAS_REACTOR_ACTIVITY_COPPER_POLY_GAS_1:
+    "gas_reactor_activity_copper_poly_gas_1",
   GAS_REACTOR_GAS_COPPER_ENR2_1: "gas_reactor_gas_copper_enr2_1",
   GRINDER_CARBON_POWDER_1: "grinder_carbon_powder_1",
   GRINDER_COPPER_POWDER_1: "grinder_copper_powder_1",
@@ -476,6 +493,10 @@ const RecipeId = {
     "liquid_transmuter_1_liquid_liquid_xiranite_1",
   LIQUID_TRANSMUTER_1_LIQUID_LIQUID_XIRANITE_ENR_1:
     "liquid_transmuter_1_liquid_liquid_xiranite_enr_1",
+  LIQUID_TRANSMUTER_2_ACTIVITY_COPPER_POLY_1:
+    "liquid_transmuter_2_activity_copper_poly_1",
+  LIQUID_TRANSMUTER_2_ACTIVITY_COPPER_POLY_GAS_1:
+    "liquid_transmuter_2_activity_copper_poly_gas_1",
   LIQUID_TRANSMUTER_2_GAS_GAS_COPPER_1: "liquid_transmuter_2_gas_gas_copper_1",
   LIQUID_TRANSMUTER_2_GAS_GAS_COPPER_ENR_1:
     "liquid_transmuter_2_gas_gas_copper_enr_1",
@@ -528,10 +549,13 @@ const RecipeId = {
   SEEDCOLLECTOR_PLANT_SP_3: "seedcollector_plant_sp_3",
   SEEDCOLLECTOR_PLANT_SP_4: "seedcollector_plant_sp_4",
   SHAPER_ACTIVITY_XIRANITE_BOTTLE_1: "shaper_activity_xiranite_bottle_1",
+  SHAPER_ACTIVITY_XIRANITE_BOX_1: "shaper_activity_xiranite_box_1",
   SHAPER_ACTIVITY_XIRANITE_ENR_BOTTLE_1:
     "shaper_activity_xiranite_enr_bottle_1",
   SHAPER_COPPER_BOTTLE_1: "shaper_copper_bottle_1",
   SHAPER_COPPER_ENR_BOTTLE_1: "shaper_copper_enr_bottle_1",
+  SHAPER_GAS_ACTIVITY_XIRANITE_ENR_BOX_1:
+    "shaper_gas_activity_xiranite_enr_box_1",
   SHAPER_GAS_COPPER_JAR_1: "shaper_gas_copper_jar_1",
   SHAPER_GLASS_BOTTLE_1: "shaper_glass_bottle_1",
   SHAPER_GLASS_ENR_BOTTLE_1: "shaper_glass_enr_bottle_1",
@@ -544,11 +568,18 @@ const RecipeId = {
   THICKENER_PLANT_MOSS_ENR_POWDER_1_1: "thickener_plant_moss_enr_powder_1_1",
   THICKENER_PLANT_MOSS_ENR_POWDER_2_1: "thickener_plant_moss_enr_powder_2_1",
   THICKENER_QUARTZ_ENR_POWDER_1: "thickener_quartz_enr_powder_1",
+  TOOLS_PROC_ACTIVITY_COPPER_POLY_TOOL_1:
+    "tools_proc_activity_copper_poly_tool_1",
+  TOOLS_PROC_ACTIVITY_XIRANITE_COPPER_TOOL_1:
+    "tools_proc_activity_xiranite_copper_tool_1",
   TOOLS_PROC_ACTIVITY_XIRANITE_ENR_HULU_1:
     "tools_proc_activity_xiranite_enr_hulu_1",
+  TOOLS_PROC_ACTIVITY_XIRANITE_ENR_LUNG:
+    "tools_proc_activity_xiranite_enr_lung",
   TOOLS_PROC_ACTIVITY_XIRANITE_ENR_TOOL_1:
     "tools_proc_activity_xiranite_enr_tool_1",
   TOOLS_PROC_ACTIVITY_XIRANITE_HULU_1: "tools_proc_activity_xiranite_hulu_1",
+  TOOLS_PROC_ACTIVITY_XIRANITE_LUNG: "tools_proc_activity_xiranite_lung",
   TOOLS_PROC_BATTERY_1_1: "tools_proc_battery_1_1",
   TOOLS_PROC_BATTERY_2_1: "tools_proc_battery_2_1",
   TOOLS_PROC_BATTERY_3_1: "tools_proc_battery_3_1",
