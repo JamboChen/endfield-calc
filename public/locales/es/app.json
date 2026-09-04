@@ -51,6 +51,7 @@
     "open": "Abrir plan",
     "qqGroup": "Grupo de QQ",
     "save": "Guardar plan",
+    "share": "Compartir plan",
     "toggleTheme": "Cambiar tema"
   },
   "mobileNav": {
@@ -71,5 +72,21 @@
   "collapsePanel": "Contraer panel",
   "gasEnvUnavailable": "Entorno gaseoso: no se puede suministrar {{item}} con la configuración actual, así que no se planificó ninguna unidad de dispersión de gas. El consumo de gas está subestimado.",
   "machinesPerVaporizer": "Instalaciones por unidad de dispersión de gas",
-  "machinesPerVaporizerHint": "Cuántas instalaciones que necesitan un entorno gaseoso cubre el aura de una unidad de dispersión de gas (área de 13×13, los edificios deben caber completos). El plan añade una unidad siempre activa (6 gas/min) por grupo."
+  "machinesPerVaporizerHint": "Cuántas instalaciones que necesitan un entorno gaseoso cubre el aura de una unidad de dispersión de gas (área de 13×13, los edificios deben caber completos). El plan añade una unidad siempre activa (6 gas/min) por grupo.",
+  "sharedPlan": {
+    "title": "Viendo un plan compartido",
+    "description": "Se muestra la configuración de {{region}} de quien lo compartió. Es de solo lectura y tu configuración no cambia.",
+    "useMine": "Usar la mía",
+    "useTheirs": "Usar esta configuración",
+    "importTitle": "¿Usar la configuración del plan compartido?",
+    "importDescription": "Esto reemplaza tu región, investigación del CAI y límites guardados por los del plan compartido. Podrás cambiarlos de nuevo después.",
+    "importConfirm": "Sobrescribir mi configuración",
+    "cancel": "Cancelar",
+    "imported": "Se aplicó la configuración compartida.",
+    "exited": "Se restauró tu propia configuración.",
+    "linkNoPlan": "Ese enlace no contenía ningún plan, así que no se cargó nada.",
+    "linkNoPlanKept": "Ese enlace no contenía ningún plan. Se mantuvo tu plan actual.",
+    "linkCopied": "Enlace copiado al portapapeles.",
+    "shareFailed": "No se pudo compartir el enlace."
+  }
 }

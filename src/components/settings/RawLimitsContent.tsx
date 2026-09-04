@@ -1,17 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { defaultRawCapsByDomain, items } from "@/data";
+import { useNumericDraft } from "@/hooks/useNumericDraft";
 import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import { filterRegionRawItems } from "@/lib/settings-helpers";
 import { cn } from "@/lib/utils";
 import type { Item, ItemId } from "@/types";
 import type { DomainId } from "@/types/domain";
 
-import { SettingsCard, settingsRowClass } from "./SettingsCard";
+import { SettingsCard, settingsRowClass, sharedChangedRowClass } from "./SettingsCard";
 
 // Module-scope item index. `items` is a static module import, so the
 // Map can be built once at module load rather than every render.
@@ -37,6 +38,11 @@ interface RawLimitsContentProps {
     domainId: DomainId,
     value: number | null,
   ) => void;
+  /**
+   * Read-only shared-view: raw-limit keys whose value differs from the
+   * viewer's own, accented so the divergence is visible.
+   */
+  changedRaws?: ReadonlySet<string>;
 }
 
 /**
@@ -62,6 +68,7 @@ export function RawLimitsContent({
   regionRawMaterials,
   overrides,
   onSetLimit,
+  changedRaws,
 }: RawLimitsContentProps) {
   const { t } = useTranslation(["item", "settings"]);
 
@@ -138,6 +145,7 @@ export function RawLimitsContent({
               value={overrides.get(rawLimitKey(item.id, domainId))}
               defaultCap={defaultCaps?.get(item.id)}
               onSetLimit={onSetLimit}
+              changed={changedRaws?.has(rawLimitKey(item.id, domainId)) ?? false}
             />
           ))}
         </div>
@@ -162,6 +170,8 @@ interface RawLimitRowProps {
     domainId: DomainId,
     value: number | null,
   ) => void;
+  /** Read-only shared-view: this limit differs from the viewer's own. */
+  changed?: boolean;
 }
 
 function RawLimitRow({
@@ -170,20 +180,14 @@ function RawLimitRow({
   value,
   defaultCap,
   onSetLimit,
+  changed = false,
 }: RawLimitRowProps) {
   const { t } = useTranslation(["item", "settings"]);
   const itemName = t(item.id, { ns: "item", defaultValue: item.id });
   const hasOverride = value !== undefined;
-  const [draft, setDraft] = useState<string>(hasOverride ? String(value) : "");
-
-  // Sync the local draft when `value` changes externally — e.g. the
-  // tab-level "Clear all" (which clears via `onSetLimit(null)`), or a
-  // future write path (import / URL load). Without this, the draft would
-  // diverge from the persisted value and the next blur would write the
-  // stale draft back.
-  useEffect(() => {
-    setDraft(value !== undefined ? String(value) : "");
-  }, [value]);
+  // Resyncs when `value` changes externally — here that is the tab-level
+  // "Clear all", which clears other mounted rows via `onSetLimit(null)`.
+  const [draft, setDraft] = useNumericDraft(value);
 
   // parseFloat with finite + non-negative check, empty → clear override.
   // Fractional caps are intentional (a pump cycling every 2 min is
@@ -218,6 +222,7 @@ function RawLimitRow({
         hasOverride
           ? "bg-muted/30"
           : "hover:bg-muted/20 transition-colors",
+        changed && sharedChangedRowClass,
       )}
     >
       {item.iconUrl && (

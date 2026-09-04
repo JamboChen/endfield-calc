@@ -22,6 +22,14 @@ import { cn } from "@/lib/utils";
 export const settingsRowClass =
   "flex items-center gap-2 px-2 rounded text-sm min-h-[44px] py-2 sm:min-h-0 sm:py-1.5";
 
+/**
+ * Accent for a settings row that differs from the viewer's own settings
+ * in the read-only shared-plan view. Primary/brand tint + left border,
+ * cohesive with `SharedPlanBanner`. Layered via
+ * `cn(settingsRowClass, changed && sharedChangedRowClass, ...)`.
+ */
+export const sharedChangedRowClass = "border-l-2 border-primary bg-primary/5";
+
 interface SettingsCardProps {
   /** Section/card title. */
   title?: ReactNode;

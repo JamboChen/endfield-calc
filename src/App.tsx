@@ -15,6 +15,7 @@ import PortraitDrawer from "./components/panels/PortraitDrawer";
 import ProductionViewTabs from "./components/production/ProductionViewTabs";
 import AddTargetDialogGrid from "./components/panels/AddTargetDialogGrid";
 import AppFooter from "./components/layout/AppFooter";
+import { SharedPlanBanner } from "./components/layout/SharedPlanBanner";
 import { SettingsSheet } from "./components/settings/SettingsSheet";
 import { ThemeProvider } from "./components/ui/theme-provider";
 import { useTheme } from "./components/ui/theme-context";
@@ -87,7 +88,7 @@ function ThemedToaster() {
  * Separated from `App` so that `useDomainSettingsContext()` can read
  * the provider's value (the hook errors when called above its provider).
  */
-function AppContent() {
+function AppContent({ onExternalPlan }: { onExternalPlan: () => void }) {
   const { i18n } = useTranslation("app");
   const settings = useDomainSettingsContext();
 
@@ -515,13 +516,16 @@ function AppContent() {
     isLoading,
     pinnedItemIds,
     ineffectivePins,
-  } = useProductionPlan(
+  } = useProductionPlan({
     availableRecipes,
     regionRawMaterials,
+    settingsShape: settings.currentShape,
     facilityCaps,
     rawMaterialCaps,
     metastorageRoutes,
-  );
+    onExternalPlan,
+    onboardingPending: settings.onboardingPending,
+  });
 
   // Content-keyed (same pattern as `metastorageRouteSig` above): lock
   // toggles produce a new `targets` identity without changing any
@@ -620,13 +624,36 @@ function AppContent() {
   };
 
   return (
-    <div className="h-screen flex flex-col p-4 pb-0 gap-4 overflow-x-hidden [@media(orientation:portrait)]:pb-[max(1rem,env(safe-area-inset-bottom))]">
+    /*
+     * `h-dvh`, not the `screen` height utility it replaced (naming that
+     * class here would make Tailwind emit its rule, since the scanner
+     * reads comments too): `100vh` is the LARGE viewport, i.e. the
+     * height as if the browser's retractable chrome were hidden. This
+     * shell is a fixed-height, non-scrolling column, so with `100vh` it
+     * stands taller than the visible area whenever the URL bar is
+     * showing, pushing its last child below the fold — in portrait that
+     * child is `MobileNav`, the primary navigation. Nothing scrolls here
+     * to make the toolbar retract and hand the space back, so it stays
+     * lost. `100dvh` tracks the height actually available.
+     *
+     * The usual objection to `dvh` (reflow as the toolbar animates) does
+     * not apply for the same reason: there is no vertical scroll to
+     * trigger the transition.
+     *
+     * Composes with the padding below: `viewport-fit=cover` (index.html)
+     * lets the viewport extend under the home indicator, `dvh` includes
+     * that region, and `env(safe-area-inset-bottom)` lifts content back
+     * out of it.
+     */
+    <div className="h-dvh flex flex-col p-4 pb-0 gap-4 overflow-x-hidden [@media(orientation:portrait)]:pb-[max(1rem,env(safe-area-inset-bottom))]">
       <AppHeader
         onLanguageChange={handleLanguageChange}
         onSavePlan={handleSavePlan}
         onOpenPlan={handleOpenPlan}
         onOpenSettings={handleOpenSettings}
       />
+
+      <SharedPlanBanner />
 
       <div className="flex-1 flex gap-4 min-h-0">
         <div className={isPortrait ? "hidden" : "contents"}>
@@ -782,11 +809,22 @@ function AppContent() {
 }
 
 export default function App() {
+  // Bumped when a plan-bearing link is pasted into the address bar of
+  // the already-open app. It keys the settings provider, so both it and
+  // `AppContent` remount and re-run their mount-time seeding against the
+  // new hash — the provider's read-only shared-view resolution is a
+  // render-phase lazy initializer, so it cannot be re-triggered any
+  // other way. Everything expensive (the calc worker + HiGHS WASM, the
+  // layout engine) lives at module scope and survives untouched, which
+  // is why this beats a full page reload.
+  const [planEpoch, setPlanEpoch] = useState(0);
+  const handleExternalPlan = useCallback(() => setPlanEpoch((n) => n + 1), []);
+
   return (
     <ThemeProvider defaultTheme="light" storageKey={namespaceStorageKey("vite-ui-theme")}>
-      <DomainSettingsProvider>
+      <DomainSettingsProvider key={planEpoch}>
         <TooltipProvider>
-          <AppContent />
+          <AppContent onExternalPlan={handleExternalPlan} />
           <ThemedToaster />
         </TooltipProvider>
       </DomainSettingsProvider>

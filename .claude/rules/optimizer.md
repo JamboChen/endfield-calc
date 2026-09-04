@@ -37,6 +37,7 @@ Three layers, strictly separated:
 
 - Targets identity: the `targetsRef` effect cancels the active search whenever the live array leaves the captured snapshot (covers rate edits, add/remove, AND lock toggles — the calc effect ignores lock-only changes via its content signature, the optimizer's flexible set does not).
 - Config identity: `calcProblem` change → `cancelActiveSearch` (token bump + worker cancel + marks dropped). A search probing a stale options bundle could commit values the fresh problem judges over-cap.
+- Unmount: a cleanup effect cancels the worker-side loop. Both staleness effects above only fire while mounted, so a search in flight when the tree is torn down (loading a pasted plan link remounts it) would otherwise run to its time limit with no consumer. Token/marks need no cleanup — they die with the hook.
 - **Commit gate**: after the await, re-check token + captured targets identity — a result can already be in flight when a cancel lands. Never commit past the gate.
 - Errors: `CalcSupersededError` → silent abort; anything else → `optimizeFailed` toast. Never map an error to "infeasible".
 

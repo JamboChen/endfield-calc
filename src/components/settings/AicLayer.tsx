@@ -24,6 +24,11 @@ interface AicLayerProps {
   onOpenChange: (open: boolean) => void;
   onToggle: (id: AicTechId) => void;
   onActivateLayer: () => void;
+  /** Read-only shared-view: node ids whose researched state differs from own. */
+  changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes the controls. Explicit rather than inferred from
+   *  `changedNodes`, which is for accents and may legitimately be empty. */
+  readOnly?: boolean;
 }
 
 function AicLayerSection({
@@ -34,6 +39,8 @@ function AicLayerSection({
   onOpenChange,
   onToggle,
   onActivateLayer,
+  changedNodes,
+  readOnly = false,
 }: AicLayerProps) {
   const { t } = useTranslation(["aic", "settings"]);
 
@@ -80,7 +87,7 @@ function AicLayerSection({
       title={layerName}
       badge={badge}
       actions={
-        allDone ? undefined : (
+        allDone || readOnly ? undefined : (
           <Button
             type="button"
             variant="ghost"
@@ -108,6 +115,8 @@ function AicLayerSection({
             node={node}
             researched={researched}
             onToggle={onToggle}
+            changed={changedNodes?.has(node.id) ?? false}
+            readOnly={readOnly}
           />
         ))}
       </div>
@@ -124,6 +133,10 @@ interface AicLayerListProps {
   onLayerOpenChange: (layerId: AicLayerId, open: boolean) => void;
   onToggleNode: (id: AicTechId) => void;
   onActivateLayer: (layerId: string) => void;
+  /** Read-only shared-view: node ids whose researched state differs from own. */
+  changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes the controls — see `AicLayerProps.readOnly`. */
+  readOnly?: boolean;
 }
 
 /**
@@ -137,6 +150,8 @@ export function AicLayerList({
   onLayerOpenChange,
   onToggleNode,
   onActivateLayer,
+  changedNodes,
+  readOnly = false,
 }: AicLayerListProps) {
   const ordered = useMemo(
     () => [...layers].sort((a, b) => a.order - b.order),
@@ -157,6 +172,8 @@ export function AicLayerList({
             onOpenChange={(o) => onLayerOpenChange(layer.id, o)}
             onToggle={onToggleNode}
             onActivateLayer={() => onActivateLayer(layer.id)}
+            changedNodes={changedNodes}
+            readOnly={readOnly}
           />
         );
       })}

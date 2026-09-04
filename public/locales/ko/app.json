@@ -51,6 +51,7 @@
     "open": "플랜 열기",
     "qqGroup": "QQ 그룹",
     "save": "플랜 저장",
+    "share": "플랜 공유",
     "toggleTheme": "테마 전환"
   },
   "mobileNav": {
@@ -71,5 +72,21 @@
   "collapsePanel": "패널 접기",
   "gasEnvUnavailable": "기체 환경: 현재 설정으로는 {{item}}을(를) 공급할 수 없어 기체 분산기가 계획되지 않았습니다. 기체 소비량이 과소평가됩니다.",
   "machinesPerVaporizer": "기체 분산기당 설비 수",
-  "machinesPerVaporizerHint": "기체 환경이 필요한 설비를 기체 분산기 1대의 범위(13×13, 건물이 완전히 범위 안에 있어야 함)로 몇 대까지 커버할지 설정합니다. 플랜은 그룹마다 상시 가동 분산기(대당 분당 기체 6 소모)를 추가합니다."
+  "machinesPerVaporizerHint": "기체 환경이 필요한 설비를 기체 분산기 1대의 범위(13×13, 건물이 완전히 범위 안에 있어야 함)로 몇 대까지 커버할지 설정합니다. 플랜은 그룹마다 상시 가동 분산기(대당 분당 기체 6 소모)를 추가합니다.",
+  "sharedPlan": {
+    "title": "공유된 플랜 보기",
+    "description": "공유자의 {{region}} 설정을 표시합니다. 읽기 전용이며 내 설정은 변경되지 않습니다.",
+    "useMine": "내 설정으로 전환",
+    "useTheirs": "이 설정 사용",
+    "importTitle": "공유 플랜의 설정을 사용할까요?",
+    "importDescription": "저장된 지역, 공업 계획 연구, 제한이 공유 플랜의 값으로 교체됩니다. 이후에 다시 변경할 수 있습니다.",
+    "importConfirm": "내 설정 덮어쓰기",
+    "cancel": "취소",
+    "imported": "공유된 설정을 적용했습니다.",
+    "exited": "내 설정으로 되돌렸습니다.",
+    "linkNoPlan": "해당 링크에 플랜이 없어 아무것도 불러오지 않았습니다.",
+    "linkNoPlanKept": "해당 링크에 플랜이 없습니다. 현재 플랜을 유지했습니다.",
+    "linkCopied": "링크를 클립보드에 복사했습니다.",
+    "shareFailed": "링크를 공유하지 못했습니다."
+  }
 }

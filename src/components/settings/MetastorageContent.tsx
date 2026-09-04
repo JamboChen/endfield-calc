@@ -6,7 +6,11 @@ import type { Domain, DomainId } from "@/types/domain";
 import type { MetastorageRouteMode } from "@/types/metastorage";
 
 import { RouteModeSelect } from "./RouteModeSelect";
-import { SettingsCard, settingsRowClass } from "./SettingsCard";
+import {
+  SettingsCard,
+  settingsRowClass,
+  sharedChangedRowClass,
+} from "./SettingsCard";
 import { cn } from "@/lib/utils";
 
 interface MetastorageContentProps {
@@ -17,6 +21,11 @@ interface MetastorageContentProps {
   /** Route mode per capable source (always materialized; default "auto"). */
   routeModes: ReadonlyMap<DomainId, MetastorageRouteMode>;
   onSetRouteMode: (source: DomainId, mode: MetastorageRouteMode) => void;
+  /**
+   * Read-only shared-view: source domains whose route mode differs from
+   * the viewer's own, accented so the divergence is visible.
+   */
+  changedRoutes?: ReadonlySet<DomainId>;
 }
 
 /**
@@ -38,12 +47,14 @@ export function MetastorageContent({
   domains,
   routeModes,
   onSetRouteMode,
+  changedRoutes,
 }: MetastorageContentProps) {
   const { t } = useTranslation(["settings"]);
 
   const info = metastorageSources.get(domainId);
   const eligibleCount = metastorageExports.get(domainId)?.size ?? 0;
   const mode = routeModes.get(domainId) ?? "auto";
+  const isChanged = changedRoutes?.has(domainId) ?? false;
 
   if (!info) return null;
 
@@ -65,7 +76,13 @@ export function MetastorageContent({
         })}
         icon={<Truck className="size-5 text-cyan-600 dark:text-cyan-400" />}
       >
-        <div className={cn(settingsRowClass, "justify-between")}>
+        <div
+          className={cn(
+            settingsRowClass,
+            "justify-between",
+            isChanged && sharedChangedRowClass,
+          )}
+        >
           <span className="text-sm min-w-0 truncate">
             {t("metastorage.routeLabel", {
               ns: "settings",

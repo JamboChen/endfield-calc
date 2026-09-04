@@ -1,15 +1,18 @@
 /**
  * First-visit AIC onboarding dialog.
  *
- * Shown once per browser (localStorage key `endfield-calc:onboarding-v1`)
- * to let users opt out of AIC plans they haven't researched in-game.
+ * Shown once per browser (localStorage key `endfield-calc:onboarding-v1`,
+ * surfaced as `onboardingPending` on the settings context) to let users
+ * opt out of AIC plans they haven't researched in-game.
  * The default is "all checked" — calculator users skew late-game, so
  * full-unlock is the right starting position for most. Users who want
  * a stricter view uncheck the regions they haven't progressed in.
  *
  * # Behavior
  *
- *   - Triggered on mount when the flag is absent.
+ *   - Open state IS `onboardingPending` from the settings context — the
+ *     flag lives there rather than here because other code waits on it
+ *     (the plan auto-prune must not act on the pre-onboarding defaults).
  *   - All domains (pinned + togglable) appear as hero-image cards in
  *     a 2-up grid (1-up on mobile), defaulted to selected. The pinned
  *     domain (Valley IV) cannot be deactivated, but its card still
@@ -17,10 +20,12 @@
  *     or only at game defaults (unselected).
  *   - Staged state: card toggles update local component state.
  *     Nothing is mutated on the global settings until Confirm.
- *   - On Confirm (or any close event): `applyOnboardingChoices` runs
- *     the bulk apply, then `localStorage` flag is set, then the dialog
- *     closes. Any close path (Escape, overlay click) takes this same
- *     path, so users can't end up in a partial state.
+ *   - On Confirm (or any close event): `applyOnboardingChoices` runs the
+ *     bulk apply, THEN `completeOnboarding` sets the flag, which closes
+ *     the dialog and releases anything gated on it. That order matters:
+ *     a consumer released before the settings land would see the
+ *     pre-onboarding defaults. Any close path (Escape, overlay click)
+ *     takes this same route, so users can't end up in a partial state.
  *
  * # Visual design
  *
@@ -56,10 +61,8 @@
  *
  * # SSR safety
  *
- *   - The initial `localStorage.getItem` lives inside `useEffect`, so
- *     server-side renders don't try to read `window`.
- *   - Initial render returns the dialog closed; effect runs post-mount,
- *     flips `open` if the flag is absent.
+ *   - This component reads no storage at all. `onboardingPending` comes
+ *     from the hook, whose own read returns false without a `window`.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -82,19 +85,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
-import { pickLatestActive } from "@/hooks/useDomainSettings";
-import { namespaceStorageKey } from "@/lib/storage-namespace";
+import { pickLatestActive } from "@/lib/persisted-shape";
 import { cn } from "@/lib/utils";
 import { parseDomainId } from "@/types/domain";
 import type { Domain, DomainId } from "@/types/domain";
 
-const STORAGE_KEY = namespaceStorageKey("endfield-calc:onboarding-v1");
-
 export function AicOnboardingDialog() {
   const { t } = useTranslation(["onboarding", "domain"]);
-  const { domains, applyOnboardingChoices } = useDomainSettingsContext();
-
-  const [open, setOpen] = useState(false);
+  const { domains, applyOnboardingChoices, onboardingPending, completeOnboarding } =
+    useDomainSettingsContext();
 
   // Staged choices — local until Confirm. Initialise with every domain
   // checked (the "all unlocked" default that matches who actually uses
@@ -147,19 +146,6 @@ export function AicOnboardingDialog() {
   // pattern.
   const isTrivialRegionPick = pickerOptions.length <= 1;
 
-  // Trigger gate: read localStorage post-mount. Hidden on SSR.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      if (!window.localStorage.getItem(STORAGE_KEY)) {
-        setOpen(true);
-      }
-    } catch {
-      // localStorage disabled/full — silently skip the dialog. The
-      // user gets the all-checked default by virtue of not interacting.
-    }
-  }, []);
-
   const handleToggle = useCallback((id: DomainId) => {
     setChoices((prev) => {
       const next = new Map(prev);
@@ -168,16 +154,14 @@ export function AicOnboardingDialog() {
     });
   }, []);
 
+  // Apply first, then clear the gate: consumers waiting on
+  // `onboardingPending` (the auto-prune) must not run until the chosen
+  // settings have landed, or they'd act on the pre-onboarding defaults —
+  // exactly what the gate exists to prevent.
   const handleConfirm = useCallback(() => {
     applyOnboardingChoices(choices, stagedCurrent);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, "1");
-    } catch {
-      // Best-effort: if storage is unavailable, the dialog re-shows on
-      // next visit. Not catastrophic.
-    }
-    setOpen(false);
-  }, [applyOnboardingChoices, choices, stagedCurrent]);
+    completeOnboarding();
+  }, [applyOnboardingChoices, choices, stagedCurrent, completeOnboarding]);
 
   // Any close event (Escape, overlay click, X button) routes through
   // the same apply path. Prevents users from dismissing into a
@@ -192,7 +176,7 @@ export function AicOnboardingDialog() {
   const decoBaseUrl = `${import.meta.env.BASE_URL}images/domains/`;
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={onboardingPending} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={false}
         className="sm:max-w-2xl"

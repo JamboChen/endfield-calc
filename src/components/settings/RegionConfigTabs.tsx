@@ -67,8 +67,25 @@ export function RegionConfigTabs({
   onResetGroup,
 }: RegionConfigTabsProps) {
   const { t } = useTranslation(["settings"]);
-  const { aic, rawLimits, structures, metastorage, domains } =
+  const { aic, rawLimits, structures, metastorage, domains, sharedDiff, isSharedView } =
     useDomainSettingsContext();
+  // In read-only shared-view, disable every editing control in the tab
+  // bodies (tab triggers stay usable), by one of two mechanisms:
+  //
+  //   - FLAT bodies (Resources / Structures / Metastorage) get a
+  //     layout-neutral fieldset, which disables every nested native
+  //     control without threading `disabled` per row.
+  //   - COLLAPSIBLE bodies (Plan / Limits) take `readOnly` as a prop and
+  //     freeze their own controls. A fieldset is WRONG for them: it would
+  //     also disable the card header buttons that expand and collapse the
+  //     cards, plus the info popovers, so a viewer could no longer
+  //     navigate what they are allowed to read.
+  //
+  // Read-only is its own signal on the context. `sharedDiff` is for
+  // ACCENTS only: deriving the mode from it would silently unlock the
+  // whole sheet if it were ever memoized to `null` for an empty diff.
+  const readOnly = isSharedView;
+  const fieldsetClass = "min-w-0 border-0 p-0 m-0";
 
   const groups = useMemo(
     () => aic.groups.filter((g) => g.domainId === editingDomain),
@@ -224,6 +241,8 @@ export function RegionConfigTabs({
               })}
             </StatusLine>
           )}
+          {/* Collapsible body: `readOnly` prop, no fieldset. See the
+              two-mechanism note where `readOnly` is derived. */}
           <AicPlanContent
             groups={groups}
             layers={aic.layers}
@@ -234,6 +253,8 @@ export function RegionConfigTabs({
             onActivateLayer={onActivateLayer}
             onActivateGroup={onActivateGroup}
             onResetGroup={onResetGroup}
+            changedNodes={sharedDiff?.researched}
+            readOnly={readOnly}
           />
         </TabsContent>
       )}
@@ -249,6 +270,8 @@ export function RegionConfigTabs({
               })}
             </StatusLine>
           )}
+          {/* Collapsible body: `readOnly` prop, no fieldset. See the
+              two-mechanism note where `readOnly` is derived. */}
           <FacilityLimitsContent
             domainId={editingDomain}
             capRaiseNodes={capRaiseNodes}
@@ -260,6 +283,9 @@ export function RegionConfigTabs({
             onSetCapOverride={aic.setCapOverride}
             onActivateRaiseNodes={aic.activateNodes}
             onDeactivateRaiseNodes={aic.deactivateNodes}
+            changedCaps={sharedDiff?.capOverrides}
+            changedNodes={sharedDiff?.researched}
+            readOnly={readOnly}
           />
         </TabsContent>
       )}
@@ -276,12 +302,15 @@ export function RegionConfigTabs({
               })}
             </StatusLine>
           )}
-          <RawLimitsContent
-            domainId={editingDomain}
-            regionRawMaterials={regionRawMaterials}
-            overrides={rawLimits.overrides}
-            onSetLimit={rawLimits.setRawLimitOverride}
-          />
+          <fieldset disabled={readOnly} className={fieldsetClass}>
+            <RawLimitsContent
+              domainId={editingDomain}
+              regionRawMaterials={regionRawMaterials}
+              overrides={rawLimits.overrides}
+              onSetLimit={rawLimits.setRawLimitOverride}
+              changedRaws={sharedDiff?.rawLimits}
+            />
+          </fieldset>
         </TabsContent>
       )}
 
@@ -297,23 +326,29 @@ export function RegionConfigTabs({
               })}
             </StatusLine>
           )}
-          <StructuresContent
-            domainId={editingDomain}
-            structures={regionStructureList}
-            enabled={structures.enabled}
-            onToggle={structures.toggle}
-          />
+          <fieldset disabled={readOnly} className={fieldsetClass}>
+            <StructuresContent
+              domainId={editingDomain}
+              structures={regionStructureList}
+              enabled={structures.enabled}
+              onToggle={structures.toggle}
+              changedStructures={sharedDiff?.structures}
+            />
+          </fieldset>
         </TabsContent>
       )}
 
       {metastorageAvailable && (
         <TabsContent value="metastorage" className="space-y-3">
-          <MetastorageContent
-            domainId={editingDomain}
-            domains={domains}
-            routeModes={metastorage.routeModes}
-            onSetRouteMode={metastorage.setRouteMode}
-          />
+          <fieldset disabled={readOnly} className={fieldsetClass}>
+            <MetastorageContent
+              domainId={editingDomain}
+              domains={domains}
+              routeModes={metastorage.routeModes}
+              onSetRouteMode={metastorage.setRouteMode}
+              changedRoutes={sharedDiff?.routes}
+            />
+          </fieldset>
         </TabsContent>
       )}
     </Tabs>

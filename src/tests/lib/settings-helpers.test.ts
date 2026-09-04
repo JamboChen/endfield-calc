@@ -8,12 +8,14 @@ import {
   countRawSourced,
   countRegionStructuresEnabled,
   deriveStructuresEnabledFromDisabled,
+  diffSettings,
   filterRegionRawItems,
   initialStructuresEnabled,
   resolveActiveTab,
   resolveEditingDomain,
   structureKey,
   structuresDisabledFromEnabled,
+  type DiffableSettings,
 } from "@/lib/settings-helpers";
 import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import { AicGroupId } from "@/types/aic";
@@ -512,5 +514,81 @@ describe("structuresDisabledFromEnabled", () => {
       active,
     );
     expect(roundTrip).toEqual(originalDisabled);
+  });
+});
+
+describe("diffSettings", () => {
+  const DOMAIN_1 = DomainId.DOMAIN_1;
+  const DOMAIN_2 = DomainId.DOMAIN_2;
+
+  function make(over: Partial<DiffableSettings> = {}): DiffableSettings {
+    return {
+      inactiveDomains: new Set([DOMAIN_2]),
+      researched: new Set<AicTechId>(),
+      capOverrides: new Map<string, number>(),
+      currentDomain: DOMAIN_1,
+      rawLimitOverrides: new Map<string, number>(),
+      structuresEnabled: new Set<string>(),
+      metastorageRouteModes: new Map<DomainId, "disabled" | DomainId>(),
+      ...over,
+    };
+  }
+
+  test("identical settings produce an empty diff", () => {
+    const d = diffSettings(make(), make());
+    expect(d.currentDomainChanged).toBe(false);
+    expect(d.domainActivation.size).toBe(0);
+    expect(d.researched.size).toBe(0);
+    expect(d.capOverrides.size).toBe(0);
+    expect(d.rawLimits.size).toBe(0);
+    expect(d.structures.size).toBe(0);
+    expect(d.routes.size).toBe(0);
+  });
+
+  test("flags a changed current region", () => {
+    const d = diffSettings(
+      make({ inactiveDomains: new Set(), currentDomain: DOMAIN_2 }),
+      make(),
+    );
+    expect(d.currentDomainChanged).toBe(true);
+    expect(d.domainActivation.has(DOMAIN_2)).toBe(true);
+  });
+
+  test("researched diff is symmetric (either side)", () => {
+    const a = "tech_a" as AicTechId;
+    const b = "tech_b" as AicTechId;
+    const d = diffSettings(
+      make({ researched: new Set([a]) }),
+      make({ researched: new Set([b]) }),
+    );
+    expect([...d.researched].sort()).toEqual([a, b].sort());
+  });
+
+  test("cap/raw overrides flag presence and value differences", () => {
+    const d = diffSettings(
+      make({
+        capOverrides: new Map([["k1", 5]]),
+        rawLimitOverrides: new Map([["r1", 30]]),
+      }),
+      make({
+        // k1 only on the shared side (presence); r1 differs in value.
+        rawLimitOverrides: new Map([["r1", 60]]),
+      }),
+    );
+    expect(d.capOverrides.has("k1")).toBe(true);
+    expect(d.rawLimits.has("r1")).toBe(true);
+  });
+
+  test("structures and metastorage routes are flagged", () => {
+    const sk = structureKey(DOMAIN_2, RegionStructureId.LIQUID_RECYCLE_GATE_1);
+    const d = diffSettings(
+      make({
+        structuresEnabled: new Set([sk]),
+        metastorageRouteModes: new Map([[DOMAIN_1, "disabled"]]),
+      }),
+      make(),
+    );
+    expect(d.structures.has(sk)).toBe(true);
+    expect(d.routes.has(DOMAIN_1)).toBe(true);
   });
 });

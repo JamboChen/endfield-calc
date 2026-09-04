@@ -51,6 +51,7 @@
     "open": "開啟方案",
     "qqGroup": "QQ 群",
     "save": "儲存方案",
+    "share": "分享計劃",
     "toggleTheme": "切換主題"
   },
   "mobileNav": {
@@ -71,5 +72,21 @@
   "collapsePanel": "摺疊面板",
   "gasEnvUnavailable": "氣體環境：目前設定下無法供應{{item}}，未規劃氣體散布機，氣體消耗被低估。",
   "machinesPerVaporizer": "每台氣體散布機覆蓋設備數",
-  "machinesPerVaporizerHint": "一台氣體散布機的作用範圍（13×13，設備需完全位於範圍內）可覆蓋的需要氣體環境的設備數量。方案會按組新增常開的散布機（每台每分鐘消耗6氣體）。"
+  "machinesPerVaporizerHint": "一台氣體散布機的作用範圍（13×13，設備需完全位於範圍內）可覆蓋的需要氣體環境的設備數量。方案會按組新增常開的散布機（每台每分鐘消耗6氣體）。",
+  "sharedPlan": {
+    "title": "正在檢視分享的方案",
+    "description": "顯示分享者的{{region}}設定，僅供檢視，你自己的設定不會改變。",
+    "useMine": "切換為我的設定",
+    "useTheirs": "使用這些設定",
+    "importTitle": "要使用分享方案的設定嗎？",
+    "importDescription": "這會用分享方案的地區、工業計劃研究和上限取代你已儲存的設定。之後仍可再次變更。",
+    "importConfirm": "覆蓋我的設定",
+    "cancel": "取消",
+    "imported": "已套用分享的設定。",
+    "exited": "已還原為你自己的設定。",
+    "linkNoPlan": "該連結未包含方案，因此未載入任何內容。",
+    "linkNoPlanKept": "該連結未包含方案，已保留目前方案。",
+    "linkCopied": "連結已複製到剪貼簿。",
+    "shareFailed": "無法分享連結。"
+  }
 }

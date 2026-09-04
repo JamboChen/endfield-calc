@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { Check, ChevronsDownUp, ChevronsUpDown, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useNumericDraft } from "@/hooks/useNumericDraft";
 import { cn } from "@/lib/utils";
 import { facilities } from "@/data";
 import { FacilityIcon } from "@/components/FacilityIcon";
@@ -12,7 +14,7 @@ import type { AicNode, AicTechId, FacilityBaseCap } from "@/types/aic";
 import type { DomainId } from "@/types/domain";
 import type { FacilityId } from "@/types";
 
-import { SettingsCard, settingsRowClass } from "./SettingsCard";
+import { SettingsCard, settingsRowClass, sharedChangedRowClass } from "./SettingsCard";
 
 interface FacilityLimitsContentProps {
   /**
@@ -37,6 +39,21 @@ interface FacilityLimitsContentProps {
   onActivateRaiseNodes: (ids: readonly AicTechId[]) => void;
   /** Bulk-deactivate cap-raises for a facility — the "Reset to base" path. */
   onDeactivateRaiseNodes: (ids: readonly AicTechId[]) => void;
+  /** Read-only shared-view: cap-override keys that differ from the viewer's own. */
+  changedCaps?: ReadonlySet<string>;
+  /** Read-only shared-view: cap-raise node ids that differ from the viewer's own. */
+  changedNodes?: ReadonlySet<AicTechId>;
+  /**
+   * Freezes the editing controls while leaving expand/collapse navigation
+   * usable. Explicit rather than inferred from `changedCaps` /
+   * `changedNodes`, which are for accents and may legitimately be empty.
+   *
+   * This is why the caller must NOT wrap this content in a disabled
+   * `fieldset`: that would disable the collapsible card headers too (they
+   * are real `<button>`s), trapping every card in whatever state it
+   * happened to be in.
+   */
+  readOnly?: boolean;
 }
 
 function capKey(facilityId: FacilityId, domainId: DomainId): string {
@@ -76,6 +93,9 @@ export function FacilityLimitsContent({
   onSetCapOverride,
   onActivateRaiseNodes,
   onDeactivateRaiseNodes,
+  changedCaps,
+  changedNodes,
+  readOnly = false,
 }: FacilityLimitsContentProps) {
   const { t } = useTranslation(["facility", "settings", "aic"]);
 
@@ -192,6 +212,9 @@ export function FacilityLimitsContent({
             onSetCapOverride={onSetCapOverride}
             onActivateRaiseNodes={onActivateRaiseNodes}
             onDeactivateRaiseNodes={onDeactivateRaiseNodes}
+            changedCaps={changedCaps}
+            changedNodes={changedNodes}
+            readOnly={readOnly}
           />
         );
       })}
@@ -214,6 +237,10 @@ interface CapTargetRowProps {
   ) => void;
   onActivateRaiseNodes: (ids: readonly AicTechId[]) => void;
   onDeactivateRaiseNodes: (ids: readonly AicTechId[]) => void;
+  changedCaps?: ReadonlySet<string>;
+  changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes this card's edit controls — see `FacilityLimitsContentProps`. */
+  readOnly?: boolean;
 }
 
 function CapTargetRow({
@@ -227,6 +254,9 @@ function CapTargetRow({
   onSetCapOverride,
   onActivateRaiseNodes,
   onDeactivateRaiseNodes,
+  changedCaps,
+  changedNodes,
+  readOnly = false,
 }: CapTargetRowProps) {
   const { t } = useTranslation(["facility", "settings", "aic"]);
 
@@ -238,6 +268,14 @@ function CapTargetRow({
   const overrideKey = capKey(target.facilityId, target.domainId);
   const overrideValue = capOverrides.get(overrideKey);
   const hasOverride = overrideValue !== undefined;
+
+  // Read-only shared-view accents: the override differs, and/or any of
+  // this facility's cap-raise nodes differ. The card-level flag stays
+  // visible while the card is collapsed.
+  const overrideChanged = changedCaps?.has(overrideKey) ?? false;
+  const cardChanged =
+    overrideChanged ||
+    target.raiseNodes.some((n) => changedNodes?.has(n.id) ?? false);
   const effective =
     effectiveCaps.get(target.facilityId)?.get(target.domainId) ?? 0;
 
@@ -252,9 +290,9 @@ function CapTargetRow({
     return value;
   }, [target, researched]);
 
-  const [draft, setDraft] = useState<string>(
-    hasOverride ? String(overrideValue) : "",
-  );
+  // Resyncs when the override changes externally, so the field can never
+  // sit on a value the app did not store and write it back on blur.
+  const [draft, setDraft] = useNumericDraft(overrideValue);
 
   // Per-facility Activate Check button: hide when there's nothing to
   // activate (no cap-raise nodes) or everything is already researched.
@@ -307,8 +345,10 @@ function CapTargetRow({
     </span>
   );
 
+  // Hidden rather than disabled in read-only shared-view, mirroring the
+  // Plan tab's own activate / reset actions (`AicLayer`, `AicPlanContent`).
   const actions =
-    canActivateAny || canResetToBase ? (
+    !readOnly && (canActivateAny || canResetToBase) ? (
       <>
         {canActivateAny && (
           <Button
@@ -362,6 +402,7 @@ function CapTargetRow({
       title={facilityName}
       badge={effectiveBadge}
       actions={actions}
+      className={cn(cardChanged && "border-primary/60 bg-primary/5")}
     >
       <div className="space-y-1">
         {hasRaises && (
@@ -380,14 +421,19 @@ function CapTargetRow({
                   key={node.id}
                   className={cn(
                     settingsRowClass,
-                    "hover:bg-accent/40 cursor-pointer",
+                    // No hover/pointer affordance when the row can't be
+                    // toggled — a dead cursor reads as a broken control.
+                    !readOnly && "hover:bg-accent/40 cursor-pointer",
                     // Faded when prereqs aren't researched yet — a "level"
                     // hint, not a block: clicking still cascades them in.
                     isLocked && "opacity-55",
+                    (changedNodes?.has(node.id) ?? false) &&
+                      sharedChangedRowClass,
                   )}
                 >
                   <Checkbox
                     checked={isResearched}
+                    disabled={readOnly}
                     onCheckedChange={() =>
                       isResearched
                         ? onToggle(node.id)
@@ -412,6 +458,7 @@ function CapTargetRow({
           className={cn(
             "flex items-center gap-2 px-2",
             hasRaises && "pt-2 border-t border-border/40",
+            overrideChanged && sharedChangedRowClass,
           )}
         >
           <label
@@ -427,6 +474,8 @@ function CapTargetRow({
             id={`cap-override-${overrideKey}`}
             type="number"
             inputMode="numeric"
+            min={0}
+            disabled={readOnly}
             value={draft}
             placeholder={String(gameCap)}
             onChange={(e) => setDraft(e.target.value)}
@@ -435,11 +484,24 @@ function CapTargetRow({
                 onSetCapOverride(target.facilityId, target.domainId, null);
                 return;
               }
+              // Non-negative, like the raw-limit field. A negative cap
+              // would reach the LP as a negative hard facility limit for
+              // this session and then silently vanish on reload, since
+              // `sanitizePersistedShape` drops it at rest. Toast rather
+              // than revert silently, so the value disappearing from the
+              // field reads as a rejection instead of a glitch.
               const v = parseInt(draft, 10);
-              if (Number.isFinite(v)) {
+              if (Number.isFinite(v) && v >= 0) {
                 onSetCapOverride(target.facilityId, target.domainId, v);
               } else {
                 setDraft(hasOverride ? String(overrideValue) : "");
+                toast.warning(
+                  t("aic.facilityLimits.invalidValue", {
+                    ns: "settings",
+                    defaultValue:
+                      "Limit must be a non-negative number. Value not saved.",
+                  }),
+                );
               }
             }}
             className="h-9 sm:h-7 w-20 text-xs tabular-nums"

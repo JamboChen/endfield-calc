@@ -22,12 +22,16 @@ import { FacilityIcon } from "@/components/FacilityIcon";
 import { getRecipeName } from "@/lib/i18n-helpers";
 import type { FacilityId, RecipeId } from "@/types";
 
-import { settingsRowClass } from "./SettingsCard";
+import { settingsRowClass, sharedChangedRowClass } from "./SettingsCard";
 
 interface AicNodeRowProps {
   node: AicNode;
   researched: ReadonlySet<AicTechId>;
   onToggle: (id: AicTechId) => void;
+  /** Read-only shared-view: this node's researched state differs from own. */
+  changed?: boolean;
+  /** Read-only shared-view: freeze the checkbox (info popover stays usable). */
+  readOnly?: boolean;
 }
 
 // O(1) lookup tables for the recipe-list tooltip. Built once at module
@@ -55,7 +59,13 @@ function recipePrimaryOutputIcon(recipeId: RecipeId): string | undefined {
   return ITEMS_BY_ID.get(primaryOutputId)?.iconUrl;
 }
 
-function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
+function AicNodeRowImpl({
+  node,
+  researched,
+  onToggle,
+  changed = false,
+  readOnly = false,
+}: AicNodeRowProps) {
   const { t } = useTranslation(["aic", "facility", "settings"]);
 
   const isResearched = researched.has(node.id);
@@ -219,12 +229,13 @@ function AicNodeRowImpl({ node, researched, onToggle }: AicNodeRowProps) {
           ? "opacity-55"
           : "hover:bg-accent/60 dark:hover:bg-accent/40",
         isImmutable && "opacity-70",
+        changed && sharedChangedRowClass,
         flashing && "animate-flash-highlight",
       )}
     >
       <Checkbox
         checked={isResearched}
-        disabled={isImmutable || isLocked}
+        disabled={isImmutable || isLocked || readOnly}
         onCheckedChange={() => onToggle(node.id)}
         aria-label={ariaLabel}
         className={cn(isImmutable && "data-[state=checked]:bg-muted-foreground data-[state=checked]:border-muted-foreground")}

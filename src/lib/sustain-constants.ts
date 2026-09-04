@@ -14,3 +14,20 @@
  * plan option (URL key `mpv`).
  */
 export const DEFAULT_MACHINES_PER_VAPORIZER = 4;
+
+/** Inclusive bounds the coverage ratio is clamped to. */
+const MIN_MACHINES_PER_VAPORIZER = 1;
+const MAX_MACHINES_PER_VAPORIZER = 16;
+
+/**
+ * Coerce an untrusted coverage ratio (URL param, localStorage, a
+ * hand-edited plan file) to a legal whole-machine count, falling back to
+ * the default rather than propagating something the solver can't use.
+ */
+export function sanitizeMachinesPerVaporizer(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_MACHINES_PER_VAPORIZER;
+  const int = Math.round(value);
+  return int >= MIN_MACHINES_PER_VAPORIZER && int <= MAX_MACHINES_PER_VAPORIZER
+    ? int
+    : DEFAULT_MACHINES_PER_VAPORIZER;
+}

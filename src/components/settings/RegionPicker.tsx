@@ -21,6 +21,11 @@ interface RegionPickerProps {
   currentDomain: DomainId;
   /** Apply a new selection. Caller is expected to be the hook setter. */
   onChange: (id: DomainId) => void;
+  /**
+   * Force-disable the picker (e.g. read-only shared-view). ORed with the
+   * trivial single-region case.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -44,6 +49,7 @@ export function RegionPicker({
   activeDomains,
   currentDomain,
   onChange,
+  disabled = false,
 }: RegionPickerProps) {
   const { t } = useTranslation(["settings", "domain"]);
   // Instance-unique control id: the picker renders in both the left
@@ -61,7 +67,8 @@ export function RegionPicker({
   );
 
   const currentDomainObj = options.find((d) => d.id === currentDomain);
-  const isTrivial = options.length <= 1;
+  // Nothing to pick between, or the caller froze it (shared-view).
+  const pickerDisabled = options.length <= 1 || disabled;
 
   return (
     <div className="space-y-1.5">
@@ -80,7 +87,7 @@ export function RegionPicker({
           const d = parseDomainId(value);
           if (d) onChange(d);
         }}
-        disabled={isTrivial}
+        disabled={pickerDisabled}
       >
         <SelectTrigger
           id={pickerId}

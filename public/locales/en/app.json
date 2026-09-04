@@ -51,6 +51,7 @@
     "open": "Open Plan",
     "qqGroup": "QQ Group",
     "save": "Save Plan",
+    "share": "Share Plan",
     "toggleTheme": "Toggle theme"
   },
   "mobileNav": {
@@ -71,5 +72,21 @@
   "collapsePanel": "Collapse panel",
   "gasEnvUnavailable": "Gas environment: {{item}} cannot be supplied, so no Gas Dispersing Unit was planned. Gas consumption is understated.",
   "machinesPerVaporizer": "Machines per Gas Dispersing Unit",
-  "machinesPerVaporizerHint": "How many machines that need a gaseous environment one Gas Dispersing Unit's aura covers (13×13 area, buildings must fit fully inside). The plan adds one always-on unit (6 gas/min) per group."
+  "machinesPerVaporizerHint": "How many machines that need a gaseous environment one Gas Dispersing Unit's aura covers (13×13 area, buildings must fit fully inside). The plan adds one always-on unit (6 gas/min) per group.",
+  "sharedPlan": {
+    "title": "Viewing a shared plan",
+    "description": "Showing the sharer's settings for {{region}}. Read-only; your own settings stay unchanged.",
+    "useMine": "Switch to mine",
+    "useTheirs": "Use these settings",
+    "importTitle": "Use the shared plan's settings?",
+    "importDescription": "This replaces your saved region, AIC research, and limits with the shared plan's. You can change them again afterward.",
+    "importConfirm": "Overwrite my settings",
+    "cancel": "Cancel",
+    "imported": "Shared settings applied to your configuration.",
+    "exited": "Switched back to your own settings.",
+    "linkNoPlan": "That link didn't contain a plan, so nothing was loaded.",
+    "linkNoPlanKept": "That link didn't contain a plan. Your current plan was kept.",
+    "linkCopied": "Link copied to clipboard.",
+    "shareFailed": "Couldn't share the link."
+  }
 }

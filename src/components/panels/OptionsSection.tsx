@@ -16,6 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { RegionPicker } from "@/components/settings/RegionPicker";
 import { RouteModeSelect } from "@/components/settings/RouteModeSelect";
+import { sharedChangedRowClass } from "@/components/settings/SettingsCard";
 import { useDomainSettingsContext } from "@/contexts/domain-settings-context";
 import { metastorageSources, regionStructures } from "@/data";
 import { facilityIconUrl } from "@/lib/facility-icons";
@@ -80,6 +81,8 @@ const OptionsSection = memo(function OptionsSection({
     setCurrentDomain,
     structures,
     metastorage,
+    isSharedView,
+    sharedDiff,
   } = useDomainSettingsContext();
   // Instance-unique control ids: LeftPanel and the portrait Plan tab
   // both stay mounted (orientation swap is CSS-only), so static ids
@@ -130,6 +133,7 @@ const OptionsSection = memo(function OptionsSection({
           activeDomains={activeDomains}
           currentDomain={currentDomain}
           onChange={setCurrentDomain}
+          disabled={isSharedView}
         />
 
         {regionStructureList.length > 0 && (
@@ -146,11 +150,14 @@ const OptionsSection = memo(function OptionsSection({
                 })}
               </div>
             </div>
-            <div className="space-y-1.5">
+            <fieldset
+              disabled={isSharedView}
+              className="space-y-1.5 min-w-0 border-0 p-0 m-0"
+            >
               {regionStructureList.map((s) => {
-                const isEnabled = structures.enabled.has(
-                  structureKey(currentDomain, s.id),
-                );
+                const structKey = structureKey(currentDomain, s.id);
+                const isEnabled = structures.enabled.has(structKey);
+                const isChanged = sharedDiff?.structures.has(structKey) ?? false;
                 // Faded when its prereq isn't enabled yet — a "level"
                 // hint, not a block: clicking cascades the prereqs in.
                 const isLocked =
@@ -179,6 +186,7 @@ const OptionsSection = memo(function OptionsSection({
                     className={cn(
                       "flex items-center gap-2 rounded border border-border/40 bg-card px-2 py-1.5 text-xs hover:bg-accent/40 transition-colors cursor-pointer",
                       isLocked && "opacity-55",
+                      isChanged && sharedChangedRowClass,
                     )}
                   >
                     <Checkbox
@@ -205,7 +213,7 @@ const OptionsSection = memo(function OptionsSection({
                   </label>
                 );
               })}
-            </div>
+            </fieldset>
           </div>
         )}
 
@@ -301,30 +309,36 @@ const OptionsSection = memo(function OptionsSection({
                   <ChevronDown className="size-3 opacity-60" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="w-72 px-3 py-2.5 space-y-2"
-              >
-                {metastorageSourceList.map((source) => (
-                  <div
-                    key={source}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span className="text-xs min-w-0 truncate">
-                      {t("metastorageImportsRoute", {
-                        ns: "app",
-                        source: getDomainName(source),
-                      })}
-                    </span>
-                    <RouteModeSelect
-                      source={source}
-                      domains={domains}
-                      mode={metastorage.routeModes.get(source) ?? "auto"}
-                      onSetRouteMode={metastorage.setRouteMode}
-                      className="h-7 w-[130px] text-xs shrink-0"
-                    />
-                  </div>
-                ))}
+              <PopoverContent align="end" className="w-72 px-3 py-2.5">
+                <fieldset
+                  disabled={isSharedView}
+                  className="space-y-2 min-w-0 border-0 p-0 m-0"
+                >
+                  {metastorageSourceList.map((source) => (
+                    <div
+                      key={source}
+                      className={cn(
+                        "flex items-center justify-between gap-2",
+                        (sharedDiff?.routes.has(source) ?? false) &&
+                          sharedChangedRowClass,
+                      )}
+                    >
+                      <span className="text-xs min-w-0 truncate">
+                        {t("metastorageImportsRoute", {
+                          ns: "app",
+                          source: getDomainName(source),
+                        })}
+                      </span>
+                      <RouteModeSelect
+                        source={source}
+                        domains={domains}
+                        mode={metastorage.routeModes.get(source) ?? "auto"}
+                        onSetRouteMode={metastorage.setRouteMode}
+                        className="h-7 w-[130px] text-xs shrink-0"
+                      />
+                    </div>
+                  ))}
+                </fieldset>
               </PopoverContent>
             </Popover>
           </div>

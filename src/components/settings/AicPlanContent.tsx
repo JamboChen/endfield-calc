@@ -26,6 +26,11 @@ interface AicPlanContentProps {
   onActivateLayer: (layerId: string) => void;
   onActivateGroup: (groupId: AicGroupId) => void;
   onResetGroup: (groupId: AicGroupId) => void;
+  /** Read-only shared-view: node ids whose researched state differs from own. */
+  changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes the controls. Explicit rather than inferred from
+   *  `changedNodes`, which is for accents and may legitimately be empty. */
+  readOnly?: boolean;
 }
 
 /**
@@ -46,6 +51,8 @@ export function AicPlanContent({
   onActivateLayer,
   onActivateGroup,
   onResetGroup,
+  changedNodes,
+  readOnly = false,
 }: AicPlanContentProps) {
   return (
     <div className="space-y-3">
@@ -61,6 +68,8 @@ export function AicPlanContent({
           onActivateLayer={onActivateLayer}
           onActivateGroup={onActivateGroup}
           onResetGroup={onResetGroup}
+          changedNodes={changedNodes}
+          readOnly={readOnly}
         />
       ))}
     </div>
@@ -77,6 +86,10 @@ interface AicPlanGroupProps {
   onActivateLayer: (layerId: string) => void;
   onActivateGroup: (groupId: AicGroupId) => void;
   onResetGroup: (groupId: AicGroupId) => void;
+  changedNodes?: ReadonlySet<AicTechId>;
+  /** Freezes the group's edit actions while leaving expand/collapse
+   *  navigation usable — see `AicPlanContentProps.readOnly`. */
+  readOnly?: boolean;
 }
 
 function AicPlanGroup({
@@ -89,6 +102,8 @@ function AicPlanGroup({
   onActivateLayer,
   onActivateGroup,
   onResetGroup,
+  changedNodes,
+  readOnly = false,
 }: AicPlanGroupProps) {
   const { t } = useTranslation(["aic", "settings"]);
 
@@ -230,7 +245,7 @@ function AicPlanGroup({
             )}
           </Button>
         )}
-        {!allDone && (
+        {!allDone && !readOnly && (
           <Button
             type="button"
             variant="ghost"
@@ -249,7 +264,7 @@ function AicPlanGroup({
             <Check className="size-4" />
           </Button>
         )}
-        {!isAtDefaults && (
+        {!isAtDefaults && !readOnly && (
           <Button
             type="button"
             variant="ghost"
@@ -277,6 +292,8 @@ function AicPlanGroup({
         onLayerOpenChange={handleLayerOpenChange}
         onToggleNode={onToggleNode}
         onActivateLayer={onActivateLayer}
+        changedNodes={changedNodes}
+        readOnly={readOnly}
       />
     </div>
   );

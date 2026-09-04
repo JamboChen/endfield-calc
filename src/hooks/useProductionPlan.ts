@@ -4,7 +4,23 @@ import {
   isCalcEngineReady,
   isCalcSuperseded,
 } from "@/lib/calc-client";
-import { DEFAULT_MACHINES_PER_VAPORIZER } from "@/lib/sustain-constants";
+import {
+  DEFAULT_MACHINES_PER_VAPORIZER,
+  sanitizeMachinesPerVaporizer,
+} from "@/lib/sustain-constants";
+import { savePlanOption } from "@/lib/plan-options-storage";
+import {
+  buildSavedPlan,
+  readSavedSettings,
+  savedPlanToHashState,
+  type SavedPlan,
+} from "@/lib/plan-file";
+import { computePlanPrune } from "@/lib/plan-prune";
+import {
+  encodeSettingsSnapshot,
+  withShareBlob,
+} from "@/lib/plan-share-codec";
+import { encodeHashToken, parseHash, serializeHash } from "@/lib/plan-url";
 import { useTargetOptimizer } from "@/hooks/useTargetOptimizer";
 import { items, recipes, facilities, powerFuels, MAX_TARGETS } from "@/data";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -21,6 +37,7 @@ import type {
   ProductionDependencyGraph,
 } from "@/types";
 import type { MetastorageRouteConfig } from "@/types/metastorage";
+import type { PersistedShape } from "@/lib/persisted-shape";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useProductionStats } from "./useProductionStats";
@@ -59,34 +76,6 @@ export type PowerTarget = {
   facility: Facility;
 };
 
-interface SavedPlan {
-  version: string;
-  /** `locked` is optional/additive: legacy saves omit it (= unlocked). */
-  targets: { itemId: string; rate: number; locked?: boolean }[];
-  recipeOverrides: Record<string, string>;
-  manualRawMaterials: string[];
-  ceilMode: boolean;
-  /**
-   * Optional. When absent (legacy saves predating bin-fusion), the
-   * loader defaults to `true` (bin-fusion on) — matching the
-   * `parseHash` default.
-   */
-  binFusion?: boolean;
-  /**
-   * Optional. Self-sustaining power (Thermal Bank battery burning).
-   * When absent (legacy saves), defaults to `false` — matching the
-   * `parseHash` default.
-   */
-  powerSustain?: boolean;
-  /**
-   * Optional. Gas-environment coverage ratio (1.4): how many env-gated
-   * machines one Gas Dispersing Unit's 13×13 aura covers. When absent,
-   * defaults to `DEFAULT_MACHINES_PER_VAPORIZER` — matching the
-   * `parseHash` default.
-   */
-  machinesPerVaporizer?: number;
-}
-
 /**
  * A user-pinned (item, recipe) pair where the LP chose to produce zero
  * of the pinned recipe. The pin is a hard producer-set narrowing in
@@ -106,187 +95,6 @@ interface SavedPlan {
  * picker + reset affordance as normal rows.
  */
 export type IneffectivePin = { itemId: ItemId; recipeId: RecipeId };
-
-interface ParsedHashState {
-  targets: ProductionTarget[];
-  recipeOverrides: Map<ItemId, RecipeId>;
-  manualRawMaterials: Set<ItemId>;
-  ceilMode: boolean;
-  binFusion: boolean;
-  powerSustain: boolean;
-  machinesPerVaporizer: number;
-}
-
-/** Sanitize an `mpv` value: integer in [1, 16], else the default. */
-function sanitizeMachinesPerVaporizer(value: number): number {
-  if (!Number.isFinite(value)) return DEFAULT_MACHINES_PER_VAPORIZER;
-  const int = Math.round(value);
-  return int >= 1 && int <= 16 ? int : DEFAULT_MACHINES_PER_VAPORIZER;
-}
-
-function parseHash(): ParsedHashState {
-  const defaultState: ParsedHashState = {
-    targets: [],
-    recipeOverrides: new Map(),
-    manualRawMaterials: new Set(),
-    ceilMode: false,
-    // binFusion defaults to ON. The hash key `bf=0` opts out;
-    // omitting `bf` (or setting `bf=1`) keeps the default ON.
-    binFusion: true,
-    // powerSustain defaults to OFF. The hash key `ps=1` opts in.
-    powerSustain: false,
-    // Gas-env coverage ratio defaults to 4. The hash key `mpv=N` tunes.
-    machinesPerVaporizer: DEFAULT_MACHINES_PER_VAPORIZER,
-  };
-
-  try {
-    const hash = window.location.hash.slice(1); // remove leading '#'
-    if (!hash) return defaultState;
-
-    const params = new URLSearchParams(hash);
-    const knownItemIds = new Set(items.map((item) => item.id));
-    const knownRecipeIds = new Set(recipes.map((recipe) => recipe.id));
-
-    // Parse targets: t=item_steel:6,item_glass:3
-    // A trailing `l` on the rate marks the target as locked
-    // (t=item_steel:6l). Backward AND forward compatible: old URLs have
-    // no suffix (= unlocked), and old app versions reading a new URL
-    // still get the rate via parseFloat("6l") === 6, merely dropping
-    // the flag.
-    const targetsRaw = params.get("t");
-    const parsedTargets: ProductionTarget[] = [];
-    if (targetsRaw) {
-      for (const part of targetsRaw.split(",")) {
-        const colonIdx = part.lastIndexOf(":");
-        if (colonIdx === -1) continue;
-        const itemId = part.slice(0, colonIdx) as ItemId;
-        const rateStr = part.slice(colonIdx + 1);
-        const locked = rateStr.endsWith("l");
-        const rate = parseFloat(rateStr);
-        if (knownItemIds.has(itemId) && isFinite(rate) && rate >= 0) {
-          parsedTargets.push(
-            locked ? { itemId, rate, locked: true } : { itemId, rate },
-          );
-        }
-      }
-    }
-
-    // Parse recipeOverrides: r=item_steel:recipe_alloy
-    const recipeRaw = params.get("r");
-    const parsedRecipeOverrides = new Map<ItemId, RecipeId>();
-    if (recipeRaw) {
-      for (const part of recipeRaw.split(",")) {
-        const colonIdx = part.indexOf(":");
-        if (colonIdx === -1) continue;
-        const itemId = part.slice(0, colonIdx) as ItemId;
-        const recipeId = part.slice(colonIdx + 1) as RecipeId;
-        if (knownItemIds.has(itemId) && knownRecipeIds.has(recipeId)) {
-          parsedRecipeOverrides.set(itemId, recipeId);
-        }
-      }
-    }
-
-    // Parse manualRawMaterials: m=item_coal,item_wood
-    const manualRaw = params.get("m");
-    const parsedManualRawMaterials = new Set<ItemId>();
-    if (manualRaw) {
-      for (const rawId of manualRaw.split(",")) {
-        const itemId = rawId as ItemId;
-        if (knownItemIds.has(itemId)) {
-          parsedManualRawMaterials.add(itemId);
-        }
-      }
-    }
-
-    // Parse ceilMode: c=1
-    const ceilRaw = params.get("c");
-    const parsedCeilMode = ceilRaw === "1";
-
-    // Parse binFusion: bf=0 disables (default on).
-    const binFusionRaw = params.get("bf");
-    const parsedBinFusion = binFusionRaw !== "0";
-
-    // Parse powerSustain: ps=1 enables (default off).
-    const parsedPowerSustain = params.get("ps") === "1";
-
-    // Parse machinesPerVaporizer: mpv=N (default 4).
-    const mpvRaw = params.get("mpv");
-    const parsedMachinesPerVaporizer =
-      mpvRaw !== null
-        ? sanitizeMachinesPerVaporizer(parseFloat(mpvRaw))
-        : DEFAULT_MACHINES_PER_VAPORIZER;
-
-    return {
-      targets: parsedTargets,
-      recipeOverrides: parsedRecipeOverrides,
-      manualRawMaterials: parsedManualRawMaterials,
-      ceilMode: parsedCeilMode,
-      binFusion: parsedBinFusion,
-      powerSustain: parsedPowerSustain,
-      machinesPerVaporizer: parsedMachinesPerVaporizer,
-    };
-  } catch {
-    return defaultState;
-  }
-}
-
-function serializeHash(
-  targets: ProductionTarget[],
-  recipeOverrides: Map<ItemId, RecipeId>,
-  manualRawMaterials: Set<ItemId>,
-  ceilMode: boolean,
-  binFusion: boolean,
-  powerSustain: boolean,
-  machinesPerVaporizer: number,
-): string {
-  const params = new URLSearchParams();
-
-  if (targets.length > 0) {
-    params.set(
-      "t",
-      targets
-        .map((t) => `${t.itemId}:${t.rate}${t.locked ? "l" : ""}`)
-        .join(","),
-    );
-  }
-
-  if (recipeOverrides.size > 0) {
-    params.set(
-      "r",
-      Array.from(recipeOverrides.entries())
-        .map(([itemId, recipeId]) => `${itemId}:${recipeId}`)
-        .join(","),
-    );
-  }
-
-  if (manualRawMaterials.size > 0) {
-    params.set("m", Array.from(manualRawMaterials).join(","));
-  }
-
-  if (ceilMode) {
-    params.set("c", "1");
-  }
-
-  // Only emit `bf=0` when the user disabled bin-fusion. The default
-  // (on) keeps the hash short.
-  if (!binFusion) {
-    params.set("bf", "0");
-  }
-
-  // Only emit `ps=1` when self-sustaining power is enabled (default off).
-  if (powerSustain) {
-    params.set("ps", "1");
-  }
-
-  // Only emit `mpv=N` when the gas-env coverage ratio differs from the
-  // default. The default keeps the hash short.
-  if (machinesPerVaporizer !== DEFAULT_MACHINES_PER_VAPORIZER) {
-    params.set("mpv", String(machinesPerVaporizer));
-  }
-
-  return params.toString();
-}
-
 
 /**
  * Format one structured `PlanWarning` into a display string.
@@ -381,46 +189,94 @@ function formatPlanWarning(
 }
 
 /**
- * Plan/recipe-calc state hook.
+ * Inputs to `useProductionPlan`.
  *
- * `availableRecipes` is the AIC-filtered subset of game-data recipes
- * derived in `App.tsx` from the user's current research / domain
- * activation state. The calc, the auto-prune effect, and the
- * recipe-override picker all operate on this set; recipes outside it
- * cannot run in this plan.
+ * An object rather than a parameter list (matching `useTargetOptimizer`):
+ * with this many inputs, positional arguments make an added or reordered
+ * field easy to get silently wrong at the single call site.
  *
- * Why threaded as args instead of read from a global: the App layer
- * is the single source of truth that combines game data with user
- * settings. Globals would re-introduce cross-module state and break
- * the auto-prune signal.
- *
- * `facilityCaps` is the per-facility aggregated cap (sum across active
- * domains of `effectiveCaps[facilityId][domainId]`). Passed into
- * `calculateProductionPlan` → Phase 5 MIP. Optional and undefined when
- * the user has no caps configured.
- *
- * `rawMaterialCaps` is the per-(raw item) cap for the current region,
- * in items/min. Passed into `calculateProductionPlan` → LP (which adds
- * slack-based upper-bound constraints); residual overage comes back as
- * calculator-emitted `raw-over-cap` PlanWarnings (see
- * `computeLimitViolations` in plan-helpers). **No entry in this map =
- * no limit** for that item; items the user hasn't capped don't appear
- * here and don't trigger warnings. Optional and undefined when nothing
- * is capped.
- *
- * `metastorageRoutes` are the Metastorage import routes resolved for
- * the current region by App.tsx. Threaded into
- * `calculateProductionPlan` (which auto-selects each route's single
- * transferred item) and consulted by the auto-prune effect so an
- * import-only target survives while its route is live.
+ * Everything here is threaded in rather than read from a global because
+ * the App layer is the one place that combines game data with user
+ * settings. Globals would re-introduce cross-module state and break the
+ * auto-prune signal.
  */
-export function useProductionPlan(
-  availableRecipes: readonly Recipe[],
-  regionRawMaterials: ReadonlySet<ItemId>,
-  facilityCaps?: ReadonlyMap<FacilityId, number>,
-  rawMaterialCaps?: ReadonlyMap<ItemId, number>,
-  metastorageRoutes?: readonly MetastorageRouteConfig[],
-) {
+export interface UseProductionPlanOptions {
+  /**
+   * The AIC-filtered subset of game-data recipes, derived in `App.tsx`
+   * from the user's current research / domain activation. The calc, the
+   * auto-prune effect and the recipe-override picker all operate on this
+   * set; recipes outside it cannot run in this plan.
+   */
+  readonly availableRecipes: readonly Recipe[];
+
+  /** Raws the current region supplies directly. */
+  readonly regionRawMaterials: ReadonlySet<ItemId>;
+
+  /** The viewer's live settings, embedded in the URL and saved files. */
+  readonly settingsShape: PersistedShape;
+
+  /**
+   * Per-facility aggregated cap (summed across active domains of
+   * `effectiveCaps[facilityId][domainId]`). Passed into
+   * `calculateProductionPlan` → Phase 5 MIP. Undefined when the user has
+   * no caps configured.
+   */
+  readonly facilityCaps?: ReadonlyMap<FacilityId, number>;
+
+  /**
+   * Per-(raw item) cap for the current region, in items/min. Passed into
+   * `calculateProductionPlan` → LP (which adds slack-based upper-bound
+   * constraints); residual overage comes back as calculator-emitted
+   * `raw-over-cap` PlanWarnings (see `computeLimitViolations` in
+   * plan-helpers). **No entry in this map = no limit** for that item, so
+   * uncapped items simply don't appear and never trigger warnings.
+   * Undefined when nothing is capped.
+   */
+  readonly rawMaterialCaps?: ReadonlyMap<ItemId, number>;
+
+  /**
+   * Metastorage import routes resolved for the current region by
+   * `App.tsx`. Threaded into `calculateProductionPlan` (which
+   * auto-selects each route's single transferred item) and consulted by
+   * the auto-prune effect, so an import-only target survives while its
+   * route is live.
+   */
+  readonly metastorageRoutes?: readonly MetastorageRouteConfig[];
+
+  /**
+   * Fires when a plan-bearing link is pasted into the address bar of the
+   * already-open app. `App.tsx` answers by remounting the settings
+   * provider and this hook, so the pasted link goes through the same
+   * mount-time seeding as a fresh visit.
+   */
+  readonly onExternalPlan?: () => void;
+
+  /**
+   * Suspends the auto-prune while the first-visit dialog is unanswered.
+   * The settings in force until then are stricter defaults the user
+   * never chose, and pruning against them destroys parts of a plan
+   * they're one click away from being able to build. See
+   * `computePlanPrune`.
+   */
+  readonly onboardingPending?: boolean;
+}
+
+/** Plan/recipe-calc state hook. See `UseProductionPlanOptions`. */
+export function useProductionPlan(options: UseProductionPlanOptions) {
+  // Destructured immediately so the body (and every dependency array in
+  // it) keeps referring to plain values — `options` itself is a fresh
+  // literal each render and must never enter a dep array.
+  const {
+    availableRecipes,
+    regionRawMaterials,
+    settingsShape,
+    facilityCaps,
+    rawMaterialCaps,
+    metastorageRoutes,
+    onExternalPlan,
+    onboardingPending = false,
+  } = options;
+
   const { t } = useTranslation("app");
 
   const initialState = useMemo(() => parseHash(), []);
@@ -436,31 +292,114 @@ export function useProductionPlan(
   const [manualRawMaterials, setManualRawMaterials] = useState<Set<ItemId>>(
     initialState.manualRawMaterials,
   );
-  const [ceilMode, setCeilMode] = useState(initialState.ceilMode);
-  const [binFusion, setBinFusion] = useState(initialState.binFusion);
-  const [powerSustain, setPowerSustain] = useState(initialState.powerSustain);
+  // The four plan options double as persisted preferences. Each setter
+  // writes its OWN key, and only when actually called — never on mount —
+  // so opening someone else's link can't fold their options into the
+  // viewer's preferences. See `plan-options-storage.ts`.
+  const [ceilMode, setCeilModeState] = useState(initialState.ceilMode);
+  const setCeilMode = useCallback((value: boolean) => {
+    setCeilModeState(value);
+    savePlanOption("ceilMode", value);
+  }, []);
+
+  const [binFusion, setBinFusionState] = useState(initialState.binFusion);
+  const setBinFusion = useCallback((value: boolean) => {
+    setBinFusionState(value);
+    savePlanOption("binFusion", value);
+  }, []);
+
+  const [powerSustain, setPowerSustainState] = useState(
+    initialState.powerSustain,
+  );
+  const setPowerSustain = useCallback((value: boolean) => {
+    setPowerSustainState(value);
+    savePlanOption("powerSustain", value);
+  }, []);
+
   const [machinesPerVaporizer, setMachinesPerVaporizerState] = useState(
     initialState.machinesPerVaporizer,
   );
   const setMachinesPerVaporizer = useCallback((value: number) => {
-    setMachinesPerVaporizerState(sanitizeMachinesPerVaporizer(value));
+    const sanitized = sanitizeMachinesPerVaporizer(value);
+    setMachinesPerVaporizerState(sanitized);
+    savePlanOption("machinesPerVaporizer", sanitized);
   }, []);
+
+  // The viewer's settings, compressed into the `s=` hash blob. Memoized
+  // on `settingsShape` identity (stable unless a setting changes) so the
+  // URL-sync effect below doesn't re-encode on every target edit. In
+  // shared-view this is the frozen sharer snapshot, so the link keeps
+  // reproducing the sharer's plan even as the viewer explores targets.
+  const shareBlob = useMemo(
+    () => encodeSettingsSnapshot(settingsShape),
+    [settingsShape],
+  );
+
+  /** The last URL this app wrote, so a rejected paste can be undone. */
+  const ownUrlRef = useRef(
+    typeof window === "undefined" ? "" : window.location.href,
+  );
+  /** Whether there's a plan to keep, for the rejected-paste message. */
+  const hasPlanRef = useRef(false);
 
   useEffect(() => {
     const hash = serializeHash(
-      targets,
-      recipeOverrides,
-      manualRawMaterials,
-      ceilMode,
-      binFusion,
-      powerSustain,
-      machinesPerVaporizer,
+      {
+        targets,
+        recipeOverrides,
+        manualRawMaterials,
+        ceilMode,
+        binFusion,
+        powerSustain,
+        machinesPerVaporizer,
+      },
+      shareBlob,
     );
-    const newUrl = hash
-      ? `${window.location.pathname}${window.location.search}#${hash}`
+    const token = encodeHashToken(hash);
+    const newUrl = token
+      ? `${window.location.pathname}${window.location.search}#${token}`
       : window.location.pathname + window.location.search;
+    ownUrlRef.current = newUrl;
+    hasPlanRef.current = targets.length > 0;
     history.replaceState(null, "", newUrl);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer, shareBlob]);
+
+  // Pasting a shared link into the address bar of an already-open app
+  // only changes the fragment, which is not a navigation — without this
+  // the plan would sit there unread.
+  //
+  // `hashchange` fires ONLY for user-driven changes here: the app writes
+  // its own hash via `history.replaceState`, which by spec never emits
+  // the event, and nothing assigns `location.hash` or renders in-page
+  // anchors. So there is no self-trigger and no loop.
+  //
+  // A link that carries a plan remounts the tree (`onExternalPlan`),
+  // which re-runs the same mount-time seeding a fresh visit would —
+  // including the provider's read-only shared-view resolution. Anything
+  // else is rejected: the current plan is already untouched, so all
+  // that's left is to put the address bar back and say what happened.
+  useEffect(() => {
+    const onHashChange = () => {
+      if (parseHash(window.location.hash).targets.length > 0) {
+        onExternalPlan?.();
+        return;
+      }
+      history.replaceState(null, "", ownUrlRef.current);
+      toast.warning(
+        hasPlanRef.current
+          ? t("sharedPlan.linkNoPlanKept", {
+              defaultValue:
+                "That link didn't contain a plan. Your current plan was kept.",
+            })
+          : t("sharedPlan.linkNoPlan", {
+              defaultValue:
+                "That link didn't contain a plan, so nothing was loaded.",
+            }),
+      );
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [onExternalPlan, t]);
 
   // The calculation engine (HiGHS WASM inside the calc worker, with a
   // main-thread fallback — see `calc-client.ts`) initialises async.
@@ -741,82 +680,44 @@ export function useProductionPlan(
   // on the next render. Sits AFTER the optimizer hook because a target
   // prune must clear its per-edit context (indices shift).
   useEffect(() => {
-    let removedOverrides = 0;
-    let removedRaws = 0;
-
-    const nextTargets = targets.filter(
-      (t) =>
-        reachableProducibleItems.has(t.itemId) ||
-        metastorageImportableItems.has(t.itemId),
+    const pruned = computePlanPrune(
+      { targets, recipeOverrides, manualRawMaterials },
+      {
+        onboardingPending,
+        reachableProducibleItems,
+        availableRecipeIds,
+        metastorageImportableItems,
+        regionRawMaterials,
+      },
     );
-    const removedTargets = targets.length - nextTargets.length;
+    if (!pruned) return;
 
-    const nextOverrides = new Map<ItemId, RecipeId>();
-    for (const [itemId, recipeId] of recipeOverrides) {
-      if (availableRecipeIds.has(recipeId)) {
-        nextOverrides.set(itemId, recipeId);
-      } else {
-        removedOverrides++;
-      }
-    }
-
-    const nextRaws = new Set<ItemId>();
-    for (const itemId of manualRawMaterials) {
-      // Keep a manual raw iff the item is either producible (in
-      // `reachableProducibleItems`, i.e. an output of at least one
-      // recipe in the strict `availableRecipes` set) OR a region-
-      // available raw (always-available in the current factory — pin
-      // is redundant but harmless).
-      //
-      // Drop pins on items that are completely unreachable: no
-      // available recipe produces them, not a regional raw, AND not
-      // Metastorage-importable here. Rationale: a manual-raw pin on an
-      // unsourceable item in the current region is meaningless — there's
-      // no chain to override. Cuprium-in-Valley-IV pins get dropped
-      // here; the user gets a toast and the affected target (if any) is
-      // auto-pruned too. An importable item is a legitimate pin target
-      // (hand-feed it as a raw, freeing the route for another item), so
-      // it survives — symmetric with the target-prune predicate above.
-      if (
-        reachableProducibleItems.has(itemId) ||
-        regionRawMaterials.has(itemId) ||
-        metastorageImportableItems.has(itemId)
-      ) {
-        nextRaws.add(itemId);
-      } else {
-        removedRaws++;
-      }
-    }
-
-    const total = removedTargets + removedOverrides + removedRaws;
-    if (total === 0) return;
-
-    if (removedTargets > 0) {
+    if (pruned.removedTargets > 0) {
       // Pruning shifts indices — a stale exclusion would point
       // auto-fit at the wrong target. Not a user edit, so the one-shot
       // guard is left alone (`disarm: false`).
       resetEditContext({ disarm: false });
-      setTargets(nextTargets);
+      setTargets(pruned.targets);
     }
-    if (removedOverrides > 0) setRecipeOverrides(nextOverrides);
-    if (removedRaws > 0) setManualRawMaterials(nextRaws);
+    if (pruned.removedOverrides > 0) setRecipeOverrides(pruned.recipeOverrides);
+    if (pruned.removedRaws > 0) setManualRawMaterials(pruned.manualRawMaterials);
 
     toast.info(
       t("autoPruneSummary", {
-        count: total,
+        count: pruned.total,
         defaultValue:
-          total === 1
+          pruned.total === 1
             ? "Removed 1 item no longer producible by your current settings."
-            : `Removed ${total} items no longer producible by your current settings.`,
+            : `Removed ${pruned.total} items no longer producible by your current settings.`,
       }),
     );
-    // The effect is idempotent against its own output: when the setters
-    // above fire, `targets` / `recipeOverrides` / `manualRawMaterials`
-    // change identity → effect re-runs → recomputes the prune against
-    // already-pruned state → `total === 0` → early return above, no
-    // double toast. So declaring the full dep set is safe (and
-    // ESLint-honest) — the second pass exits before any state writes.
+    // Idempotent against its own output: the setters above change
+    // `targets` / `recipeOverrides` / `manualRawMaterials` identity →
+    // effect re-runs → `computePlanPrune` sees already-pruned state →
+    // `null` → no second toast. So the full dep set is safe (and
+    // ESLint-honest); the second pass exits before any state writes.
   }, [
+    onboardingPending,
     reachableProducibleItems,
     availableRecipeIds,
     metastorageImportableItems,
@@ -1247,22 +1148,21 @@ export function useProductionPlan(
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSavePlan = useCallback(() => {
-    const data: SavedPlan = {
-      version: "1",
-      targets: targets.map((t) => ({
-        itemId: t.itemId,
-        rate: t.rate,
-        ...(t.locked ? { locked: true } : {}),
-      })),
-      recipeOverrides: Object.fromEntries(recipeOverrides),
-      manualRawMaterials: Array.from(manualRawMaterials),
-      ceilMode,
-      binFusion,
-      powerSustain,
-      ...(machinesPerVaporizer !== DEFAULT_MACHINES_PER_VAPORIZER
-        ? { machinesPerVaporizer }
-        : {}),
-    };
+    // Embeds the current domain/user settings so the saved plan
+    // reproduces exactly as authored (region, AIC, caps, structures,
+    // metastorage) — the file-side twin of the shared URL's `s=` blob.
+    const data = buildSavedPlan(
+      {
+        targets,
+        recipeOverrides,
+        manualRawMaterials,
+        ceilMode,
+        binFusion,
+        powerSustain,
+        machinesPerVaporizer,
+      },
+      settingsShape,
+    );
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1273,7 +1173,7 @@ export function useProductionPlan(
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer]);
+  }, [targets, recipeOverrides, manualRawMaterials, ceilMode, binFusion, powerSustain, machinesPerVaporizer, settingsShape]);
 
   const handleOpenPlan = useCallback(() => {
     if (!fileInputRef.current) {
@@ -1288,38 +1188,60 @@ export function useProductionPlan(
           try {
             const data = JSON.parse(ev.target?.result as string) as SavedPlan;
             if (data.version !== "1") return;
+            const state = savedPlanToHashState(data);
+            // A settings snapshot travels with the plan → reproduce it
+            // exactly by re-entering through the URL, which the provider
+            // resolves into read-only shared-view at mount (identical to
+            // a shared link, and only when it differs from the opener's
+            // own settings).
+            //
+            // Only a snapshot that SURVIVES validation takes this path.
+            // A file with no settings, or with a block too damaged to
+            // read, falls through to the in-place load below and runs
+            // against the opener's own world — see `readSavedSettings`.
+            const settings = readSavedSettings(data);
+            if (settings) {
+              const settingsBlob = encodeSettingsSnapshot(settings);
+              const base = serializeHash(state, settingsBlob);
+              // `serializeHash` emits nothing for a target-less plan
+              // (keeps a live URL clean). For a file re-entry that must
+              // NOT lose the saved settings, keep the blob even with zero
+              // targets so shared-view still triggers.
+              const planHash = base || withShareBlob("", settingsBlob);
+              history.replaceState(
+                null,
+                "",
+                `${window.location.pathname}${window.location.search}#${encodeHashToken(planHash)}`,
+              );
+              // Re-enter against the hash just written. The remount runs
+              // the same mount-time seeding a fresh visit does while the
+              // calc worker and its WASM survive; a full reload would
+              // throw those away for no gain. Falls back to one when the
+              // caller wired no handler.
+              if (onExternalPlan) onExternalPlan();
+              else window.location.reload();
+              return;
+            }
             // Whole-array replacement: any remembered "last edited"
             // index now points into a different plan. Clear it and
             // disarm auto-fit until the user edits — loading an
             // over-limit plan is not an edit and must not trigger an
             // immediate rebalance.
             resetEditContext({ disarm: true });
-            setTargets(
-              data.targets.map((t) =>
-                t.locked === true
-                  ? { itemId: t.itemId as ItemId, rate: t.rate, locked: true }
-                  : { itemId: t.itemId as ItemId, rate: t.rate },
-              ),
-            );
-            setRecipeOverrides(
-              new Map(
-                Object.entries(data.recipeOverrides).map(([k, v]) => [
-                  k as ItemId,
-                  v as RecipeId,
-                ]),
-              ),
-            );
-            setManualRawMaterials(new Set(data.manualRawMaterials as ItemId[]));
-            setCeilMode(data.ceilMode);
-            // Legacy saves (pre-bin-fusion) omit `binFusion`; default to on
-            // to match `parseHash` and the in-app default.
-            setBinFusion(data.binFusion ?? true);
-            // Legacy saves omit `powerSustain`; default off (parseHash).
-            setPowerSustain(data.powerSustain ?? false);
-            // Legacy saves omit `machinesPerVaporizer`; default 4.
-            setMachinesPerVaporizer(
-              data.machinesPerVaporizer ?? DEFAULT_MACHINES_PER_VAPORIZER,
-            );
+            setTargets(state.targets);
+            setRecipeOverrides(state.recipeOverrides);
+            setManualRawMaterials(state.manualRawMaterials);
+            // Raw state setters, NOT the persisting wrappers: opening a
+            // file is not the user choosing a preference. The path above
+            // (a file carrying settings) re-enters through the URL and so
+            // persists nothing either — and a legacy file that OMITS an
+            // option would otherwise store that option's default as if it
+            // had been picked, clobbering what the user actually set.
+            setCeilModeState(state.ceilMode);
+            setBinFusionState(state.binFusion);
+            setPowerSustainState(state.powerSustain);
+            // `savedPlanToHashState` already sanitized this one.
+            setMachinesPerVaporizerState(state.machinesPerVaporizer);
           } catch {
             // ignore invalid files
           }
@@ -1330,7 +1252,7 @@ export function useProductionPlan(
     }
     fileInputRef.current.value = "";
     fileInputRef.current.click();
-  }, [resetEditContext, setMachinesPerVaporizer]);
+  }, [onExternalPlan, resetEditContext]);
 
   return {
     targets,

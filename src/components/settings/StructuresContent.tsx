@@ -10,7 +10,7 @@ import type { RecipeId, RegionStructureId } from "@/types/constants";
 import type { DomainId } from "@/types/domain";
 import type { RegionStructure } from "@/types/structures";
 
-import { SettingsCard, settingsRowClass } from "./SettingsCard";
+import { SettingsCard, settingsRowClass, sharedChangedRowClass } from "./SettingsCard";
 
 interface StructuresContentProps {
   /** Region being configured. */
@@ -20,6 +20,11 @@ interface StructuresContentProps {
   /** Global enabled set, keyed by `structureKey`. */
   enabled: ReadonlySet<string>;
   onToggle: (domainId: DomainId, structureId: RegionStructureId) => void;
+  /**
+   * Read-only shared-view: structure keys whose enabled state differs
+   * from the viewer's own, accented so the divergence is visible.
+   */
+  changedStructures?: ReadonlySet<string>;
 }
 
 /**
@@ -41,6 +46,7 @@ export function StructuresContent({
   structures,
   enabled,
   onToggle,
+  changedStructures,
 }: StructuresContentProps) {
   const { t } = useTranslation(["settings", "item", "structure"]);
 
@@ -81,7 +87,9 @@ export function StructuresContent({
         <SettingsCard key={nodeId} title={t(`nodes.${nodeId}`, { ns: "structure" })}>
           <div className="space-y-0.5">
             {list.map((s) => {
-              const isEnabled = enabled.has(structureKey(domainId, s.id));
+              const key = structureKey(domainId, s.id);
+              const isEnabled = enabled.has(key);
+              const isChanged = changedStructures?.has(key) ?? false;
               // Faded when its prereq isn't enabled yet — a "level" hint, not
               // a block: clicking cascades the prereq chain in.
               const isLocked =
@@ -137,6 +145,7 @@ export function StructuresContent({
                     settingsRowClass,
                     "hover:bg-accent/40 cursor-pointer",
                     isLocked && "opacity-55",
+                    isChanged && sharedChangedRowClass,
                   )}
                 >
                   <Checkbox

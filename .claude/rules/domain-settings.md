@@ -1,6 +1,11 @@
 ---
 paths:
   - "src/hooks/useDomainSettings.ts"
+  - "src/lib/persisted-shape.ts"
+  - "src/lib/plan-share-codec.ts"
+  - "src/lib/plan-options-storage.ts"
+  - "src/lib/onboarding-storage.ts"
+  - "src/lib/plan-prune.ts"
   - "src/lib/aic-cascade.ts"
   - "src/lib/aic-research-helpers.ts"
   - "src/contexts/DomainSettingsProvider.tsx"
@@ -63,8 +68,9 @@ UI: `MetastorageContent` in a region-conditional tab that renders for **source-c
 ## Persistence (verified)
 
 - **Channel namespacing**: every localStorage key in this file is the *base* (production) value. Beta builds (served at `/endfield-calc/beta/`) suffix all keys with `:beta` via `namespaceStorageKey` (`src/lib/storage-namespace.ts`), so on beta these become `endfield-calc:aic-v1:beta` and `endfield-calc:onboarding-v1:beta`. The two channels share an origin and would otherwise collide. New persisted keys MUST go through `namespaceStorageKey` for the same reason.
-- Sole version signal: localStorage key `endfield-calc:aic-v1` (line 174). No `v` field inside the JSON.
-- Loader detects shape (line 325): nested `{ domains, aic }` is current; flat `{ unresearched, capOverrides, inactiveDomains? }` is v1, migrated in-memory and re-written nested on next save.
+- The shape, its migration and its validation live in `src/lib/persisted-shape.ts`, NOT in the hook — `plan-share-codec.ts` and the saved-file loader need them too, and a `lib/` module importing a hook was the wrong way round.
+- Sole version signal: the localStorage key `endfield-calc:aic-v1`. No `v` field inside the JSON.
+- Loader detects shape: nested `{ domains, aic }` is current; flat `{ unresearched, capOverrides, inactiveDomains? }` is v1, migrated in-memory and re-written nested on next save.
 - AIC sub-state uses a **deny-list** for research (`aic.unresearched`); domains use a **deny-list** for activation (`domains.inactive`). `rawLimits.overrides` + `structures.enabled` are **allow-lists** (optional keys; absent in older payloads).
 - Defensive filter on load: drops tech / domain / cap-override / raw-limit / structure entries whose IDs no longer exist in data (e.g. after an `extract:aic` run, or a `regionStructures` change).
 
@@ -75,11 +81,25 @@ UI: `MetastorageContent` in a region-conditional tab that renders for **source-c
 
 ## Soft deactivation
 
-`toggleDomain` only mutates `inactiveDomains` (line 1073). `researched` is preserved across activation flips — re-activating restores prior research state automatically. Pinned domains refuse deactivation silently.
+`toggleDomain` only mutates `inactiveDomains`. `researched` is preserved across activation flips — re-activating restores prior research state automatically. Pinned domains refuse deactivation silently.
 
 ## Onboarding dialog
 
-`AicOnboardingDialog` (`src/components/onboarding/AicOnboardingDialog.tsx`) is rendered by `DomainSettingsProvider` as a sibling of children. It's self-gating against localStorage key **`endfield-calc:onboarding-v1`** (line 91) — a separate key from the AIC state. Shown once per browser. `applyOnboardingChoices` (`useDomainSettings.ts:823`) does the bulk apply atomically (one `setInactiveDomains` + one `setResearched` so the persist effect fires once).
+`AicOnboardingDialog` (`src/components/onboarding/AicOnboardingDialog.tsx`) is rendered by `DomainSettingsProvider` as a sibling of children. Shown once per browser, gated on localStorage key **`endfield-calc:onboarding-v1`** — a separate key from the AIC state.
+
+The flag is NOT read by the dialog. `useDomainSettings` holds it as `onboardingPending` state and clears it via `completeOnboarding`, because **other code waits on it**: the plan auto-prune (`computePlanPrune`) is suppressed until onboarding is answered. The pre-onboarding defaults deactivate every non-pinned domain, so they are stricter than the all-checked default the dialog is about to apply — pruning against them would delete targets the user is one click away from being able to build, irreversibly. The dialog therefore applies choices FIRST and clears the flag second.
+
+`applyOnboardingChoices` does the bulk apply atomically (one `setInactiveDomains` + one `setResearched` so the persist effect fires once).
+
+## Read-only shared-view
+
+Opening a link (or a saved file) whose embedded settings differ from the viewer's own puts the hook in **read-only shared-view**: it seeds from the snapshot instead of localStorage and `isSharedView` is true.
+
+- **Hard invariant: localStorage is never written while viewing someone else's plan.** Enforced twice — every mutator early-returns on `readOnlyRef.current`, and the persist effect returns on `readOnly`. Do not add a mutator without the guard.
+- `isSharedView` is the ONE read-only signal for the UI. `sharedDiff` / `changedNodes` are for ACCENTS only — never derive the mode from them (an empty diff would silently unlock the sheet).
+- **Freezing a sub-tab body has two mechanisms, and picking the wrong one costs navigation.** Flat bodies (Resources / Structures / Metastorage) get a `<fieldset disabled>` in `RegionConfigTabs`. Bodies with collapsible cards (Plan / Limits) must instead take a `readOnly` prop and disable their own controls: a disabled `fieldset` disables EVERY descendant form control per the HTML spec, including the `SettingsCard` header `<button>` that expands/collapses the card and any info-popover trigger — so the viewer can no longer navigate what they are allowed to read. Per-card write actions are hidden rather than disabled. Guarded by `src/tests/dom/settings-read-only.test.tsx`.
+- Exits: `importSharedPlan` adopts the snapshot as the viewer's own (and marks onboarding answered, since that is a deliberate configuration choice); `exitSharedPlan` restores their own settings and deliberately does NOT mark onboarding — a viewer who never onboarded has nothing to clobber, so the first-visit dialog is the correct prompt there.
+- The dialog is suppressed during shared-view, so a never-onboarded viewer answers it only after leaving.
 
 ## Per-plan reset
 
@@ -88,6 +108,7 @@ UI: `MetastorageContent` in a region-conditional tab that renders for **source-c
 ## Facility caps + over-cap warnings (verified pipeline)
 
 - User-overridable per-(facility, domain) caps live in `aic.capOverrides: ReadonlyMap<string, number>` keyed by `capKey(facilityId, domainId)` = `${facilityId}\u0000${domainId}`.
+- **An override value is validated at three layers, and they must agree** (same contract as raw limits): the input rejects and toasts, `setCapOverride` rejects as the net for every non-UI caller (URL, saved file, programmatic), and `sanitizePersistedShape` rejects at rest. A value accepted by fewer layers than the others applies to the LP for one session and then vanishes on reload. Today's rule is finite and `>= 0`; `computeEffectiveCaps` passes the override straight through (`override ?? base + raises`), so nothing downstream re-checks it.
 - `aic.effectiveCaps` derives `base + raises` (or override if set) per facility per domain.
 - `App.tsx` builds the aggregate `facilityCaps: ReadonlyMap<FacilityId, number>` (sum across active domains of `effectiveCaps`, PLUS `+1` per enabled `role: "instance"` structure) and threads it into:
   1. The **LP** (`lp-solver.ts` per-facility cap constraint) — soft upper bound with `SLACK_PENALTY`: `Σ_{r : r.facilityId === F} x_r ≤ cap + slack`. The penalty makes the LP respect the cap whenever any alternative producer exists; slack engages only when demand is otherwise infeasible.

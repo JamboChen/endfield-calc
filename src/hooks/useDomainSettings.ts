@@ -133,11 +133,7 @@ import {
   domains as domainData,
   facilityBaseCaps,
 } from "@/data/aic-plans";
-import {
-  metastorageSources,
-  rawAvailabilityByDomain,
-  regionStructures,
-} from "@/data";
+import { metastorageSources, regionStructures } from "@/data";
 import {
   buildNodeIndex,
   cascadeActivate,
@@ -150,463 +146,36 @@ import {
   computeUnlockedModes,
   isGroupAtDefaults,
 } from "@/lib/aic-research-helpers";
-import { parseRawLimitKey, rawLimitKey } from "@/lib/raw-limits-helpers";
+import { rawLimitKey } from "@/lib/raw-limits-helpers";
 import {
   cascadeStructureChain,
-  deriveStructuresEnabledFromDisabled,
+  diffSettings,
   initialStructuresEnabled,
   structureKey,
-  structuresDisabledFromEnabled,
+  type SharedSettingsDiff,
 } from "@/lib/settings-helpers";
-import { namespaceStorageKey } from "@/lib/storage-namespace";
+import { hasSeenOnboarding, markOnboardingSeen } from "@/lib/onboarding-storage";
+import {
+  NODE_DOMAIN_BY_GROUP,
+  composeStateFromShape,
+  type ComposedState,
+  loadPersistedShape,
+  persistToStorage,
+  pickLatestActive,
+  stateToPersistedShape,
+  type PersistedShape,
+} from "@/lib/persisted-shape";
 import type {
   AicGroupId,
   AicLayerId,
   AicNode,
   AicTechId,
 } from "@/types/aic";
-import { isDomainId, parseDomainId } from "@/types/domain";
 import type { Domain, DomainId } from "@/types/domain";
 import type { MetastorageRouteMode } from "@/types/metastorage";
 import type { FacilityId, ItemId } from "@/types";
 import type { RegionStructureId } from "@/types/constants";
 
-const STORAGE_KEY = namespaceStorageKey("endfield-calc:aic-v1");
-
-interface CapOverrideRecord {
-  facilityId: FacilityId;
-  domainId: DomainId;
-  value: number;
-}
-
-interface RawLimitOverrideRecord {
-  itemId: ItemId;
-  domainId: DomainId;
-  value: number;
-}
-
-interface StructureDisabledRecord {
-  domainId: DomainId;
-  structureId: RegionStructureId;
-}
-
-/**
- * One persisted Metastorage route deviation. Only non-`"auto"` modes
- * are stored (`"auto"` is the default for every capable source);
- * `mode` is either the literal `"disabled"` or the locked destination
- * `DomainId`.
- */
-interface MetastorageRouteRecord {
-  source: DomainId;
-  mode: "disabled" | DomainId;
-}
-
-/**
- * Nested persistence shape — what writer emits and current-shape loader expects.
- *
- * `domains.current` may be absent (legacy payload written before the
- * region picker). Loader defaults to the latest active region.
- *
- * `rawLimits` may be absent (payload written before raw-material
- * limits landed). Loader defaults to an empty override set.
- */
-interface PersistedShape {
-  domains: { inactive: DomainId[]; current?: DomainId };
-  aic: {
-    unresearched: AicTechId[];
-    capOverrides: CapOverrideRecord[];
-  };
-  rawLimits?: {
-    overrides: RawLimitOverrideRecord[];
-  };
-  /**
-   * Region structures (absent in payloads written before the
-   * "Structures" tab). **Default-active**: empty `disabled` list (or
-   * a missing `structures` key entirely) means every structure in
-   * every active domain is enabled. Persistence stores only the
-   * user's explicit opt-outs, mirroring the AIC `unresearched`
-   * pattern. Inactive-domain structures don't appear here (their
-   * state is preserved in memory across deactivation; see
-   * `structuresDisabledFromEnabled` for the writer rule).
-   */
-  structures?: {
-    disabled: StructureDisabledRecord[];
-  };
-  /**
-   * Metastorage Transfer route modes (absent in payloads written
-   * before the feature landed). **Default-auto**: an empty `routes`
-   * list (or a missing `metastorage` key) means every capable source
-   * region exports to whichever region is being planned. Persistence
-   * stores only deviations — `"disabled"` or a locked destination.
-   */
-  metastorage?: {
-    routes: MetastorageRouteRecord[];
-  };
-}
-
-/**
- * Legacy v1-flat shape — supported by loader for back-compat. Migrated
- * in-memory to `PersistedShape` and re-written on next save.
- */
-interface PersistedShapeV1 {
-  v?: number;
-  unresearched: AicTechId[];
-  capOverrides: CapOverrideRecord[];
-  inactiveDomains?: DomainId[];
-}
-
-// ── Initial state ──────────────────────────────────────────────────────────
-
-/**
- * Group id → domain id index. Built once at module load from `aicGroups`.
- * Used by the initial-state generator to decide "active or inactive
- * domain" per node.
- */
-const NODE_DOMAIN_BY_GROUP: ReadonlyMap<AicGroupId, DomainId> = (() => {
-  const out = new Map<AicGroupId, DomainId>();
-  for (const g of aicGroups) out.set(g.id, g.domainId);
-  return out;
-})();
-
-/**
- * Default-inactive domains (no localStorage): every non-pinned domain
- * starts inactive. Valley IV (`isPinned: true`) is always active.
- */
-function defaultInactiveDomains(): Set<DomainId> {
-  const out = new Set<DomainId>();
-  for (const d of domainData) {
-    if (!d.isPinned) out.add(d.id);
-  }
-  return out;
-}
-
-/**
- * Initial researched set for a first-run user:
- *  - nodes in active domains: all researched (Step 1 default)
- *  - nodes in inactive domains: only `alreadyUnlocked: true` (game default)
- */
-function initialResearchedSet(activeDomains: ReadonlySet<DomainId>): Set<AicTechId> {
-  const out = new Set<AicTechId>();
-  for (const node of aicNodes) {
-    const domainId = NODE_DOMAIN_BY_GROUP.get(node.groupId);
-    const active = domainId !== undefined && activeDomains.has(domainId);
-    if (active || node.alreadyUnlocked) out.add(node.id);
-  }
-  return out;
-}
-
-function deriveResearchedFromUnresearched(
-  unresearched: readonly AicTechId[],
-): Set<AicTechId> {
-  const denied = new Set<AicTechId>(unresearched);
-  const out = new Set<AicTechId>();
-  for (const node of aicNodes) {
-    if (!denied.has(node.id)) out.add(node.id);
-  }
-  return out;
-}
-
-// ── Storage I/O ────────────────────────────────────────────────────────────
-
-function isNestedShape(data: unknown): data is PersistedShape {
-  if (!data || typeof data !== "object") return false;
-  const d = data as Record<string, unknown>;
-  return (
-    typeof d.aic === "object" &&
-    d.aic !== null &&
-    typeof d.domains === "object" &&
-    d.domains !== null
-  );
-}
-
-function isV1FlatShape(data: unknown): data is PersistedShapeV1 {
-  if (!data || typeof data !== "object") return false;
-  const d = data as Record<string, unknown>;
-  return Array.isArray(d.unresearched) && Array.isArray(d.capOverrides);
-}
-
-function migrateV1ToNested(v1: PersistedShapeV1): PersistedShape {
-  return {
-    domains: {
-      inactive: Array.isArray(v1.inactiveDomains) ? [...v1.inactiveDomains] : [],
-      // v1-flat never carried `current`; loader's downstream validation
-      // synthesises it from the active set.
-    },
-    aic: {
-      unresearched: [...v1.unresearched],
-      capOverrides: [...v1.capOverrides],
-    },
-  };
-}
-
-/**
- * Pick the "latest" active region — highest `sortId` in the active
- * set. Used as the default `currentDomain` when persistence carries no
- * value (migration), the persisted value is invalid (corruption), or
- * the user deactivates the AIC of their current region (auto-fallback).
- *
- * Falls back to the first pinned domain when no active domain exists
- * (pinned domains are always active by construction so this only
- * triggers if `domainData` is empty — defensive).
- *
- * Exported so `SettingsSheet` can compute the same fallback target
- * pre-emptively (to surface a toast) without depending on a re-render
- * to read the post-toggle `currentDomain`. Single source of truth for
- * the "latest active" semantic — UI must not re-implement.
- */
-export function pickLatestActive(activeDomains: ReadonlySet<DomainId>): DomainId {
-  let best: { id: DomainId; sortId: number } | null = null;
-  for (const d of domainData) {
-    if (!activeDomains.has(d.id)) continue;
-    if (!best || d.sortId > best.sortId) {
-      best = { id: d.id, sortId: d.sortId };
-    }
-  }
-  if (best) return best.id;
-  const pinned = domainData.find((d) => d.isPinned);
-  return (pinned ?? domainData[0]).id;
-}
-
-function loadFromStorage(): PersistedShape | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const knownTechIds = new Set(aicNodes.map((n) => n.id as string));
-    const knownStructureKeys = new Set<string>();
-    for (const [domainId, list] of regionStructures) {
-      for (const s of list) knownStructureKeys.add(structureKey(domainId, s.id));
-    }
-
-    let shape: PersistedShape | null = null;
-    if (isNestedShape(parsed)) {
-      shape = parsed;
-    } else if (isV1FlatShape(parsed)) {
-      shape = migrateV1ToNested(parsed);
-    } else {
-      return null;
-    }
-
-    // Defensive filter — drop ids that no longer exist (e.g. after an
-    // `extract:aic` run dropped a previously-known node or domain).
-    const unresearched = shape.aic.unresearched.filter((id): id is AicTechId =>
-      typeof id === "string" && knownTechIds.has(id),
-    );
-    const inactive = shape.domains.inactive.filter(isDomainId);
-    const capOverrides = shape.aic.capOverrides.filter(
-      (c): c is CapOverrideRecord =>
-        c !== null &&
-        typeof c === "object" &&
-        typeof c.facilityId === "string" &&
-        typeof c.domainId === "string" &&
-        isDomainId(c.domainId) &&
-        typeof c.value === "number" &&
-        Number.isFinite(c.value),
-    );
-    // Validate `domains.current` against the post-filter active set
-    // (not just known-domain membership). The invariant
-    // `currentDomain ∈ activeDomains` is documented at the top of this
-    // file and relied on by `App.tsx`'s non-null assertion at the
-    // `regionRawMaterials` memo. Treating known-but-inactive as
-    // invalid here forces the downstream initializer + the
-    // setCurrentDomain setter to converge on the same rule, removing
-    // a latent footgun where the loader returns a "valid" current
-    // that points to an inactive domain.
-    const inactiveSet = new Set<string>(inactive);
-    const parsedCurrent = parseDomainId(shape.domains.current);
-    const current =
-      parsedCurrent && !inactiveSet.has(parsedCurrent)
-        ? parsedCurrent
-        : undefined;
-
-    // Raw-limit overrides — drop entries whose (itemId, domainId) is
-    // not in `rawAvailabilityByDomain` (e.g. game patch removed a raw
-    // from a region, or the persisted state predates the data). Also
-    // drop negative values and non-finite values defensively (the
-    // setter rejects them, but a hand-edited localStorage could carry
-    // them through).
-    const rawLimitOverrides = Array.isArray(shape.rawLimits?.overrides)
-      ? shape.rawLimits.overrides.filter(
-          (r): r is RawLimitOverrideRecord => {
-            if (
-              r === null ||
-              typeof r !== "object" ||
-              typeof r.itemId !== "string" ||
-              typeof r.domainId !== "string" ||
-              typeof r.value !== "number" ||
-              !Number.isFinite(r.value) ||
-              r.value < 0
-            )
-              return false;
-            const domainId = parseDomainId(r.domainId);
-            if (!domainId) return false;
-            const regionSet = rawAvailabilityByDomain.get(domainId);
-            return regionSet?.has(r.itemId as ItemId) ?? false;
-          },
-        )
-      : [];
-
-    // Region structures — absence-list of disabled (domain, structure)
-    // pairs (inverted persistence, mirrors AIC `unresearched`). Drop
-    // entries whose (domain, structure) pair is not a known structure
-    // (e.g. registry changed, or hand-edited state) — an unknown
-    // disabled entry is meaningless and gets silently dropped, which
-    // effectively re-enables the structure under the default-active
-    // rule. That's the desired behavior on registry changes.
-    const structuresDisabled = Array.isArray(shape.structures?.disabled)
-      ? shape.structures.disabled.filter(
-          (r): r is StructureDisabledRecord =>
-            r !== null &&
-            typeof r === "object" &&
-            typeof r.domainId === "string" &&
-            typeof r.structureId === "string" &&
-            isDomainId(r.domainId) &&
-            knownStructureKeys.has(
-              structureKey(
-                r.domainId,
-                r.structureId as RegionStructureId,
-              ),
-            ),
-        )
-      : [];
-
-    // Metastorage routes — deviations-only list (absent = every capable
-    // source on "auto"). Drop entries whose source isn't a known domain
-    // with Metastorage capability, whose mode is neither "disabled" nor
-    // a known domain in the registry, or whose locked destination equals
-    // the source (self-routes are meaningless). The destination gate
-    // (`domainData` membership) is identical to `setMetastorageRouteMode`
-    // below, so the load and set paths can't drift. Dropping an entry
-    // re-defaults that source to "auto" — the desired behavior when a
-    // game patch changes the capable-source set.
-    const metastorageRoutes = Array.isArray(shape.metastorage?.routes)
-      ? shape.metastorage.routes.filter((r): r is MetastorageRouteRecord => {
-          if (r === null || typeof r === "undefined") return false;
-          if (typeof r !== "object") return false;
-          const source = parseDomainId(r.source);
-          if (!source || !metastorageSources.has(source)) return false;
-          if (r.mode === "disabled") return true;
-          const dest = parseDomainId(r.mode);
-          return (
-            dest !== undefined &&
-            dest !== source &&
-            domainData.some((d) => d.id === dest)
-          );
-        })
-      : [];
-
-    return {
-      domains: { inactive, current },
-      aic: { unresearched, capOverrides },
-      rawLimits: { overrides: rawLimitOverrides },
-      structures: { disabled: structuresDisabled },
-      metastorage: { routes: metastorageRoutes },
-    };
-  } catch {
-    return null;
-  }
-}
-
-function persistToStorage(state: {
-  researched: ReadonlySet<AicTechId>;
-  inactiveDomains: ReadonlySet<DomainId>;
-  capOverrides: ReadonlyMap<string, number>;
-  currentDomain: DomainId;
-  rawLimitOverrides: ReadonlyMap<string, number>;
-  structuresEnabled: ReadonlySet<string>;
-  metastorageRouteModes: ReadonlyMap<DomainId, "disabled" | DomainId>;
-}): void {
-  if (typeof window === "undefined") return;
-  try {
-    // Invert the researched set → unresearched list for storage.
-    const unresearched: AicTechId[] = [];
-    for (const node of aicNodes) {
-      if (!state.researched.has(node.id)) unresearched.push(node.id);
-    }
-    unresearched.sort();
-
-    const capList: CapOverrideRecord[] = [];
-    for (const [key, value] of state.capOverrides) {
-      const [facilityId, domainIdRaw] = key.split("\u0000");
-      const domainId = parseDomainId(domainIdRaw);
-      if (!facilityId || !domainId) continue;
-      capList.push({
-        facilityId: facilityId as FacilityId,
-        domainId,
-        value,
-      });
-    }
-
-    const rawLimitsList: RawLimitOverrideRecord[] = [];
-    for (const [key, value] of state.rawLimitOverrides) {
-      const parsed = parseRawLimitKey(key);
-      if (!parsed) continue;
-      rawLimitsList.push({
-        itemId: parsed.itemId,
-        domainId: parsed.domainId,
-        value,
-      });
-    }
-
-    // Invert the in-memory `enabled` set → persisted `disabled`
-    // absence-list. Walks the registry × active domains; structures
-    // in inactive domains are skipped (their state stays in memory
-    // for soft-deactivation; see `structuresDisabledFromEnabled`
-    // JSDoc).
-    const activeDomains = new Set<DomainId>();
-    for (const d of domainData) {
-      if (!state.inactiveDomains.has(d.id)) activeDomains.add(d.id);
-    }
-    const structuresList = structuresDisabledFromEnabled(
-      state.structuresEnabled,
-      regionStructures,
-      activeDomains,
-    );
-
-    // Metastorage deviations (in-memory map already stores only
-    // non-"auto" modes; serialize as records sorted by source).
-    const metastorageList: MetastorageRouteRecord[] = [];
-    for (const [source, mode] of state.metastorageRouteModes) {
-      metastorageList.push({ source, mode });
-    }
-    metastorageList.sort((a, b) => a.source.localeCompare(b.source));
-
-    const payload: PersistedShape = {
-      domains: {
-        inactive: Array.from(state.inactiveDomains).sort(),
-        current: state.currentDomain,
-      },
-      aic: {
-        unresearched,
-        capOverrides: capList.sort((a, b) => {
-          if (a.facilityId !== b.facilityId)
-            return a.facilityId.localeCompare(b.facilityId);
-          return a.domainId.localeCompare(b.domainId);
-        }),
-      },
-      rawLimits: {
-        overrides: rawLimitsList.sort((a, b) => {
-          if (a.itemId !== b.itemId) return a.itemId.localeCompare(b.itemId);
-          return a.domainId.localeCompare(b.domainId);
-        }),
-      },
-      structures: {
-        disabled: structuresList.sort((a, b) => {
-          if (a.domainId !== b.domainId)
-            return a.domainId.localeCompare(b.domainId);
-          return a.structureId.localeCompare(b.structureId);
-        }),
-      },
-      metastorage: {
-        routes: metastorageList,
-      },
-    };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    // localStorage may be full / disabled — silent failure is fine here.
-  }
-}
 
 // ── Public hook ────────────────────────────────────────────────────────────
 
@@ -827,6 +396,26 @@ export interface DomainSettingsValue {
   ) => void;
 
   /**
+   * True until first-visit onboarding has been answered. Drives the
+   * dialog's `open`, and gates anything that would apply settings
+   * destructively to a plan.
+   *
+   * The pre-onboarding defaults are NOT a neutral starting point: every
+   * non-pinned domain starts inactive (`defaultInactiveDomains`), which
+   * is stricter than the dialog's own all-checked default. Acting on
+   * them would delete parts of a plan the user is one click away from
+   * being able to build — see `computePlanPrune`.
+   */
+  readonly onboardingPending: boolean;
+
+  /**
+   * Mark first-visit onboarding as answered — persists the flag and
+   * clears `onboardingPending`. Call right after `applyOnboardingChoices`
+   * so the settings land before anything reacts to the flip.
+   */
+  completeOnboarding: () => void;
+
+  /**
    * The user's currently-selected factory region. Used by the
    * `Facility.domains` filter and per-region cap lookup. Invariant:
    * always a member of `activeDomains`.
@@ -859,127 +448,98 @@ export interface DomainSettingsValue {
 
   /** Metastorage Transfer route modes (the "Metastorage" tab). */
   readonly metastorage: MetastorageSubState;
+
+  /**
+   * True while viewing a shared plan whose embedded settings differ from
+   * the viewer's own. Settings editing is read-only in this mode
+   * (localStorage is never written); the viewer's own settings are
+   * preserved and restored on exit.
+   */
+  readonly isSharedView: boolean;
+
+  /**
+   * The viewer's live settings as a persisted (deviations-only) shape.
+   * Threaded to `useProductionPlan` to embed in the shared URL (`s=`)
+   * and in saved plan files. In shared-view this is the frozen snapshot.
+   */
+  readonly currentShape: PersistedShape;
+
+  /**
+   * In shared-view: which settings differ from the viewer's own, so the
+   * Settings UI can accent exactly those rows. `null` in normal mode.
+   */
+  readonly sharedDiff: SharedSettingsDiff | null;
+
+  /**
+   * Adopt the shared plan's settings as the viewer's own (writes
+   * localStorage, leaves shared-view, and marks first-visit onboarding
+   * as seen so it can't fire over the import). Destructive — confirm first.
+   */
+  importSharedPlan: () => void;
+
+  /**
+   * Discard the shared plan's settings and restore the viewer's own
+   * (leaves shared-view, re-solves against their world).
+   */
+  exitSharedPlan: () => void;
+}
+
+
+/**
+ * Optional shared-plan seed. When present, the hook initializes from
+ * this snapshot instead of localStorage and enters read-only mode:
+ * persistence is suppressed so the viewer's own settings are never
+ * overwritten while they view someone else's plan. The provider passes
+ * this ONLY when the URL snapshot genuinely differs from the viewer's
+ * own settings (identical settings → normal editable mode).
+ */
+export interface SharedPlanInit {
+  shape: PersistedShape;
 }
 
 /**
- * Compose the hook's initial state in a single pass over the persisted
- * payload. Previously each `useState` initializer called
- * `loadFromStorage` independently — 5× JSON parse + 5× defensive
- * filter walks on every mount. This consolidates the work and the
- * filter passes that share the same payload.
- *
- * Side effect of consolidation: every initial-state field is derived
- * from THE SAME persisted snapshot, removing any chance of subtle
- * drift if a future change makes `loadFromStorage` non-deterministic
- * (e.g. by reading mtime or a clock).
+ * The viewer's OWN settings, composed fresh from localStorage. Used by
+ * the two shared-view consumers that must ignore the live (snapshot)
+ * atoms: the exit path, and the per-setting diff.
  */
-function composeInitialState(): {
-  inactiveDomains: Set<DomainId>;
-  researched: Set<AicTechId>;
-  capOverrides: Map<string, number>;
-  currentDomain: DomainId;
-  rawLimitOverrides: Map<string, number>;
-  structuresEnabled: Set<string>;
-  metastorageRouteModes: Map<DomainId, "disabled" | DomainId>;
-} {
-  const persisted = loadFromStorage();
-
-  // ── inactiveDomains
-  const inactiveDomains = persisted
-    ? new Set(persisted.domains.inactive)
-    : defaultInactiveDomains();
-
-  // ── researched
-  const researched = persisted
-    ? deriveResearchedFromUnresearched(persisted.aic.unresearched)
-    : (() => {
-        // First-run: active-domain nodes all researched, inactive-domain
-        // nodes only `alreadyUnlocked: true`.
-        const initialActive = new Set<DomainId>();
-        for (const d of domainData) {
-          if (!inactiveDomains.has(d.id)) initialActive.add(d.id);
-        }
-        return initialResearchedSet(initialActive);
-      })();
-
-  // ── capOverrides
-  const capOverrides = new Map<string, number>();
-  if (persisted) {
-    for (const c of persisted.aic.capOverrides) {
-      capOverrides.set(capKey(c.facilityId, c.domainId), c.value);
-    }
-  }
-
-  // ── currentDomain
-  //   - persisted value if valid (∈ active set)
-  //   - otherwise `pickLatestActive` of the active set (handles
-  //     migration from pre-region-picker payloads + corrupted values)
-  const initialActive = new Set<DomainId>();
-  for (const d of domainData) {
-    if (!inactiveDomains.has(d.id)) initialActive.add(d.id);
-  }
-  const fromPersisted = persisted?.domains.current;
-  const currentDomain =
-    fromPersisted && initialActive.has(fromPersisted)
-      ? fromPersisted
-      : pickLatestActive(initialActive);
-
-  // ── rawLimitOverrides
-  //   Loader's defensive (item, domain)-validity filter is already
-  //   applied; absence of a key here = uncapped.
-  const rawLimitOverrides = new Map<string, number>();
-  if (persisted?.rawLimits) {
-    for (const r of persisted.rawLimits.overrides) {
-      rawLimitOverrides.set(rawLimitKey(r.itemId, r.domainId), r.value);
-    }
-  }
-
-  // ── structuresEnabled (default-active mirror of AIC; persistence
-  //    stores an absence-list of explicit opt-outs)
-  //
-  // First-run user (no persisted payload): every structure in every
-  // active domain is enabled.
-  //
-  // Persisted user: derive the enabled set from `disabled` (loader's
-  // defensive unknown-id filter already applied — entries that don't
-  // appear in `regionStructures × initialActive` are filtered out
-  // implicitly by the derive helper).
-  const structuresEnabled = persisted?.structures
-    ? deriveStructuresEnabledFromDisabled(
-        persisted.structures.disabled,
-        regionStructures,
-        initialActive,
-      )
-    : initialStructuresEnabled(regionStructures, initialActive);
-
-  // ── metastorageRouteModes (deviations-only; absence = "auto" for
-  //    every capable source — the loader's capability filter already
-  //    dropped stale entries)
-  const metastorageRouteModes = new Map<DomainId, "disabled" | DomainId>();
-  if (persisted?.metastorage) {
-    for (const r of persisted.metastorage.routes) {
-      metastorageRouteModes.set(r.source, r.mode);
-    }
-  }
-
-  return {
-    inactiveDomains,
-    researched,
-    capOverrides,
-    currentDomain,
-    rawLimitOverrides,
-    structuresEnabled,
-    metastorageRouteModes,
-  };
+function loadOwnState(): ComposedState {
+  return composeStateFromShape(loadPersistedShape());
 }
 
-export function useDomainSettings(): DomainSettingsValue {
-  // Compose all initial state from a single persisted snapshot. The
-  // closure captures `initial` for the duration of the mount; the
-  // five useState calls below read from it without re-invoking the
-  // loader. After mount, `initial` is unreachable (no closures
-  // outlive the function body).
-  const initial = useMemo(() => composeInitialState(), []);
+export function useDomainSettings(
+  sharedInit?: SharedPlanInit,
+): DomainSettingsValue {
+  // Compose all initial state from a single persisted snapshot — the
+  // shared-plan snapshot when viewing someone else's link, otherwise
+  // the viewer's own localStorage. The closure captures `initial` for
+  // the duration of the mount; the useState calls below read from it
+  // without re-invoking the loader.
+  const initial = useMemo(
+    () => composeStateFromShape(sharedInit?.shape ?? loadPersistedShape()),
+    // Mount-only: `sharedInit` is a stable value the provider resolves
+    // once from the URL. Runtime transitions go through the explicit
+    // import/exit actions below, not a re-seed on dependency change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // Read-only "viewing a shared plan" mode. True while the hook is
+  // seeded from a shared snapshot that differs from the viewer's own
+  // settings; gates persistence so localStorage is never overwritten.
+  // Cleared by `importSharedPlan` / `exitSharedPlan`.
+  const [readOnly, setReadOnly] = useState<boolean>(() => !!sharedInit);
+
+  // First-visit onboarding gate. Held as state (not read from
+  // localStorage at each call site) so flipping it re-renders consumers —
+  // the auto-prune waits on it, and must run the moment it clears.
+  const [onboardingPending, setOnboardingPending] = useState<boolean>(
+    () => !hasSeenOnboarding(),
+  );
+
+  const completeOnboarding = useCallback(() => {
+    markOnboardingSeen();
+    setOnboardingPending(false);
+  }, []);
 
   const [inactiveDomains, setInactiveDomains] = useState<
     ReadonlySet<DomainId>
@@ -1028,6 +588,10 @@ export function useDomainSettings(): DomainSettingsValue {
       isInitial.current = false;
       return;
     }
+    // Shared-view (read-only): never write the viewer's localStorage.
+    // `importSharedPlan` flips `readOnly` off, which re-fires this
+    // effect and persists the (now adopted) snapshot as the viewer's own.
+    if (readOnly) return;
     persistToStorage({
       researched,
       inactiveDomains,
@@ -1038,8 +602,102 @@ export function useDomainSettings(): DomainSettingsValue {
       metastorageRouteModes,
     });
   }, [
+    readOnly,
     researched,
     inactiveDomains,
+    capOverrides,
+    currentDomain,
+    rawLimitOverrides,
+    structuresEnabled,
+    metastorageRouteModes,
+  ]);
+
+  // The viewer's current settings as a persisted (deviations-only)
+  // shape. Threaded to `useProductionPlan` to (a) embed in the shared
+  // URL's `s=` blob and (b) save into downloaded plan files. Memoized
+  // so it only changes when a setting actually changes.
+  const currentShape = useMemo(
+    () =>
+      stateToPersistedShape({
+        researched,
+        inactiveDomains,
+        capOverrides,
+        currentDomain,
+        rawLimitOverrides,
+        structuresEnabled,
+        metastorageRouteModes,
+      }),
+    [
+      researched,
+      inactiveDomains,
+      capOverrides,
+      currentDomain,
+      rawLimitOverrides,
+      structuresEnabled,
+      metastorageRouteModes,
+    ],
+  );
+
+  // Adopt the shared snapshot as the viewer's own: flip out of
+  // read-only so the persist effect writes the current (snapshot) state
+  // to localStorage. Destructive to prior settings — the banner
+  // confirms before calling.
+  //
+  // Also mark onboarding as seen: adopting a shared plan's settings is a
+  // deliberate configuration choice, so a never-onboarded viewer must
+  // NOT get the first-visit dialog afterward — it would override the
+  // just-imported settings with the all-checked default. Set the flag
+  // before flipping `readOnly` so the dialog (mounted once shared-view
+  // ends) reads it as already-seen and stays closed.
+  const importSharedPlan = useCallback(() => {
+    completeOnboarding();
+    setReadOnly(false);
+  }, [completeOnboarding]);
+
+  // Discard the shared snapshot and restore the viewer's own settings
+  // from localStorage. Re-seeds all seven atoms in one batch, then
+  // leaves read-only; the plan re-solves against the viewer's own world.
+  //
+  // Deliberately does NOT `markOnboardingSeen`, unlike `importSharedPlan`:
+  // there is nothing to clobber here. A viewer who never onboarded and
+  // asks for their own settings has none, so letting the first-visit
+  // dialog appear is the correct prompt, not a bug to suppress.
+  const exitSharedPlan = useCallback(() => {
+    const own = loadOwnState();
+    setInactiveDomains(own.inactiveDomains);
+    setResearched(own.researched);
+    setCapOverrides(own.capOverrides);
+    setCurrentDomainState(own.currentDomain);
+    setRawLimitOverrides(own.rawLimitOverrides);
+    setStructuresEnabled(own.structuresEnabled);
+    setMetastorageRouteModes(own.metastorageRouteModes);
+    setReadOnly(false);
+  }, []);
+
+  // Per-setting diff of the shared snapshot (the live read-only atoms)
+  // vs the viewer's OWN localStorage settings. `null` in normal mode.
+  // Drives the read-only shared-view accents so the opener can see
+  // exactly which settings the sharer changed. localStorage isn't
+  // written in shared-view, so `own` is stable across the session.
+  const sharedDiff = useMemo<SharedSettingsDiff | null>(() => {
+    if (!readOnly) return null;
+    const own = loadOwnState();
+    return diffSettings(
+      {
+        inactiveDomains,
+        researched,
+        capOverrides,
+        currentDomain,
+        rawLimitOverrides,
+        structuresEnabled,
+        metastorageRouteModes,
+      },
+      own,
+    );
+  }, [
+    readOnly,
+    inactiveDomains,
+    researched,
     capOverrides,
     currentDomain,
     rawLimitOverrides,
@@ -1068,10 +726,19 @@ export function useDomainSettings(): DomainSettingsValue {
     return out;
   }, [researched]);
 
+  // Mirror `readOnly` into a ref so the event-handler mutators below can
+  // short-circuit in shared-view without re-creating their stable
+  // `useCallback` identities. Belt-and-suspenders with the persist gate
+  // (which already protects localStorage): NO settings mutation reaches
+  // state while viewing a shared plan, via any call path.
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+
   // Node index for O(1) lookup in mutators.
   const nodeIndex = useMemo(() => buildNodeIndex(aicNodes), []);
 
   const toggleDomain = useCallback((id: DomainId) => {
+    if (readOnlyRef.current) return;
     setInactiveDomains((prev) => {
       const domain = domainData.find((d) => d.id === id);
       if (!domain || domain.isPinned) return prev; // pinned domains never toggle
@@ -1100,6 +767,7 @@ export function useDomainSettings(): DomainSettingsValue {
 
   const setCurrentDomain = useCallback(
     (id: DomainId) => {
+      if (readOnlyRef.current) return;
       setCurrentDomainState((prev) => {
         if (prev === id) return prev;
         // Validate that the target is a known domain AND is currently
@@ -1135,6 +803,7 @@ export function useDomainSettings(): DomainSettingsValue {
       choices: ReadonlyMap<DomainId, boolean>,
       nextCurrentDomain: DomainId,
     ) => {
+      if (readOnlyRef.current) return;
       const nextInactive = new Set<DomainId>();
       for (const d of domainData) {
         if (d.isPinned) continue; // pinned never enters inactive set
@@ -1188,6 +857,7 @@ export function useDomainSettings(): DomainSettingsValue {
 
   const toggleNode = useCallback(
     (id: AicTechId) => {
+      if (readOnlyRef.current) return;
       setResearched((prev) => {
         const node = nodeIndex.get(id);
         if (!node) return prev;
@@ -1207,6 +877,7 @@ export function useDomainSettings(): DomainSettingsValue {
   );
 
   const activateLayer = useCallback((layerId: AicLayerId) => {
+    if (readOnlyRef.current) return;
     setResearched((prev) => {
       const targets = aicNodes
         .filter((n) => n.layerId === layerId)
@@ -1217,6 +888,7 @@ export function useDomainSettings(): DomainSettingsValue {
   }, []);
 
   const activateGroup = useCallback((groupId: AicGroupId) => {
+    if (readOnlyRef.current) return;
     setResearched((prev) => {
       const targets = aicNodes
         .filter((n) => n.groupId === groupId)
@@ -1233,6 +905,7 @@ export function useDomainSettings(): DomainSettingsValue {
    * this set" UX.
    */
   const activateNodes = useCallback((ids: readonly AicTechId[]) => {
+    if (readOnlyRef.current) return;
     setResearched((prev) => {
       if (ids.length === 0) return prev;
       return cascadeActivate(ids, prev, aicNodes);
@@ -1247,6 +920,7 @@ export function useDomainSettings(): DomainSettingsValue {
    * Facility Limits per-building "Reset to base limit" action.
    */
   const deactivateNodes = useCallback((ids: readonly AicTechId[]) => {
+    if (readOnlyRef.current) return;
     setResearched((prev) => {
       if (ids.length === 0) return prev;
       return cascadeDeactivate(ids, prev, aicNodes);
@@ -1258,6 +932,7 @@ export function useDomainSettings(): DomainSettingsValue {
    * `node.alreadyUnlocked`. Other groups untouched.
    */
   const resetGroupToDefaults = useCallback((groupId: AicGroupId) => {
+    if (readOnlyRef.current) return;
     setResearched((prev) => {
       const next = new Set(prev);
       for (const node of aicNodes) {
@@ -1271,11 +946,21 @@ export function useDomainSettings(): DomainSettingsValue {
 
   const setCapOverride = useCallback(
     (facilityId: FacilityId, domainId: DomainId, value: number | null) => {
+      if (readOnlyRef.current) return;
       setCapOverrides((prev) => {
         const next = new Map(prev);
         const key = capKey(facilityId, domainId);
-        if (value === null || !Number.isFinite(value)) next.delete(key);
-        else next.set(key, value);
+        // Reject null, non-finite (NaN / Infinity), and negative values.
+        // The UI also rejects these at input time; this is the hook-layer
+        // safety net so any caller (URL load, programmatic set, etc.) hits
+        // the same gate. `sanitizePersistedShape` already drops negatives
+        // at rest, so without this a negative cap would apply to the LP
+        // for one session and then vanish on the next reload.
+        if (value === null || !Number.isFinite(value) || value < 0) {
+          next.delete(key);
+        } else {
+          next.set(key, value);
+        }
         return next;
       });
     },
@@ -1284,6 +969,7 @@ export function useDomainSettings(): DomainSettingsValue {
 
   const setRawLimitOverride = useCallback(
     (itemId: ItemId, domainId: DomainId, value: number | null) => {
+      if (readOnlyRef.current) return;
       setRawLimitOverrides((prev) => {
         const next = new Map(prev);
         const key = rawLimitKey(itemId, domainId);
@@ -1309,6 +995,7 @@ export function useDomainSettings(): DomainSettingsValue {
    */
   const toggleStructure = useCallback(
     (domainId: DomainId, structureId: RegionStructureId) => {
+      if (readOnlyRef.current) return;
       const structures = regionStructures.get(domainId);
       if (!structures || !structures.some((s) => s.id === structureId)) return;
       setStructuresEnabled((prev) => {
@@ -1342,6 +1029,7 @@ export function useDomainSettings(): DomainSettingsValue {
    */
   const setMetastorageRouteMode = useCallback(
     (source: DomainId, mode: MetastorageRouteMode) => {
+      if (readOnlyRef.current) return;
       if (!metastorageSources.has(source)) return;
       if (mode !== "auto" && mode !== "disabled") {
         if (mode === source) return;
@@ -1425,11 +1113,18 @@ export function useDomainSettings(): DomainSettingsValue {
     activeDomains,
     toggleDomain,
     applyOnboardingChoices,
+    onboardingPending,
+    completeOnboarding,
     currentDomain,
     setCurrentDomain,
     aic,
     rawLimits,
     structures,
     metastorage,
+    isSharedView: readOnly,
+    currentShape,
+    sharedDiff,
+    importSharedPlan,
+    exitSharedPlan,
   };
 }
